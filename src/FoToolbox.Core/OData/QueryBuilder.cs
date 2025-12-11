@@ -62,22 +62,24 @@ public static class QueryBuilder
 
     private static string? BuildFilter(QuerySpec spec)
     {
+        string? filter = null;
+
         if (!string.IsNullOrWhiteSpace(spec.Filter))
         {
-            return spec.Filter;
+            filter = spec.Filter;
         }
-
-        if (spec.Where is not null)
+        else if (spec.Where is not null)
         {
-            return RenderFilter(spec.Where);
+            filter = RenderFilter(spec.Where);
         }
 
         if (!spec.CrossCompany && !string.IsNullOrWhiteSpace(spec.Company))
         {
-            return $"dataAreaId eq '{spec.Company}'";
+            var companyClause = $"dataAreaId eq '{spec.Company}'";
+            filter = string.IsNullOrWhiteSpace(filter) ? companyClause : $"({companyClause}) and ({filter})";
         }
 
-        return null;
+        return filter;
     }
 
     private static string RenderFilter(FilterNode node)

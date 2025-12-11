@@ -142,3 +142,12 @@ Notes
 -----
 - Keep new files ASCII. Avoid introducing telemetry or network calls outside the fake server in tests.
 - Prefer `rg` for search; follow repository structure above when creating projects.
+
+Updates/Decisions (ongoing log)
+-------------------------------
+- Runtime: net8.0-windows (SDK pinned via global.json). MSAL auth wired with env-var fallback; vault-based secret resolution partially added (host checks SecretVault via ProfileStore; full integration backlog).
+- Metadata: `$metadata` parsing supports properties and navigation properties; filter builder in Query Builder modeled after FetchXMLBuilder (AND/OR groups, add/remove).
+- Export UX: CSV exports prompt for save location (SaveFileDialog), per user request.
+- Query persistence: Query Builder saves queries per environment into ProfileStore (SQLite) with full query settings; names default to timestamp unless provided. Backlog: richer restore UI and ProfileStore-based prompts.
+- Query Builder polish: filter builder now validates field/value pairs, shows wildcard hint, and enforces single-level `$expand` with navigation suggestions (ComboBox). Saved-query naming uses an in-app prompt (no VB InputBox) and will prompt to overwrite when a name already exists for the environment. Company filters are auto-appended when cross-company is off, even when a custom filter is provided.
+- Query Builder paging: preview shows first page with a “Load more” action that follows `@odata.nextLink` and appends rows (button disabled when no nextLink; pagination resets when entity/fields/filter/order/expand/company toggles). Invalid expand paths are blocked before execution with a clear warning.

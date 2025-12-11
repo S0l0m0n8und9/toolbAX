@@ -156,4 +156,61 @@ ON CONFLICT(Id) DO UPDATE SET
         cmd.Parameters.AddWithValue("$thumb", (object?)sp.CertThumbprint ?? DBNull.Value);
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
+
+    public async Task<IReadOnlyList<SavedQueryRecord>> GetSavedQueriesAsync(string envId, CancellationToken cancellationToken = default)
+    {
+        var list = new List<SavedQueryRecord>();
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT Id, EnvId, Name, SpecJson, CrossCompany, CreatedUtc, UpdatedUtc FROM SavedQuery WHERE EnvId = $env";
+        cmd.Parameters.AddWithValue("$env", envId);
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            list.Add(new SavedQueryRecord(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetString(3),
+                reader.GetInt32(4) != 0,
+                reader.GetString(5),
+                reader.GetString(6)
+            ));
+        }
+        return list;
+    }
+
+    public async Task SaveQueryAsync(SavedQueryRecord record, CancellationToken cancellationToken = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+INSERT INTO SavedQuery(Id, EnvId, Name, SpecJson, CrossCompany, CreatedUtc, UpdatedUtc)
+VALUES($id, $env, $name, $spec, $cc, $created, $updated)
+ON CONFLICT(Id) DO UPDATE SET
+ Name = excluded.Name,
+ SpecJson = excluded.SpecJson,
+ CrossCompany = excluded.CrossCompany,
+ UpdatedUtc = excluded.UpdatedUtc;";
+        cmd.Parameters.AddWithValue("$id", record.Id);
+        cmd.Parameters.AddWithValue("$env", record.EnvId);
+        cmd.Parameters.AddWithValue("$name", record.Name);
+        cmd.Parameters.AddWithValue("$spec", record.SpecJson);
+        cmd.Parameters.AddWithValue("$cc", record.CrossCompany ? 1 : 0);
+        cmd.Parameters.AddWithValue("$created", record.CreatedUtc);
+        cmd.Parameters.AddWithValue("$updated", record.UpdatedUtc);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task DeleteQueryAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM SavedQuery WHERE Id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
 }

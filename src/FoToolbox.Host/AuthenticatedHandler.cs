@@ -4,7 +4,6 @@ using FoToolbox.Core.Profiles;
 using System;
 using System.Net.Http;
 using System.Threading;
-using System.Threading;
 using System.Threading.Tasks;
 
 namespace FoToolbox.Host;
@@ -41,6 +40,19 @@ internal sealed class AuthenticatedHandler : DelegatingHandler
 
     private ClientCredential ResolveCredential(ServicePrincipal sp)
     {
+        // Prefer DPAPI vault secret for this service principal.
+        var dbPath = System.IO.Path.Combine(AppContext.BaseDirectory, "profile.db");
+        var store = new ProfileStore(dbPath);
+        var vault = new SecretVaultService(store.ConnectionString);
+        if (!string.IsNullOrWhiteSpace(sp.SecretRef))
+        {
+            var secretPayload = vault.ReadSecretAsync<SecretPayload>(sp.SecretRef).GetAwaiter().GetResult();
+            if (secretPayload is not null && !string.IsNullOrWhiteSpace(secretPayload.Value))
+            {
+                return new ClientSecretCredential(secretPayload.Value);
+            }
+        }
+
         var secret = Environment.GetEnvironmentVariable("FOTB_CLIENT_SECRET");
         if (!string.IsNullOrWhiteSpace(secret))
         {
@@ -49,5 +61,10 @@ internal sealed class AuthenticatedHandler : DelegatingHandler
 
         // Fallback: no secret, return dummy to avoid null.
         return new ClientSecretCredential("dummy");
+    }
+
+    private sealed class SecretPayload
+    {
+        public string? Value { get; set; }
     }
 }

@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:local="clr-namespace:QueryBuilderPlugin"
              mc:Ignorable="d"
              d:DesignHeight="600"
              d:DesignWidth="900">
@@ -10,7 +11,7 @@
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="200" />
             <ColumnDefinition Width="*" />
-            <ColumnDefinition Width="260" />
+            <ColumnDefinition Width="320" />
         </Grid.ColumnDefinitions>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -28,12 +29,51 @@
 
         <StackPanel Grid.Column="1" Grid.Row="0" Margin="8">
             <TextBlock Text="Fields (select multiple)" FontWeight="Bold" />
-            <ListBox ItemsSource="{Binding Fields}"
+            <ListBox x:Name="FieldsList"
+                     ItemsSource="{Binding Fields}"
                      SelectionMode="Multiple"
                      BorderThickness="1"
                      Height="120" />
             <TextBlock Text="Order by" FontWeight="Bold" Margin="0,8,0,0" />
             <TextBox Text="{Binding OrderBy, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            <TextBlock Text="Filter (raw)" FontWeight="Bold" Margin="0,8,0,0" />
+            <TextBox Text="{Binding FilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            <TextBlock Text="Filter (builder)" FontWeight="Bold" Margin="0,8,0,0" />
+            <TextBlock Text="{Binding FilterHint}" FontSize="10" Foreground="Gray" Margin="0,0,0,4" />
+            <TreeView ItemsSource="{Binding RootGroup.Children}" BorderThickness="1" Height="200">
+                <TreeView.Resources>
+                    <HierarchicalDataTemplate DataType="{x:Type local:FilterGroupViewModel}" ItemsSource="{Binding Children}">
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                            <ComboBox Width="60" SelectedValue="{Binding LogicalOperator, Mode=TwoWay}">
+                                <ComboBoxItem Content="and" />
+                                <ComboBoxItem Content="or" />
+                            </ComboBox>
+                            <Button Content="+ Cond" Margin="4,0,0,0" Command="{Binding DataContext.AddConditionCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                            <Button Content="+ Group" Margin="4,0,0,0" Command="{Binding DataContext.AddGroupCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                            <Button Content="X" Margin="4,0,0,0" Command="{Binding DataContext.RemoveNodeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                        </StackPanel>
+                    </HierarchicalDataTemplate>
+                    <DataTemplate DataType="{x:Type local:FilterConditionViewModel}">
+                        <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
+                            <ComboBox Width="140" ItemsSource="{Binding DataContext.Fields, RelativeSource={RelativeSource AncestorType=UserControl}}" SelectedItem="{Binding Field, Mode=TwoWay}" />
+                            <ComboBox Width="80" Margin="4,0,0,0" SelectedValue="{Binding Operator, Mode=TwoWay}">
+                                <ComboBoxItem Content="eq" />
+                                <ComboBoxItem Content="ne" />
+                                <ComboBoxItem Content="gt" />
+                                <ComboBoxItem Content="ge" />
+                                <ComboBoxItem Content="lt" />
+                                <ComboBoxItem Content="le" />
+                                <ComboBoxItem Content="startswith" />
+                                <ComboBoxItem Content="endswith" />
+                                <ComboBoxItem Content="contains" />
+                            </ComboBox>
+                            <TextBox Width="160" Margin="4,0,0,0" Text="{Binding Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <Button Content="X" Margin="4,0,0,0" Command="{Binding DataContext.RemoveNodeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
+                        </StackPanel>
+                    </DataTemplate>
+                </TreeView.Resources>
+            </TreeView>
+            <TextBlock Text="{Binding ValidationWarning}" Foreground="OrangeRed" />
         </StackPanel>
 
         <StackPanel Grid.Column="2" Grid.Row="0" Margin="8">
@@ -42,16 +82,44 @@
             <TextBlock Text="Company (optional)" />
             <TextBox Text="{Binding Company, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
             <CheckBox Content="$count" IsChecked="{Binding Count}" />
+            <TextBlock Text="$expand (1 level)" />
+            <ComboBox IsEditable="True"
+                      ItemsSource="{Binding NavigationHints}"
+                      Text="{Binding ExpandPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                      StaysOpenOnEdit="True"
+                      IsTextSearchEnabled="True" />
+            <ItemsControl ItemsSource="{Binding NavigationHints}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <TextBlock Text="{Binding}" FontSize="10" Foreground="Gray" />
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+            <TextBlock Text="{Binding ExpandWarning}" Foreground="OrangeRed" />
+            <TextBlock Text="Saved queries" FontWeight="Bold" />
+            <ListBox ItemsSource="{Binding SavedQueries}"
+                     SelectedItem="{Binding SelectedSaved, Mode=TwoWay}"
+                     DisplayMemberPath="Name"
+                     Height="120" />
+            <StackPanel Orientation="Horizontal">
+                <Button Content="Save" Command="{Binding SaveQueryCommand}" Margin="0,0,4,0" />
+                <Button Content="Load" Command="{Binding LoadSavedQueryCommand}" Margin="0,0,4,0" />
+                <Button Content="Delete" Command="{Binding DeleteSavedQueryCommand}" Margin="0,0,4,0" />
+                <Button Content="Rename" Command="{Binding RenameSavedQueryCommand}" />
+            </StackPanel>
         </StackPanel>
 
         <Border Grid.Column="0" Grid.ColumnSpan="3" Grid.Row="1" BorderThickness="1" BorderBrush="#ccc" Margin="8">
-            <TextBlock Text="Preview grid placeholder" VerticalAlignment="Center" HorizontalAlignment="Center" />
+            <DataGrid ItemsSource="{Binding PreviewTable}" AutoGenerateColumns="True" HeadersVisibility="All" />
         </Border>
 
         <DockPanel Grid.Column="0" Grid.ColumnSpan="3" Grid.Row="2" Margin="8">
             <TextBlock Text="{Binding Status}" DockPanel.Dock="Left" />
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                 <Button Content="Preview" Command="{Binding PreviewCommand}" Margin="4,0,0,0" />
+                <Button Content="Load more" Command="{Binding LoadMoreCommand}" Margin="4,0,0,0" IsEnabled="{Binding HasMoreNextLink}" />
+                <Button Content="Export Page" Command="{Binding ExportPageCommand}" Margin="4,0,0,0" />
+                <Button Content="Export All" Command="{Binding ExportAllCommand}" Margin="4,0,0,0" />
             </StackPanel>
         </DockPanel>
     </Grid>
