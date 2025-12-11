@@ -12,4 +12,5 @@ public sealed record QuerySpec(
     int? Skip = null,
     string? Expand = null,
     string? Filter = null,
+    FilterNode? Where = null,
     bool Count = false);

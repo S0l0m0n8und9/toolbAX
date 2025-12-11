@@ -22,13 +22,10 @@ public static class QueryBuilder
             parameters.Add($"$select={string.Join(",", spec.Select)}");
         }
 
-        if (!string.IsNullOrWhiteSpace(spec.Filter))
+        var filterParam = BuildFilter(spec);
+        if (!string.IsNullOrWhiteSpace(filterParam))
         {
-            parameters.Add($"$filter={Uri.EscapeDataString(spec.Filter)}");
-        }
-        else if (!spec.CrossCompany && !string.IsNullOrWhiteSpace(spec.Company))
-        {
-            parameters.Add($"$filter={Uri.EscapeDataString($"dataAreaId eq '{spec.Company}'")}");
+            parameters.Add($"$filter={Uri.EscapeDataString(filterParam)}");
         }
 
         if (!string.IsNullOrWhiteSpace(spec.OrderBy))
@@ -61,5 +58,35 @@ public static class QueryBuilder
         }
 
         return new QueryRequest(sb.ToString());
+    }
+
+    private static string? BuildFilter(QuerySpec spec)
+    {
+        if (!string.IsNullOrWhiteSpace(spec.Filter))
+        {
+            return spec.Filter;
+        }
+
+        if (spec.Where is not null)
+        {
+            return RenderFilter(spec.Where);
+        }
+
+        if (!spec.CrossCompany && !string.IsNullOrWhiteSpace(spec.Company))
+        {
+            return $"dataAreaId eq '{spec.Company}'";
+        }
+
+        return null;
+    }
+
+    private static string RenderFilter(FilterNode node)
+    {
+        return node switch
+        {
+            FilterCondition cond => $"{cond.Field} {cond.Operator} {cond.Value}",
+            FilterGroup group => $"({string.Join($" {group.LogicalOperator} ", group.Children.Select(RenderFilter))})",
+            _ => throw new ArgumentOutOfRangeException(nameof(node), "Unknown filter node.")
+        };
     }
 }

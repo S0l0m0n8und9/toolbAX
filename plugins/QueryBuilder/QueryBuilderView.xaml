@@ -1,0 +1,58 @@
+<UserControl x:Class="QueryBuilderPlugin.QueryBuilderView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DesignHeight="600"
+             d:DesignWidth="900">
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="200" />
+            <ColumnDefinition Width="*" />
+            <ColumnDefinition Width="260" />
+        </Grid.ColumnDefinitions>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Column="0" Grid.Row="0" Grid.RowSpan="2" Margin="8">
+            <TextBlock Text="Entities" FontWeight="Bold" Margin="0,0,0,8" />
+            <Button Content="Load" Command="{Binding LoadEntitiesCommand}" Margin="0,0,0,8" />
+            <ListBox ItemsSource="{Binding Entities}"
+                     SelectedItem="{Binding SelectedEntity, Mode=TwoWay}"
+                     BorderThickness="1" />
+        </StackPanel>
+
+        <StackPanel Grid.Column="1" Grid.Row="0" Margin="8">
+            <TextBlock Text="Fields (select multiple)" FontWeight="Bold" />
+            <ListBox ItemsSource="{Binding Fields}"
+                     SelectionMode="Multiple"
+                     BorderThickness="1"
+                     Height="120" />
+            <TextBlock Text="Order by" FontWeight="Bold" Margin="0,8,0,0" />
+            <TextBox Text="{Binding OrderBy, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+        </StackPanel>
+
+        <StackPanel Grid.Column="2" Grid.Row="0" Margin="8">
+            <TextBlock Text="Options" FontWeight="Bold" />
+            <CheckBox Content="Cross-company" IsChecked="{Binding CrossCompany}" />
+            <TextBlock Text="Company (optional)" />
+            <TextBox Text="{Binding Company, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+            <CheckBox Content="$count" IsChecked="{Binding Count}" />
+        </StackPanel>
+
+        <Border Grid.Column="0" Grid.ColumnSpan="3" Grid.Row="1" BorderThickness="1" BorderBrush="#ccc" Margin="8">
+            <TextBlock Text="Preview grid placeholder" VerticalAlignment="Center" HorizontalAlignment="Center" />
+        </Border>
+
+        <DockPanel Grid.Column="0" Grid.ColumnSpan="3" Grid.Row="2" Margin="8">
+            <TextBlock Text="{Binding Status}" DockPanel.Dock="Left" />
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button Content="Preview" Command="{Binding PreviewCommand}" Margin="4,0,0,0" />
+            </StackPanel>
+        </DockPanel>
+    </Grid>
+</UserControl>
