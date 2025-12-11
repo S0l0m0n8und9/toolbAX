@@ -1,0 +1,7 @@
+{
+  "id": "fo.hello",
+  "name": "Hello Plugin",
+  "version": "0.1.0",
+  "minSdk": "0.1.0",
+  "capabilities": [ "OData.Read" ]
+}

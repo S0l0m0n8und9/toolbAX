@@ -1,0 +1,19 @@
+<UserControl x:Class="HelloPlugin.HelloTool"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DesignWidth="400"
+             d:DesignHeight="200">
+    <Border Padding="12" Background="White">
+        <StackPanel Orientation="Vertical">
+            <TextBlock Text="{Binding Title}" FontWeight="Bold" FontSize="16" />
+            <TextBlock Text="Environment" FontWeight="SemiBold" Margin="0,6,0,0" />
+            <TextBlock Text="{Binding EnvironmentName}" />
+            <TextBlock Text="{Binding BaseUrl}" Foreground="Gray" />
+            <TextBlock Text="OData" FontWeight="SemiBold" Margin="0,8,0,0" />
+            <TextBlock Text="{Binding ODataStatus}" />
+        </StackPanel>
+    </Border>
+</UserControl>
