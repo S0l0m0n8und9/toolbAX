@@ -1,4 +1,5 @@
 using FoToolbox.Core.OData;
+using FoToolbox.Core.Export;
 using FoToolbox.SDK.Plugins;
 using Microsoft.Win32;
 using System;
@@ -440,7 +441,8 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         }
         var path = PromptForCsvPath();
         if (path == null) return;
-        await ExportTableAsync(table, path, cancellationToken);
+        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+        await CsvExporter.ExportTableAsync(table, stream, cancellationToken);
         Status = $"Exported page to {path}";
     }
 
@@ -452,27 +454,8 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         if (!TryBuildQueryRequest(out var request)) return;
 
         await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
-        await using var writer = new StreamWriter(stream, new UTF8Encoding(true));
-        bool headerWritten = false;
-        List<string> cols = new();
-
-        await foreach (var page in _ctx.OData.StreamAsync(request, cancellationToken))
-        {
-            if (!headerWritten)
-            {
-                cols = page.Rows.FirstOrDefault()?.Keys.ToList() ?? new List<string>();
-                await writer.WriteLineAsync(string.Join(",", cols.Select(Escape)));
-                headerWritten = true;
-            }
-
-            foreach (var row in page.Rows)
-            {
-                var line = string.Join(",", cols.Select(c => Escape(row.TryGetValue(c, out var v) ? v?.ToString() ?? string.Empty : string.Empty)));
-                await writer.WriteLineAsync(line);
-            }
-            await writer.FlushAsync();
-        }
-        Status = $"Exported all to {path}";
+        await CsvExporter.ExportAsync(_ctx.OData, request, stream, rows => Status = $"Exported {rows} rows...", cancellationToken);
+        Status = $"Exported to {path}";
     }
 
     private async Task LoadMoreAsync(CancellationToken cancellationToken)
@@ -512,30 +495,6 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         {
             Status = $"Load more failed: {ex.Message}";
         }
-    }
-
-    private static string Escape(string value)
-    {
-        if (value.Contains('"') || value.Contains(',') || value.Contains('\n') || value.Contains('\r'))
-        {
-            return $"\"{value.Replace("\"", "\"\"")}\"";
-        }
-        return value;
-    }
-
-    private static async Task ExportTableAsync(DataTable table, string path, CancellationToken cancellationToken)
-    {
-        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
-        await using var writer = new StreamWriter(stream, new UTF8Encoding(true));
-        var cols = table.Columns.Cast<DataColumn>().Select(c => c.ColumnName).ToList();
-        await writer.WriteLineAsync(string.Join(",", cols.Select(Escape)));
-        foreach (DataRow row in table.Rows)
-        {
-            if (cancellationToken.IsCancellationRequested) break;
-            var line = string.Join(",", cols.Select(c => Escape(row[c]?.ToString() ?? string.Empty)));
-            await writer.WriteLineAsync(line);
-        }
-        await writer.FlushAsync();
     }
 
     private string? PromptForCsvPath()
