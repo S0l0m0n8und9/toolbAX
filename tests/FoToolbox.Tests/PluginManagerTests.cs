@@ -53,7 +53,7 @@ public sealed class PluginManagerTests
             File.Copy(helloAssembly, Path.Combine(pluginDir, Path.GetFileName(helloAssembly)), overwrite: true);
 
             var logger = new CapturingLogger();
-            var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), logger);
+            var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), logger, new PluginTrustOptions(true, Array.Empty<string>()));
             var plugins = manager.Discover();
 
             if (plugins.Count == 0 && logger.LastException != null)
@@ -96,6 +96,24 @@ public sealed class PluginManagerTests
         };
 
         Assert.Throws<InvalidOperationException>(() => PluginManager.ValidateManifest(manifest));
+    }
+
+    [Fact]
+    public void Unsigned_Plugin_Blocked_When_Not_Allowed()
+    {
+        RunSta(() =>
+        {
+            var helloAssembly = typeof(HelloFoToolPlugin).Assembly.Location;
+            var pluginDir = Directory.CreateTempSubdirectory("helloplugin").FullName;
+            File.Copy(helloAssembly, Path.Combine(pluginDir, Path.GetFileName(helloAssembly)), overwrite: true);
+
+            var logger = new CapturingLogger();
+            var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), logger, new PluginTrustOptions(false, Array.Empty<string>()));
+            var plugins = manager.Discover();
+
+            Assert.Empty(plugins);
+            Assert.NotNull(logger.LastException);
+        });
     }
 
     private static void RunSta(Action action)

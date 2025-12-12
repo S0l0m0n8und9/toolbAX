@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:bal="http://schemas.microsoft.com/wix/BalExtension"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+  <?define NetDesktopRuntimeVersion="8.0.0" ?>
+  <?define NetDesktopRuntimeExe="redist\windowsdesktop-runtime-$(var.NetDesktopRuntimeVersion)-win-x64.exe" ?>
+  <?define NetDesktopRuntimeUrl="https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe" ?>
+  <?define FoToolboxMsiPath="FoToolbox.msi" ?>
+
+  <Bundle Name="FO Toolbox Bundle" Version="0.1.0.0" Manufacturer="Contoso" UpgradeCode="{E2339E7F-00EC-49F0-ACCA-7A57F93AA363}">
+    <BootstrapperApplicationRef Id="WixStandardBootstrapperApplication.HyperlinkLicense" />
+
+    <util:RegistrySearch Id="NetDesktopRuntime80"
+                         Root="HKLM"
+                         Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App"
+                         Value="Version"
+                         Variable="NetDesktopRuntime80Version" />
+
+    <Chain>
+      <PackageGroupRef Id="NetDesktopRuntime80" />
+      <MsiPackage Id="FoToolboxMsi" SourceFile="$(var.FoToolboxMsiPath)" DisplayInternalUI="yes" />
+    </Chain>
+  </Bundle>
+
+  <Fragment>
+    <PackageGroup Id="NetDesktopRuntime80">
+      <ExePackage Id="NetDesktopRuntime80x64"
+                  SourceFile="$(var.NetDesktopRuntimeExe)"
+                  DownloadUrl="$(var.NetDesktopRuntimeUrl)"
+                  Compressed="no"
+                  PerMachine="yes"
+                  Vital="yes"
+                  InstallCommand="/install /quiet /norestart"
+                  RepairCommand="/repair /quiet /norestart"
+                  DetectCondition="NetDesktopRuntime80Version AND NetDesktopRuntime80Version >= v$(var.NetDesktopRuntimeVersion)" />
+    </PackageGroup>
+  </Fragment>
+</Wix>

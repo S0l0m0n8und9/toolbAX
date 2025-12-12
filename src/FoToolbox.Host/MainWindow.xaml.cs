@@ -11,6 +11,7 @@ using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Windows;
+using FoToolbox.Updater;
 
 namespace FoToolbox.Host;
 
@@ -45,9 +46,51 @@ public partial class MainWindow : Window
         var odata = CreateODataClient(env, sp);
 
         var pluginRoot = ResolvePluginRoot();
-        var manager = new PluginManager(pluginRoot, env, odata, logger);
+        var trust = PluginTrustOptions.FromEnvironment();
+        var manager = new PluginManager(pluginRoot, env, odata, logger, trust);
         var plugins = manager.Discover();
         _vm.LoadPlugins(plugins);
+
+        // Kick off a background update check (fire-and-forget).
+        _ = CheckForUpdatesAsync();
+    }
+
+    private async Task CheckForUpdatesAsync()
+    {
+        try
+        {
+            var channel = ReadChannelConfig();
+            if (channel is null) return;
+
+            var http = new HttpClient();
+            var fetcher = new ResilientUpdateFetcher(new HttpUpdateFetcher(http));
+            var loader = new UpdateManifestLoader(fetcher);
+            var updater = new UpdaterClient(fetcher, Path.Combine(AppContext.BaseDirectory, "updates"));
+            var orchestrator = new UpdateOrchestrator(loader, updater, channel);
+
+            var staged = await orchestrator.CheckAndStageAsync();
+            if (!string.IsNullOrEmpty(staged))
+            {
+                // TODO: surface to UI that an update is staged; for now just log to debug console.
+                Console.WriteLine($"Update staged at {staged}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Update check failed: {ex.Message}");
+        }
+    }
+
+    private UpdateChannelConfig? ReadChannelConfig()
+    {
+        var channel = Environment.GetEnvironmentVariable("FOTOOLBOX_UPDATE_CHANNEL") ?? "stable";
+        var manifestUrl = Environment.GetEnvironmentVariable("FOTOOLBOX_UPDATE_MANIFEST");
+        if (string.IsNullOrWhiteSpace(manifestUrl))
+        {
+            return null;
+        }
+
+        return new UpdateChannelConfig(channel, new Uri(manifestUrl));
     }
 
     private static async Task<(FoEnvironment Env, ServicePrincipal Sp)?> ResolveProfileAsync()

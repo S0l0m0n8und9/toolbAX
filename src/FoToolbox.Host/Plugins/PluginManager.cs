@@ -8,6 +8,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Reflection;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 
 namespace FoToolbox.Host.Plugins;
 
@@ -20,13 +22,15 @@ public sealed class PluginManager
     private readonly FoEnvironment _env;
     private readonly IODataClient _odata;
     private readonly ILogger _logger;
+    private readonly PluginTrustOptions _trustOptions;
 
-    public PluginManager(string pluginRoot, FoEnvironment env, IODataClient odata, ILogger logger)
+    public PluginManager(string pluginRoot, FoEnvironment env, IODataClient odata, ILogger logger, PluginTrustOptions? trustOptions = null)
     {
         _pluginRoot = pluginRoot;
         _env = env;
         _odata = odata;
         _logger = logger;
+        _trustOptions = trustOptions ?? PluginTrustOptions.Default;
     }
 
     public IReadOnlyList<LoadedPlugin> Discover()
@@ -60,6 +64,8 @@ public sealed class PluginManager
 
     private LoadedPlugin? LoadPlugin(string assemblyPath)
     {
+        ValidateSignatureOrThrow(assemblyPath);
+
         var loadContext = new PluginLoadContext(Path.GetDirectoryName(assemblyPath)!);
         var assembly = loadContext.LoadFromAssemblyPath(assemblyPath);
 
@@ -100,6 +106,51 @@ public sealed class PluginManager
         if (minSdk > SdkInfo.Version)
         {
             throw new InvalidOperationException($"Plugin {manifest.Id} requires SDK {manifest.MinSdk} but host has {SdkInfo.Version}.");
+        }
+    }
+
+    private void ValidateSignatureOrThrow(string assemblyPath)
+    {
+        X509Certificate2? signer = null;
+        try
+        {
+            signer = new X509Certificate2(X509Certificate.CreateFromSignedFile(assemblyPath));
+        }
+        catch (CryptographicException)
+        {
+            signer = null;
+        }
+
+        if (signer is null)
+        {
+            if (_trustOptions.AllowUnsigned)
+            {
+                _logger.LogWarning("Plugin {Path} is unsigned. Allowed by configuration.", assemblyPath);
+                return;
+            }
+
+            throw new InvalidOperationException($"Plugin {assemblyPath} is unsigned and AllowUnsigned=false.");
+        }
+
+        var thumbprint = signer.Thumbprint?.Replace(" ", string.Empty, StringComparison.OrdinalIgnoreCase)?.ToUpperInvariant() ?? string.Empty;
+        if (_trustOptions.AllowedThumbprints.Count > 0 && !_trustOptions.AllowedThumbprints.Contains(thumbprint))
+        {
+            throw new InvalidOperationException($"Plugin {assemblyPath} signed with thumbprint {thumbprint}, not in allowlist.");
+        }
+
+        var chain = new X509Chain
+        {
+            ChainPolicy =
+            {
+                RevocationMode = X509RevocationMode.NoCheck,
+                VerificationFlags = X509VerificationFlags.NoFlag
+            }
+        };
+
+        if (!chain.Build(signer))
+        {
+            var statuses = string.Join("; ", chain.ChainStatus.Select(s => s.StatusInformation.Trim()));
+            throw new InvalidOperationException($"Plugin {assemblyPath} failed signature trust validation: {statuses}");
         }
     }
 }

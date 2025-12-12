@@ -14,6 +14,7 @@
     <ProjectReference Include="..\\..\\src\\FoToolbox.Core\\FoToolbox.Core.csproj" />
     <ProjectReference Include="..\\..\\src\\FoToolbox.SDK\\FoToolbox.SDK.csproj" />
     <ProjectReference Include="..\\..\\src\\FoToolbox.Host\\FoToolbox.Host.csproj" />
+    <ProjectReference Include="..\\..\\src\\FoToolbox.Updater\\FoToolbox.Updater.csproj" />
     <ProjectReference Include="..\\..\\plugins\\HelloPlugin\\HelloPlugin.csproj" />
     <ProjectReference Include="..\\..\\plugins\\QueryBuilder\\QueryBuilder.csproj" />
   </ItemGroup>

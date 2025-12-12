@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <?define ProductName="FO Toolbox" ?>
+  <?define Manufacturer="Contoso" ?>
+  <?define Version="0.1.0" ?>
+  <!-- Stable GUIDs (update with org-approved values for release) -->
+  <?define ProductCode="{7A1C7E9C-8DCF-4AA0-9582-257D9F57C97C}" ?>
+  <?define UpgradeCode="{F95A6A1B-00D8-4EC9-B391-3F070C220F12}" ?>
+
+  <Product Id="$(var.ProductCode)" Name="$(var.ProductName)" Language="1033" Version="$(var.Version)" Manufacturer="$(var.Manufacturer)" UpgradeCode="$(var.UpgradeCode)">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perUser" InstallPrivileges="limited" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of $(var.ProductName) is already installed." />
+    <MediaTemplate />
+
+    <Feature Id="MainFeature" Title="$(var.ProductName)" Level="1">
+      <ComponentGroupRef Id="FoToolboxFiles" />
+    </Feature>
+  </Product>
+</Wix>
