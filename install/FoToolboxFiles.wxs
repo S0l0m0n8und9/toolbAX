@@ -1,54 +1,53 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Fragment>
-    <DirectoryRef Id="LocalAppDataFolder">
+    <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="INSTALLFOLDER" Name="FoToolbox">
-        <Directory Id="BIN" Name="bin" />
-        <Directory Id="PLUGINS" Name="plugins" />
-        <Directory Id="DATA" Name="data" />
+        <Directory Id="BIN" Name="bin">
+          <Directory Id="PLUGINS" Name="plugins" />
+        </Directory>
       </Directory>
-    </DirectoryRef>
+    </StandardDirectory>
   </Fragment>
 
   <Fragment>
-    <DirectoryRef Id="ProgramMenuFolder">
+    <StandardDirectory Id="ProgramMenuFolder">
       <Directory Id="ProgramMenuFoToolbox" Name="FoToolbox" />
-    </DirectoryRef>
+    </StandardDirectory>
   </Fragment>
 
   <Fragment>
     <ComponentGroup Id="FoToolboxFiles">
       <!-- Host binaries -->
       <Component Id="FoToolboxHostExe" Guid="{8C4728D8-3D5C-4C17-9B5E-B0F6C0D3C1D1}" Directory="BIN">
-        <File Source="$(var.SourceDir)\FoToolbox.Host.exe" KeyPath="yes" />
-        <File Source="$(var.SourceDir)\FoToolbox.Host.dll" />
-        <File Source="$(var.SourceDir)\FoToolbox.Core.dll" />
-        <File Source="$(var.SourceDir)\FoToolbox.SDK.dll" />
-        <File Source="$(var.SourceDir)\FoToolbox.Updater.dll" />
+        <File Id="FoToolbox.Host.exe" Source="$(var.SourceDir)\FoToolbox.Host.exe" KeyPath="yes" />
+        <File Id="FoToolbox.Host.deps.json" Source="$(var.SourceDir)\FoToolbox.Host.deps.json" />
+        <File Id="FoToolbox.Host.dll" Source="$(var.SourceDir)\FoToolbox.Host.dll" />
+        <File Id="FoToolbox.Host.runtimeconfig.json" Source="$(var.SourceDir)\FoToolbox.Host.runtimeconfig.json" />
+        <File Id="FoToolbox.Core.dll" Source="$(var.SourceDir)\FoToolbox.Core.dll" />
+        <File Id="FoToolbox.SDK.dll" Source="$(var.SourceDir)\FoToolbox.SDK.dll" />
+        <File Id="FoToolbox.Updater.dll" Source="$(var.SourceDir)\FoToolbox.Updater.dll" />
+        <File Id="e_sqlite3.dll" Source="$(var.SourceDir)\e_sqlite3.dll" />
+        <File Id="Microsoft.Data.Sqlite.dll" Source="$(var.SourceDir)\Microsoft.Data.Sqlite.dll" />
+        <File Id="Microsoft.Extensions.DependencyInjection.Abstractions.dll" Source="$(var.SourceDir)\Microsoft.Extensions.DependencyInjection.Abstractions.dll" />
+        <File Id="Microsoft.Extensions.Logging.Abstractions.dll" Source="$(var.SourceDir)\Microsoft.Extensions.Logging.Abstractions.dll" />
+        <File Id="Microsoft.Identity.Client.dll" Source="$(var.SourceDir)\Microsoft.Identity.Client.dll" />
+        <File Id="Microsoft.IdentityModel.Abstractions.dll" Source="$(var.SourceDir)\Microsoft.IdentityModel.Abstractions.dll" />
+        <File Id="SQLitePCLRaw.batteries_v2.dll" Source="$(var.SourceDir)\SQLitePCLRaw.batteries_v2.dll" />
+        <File Id="SQLitePCLRaw.core.dll" Source="$(var.SourceDir)\SQLitePCLRaw.core.dll" />
+        <File Id="SQLitePCLRaw.provider.e_sqlite3.dll" Source="$(var.SourceDir)\SQLitePCLRaw.provider.e_sqlite3.dll" />
       </Component>
 
       <!-- Plugins -->
       <Component Id="FoToolboxPluginHello" Guid="{1D8F6E5A-A8E0-4D58-9B0E-8E3C21FE8D8C}" Directory="PLUGINS">
-        <File Source="$(var.SourceDir)\plugins\HelloPlugin.dll" />
+        <File Id="HelloPlugin.dll" Source="$(var.SourceDir)\plugins\HelloPlugin.dll" />
       </Component>
       <Component Id="FoToolboxPluginQueryBuilder" Guid="{8BE5F3E5-C8D2-4BB2-9B9D-9D2A4D927254}" Directory="PLUGINS">
-        <File Source="$(var.SourceDir)\plugins\QueryBuilder.dll" />
-      </Component>
-
-      <!-- Data folder with profile.db preserved -->
-      <Component Id="FoToolboxProfileDb" Guid="{F3B0A86D-8F79-46C5-8A3E-9895D85E8D4C}" Directory="DATA" Permanent="yes" NeverOverwrite="yes">
-        <CreateFolder />
-        <File Source="$(var.SourceDir)\profile.db" Vital="no" />
+        <File Id="QueryBuilder.dll" Source="$(var.SourceDir)\plugins\QueryBuilder.dll" />
       </Component>
 
       <!-- Start menu shortcut -->
       <Component Id="FoToolboxStartMenuShortcut" Guid="{5B18C0A9-A5F2-4E8C-9F3E-798A80C511C3}" Directory="ProgramMenuFoToolbox">
-        <Shortcut Id="FoToolboxStartShortcut"
-                  Name="FO Toolbox"
-                  Description="Launch FO Toolbox"
-                  Target="[BIN]FoToolbox.Host.exe"
-                  WorkingDirectory="BIN"
-                  Directory="ProgramMenuFoToolbox" />
+        <Shortcut Id="FoToolboxStartShortcut" Name="FO Toolbox" Description="Launch FO Toolbox" Target="[BIN]FoToolbox.Host.exe" WorkingDirectory="BIN" Directory="ProgramMenuFoToolbox" />
         <RemoveFolder Id="RemoveProgramMenuFoToolbox" Directory="ProgramMenuFoToolbox" On="uninstall" />
         <RegistryValue Root="HKCU" Key="Software\FoToolbox" Name="Installed" Type="integer" Value="1" KeyPath="yes" />
       </Component>
