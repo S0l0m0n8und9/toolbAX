@@ -39,6 +39,10 @@ CREATE TABLE IF NOT EXISTS Environments(
   TenantId TEXT NOT NULL,
   DefaultCompany TEXT NULL
 );
+CREATE TABLE IF NOT EXISTS Settings(
+  Key TEXT PRIMARY KEY,
+  Value TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS ServicePrincipals(
   Id TEXT PRIMARY KEY,
   EnvId TEXT NOT NULL REFERENCES Environments(Id) ON DELETE CASCADE,
@@ -67,6 +71,31 @@ CREATE TABLE IF NOT EXISTS SavedQuery(
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    public async Task<string?> GetSettingAsync(string key, CancellationToken cancellationToken = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT Value FROM Settings WHERE Key = $key LIMIT 1";
+        cmd.Parameters.AddWithValue("$key", key);
+        var result = await cmd.ExecuteScalarAsync(cancellationToken);
+        return result is null || result is DBNull ? null : result.ToString();
+    }
+
+    public async Task SetSettingAsync(string key, string value, CancellationToken cancellationToken = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+INSERT INTO Settings(Key, Value)
+VALUES($key, $value)
+ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;";
+        cmd.Parameters.AddWithValue("$key", key);
+        cmd.Parameters.AddWithValue("$value", value);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     public async Task UpsertEnvironmentAsync(FoEnvironment env, CancellationToken cancellationToken = default)
     {
         await using var conn = new SqliteConnection(_connectionString);
@@ -85,6 +114,16 @@ ON CONFLICT(Id) DO UPDATE SET
         cmd.Parameters.AddWithValue("$baseUrl", env.BaseUrl);
         cmd.Parameters.AddWithValue("$tenant", env.TenantId);
         cmd.Parameters.AddWithValue("$company", (object?)env.DefaultCompany ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task DeleteEnvironmentAsync(string envId, CancellationToken cancellationToken = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM Environments WHERE Id = $id";
+        cmd.Parameters.AddWithValue("$id", envId);
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -108,6 +147,16 @@ ON CONFLICT(Id) DO UPDATE SET
         }
 
         return list;
+    }
+
+    public async Task DeleteServicePrincipalAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM ServicePrincipals WHERE Id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async Task<IReadOnlyList<ServicePrincipal>> GetServicePrincipalsAsync(string envId, CancellationToken cancellationToken = default)

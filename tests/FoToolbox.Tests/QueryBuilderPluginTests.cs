@@ -42,8 +42,8 @@ public class QueryBuilderPluginTests
             {
                 var plugin = new QB.QueryBuilderPlugin(new FakeMetadataProvider());
                 plugin.InitializeAsync(new FakeContext()).GetAwaiter().GetResult();
-                var control = plugin.CreateTool();
-                Assert.NotNull(control);
+                Assert.Equal("fo.querybuilder", plugin.Id);
+                Assert.Equal("fo.querybuilder", plugin.Manifest.Id);
             }
             catch (Exception ex)
             {

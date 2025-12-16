@@ -6,6 +6,8 @@
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
+    <RepoRoot Condition="'$(RepoRoot)' == '' and '$(SolutionDir)' != ''">$(SolutionDir)</RepoRoot>
+    <RepoRoot Condition="'$(RepoRoot)' == ''">$(MSBuildProjectDirectory)\..\..\</RepoRoot>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,7 +24,7 @@
       <PluginOutput Include="$(TargetDir)**\*.*" />
     </ItemGroup>
     <Copy SourceFiles="@(PluginOutput)"
-          DestinationFiles="@(PluginOutput->'$(SolutionDir)src\\FoToolbox.Host\\bin\\$(Configuration)\\net8.0-windows\\plugins\\%(RecursiveDir)%(Filename)%(Extension)')"
+          DestinationFiles="@(PluginOutput->'$(RepoRoot)src\\FoToolbox.Host\\bin\\$(Configuration)\\net8.0-windows\\plugins\\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
 

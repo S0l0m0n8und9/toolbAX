@@ -7,6 +7,7 @@ Current state
 - MSI is per-user by default (`InstallScope=perUser`) and installs to `%LOCALAPPDATA%\FoToolbox`.
 - Components include host binaries and bundled plugins under `%LOCALAPPDATA%\FoToolbox\bin\` (`plugins\` under `bin\`).
 - `profile.db` is created on first run under `%LOCALAPPDATA%\FoToolbox\bin\profile.db` and is preserved on uninstall/upgrade (not packaged into the MSI).
+- Profiles can be managed in-app via the built-in **Profiles** tool; client secrets are stored via DPAPI in `profile.db` (`SecretVault`).
 - Start menu shortcut (Program Menu\FoToolbox\FO Toolbox) launches `%LOCALAPPDATA%\FoToolbox\bin\FoToolbox.Host.exe`.
 - Burn bootstrapper (`Bundle.wxs`) chains .NET Desktop Runtime 8.0 (registry-detected) then `FoToolbox.msi`.
 - Runtime bootstrapper uses variables:
@@ -28,6 +29,21 @@ Still required from humans
 ## Building with WiX v6 (`wix` CLI)
 
 Important: WiX v6 uses `-d Name=value` (space between `-d` and the `Name=value`), not `-dName=value`.
+If you see `error WIX0118: Additional argument '-dSomething=...' was unexpected`, you likely forgot the space.
+
+### Quick build script
+
+If you want a single command that:
+- `dotnet publish`es the host into a `SourceDir`,
+- copies `HelloPlugin.dll` + `QueryBuilder.dll` into `SourceDir\plugins\`,
+- builds `FoToolbox.msi` and (optionally) `FoToolboxBundle.exe`,
+
+run:
+
+```powershell
+cd install
+.\build.ps1
+```
 
 1. Install the tool once: `dotnet tool install --global wix` (or update with `dotnet tool update --global wix`).
 2. Build the MSI:

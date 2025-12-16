@@ -3,6 +3,7 @@ using FoToolbox.Host.Plugins;
 using FoToolbox.Core.OData;
 using FoToolbox.SDK.Plugins;
 using HelloPlugin;
+using QueryBuilderPlugin;
 using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.Collections.Generic;
@@ -64,6 +65,31 @@ public sealed class PluginManagerTests
             Assert.NotEmpty(plugins);
             var first = Assert.Single(plugins);
             Assert.Equal("fo.hello", first.Manifest.Id);
+            Assert.NotNull(first.ToolControl);
+        });
+    }
+
+    [Fact]
+    public void Discover_Loads_QueryBuilderPlugin()
+    {
+        RunSta(() =>
+        {
+            var pluginAssembly = typeof(QueryBuilderPlugin.QueryBuilderPlugin).Assembly.Location;
+            var pluginDir = Directory.CreateTempSubdirectory("querybuilder").FullName;
+            File.Copy(pluginAssembly, Path.Combine(pluginDir, Path.GetFileName(pluginAssembly)), overwrite: true);
+
+            var logger = new CapturingLogger();
+            var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), logger, new PluginTrustOptions(true, Array.Empty<string>()));
+            var plugins = manager.Discover();
+
+            if (plugins.Count == 0 && logger.LastException != null)
+            {
+                throw logger.LastException;
+            }
+
+            Assert.NotEmpty(plugins);
+            var first = Assert.Single(plugins);
+            Assert.Equal("fo.querybuilder", first.Manifest.Id);
             Assert.NotNull(first.ToolControl);
         });
     }

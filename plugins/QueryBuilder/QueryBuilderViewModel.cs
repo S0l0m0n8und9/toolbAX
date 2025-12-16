@@ -51,7 +51,7 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     {
         _ctx = ctx;
         _metadataProvider = metadataProvider;
-        _savedStore = new SavedQueryStore(Path.Combine(AppContext.BaseDirectory, "querybuilder.saved.json"));
+        _savedStore = new SavedQueryStore(Path.Combine(AppContext.BaseDirectory, "profile.db"));
         Entities = new ReadOnlyObservableCollection<string>(_entities);
         Fields = new ReadOnlyObservableCollection<string>(_fields);
         NavigationHints = new ReadOnlyObservableCollection<string>(_navigation);

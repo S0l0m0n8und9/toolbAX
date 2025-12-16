@@ -160,3 +160,7 @@ Updates/Decisions (ongoing log)
 - WP6 updater UI: Host now exposes channel + “Check updates” in the main window; status surfaced via the status bar. Resilient fetcher added for update downloads.
 - WP6 apply flow: “Apply staged update” now launches `msiexec /i <staged> /qb!` if a staged package exists. Rollback remains stubbed.
 - WP6 packaging refresh: `profile.db` is created on first run under `%LOCALAPPDATA%\FoToolbox\bin\profile.db` and is not packaged into the MSI (so it survives upgrades/uninstall). Burn bundle chains .NET Desktop Runtime 8.0 via registry detection and variables `NetDesktopRuntimeVersion/Exe/Url` plus `FoToolboxMsiPath`. Remaining human actions: supply runtime installer path for builds, lock Product/Upgrade/Bundle codes and branding, and sign MSI/bundle.
+- Profiles UI: host now includes a built-in “Profiles” tool for environment + service principal CRUD, with client secrets stored via DPAPI-backed `SecretVault` in `profile.db`; selecting “Set active” reloads plugins with the chosen environment.
+- Profile store: added `Settings` table and `DefaultEnvId` so the selected environment persists across runs.
+- Query Builder: fixed plugin instantiation by adding an explicit parameterless constructor; saved queries now target `profile.db` by default (no more `querybuilder.saved.json` misnomer).
+- Tests/build: plugin projects no longer rely on `$(SolutionDir)` for dev-copy; WPF/plugin-loading tests run non-parallel to avoid pack-URI flakiness; `QueryBuilderPluginTests` avoids view creation (covered by `PluginManagerTests`).

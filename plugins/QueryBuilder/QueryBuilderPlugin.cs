@@ -11,6 +11,10 @@ public sealed class QueryBuilderPlugin : IFoToolPlugin
     private IPluginContext? _ctx;
     private readonly IMetadataProvider _metadataProvider;
 
+    public QueryBuilderPlugin() : this(null)
+    {
+    }
+
     public QueryBuilderPlugin(IMetadataProvider? metadataProvider = null)
     {
         _metadataProvider = metadataProvider ?? CreateDefaultMetadataProvider();

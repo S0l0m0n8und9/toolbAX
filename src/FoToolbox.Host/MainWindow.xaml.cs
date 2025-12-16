@@ -2,6 +2,7 @@ using FoToolbox.Core.Models;
 using FoToolbox.Host.OData;
 using FoToolbox.Host.Plugins;
 using FoToolbox.Host.ViewModels;
+using FoToolbox.Host.Views;
 using FoToolbox.Core.OData;
 using FoToolbox.Core.Profiles;
 using FoToolbox.Core.Auth;
@@ -21,6 +22,8 @@ namespace FoToolbox.Host;
 public partial class MainWindow : Window
 {
     private readonly MainWindowViewModel _vm;
+    private readonly string _profileDbPath = Path.Combine(AppContext.BaseDirectory, "profile.db");
+    private ProfilesView? _profilesView;
 
     public MainWindow()
     {
@@ -35,7 +38,7 @@ public partial class MainWindow : Window
     private void LoadPlugins()
     {
         var logger = NullLogger.Instance;
-        var profile = ResolveProfileAsync().GetAwaiter().GetResult();
+        var profile = ResolveProfileAsync(_profileDbPath).GetAwaiter().GetResult();
         if (profile is null)
         {
             MessageBox.Show("No environment profiles found. Seed data could not be created.", "FO Toolbox", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -43,16 +46,23 @@ public partial class MainWindow : Window
         }
 
         var (env, sp) = profile.Value;
+        _profilesView ??= new ProfilesView(new ProfilesViewModel(_profileDbPath, logger, ApplyProfile));
+        ApplyProfile(env, sp);
+
+        // Kick off a background update check (fire-and-forget).
+        _ = CheckForUpdatesAsync();
+    }
+
+    private void ApplyProfile(FoEnvironment env, ServicePrincipal sp)
+    {
+        var logger = NullLogger.Instance;
         var odata = CreateODataClient(env, sp);
 
         var pluginRoot = ResolvePluginRoot();
         var trust = PluginTrustOptions.FromEnvironment();
         var manager = new PluginManager(pluginRoot, env, odata, logger, trust);
         var plugins = manager.Discover();
-        _vm.LoadPlugins(plugins);
-
-        // Kick off a background update check (fire-and-forget).
-        _ = CheckForUpdatesAsync();
+        _vm.LoadPlugins(plugins, _profilesView);
     }
 
     private async Task CheckForUpdatesAsync()
@@ -93,9 +103,8 @@ public partial class MainWindow : Window
         return new UpdateChannelConfig(channel, new Uri(manifestUrl));
     }
 
-    private static async Task<(FoEnvironment Env, ServicePrincipal Sp)?> ResolveProfileAsync()
+    private static async Task<(FoEnvironment Env, ServicePrincipal Sp)?> ResolveProfileAsync(string dbPath)
     {
-        var dbPath = Path.Combine(AppContext.BaseDirectory, "profile.db");
         var store = new ProfileStore(dbPath);
         var svc = new ProfileService(store);
         await svc.EnsureCreatedAsync();
@@ -108,6 +117,9 @@ public partial class MainWindow : Window
             await svc.UpsertEnvironmentAsync(env);
             var sp = new ServicePrincipal("sp-dev", env.Id, "00000000-0000-0000-0000-000000000000", AuthMode.ClientSecret, null, null);
             await svc.UpsertServicePrincipalAsync(sp);
+            await svc.SetDefaultEnvironmentAsync(env.Id);
+
+            return (env, sp);
         }
 
         return await svc.GetDefaultAsync();

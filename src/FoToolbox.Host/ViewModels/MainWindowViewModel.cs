@@ -18,7 +18,7 @@ internal sealed class PluginEntry
 {
     public required string Name { get; init; }
     public required UserControl Control { get; init; }
-    public required LoadedPlugin Loaded { get; init; }
+    public LoadedPlugin? Loaded { get; init; }
 }
 
 internal sealed class MainWindowViewModel : INotifyPropertyChanged
@@ -81,9 +81,19 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         RollbackUpdateCommand = new AsyncCommand(RollbackUpdateAsync);
     }
 
-    public void LoadPlugins(IEnumerable<LoadedPlugin> plugins)
+    public void LoadPlugins(IEnumerable<LoadedPlugin> plugins, UserControl? profilesControl = null)
     {
         Plugins.Clear();
+
+        if (profilesControl is not null)
+        {
+            Plugins.Add(new PluginEntry
+            {
+                Name = "Profiles",
+                Control = profilesControl
+            });
+        }
+
         foreach (var plugin in plugins)
         {
             Plugins.Add(new PluginEntry
@@ -94,7 +104,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
             });
         }
 
-        Selected = Plugins.FirstOrDefault();
+        Selected = Plugins.FirstOrDefault(p => p.Loaded is not null) ?? Plugins.FirstOrDefault();
     }
 
     private void OnPropertyChanged([CallerMemberName] string? name = null)
