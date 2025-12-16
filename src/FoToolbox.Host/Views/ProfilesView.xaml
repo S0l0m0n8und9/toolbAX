@@ -2,11 +2,38 @@
              x:ClassModifier="internal"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:models="clr-namespace:FoToolbox.Core.Models;assembly=FoToolbox.Core"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d"
              d:DesignHeight="600"
              d:DesignWidth="900">
+    <UserControl.Resources>
+        <Style x:Key="VisibleWhenClientSecret" TargetType="{x:Type UIElement}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Selected.Principal.AuthMode}" Value="{x:Static models:AuthMode.ClientSecret}">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="VisibleWhenBearerToken" TargetType="{x:Type UIElement}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Selected.Principal.AuthMode}" Value="{x:Static models:AuthMode.BearerToken}">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="VisibleWhenCertificate" TargetType="{x:Type UIElement}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Selected.Principal.AuthMode}" Value="{x:Static models:AuthMode.Certificate}">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
     <Grid>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="240" />
@@ -67,13 +94,15 @@
                     </Grid>
                 </GroupBox>
 
-                <GroupBox Header="Service principal" Margin="0,0,0,10">
+                <GroupBox Header="Authentication" Margin="0,0,0,10">
                     <Grid Margin="10">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="140" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
@@ -86,18 +115,31 @@
                                  Text="{Binding Selected.Principal.ClientId, UpdateSourceTrigger=PropertyChanged}" />
 
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="Auth mode" VerticalAlignment="Center" Margin="0,6,0,0" />
-                        <ComboBox Grid.Row="1" Grid.Column="1" Margin="0,6,0,0"
+                        <ComboBox x:Name="AuthModeComboBox" Grid.Row="1" Grid.Column="1" Margin="0,6,0,0"
                                   ItemsSource="{Binding AuthModeValues}"
                                   SelectedItem="{Binding Selected.Principal.AuthMode, Mode=TwoWay}" />
 
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Client secret" VerticalAlignment="Center" Margin="0,6,0,0" />
-                        <PasswordBox x:Name="ClientSecretBox" Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" />
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Client secret" VerticalAlignment="Center" Margin="0,6,0,0"
+                                   Style="{StaticResource VisibleWhenClientSecret}" />
+                        <PasswordBox x:Name="ClientSecretBox" Grid.Row="2" Grid.Column="1" Margin="0,6,0,0"
+                                     Style="{StaticResource VisibleWhenClientSecret}" />
 
-                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding StoredSecretStatus}" Foreground="Gray" FontSize="10" Margin="0,4,0,0" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding StoredCredentialStatus}" Foreground="Gray" FontSize="10" Margin="0,4,0,0"
+                                   Style="{StaticResource VisibleWhenClientSecret}" />
 
-                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Cert thumbprint" VerticalAlignment="Center" Margin="0,6,0,0" />
-                        <TextBox Grid.Row="4" Grid.Column="1" Margin="0,6,0,0"
-                                 Text="{Binding Selected.Principal.CertThumbprint, UpdateSourceTrigger=PropertyChanged}" />
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Bearer token" VerticalAlignment="Center" Margin="0,6,0,0"
+                                   Style="{StaticResource VisibleWhenBearerToken}" />
+                        <PasswordBox x:Name="BearerTokenBox" Grid.Row="4" Grid.Column="1" Margin="0,6,0,0"
+                                     Style="{StaticResource VisibleWhenBearerToken}" />
+
+                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding StoredCredentialStatus}" Foreground="Gray" FontSize="10" Margin="0,4,0,0"
+                                   Style="{StaticResource VisibleWhenBearerToken}" />
+
+                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Cert thumbprint" VerticalAlignment="Center" Margin="0,6,0,0"
+                                   Style="{StaticResource VisibleWhenCertificate}" />
+                        <TextBox Grid.Row="6" Grid.Column="1" Margin="0,6,0,0"
+                                 Text="{Binding Selected.Principal.CertThumbprint, UpdateSourceTrigger=PropertyChanged}"
+                                 Style="{StaticResource VisibleWhenCertificate}" />
                     </Grid>
                 </GroupBox>
 

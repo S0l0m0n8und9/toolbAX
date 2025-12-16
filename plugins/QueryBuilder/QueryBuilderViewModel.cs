@@ -66,12 +66,12 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         ExportPageCommand = new AsyncRelayCommand(ExportPageAsync);
         ExportAllCommand = new AsyncRelayCommand(ExportAllAsync);
         LoadMoreCommand = new AsyncRelayCommand(LoadMoreAsync);
-        SaveQueryCommand = new RelayCommand(_ => SaveCurrentQuery());
+        SaveQueryCommand = new AsyncRelayCommand(SaveCurrentQueryAsync);
         LoadSavedQueryCommand = new RelayCommand(_ => LoadSelectedQuery());
-        DeleteSavedQueryCommand = new RelayCommand(_ => DeleteSelectedQuery());
-        RenameSavedQueryCommand = new RelayCommand(_ => RenameSelectedQuery());
+        DeleteSavedQueryCommand = new AsyncRelayCommand(DeleteSelectedQueryAsync);
+        RenameSavedQueryCommand = new AsyncRelayCommand(RenameSelectedQueryAsync);
 
-        LoadSavedQueriesAsync().GetAwaiter().GetResult();
+        _ = LoadSavedQueriesAsync();
     }
 
     public ReadOnlyObservableCollection<string> Entities { get; }
@@ -180,10 +180,10 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     public AsyncRelayCommand ExportPageCommand { get; }
     public AsyncRelayCommand ExportAllCommand { get; }
     public AsyncRelayCommand LoadMoreCommand { get; }
-    public RelayCommand SaveQueryCommand { get; }
+    public AsyncRelayCommand SaveQueryCommand { get; }
     public RelayCommand LoadSavedQueryCommand { get; }
-    public RelayCommand DeleteSavedQueryCommand { get; }
-    public RelayCommand RenameSavedQueryCommand { get; }
+    public AsyncRelayCommand DeleteSavedQueryCommand { get; }
+    public AsyncRelayCommand RenameSavedQueryCommand { get; }
 
     private async Task LoadEntitiesAsync(CancellationToken cancellationToken)
     {
@@ -507,28 +507,42 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         return dlg.ShowDialog() == true ? dlg.FileName : null;
     }
 
-    private async void SaveCurrentQuery()
+    private async Task SaveCurrentQueryAsync(CancellationToken cancellationToken)
     {
-        var suggested = $"Query-{DateTime.UtcNow:yyyyMMddHHmmss}";
-        var name = PromptWindow.Show("Name for saved query:", suggested);
-        if (string.IsNullOrWhiteSpace(name))
+        try
         {
-            Status = "Save cancelled.";
-            return;
-        }
+            cancellationToken.ThrowIfCancellationRequested();
 
-        var trimmed = name.Trim();
-        var existing = _savedQueries.FirstOrDefault(q => string.Equals(q.Name, trimmed, StringComparison.OrdinalIgnoreCase) && q.EnvId == _ctx.CurrentEnv.Id);
-        if (existing is not null && !ConfirmOverwrite(trimmed))
+            var suggested = $"Query-{DateTime.UtcNow:yyyyMMddHHmmss}";
+            var name = PromptWindow.Show("Name for saved query:", suggested);
+            if (string.IsNullOrWhiteSpace(name))
+            {
+                Status = "Save cancelled.";
+                return;
+            }
+
+            var trimmed = name.Trim();
+            var existing = (await _savedStore.LoadForEnvAsync(_ctx.CurrentEnv.Id))
+                .FirstOrDefault(q => string.Equals(q.Name, trimmed, StringComparison.OrdinalIgnoreCase));
+            if (existing is not null && !ConfirmOverwrite(trimmed))
+            {
+                Status = "Save cancelled (overwrite declined).";
+                return;
+            }
+
+            var model = ToSavedModel(trimmed, existing);
+            await _savedStore.SaveAsync(model);
+
+            var loaded = await LoadSavedQueriesAsync();
+            if (loaded)
+            {
+                Status = $"Saved query '{trimmed}'";
+            }
+        }
+        catch (Exception ex)
         {
-            Status = "Save cancelled (overwrite declined).";
-            return;
+            Status = $"Save failed: {ex.Message}";
         }
-
-        var model = ToSavedModel(trimmed, existing);
-        await _savedStore.SaveAsync(model);
-        await LoadSavedQueriesAsync();
-        Status = $"Saved query '{trimmed}'";
     }
 
     private SavedQueryItem ToSavedModel(string name, SavedQueryItem? existing = null)
@@ -565,11 +579,20 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         };
     }
 
-    private async Task LoadSavedQueriesAsync()
+    private async Task<bool> LoadSavedQueriesAsync()
     {
-        _savedQueries.Clear();
-        var items = await _savedStore.LoadForEnvAsync(_ctx.CurrentEnv.Id);
-        foreach (var item in items) _savedQueries.Add(item);
+        try
+        {
+            var items = await _savedStore.LoadForEnvAsync(_ctx.CurrentEnv.Id);
+            _savedQueries.Clear();
+            foreach (var item in items) _savedQueries.Add(item);
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Status = $"Load saved queries failed: {ex.Message}";
+            return false;
+        }
     }
 
     private void LoadSelectedQuery()
@@ -622,12 +645,25 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         }
     }
 
-    private void DeleteSelectedQuery()
+    private async Task DeleteSelectedQueryAsync(CancellationToken cancellationToken)
     {
         if (SelectedSaved is null) return;
-        _savedStore.DeleteAsync(SelectedSaved).GetAwaiter().GetResult();
-        LoadSavedQueriesAsync().GetAwaiter().GetResult();
-        Status = $"Deleted saved query: {SelectedSaved.Name}";
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            await _savedStore.DeleteAsync(SelectedSaved);
+            var loaded = await LoadSavedQueriesAsync();
+            if (loaded)
+            {
+                Status = $"Deleted saved query: {SelectedSaved.Name}";
+            }
+        }
+        catch (Exception ex)
+        {
+            Status = $"Delete failed: {ex.Message}";
+        }
     }
 
     private void SetNextLink(string? next)
@@ -641,15 +677,28 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         SetNextLink(null);
     }
 
-    private void RenameSelectedQuery()
+    private async Task RenameSelectedQueryAsync(CancellationToken cancellationToken)
     {
         if (SelectedSaved is null) return;
         var renamed = PromptWindow.Show("Rename saved query:", SelectedSaved.Name);
         if (string.IsNullOrWhiteSpace(renamed)) return;
-        SelectedSaved.Name = renamed.Trim();
-        _savedStore.SaveAsync(SelectedSaved).GetAwaiter().GetResult();
-        LoadSavedQueriesAsync().GetAwaiter().GetResult();
-        Status = $"Renamed to '{SelectedSaved.Name}'";
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            SelectedSaved.Name = renamed.Trim();
+            await _savedStore.SaveAsync(SelectedSaved);
+            var loaded = await LoadSavedQueriesAsync();
+            if (loaded)
+            {
+                Status = $"Renamed to '{SelectedSaved.Name}'";
+            }
+        }
+        catch (Exception ex)
+        {
+            Status = $"Rename failed: {ex.Message}";
+        }
     }
 
     private static bool ConfirmOverwrite(string name)

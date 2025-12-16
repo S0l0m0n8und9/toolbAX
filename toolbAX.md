@@ -127,13 +127,13 @@ CREATE TABLE ServicePrincipals(
   Id TEXT PRIMARY KEY,
   EnvId TEXT NOT NULL REFERENCES Environments(Id),
   ClientId TEXT NOT NULL,
-  AuthMode TEXT NOT NULL,        -- "ClientSecret" | "Certificate"
+  AuthMode TEXT NOT NULL,        -- "ClientSecret" | "Certificate" | "BearerToken"
   SecretRef TEXT NULL,           -- points to SecretVault row
   CertThumbprint TEXT NULL
 );
 CREATE TABLE SecretVault(
   Id TEXT PRIMARY KEY,
-  Kind TEXT NOT NULL,            -- "ClientSecret" | "Pfx"
+  Kind TEXT NOT NULL,            -- "ClientSecret" | "Pfx" | "BearerToken"
   Blob BLOB NOT NULL             -- DPAPI-encrypted JSON or PFX
 );
 CREATE TABLE SavedQuery(
@@ -220,7 +220,7 @@ FO Toolbox borrows their plugin ergonomics and discoverability while adapting to
 ### Tech choices
 
 * **Runtime/UI:** .NET 10 LTS, WPF, MVVM (CommunityToolkit.Mvvm).
-* **Auth:** MSAL.NET; client-credentials flow (default); optional interactive.
+* **Auth:** MSAL.NET; client-credentials flow (default); optional interactive; optional bearer-token mode (user-supplied access token).
 * **Storage:** SQLite (`Microsoft.Data.Sqlite`); DPAPI for secret encryption.
 * **HTTP:** `HttpClient` with `ResponseHeadersRead`; resilience via Polly or `Microsoft.Extensions.Http.Resilience`.
 * **Packaging:** MSI (WiX Toolset); background updater; signed binaries.

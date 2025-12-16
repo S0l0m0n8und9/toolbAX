@@ -3,12 +3,20 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Threading.Tasks;
 
 namespace QueryBuilderPlugin;
 
 internal sealed class SavedQueryStore
 {
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Converters = { new FilterDtoJsonConverter() }
+    };
+
     private readonly ProfileStore _store;
 
     public SavedQueryStore(string dbPath)
@@ -29,7 +37,7 @@ internal sealed class SavedQueryStore
             string.IsNullOrWhiteSpace(item.Id) ? Guid.NewGuid().ToString("N") : item.Id,
             item.EnvId,
             item.Name,
-            JsonSerializer.Serialize(item, new JsonSerializerOptions { WriteIndented = false }),
+            JsonSerializer.Serialize(item, SerializerOptions),
             item.CrossCompany,
             item.CreatedUtc ?? DateTime.UtcNow.ToString("o"),
             DateTime.UtcNow.ToString("o"));
@@ -45,10 +53,28 @@ internal sealed class SavedQueryStore
 
     private static SavedQueryItem Deserialize(SavedQueryRecord record)
     {
-        var model = JsonSerializer.Deserialize<SavedQueryItem>(record.SpecJson) ?? new SavedQueryItem();
-        model.Id = record.Id;
-        model.CreatedUtc = record.CreatedUtc;
-        model.UpdatedUtc = record.UpdatedUtc;
-        return model;
+        try
+        {
+            var model = JsonSerializer.Deserialize<SavedQueryItem>(record.SpecJson, SerializerOptions) ?? new SavedQueryItem();
+            model.Id = record.Id;
+            model.EnvId = record.EnvId;
+            model.Name = record.Name;
+            model.CrossCompany = record.CrossCompany;
+            model.CreatedUtc = record.CreatedUtc;
+            model.UpdatedUtc = record.UpdatedUtc;
+            return model;
+        }
+        catch
+        {
+            return new SavedQueryItem
+            {
+                Id = record.Id,
+                EnvId = record.EnvId,
+                Name = record.Name,
+                CrossCompany = record.CrossCompany,
+                CreatedUtc = record.CreatedUtc,
+                UpdatedUtc = record.UpdatedUtc
+            };
+        }
     }
 }

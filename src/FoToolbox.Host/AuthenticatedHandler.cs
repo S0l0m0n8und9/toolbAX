@@ -5,6 +5,8 @@ using System;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Text;
+using System.Text.Json;
 
 namespace FoToolbox.Host;
 
@@ -16,6 +18,7 @@ internal sealed class AuthenticatedHandler : DelegatingHandler
     private readonly FoEnvironment _env;
     private readonly ServicePrincipal _sp;
     private readonly AuthService _auth;
+    private readonly SecretVaultService _vault;
 
     public AuthenticatedHandler(FoEnvironment env, ServicePrincipal sp)
         : base(new HttpClientHandler())
@@ -23,11 +26,17 @@ internal sealed class AuthenticatedHandler : DelegatingHandler
         _env = env;
         _sp = sp;
         _auth = new AuthService(BuildTokenProvider());
+
+        var dbPath = System.IO.Path.Combine(AppContext.BaseDirectory, "profile.db");
+        var store = new ProfileStore(dbPath);
+        _vault = new SecretVaultService(store.ConnectionString);
     }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        var token = await _auth.AcquireTokenAsync(_env, _sp, cancellationToken);
+        var token = _sp.AuthMode == AuthMode.BearerToken
+            ? await ResolveBearerTokenAsync(_sp, cancellationToken)
+            : await _auth.AcquireTokenAsync(_env, _sp, cancellationToken);
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
         return await base.SendAsync(request, cancellationToken);
     }
@@ -41,12 +50,9 @@ internal sealed class AuthenticatedHandler : DelegatingHandler
     private ClientCredential ResolveCredential(ServicePrincipal sp)
     {
         // Prefer DPAPI vault secret for this service principal.
-        var dbPath = System.IO.Path.Combine(AppContext.BaseDirectory, "profile.db");
-        var store = new ProfileStore(dbPath);
-        var vault = new SecretVaultService(store.ConnectionString);
         if (!string.IsNullOrWhiteSpace(sp.SecretRef))
         {
-            var secretPayload = vault.ReadSecretAsync<SecretPayload>(sp.SecretRef).GetAwaiter().GetResult();
+            var secretPayload = _vault.ReadSecretAsync<ClientSecretPayload>(sp.SecretRef).GetAwaiter().GetResult();
             if (secretPayload is not null && !string.IsNullOrWhiteSpace(secretPayload.Value))
             {
                 return new ClientSecretCredential(secretPayload.Value);
@@ -63,8 +69,92 @@ internal sealed class AuthenticatedHandler : DelegatingHandler
         return new ClientSecretCredential("dummy");
     }
 
-    private sealed class SecretPayload
+    private async Task<string> ResolveBearerTokenAsync(ServicePrincipal sp, CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(sp.SecretRef))
+        {
+            var payload = await _vault.ReadSecretAsync<BearerTokenPayload>(sp.SecretRef, cancellationToken);
+            if (!string.IsNullOrWhiteSpace(payload?.AccessToken))
+            {
+                var normalized = NormalizeBearerToken(payload.AccessToken);
+                if (TryGetJwtExpiryUtc(normalized, out var expiryUtc) && expiryUtc <= DateTimeOffset.UtcNow)
+                {
+                    throw new InvalidOperationException($"Bearer token expired at {expiryUtc:u}. Update it in Profiles.");
+                }
+                return normalized;
+            }
+        }
+
+        var token = Environment.GetEnvironmentVariable("FOTB_BEARER_TOKEN");
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            var normalized = NormalizeBearerToken(token);
+            if (TryGetJwtExpiryUtc(normalized, out var expiryUtc) && expiryUtc <= DateTimeOffset.UtcNow)
+            {
+                throw new InvalidOperationException($"FOTB_BEARER_TOKEN expired at {expiryUtc:u}. Set a fresh token.");
+            }
+            return normalized;
+        }
+
+        throw new InvalidOperationException("No bearer token configured for this profile. Paste a token in Profiles and Save, or set FOTB_BEARER_TOKEN.");
+    }
+
+    private static string NormalizeBearerToken(string token)
+    {
+        var trimmed = token.Trim();
+        if (trimmed.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            trimmed = trimmed["Bearer ".Length..];
+        }
+
+        var sb = new StringBuilder(trimmed.Length);
+        foreach (var ch in trimmed)
+        {
+            if (!char.IsWhiteSpace(ch)) sb.Append(ch);
+        }
+        return sb.ToString();
+    }
+
+    private static bool TryGetJwtExpiryUtc(string jwt, out DateTimeOffset expiryUtc)
+    {
+        expiryUtc = default;
+        var parts = jwt.Split('.');
+        if (parts.Length < 2) return false;
+
+        try
+        {
+            var payloadBytes = Base64UrlDecode(parts[1]);
+            if (payloadBytes.Length == 0) return false;
+            using var doc = JsonDocument.Parse(payloadBytes);
+            if (!doc.RootElement.TryGetProperty("exp", out var expEl)) return false;
+            if (!expEl.TryGetInt64(out var seconds)) return false;
+            expiryUtc = DateTimeOffset.FromUnixTimeSeconds(seconds);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static byte[] Base64UrlDecode(string input)
+    {
+        var s = input.Replace('-', '+').Replace('_', '/');
+        var pad = s.Length % 4;
+        if (pad == 2) s += "==";
+        else if (pad == 3) s += "=";
+        else if (pad != 0) return Array.Empty<byte>();
+        return Convert.FromBase64String(s);
+    }
+
+    private sealed class ClientSecretPayload
     {
         public string? Value { get; set; }
+    }
+
+    private sealed class BearerTokenPayload
+    {
+        public string? AccessToken { get; set; }
+        public string? ExpiresUtc { get; set; }
     }
 }

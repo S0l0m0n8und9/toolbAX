@@ -1,4 +1,5 @@
 using FoToolbox.Host.ViewModels;
+using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
 
@@ -20,9 +21,29 @@ internal partial class ProfilesView : UserControl
             vm.RefreshCommand.Execute(null);
         };
 
+        vm.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(ProfilesViewModel.Selected))
+            {
+                ClientSecretBox.Password = string.Empty;
+                BearerTokenBox.Password = string.Empty;
+            }
+        };
+
+        AuthModeComboBox.SelectionChanged += (_, __) =>
+        {
+            ClientSecretBox.Password = string.Empty;
+            BearerTokenBox.Password = string.Empty;
+        };
+
         ClientSecretBox.PasswordChanged += (_, __) =>
         {
             vm.PendingClientSecret = ClientSecretBox.Password;
+        };
+
+        BearerTokenBox.PasswordChanged += (_, __) =>
+        {
+            vm.PendingBearerToken = BearerTokenBox.Password;
         };
     }
 }

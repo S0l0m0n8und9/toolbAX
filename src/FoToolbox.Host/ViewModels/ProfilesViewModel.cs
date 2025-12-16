@@ -9,6 +9,8 @@ using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
@@ -24,8 +26,10 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     private readonly Action<FoEnvironment, ServicePrincipal> _applyProfile;
 
     private ProfileItem? _selected;
+    private ServicePrincipalEditor? _selectedPrincipal;
     private string _status = "Load or create a profile to get started.";
     private string? _pendingClientSecret;
+    private string? _pendingBearerToken;
     private string? _activeEnvId;
 
     public ObservableCollection<ProfileItem> Profiles { get; } = new();
@@ -38,10 +42,20 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         {
             if (!ReferenceEquals(_selected, value))
             {
+                if (_selectedPrincipal is not null)
+                {
+                    _selectedPrincipal.PropertyChanged -= OnSelectedPrincipalChanged;
+                }
+
                 _selected = value;
+                _selectedPrincipal = value?.Principal;
+                if (_selectedPrincipal is not null)
+                {
+                    _selectedPrincipal.PropertyChanged += OnSelectedPrincipalChanged;
+                }
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(HasSelection));
-                OnPropertyChanged(nameof(StoredSecretStatus));
+                OnPropertyChanged(nameof(StoredCredentialStatus));
             }
         }
     }
@@ -74,8 +88,39 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         }
     }
 
-    public string StoredSecretStatus =>
-        Selected?.Principal.SecretRef is null or "" ? "No stored client secret." : "Client secret stored (DPAPI).";
+    public string? PendingBearerToken
+    {
+        get => _pendingBearerToken;
+        set
+        {
+            if (_pendingBearerToken != value)
+            {
+                _pendingBearerToken = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public string StoredCredentialStatus
+    {
+        get
+        {
+            if (Selected is null) return string.Empty;
+            return Selected.Principal.AuthMode switch
+            {
+                AuthMode.BearerToken => Selected.Principal.SecretRef is null or ""
+                    ? "No stored bearer token."
+                    : "Bearer token stored (DPAPI).",
+                AuthMode.ClientSecret => Selected.Principal.SecretRef is null or ""
+                    ? "No stored client secret."
+                    : "Client secret stored (DPAPI).",
+                AuthMode.Certificate => string.IsNullOrWhiteSpace(Selected.Principal.CertThumbprint)
+                    ? "No certificate thumbprint."
+                    : "Certificate thumbprint set.",
+                _ => "No stored credential."
+            };
+        }
+    }
 
     public ICommand RefreshCommand { get; }
     public ICommand AddProfileCommand { get; }
@@ -197,13 +242,51 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         {
             await _profiles.UpsertEnvironmentAsync(env);
 
-            if (sp.AuthMode == AuthMode.ClientSecret && !string.IsNullOrWhiteSpace(PendingClientSecret))
+            if (sp.AuthMode == AuthMode.ClientSecret)
             {
-                var secretRef = await _vault.StoreSecretAsync("ClientSecret", new SecretPayload { Value = PendingClientSecret });
-                sp = sp with { SecretRef = secretRef, CertThumbprint = null };
-                Selected.Principal.SecretRef = secretRef;
-                PendingClientSecret = null;
-                OnPropertyChanged(nameof(StoredSecretStatus));
+                sp = sp with { CertThumbprint = null };
+                if (!string.IsNullOrWhiteSpace(PendingClientSecret))
+                {
+                    var secretRef = await _vault.StoreSecretAsync("ClientSecret", new ClientSecretPayload { Value = PendingClientSecret });
+                    sp = sp with { SecretRef = secretRef };
+                    Selected.Principal.SecretRef = secretRef;
+                    PendingClientSecret = null;
+                    OnPropertyChanged(nameof(StoredCredentialStatus));
+                }
+                else if (!string.IsNullOrWhiteSpace(sp.SecretRef))
+                {
+                    var payload = await _vault.ReadSecretAsync<ClientSecretPayload>(sp.SecretRef);
+                    if (string.IsNullOrWhiteSpace(payload?.Value))
+                    {
+                        sp = sp with { SecretRef = null };
+                        Selected.Principal.SecretRef = null;
+                        OnPropertyChanged(nameof(StoredCredentialStatus));
+                    }
+                }
+            }
+            else if (sp.AuthMode == AuthMode.BearerToken)
+            {
+                sp = sp with { CertThumbprint = null };
+                if (!string.IsNullOrWhiteSpace(PendingBearerToken))
+                {
+                    var token = NormalizeBearerToken(PendingBearerToken);
+                    var expiresUtc = TryGetJwtExpiryUtc(token, out var expiryUtc) ? expiryUtc.UtcDateTime.ToString("o") : null;
+                    var secretRef = await _vault.StoreSecretAsync("BearerToken", new BearerTokenPayload { AccessToken = token, ExpiresUtc = expiresUtc });
+                    sp = sp with { SecretRef = secretRef };
+                    Selected.Principal.SecretRef = secretRef;
+                    PendingBearerToken = null;
+                    OnPropertyChanged(nameof(StoredCredentialStatus));
+                }
+                else if (!string.IsNullOrWhiteSpace(sp.SecretRef))
+                {
+                    var payload = await _vault.ReadSecretAsync<BearerTokenPayload>(sp.SecretRef);
+                    if (string.IsNullOrWhiteSpace(payload?.AccessToken))
+                    {
+                        sp = sp with { SecretRef = null };
+                        Selected.Principal.SecretRef = null;
+                        OnPropertyChanged(nameof(StoredCredentialStatus));
+                    }
+                }
             }
 
             await _profiles.UpsertServicePrincipalAsync(sp);
@@ -254,22 +337,35 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         var env = Selected.Environment.ToModel();
         var sp = Selected.Principal.ToModel(env.Id);
 
-        if (string.IsNullOrWhiteSpace(env.BaseUrl) ||
-            string.IsNullOrWhiteSpace(env.TenantId) ||
-            string.IsNullOrWhiteSpace(sp.ClientId))
+        if (string.IsNullOrWhiteSpace(env.BaseUrl))
         {
-            Status = "Base URL, Tenant ID, and Client ID are required to test a connection.";
+            Status = "Base URL is required to test a connection.";
             return;
         }
 
         try
         {
             Status = "Testing connection...";
-            var authorityBase = "https://login.microsoftonline.com";
-            var credential = await ResolveCredentialForTestAsync(sp);
-            var tokenProvider = new MsalTokenProvider(authorityBase, _ => credential);
-            var auth = new AuthService(tokenProvider);
-            var token = await auth.AcquireTokenAsync(env, sp, CancellationToken.None);
+
+            string token;
+            if (sp.AuthMode == AuthMode.BearerToken)
+            {
+                token = await ResolveBearerTokenForTestAsync(sp);
+            }
+            else
+            {
+                if (string.IsNullOrWhiteSpace(env.TenantId) || string.IsNullOrWhiteSpace(sp.ClientId))
+                {
+                    Status = "Tenant ID and Client ID are required to test this auth mode.";
+                    return;
+                }
+
+                var authorityBase = "https://login.microsoftonline.com";
+                var credential = await ResolveCredentialForTestAsync(sp);
+                var tokenProvider = new MsalTokenProvider(authorityBase, _ => credential);
+                var auth = new AuthService(tokenProvider);
+                token = await auth.AcquireTokenAsync(env, sp, CancellationToken.None);
+            }
 
             using var http = new HttpClient();
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -294,6 +390,31 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         }
     }
 
+    private async Task<string> ResolveBearerTokenForTestAsync(ServicePrincipal sp)
+    {
+        if (!string.IsNullOrWhiteSpace(PendingBearerToken))
+        {
+            return NormalizeBearerToken(PendingBearerToken);
+        }
+
+        if (!string.IsNullOrWhiteSpace(sp.SecretRef))
+        {
+            var payload = await _vault.ReadSecretAsync<BearerTokenPayload>(sp.SecretRef);
+            if (!string.IsNullOrWhiteSpace(payload?.AccessToken))
+            {
+                return payload.AccessToken;
+            }
+        }
+
+        var token = Environment.GetEnvironmentVariable("FOTB_BEARER_TOKEN");
+        if (!string.IsNullOrWhiteSpace(token))
+        {
+            return NormalizeBearerToken(token);
+        }
+
+        throw new InvalidOperationException("No bearer token found. Paste a token (Profiles → BearerToken) and Save, or set FOTB_BEARER_TOKEN.");
+    }
+
     private async Task<ClientCredential> ResolveCredentialForTestAsync(ServicePrincipal sp)
     {
         if (!string.IsNullOrWhiteSpace(PendingClientSecret))
@@ -303,7 +424,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
 
         if (!string.IsNullOrWhiteSpace(sp.SecretRef))
         {
-            var payload = await _vault.ReadSecretAsync<SecretPayload>(sp.SecretRef);
+            var payload = await _vault.ReadSecretAsync<ClientSecretPayload>(sp.SecretRef);
             if (!string.IsNullOrWhiteSpace(payload?.Value))
             {
                 return new ClientSecretCredential(payload.Value);
@@ -317,6 +438,55 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         }
 
         return new ClientSecretCredential("dummy");
+    }
+
+    private static string NormalizeBearerToken(string token)
+    {
+        var trimmed = token.Trim();
+        if (trimmed.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
+        {
+            trimmed = trimmed["Bearer ".Length..];
+        }
+
+        var sb = new StringBuilder(trimmed.Length);
+        foreach (var ch in trimmed)
+        {
+            if (!char.IsWhiteSpace(ch)) sb.Append(ch);
+        }
+
+        return sb.ToString();
+    }
+
+    private static bool TryGetJwtExpiryUtc(string jwt, out DateTimeOffset expiryUtc)
+    {
+        expiryUtc = default;
+        var parts = jwt.Split('.');
+        if (parts.Length < 2) return false;
+
+        try
+        {
+            var payloadBytes = Base64UrlDecode(parts[1]);
+            if (payloadBytes.Length == 0) return false;
+            using var doc = JsonDocument.Parse(payloadBytes);
+            if (!doc.RootElement.TryGetProperty("exp", out var expEl)) return false;
+            if (!expEl.TryGetInt64(out var seconds)) return false;
+            expiryUtc = DateTimeOffset.FromUnixTimeSeconds(seconds);
+            return true;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    private static byte[] Base64UrlDecode(string input)
+    {
+        var s = input.Replace('-', '+').Replace('_', '/');
+        var pad = s.Length % 4;
+        if (pad == 2) s += "==";
+        else if (pad == 3) s += "=";
+        else if (pad != 0) return Array.Empty<byte>();
+        return Convert.FromBase64String(s);
     }
 
     private static string NormalizeBaseUrl(string baseUrl)
@@ -333,9 +503,25 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 
-    private sealed class SecretPayload
+    private void OnSelectedPrincipalChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(ServicePrincipalEditor.AuthMode) ||
+            e.PropertyName == nameof(ServicePrincipalEditor.SecretRef) ||
+            e.PropertyName == nameof(ServicePrincipalEditor.CertThumbprint))
+        {
+            OnPropertyChanged(nameof(StoredCredentialStatus));
+        }
+    }
+
+    private sealed class ClientSecretPayload
     {
         public string? Value { get; set; }
+    }
+
+    private sealed class BearerTokenPayload
+    {
+        public string? AccessToken { get; set; }
+        public string? ExpiresUtc { get; set; }
     }
 }
 
