@@ -27,7 +27,7 @@ internal sealed class AuthenticatedHandler : DelegatingHandler
         _sp = sp;
         _auth = new AuthService(BuildTokenProvider());
 
-        var dbPath = System.IO.Path.Combine(AppContext.BaseDirectory, "profile.db");
+        var dbPath = ProfilePaths.ResolveProfileDbPath();
         var store = new ProfileStore(dbPath);
         _vault = new SecretVaultService(store.ConnectionString);
     }

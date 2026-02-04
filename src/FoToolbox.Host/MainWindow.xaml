@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="FO Toolbox" Height="540" Width="900">
+        Title="FOtoolbox" Height="540" Width="900">
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
@@ -40,6 +40,7 @@
                 </StackPanel>
                 <TextBlock Text="{Binding UpdateStatus}" Margin="0,4,0,0" />
                 <TextBlock Text="{Binding StagedUpdatePath}" FontSize="10" Foreground="Gray" />
+                <TextBlock Text="{Binding RollbackUpdatePath}" FontSize="10" Foreground="Gray" />
             </StackPanel>
         </Border>
     </Grid>

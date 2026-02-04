@@ -20,21 +20,51 @@ public sealed class UpdaterClient
         _stagingRoot = stagingRoot;
     }
 
-    public async Task<string> DownloadAndStageAsync(UpdatePackageInfo package, CancellationToken cancellationToken = default)
+    public async Task<UpdateStageResult> DownloadAndStageAsync(UpdatePackageInfo package, CancellationToken cancellationToken = default)
     {
         Directory.CreateDirectory(_stagingRoot);
-        var stagingPath = Path.Combine(_stagingRoot, $"update-{DateTime.UtcNow:yyyyMMddHHmmss}.bin");
+        var stagingPath = Path.Combine(_stagingRoot, "staged.msi");
+        await DownloadAndValidateAsync(package.PackageUri, stagingPath, package.Hash, cancellationToken);
 
-        await using var source = await _fetcher.FetchAsync(package.PackageUri, cancellationToken);
-        await using (var target = new FileStream(stagingPath, FileMode.Create, FileAccess.ReadWrite, FileShare.Read))
+        string? rollbackPath = null;
+        if (package.RollbackUri is not null && !string.IsNullOrWhiteSpace(package.RollbackHash))
+        {
+            rollbackPath = Path.Combine(_stagingRoot, "rollback.msi");
+            await DownloadAndValidateAsync(package.RollbackUri, rollbackPath, package.RollbackHash!, cancellationToken);
+        }
+        else
+        {
+            TryDelete(Path.Combine(_stagingRoot, "rollback.msi"));
+        }
+
+        return new UpdateStageResult(stagingPath, rollbackPath);
+    }
+
+    private async Task DownloadAndValidateAsync(Uri uri, string path, string expectedHash, CancellationToken cancellationToken)
+    {
+        await using var source = await _fetcher.FetchAsync(uri, cancellationToken);
+        await using (var target = new FileStream(path, FileMode.Create, FileAccess.ReadWrite, FileShare.Read))
         {
             await source.CopyToAsync(target, cancellationToken);
             await target.FlushAsync(cancellationToken);
             target.Position = 0;
-            ValidateHash(target, package.Hash);
+            ValidateHash(target, expectedHash);
         }
+    }
 
-        return stagingPath;
+    private static void TryDelete(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // Best-effort cleanup only.
+        }
     }
 
     private static void ValidateHash(Stream stream, string expectedHash)

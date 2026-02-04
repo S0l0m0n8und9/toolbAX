@@ -45,7 +45,7 @@ public sealed class HelloToolViewModel
 {
     public HelloToolViewModel(IPluginContext ctx)
     {
-        Title = "Hello from FO Toolbox";
+        Title = "Hello from FOtoolbox";
         EnvironmentName = ctx.CurrentEnv.Name;
         BaseUrl = ctx.CurrentEnv.BaseUrl;
         ODataStatus = ctx.OData is null ? "OData client not wired yet" : "OData client available";

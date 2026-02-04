@@ -12,7 +12,6 @@ using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Windows;
-using FoToolbox.Updater;
 
 namespace FoToolbox.Host;
 
@@ -22,7 +21,7 @@ namespace FoToolbox.Host;
 public partial class MainWindow : Window
 {
     private readonly MainWindowViewModel _vm;
-    private readonly string _profileDbPath = Path.Combine(AppContext.BaseDirectory, "profile.db");
+    private readonly string _profileDbPath = ProfilePaths.ResolveProfileDbPath();
     private ProfilesView? _profilesView;
 
     public MainWindow()
@@ -41,7 +40,7 @@ public partial class MainWindow : Window
         var profile = ResolveProfileAsync(_profileDbPath).GetAwaiter().GetResult();
         if (profile is null)
         {
-            MessageBox.Show("No environment profiles found. Seed data could not be created.", "FO Toolbox", MessageBoxButton.OK, MessageBoxImage.Warning);
+            MessageBox.Show("No environment profiles found. Seed data could not be created.", "FOtoolbox", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
 
@@ -50,7 +49,7 @@ public partial class MainWindow : Window
         ApplyProfile(env, sp);
 
         // Kick off a background update check (fire-and-forget).
-        _ = CheckForUpdatesAsync();
+        _ = _vm.CheckUpdatesAsync();
     }
 
     private void ApplyProfile(FoEnvironment env, ServicePrincipal sp)
@@ -63,44 +62,6 @@ public partial class MainWindow : Window
         var manager = new PluginManager(pluginRoot, env, odata, logger, trust);
         var plugins = manager.Discover();
         _vm.LoadPlugins(plugins, _profilesView);
-    }
-
-    private async Task CheckForUpdatesAsync()
-    {
-        try
-        {
-            var channel = ReadChannelConfig();
-            if (channel is null) return;
-
-            var http = new HttpClient();
-            var fetcher = new ResilientUpdateFetcher(new HttpUpdateFetcher(http));
-            var loader = new UpdateManifestLoader(fetcher);
-            var updater = new UpdaterClient(fetcher, Path.Combine(AppContext.BaseDirectory, "updates"));
-            var orchestrator = new UpdateOrchestrator(loader, updater, channel);
-
-            var staged = await orchestrator.CheckAndStageAsync();
-            if (!string.IsNullOrEmpty(staged))
-            {
-                // TODO: surface to UI that an update is staged; for now just log to debug console.
-                Console.WriteLine($"Update staged at {staged}");
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.WriteLine($"Update check failed: {ex.Message}");
-        }
-    }
-
-    private UpdateChannelConfig? ReadChannelConfig()
-    {
-        var channel = Environment.GetEnvironmentVariable("FOTOOLBOX_UPDATE_CHANNEL") ?? "stable";
-        var manifestUrl = Environment.GetEnvironmentVariable("FOTOOLBOX_UPDATE_MANIFEST");
-        if (string.IsNullOrWhiteSpace(manifestUrl))
-        {
-            return null;
-        }
-
-        return new UpdateChannelConfig(channel, new Uri(manifestUrl));
     }
 
     private static async Task<(FoEnvironment Env, ServicePrincipal Sp)?> ResolveProfileAsync(string dbPath)
@@ -161,4 +122,5 @@ public partial class MainWindow : Window
 
         return candidate;
     }
+
 }

@@ -1,20 +1,23 @@
-# FO Toolbox Installer (WiX Skeleton)
+# FOtoolbox Installer (WiX Skeleton)
 
-This folder holds the WiX scaffolding for FO Toolbox MSI packaging and notes on the update pipeline.
+This folder holds the WiX scaffolding for FOtoolbox MSI packaging and notes on the update pipeline.
 
 Current state
 -------------
-- MSI is per-user by default (`InstallScope=perUser`) and installs to `%LOCALAPPDATA%\FoToolbox`.
-- Components include host binaries and bundled plugins under `%LOCALAPPDATA%\FoToolbox\bin\` (`plugins\` under `bin\`).
-- `profile.db` is created on first run under `%LOCALAPPDATA%\FoToolbox\bin\profile.db` and is preserved on uninstall/upgrade (not packaged into the MSI).
+- Installer UI now offers a per-user vs per-machine choice on the **Options** page.
+- Defaults are `ProductName=FOtoolbox`, `Manufacturer=BenJones`, `Version=1.0.0`, `BundleVersion=1.0.0.0`, and `LicenseUrl=https://opensource.org/licenses/MIT`.
+- Default ProductCodes: user `{F057FFFE-9295-4B8D-A60F-41CB15E1ABB6}`, machine `{FF396263-DD51-4616-B0E0-7D1F96E9D0D8}`.
+- Components include host binaries and bundled plugins under `%LOCALAPPDATA%\FoToolbox\bin\` (per-user) or `%ProgramFiles%\FoToolbox\bin\` (per-machine).
+- `profile.db` is created on first run under `%LOCALAPPDATA%\FoToolbox\profile.db` and is preserved on uninstall/upgrade (not packaged into the MSI).
 - Profiles can be managed in-app via the built-in **Profiles** tool; client secrets are stored via DPAPI in `profile.db` (`SecretVault`).
-- Start menu shortcut (Program Menu\FoToolbox\FO Toolbox) launches `%LOCALAPPDATA%\FoToolbox\bin\FoToolbox.Host.exe`.
-- Burn bootstrapper (`Bundle.wxs`) chains .NET Desktop Runtime 8.0 (registry-detected) then `FoToolbox.msi`.
+- Start menu shortcut (Program Menu\FOtoolbox\FOtoolbox) launches `%LOCALAPPDATA%\FoToolbox\bin\FoToolbox.Host.exe`.
+- Burn bootstrapper (`Bundle.wxs`) chains .NET Desktop Runtime 8.0 (registry-detected) then either `FoToolbox.User.msi` or `FoToolbox.Machine.msi` based on the install-scope checkbox.
 - Runtime bootstrapper uses variables:
   - `NetDesktopRuntimeVersion` (default `8.0.22`)
   - `NetDesktopRuntimeExe` (path to the runtime installer, default `redist/windowsdesktop-runtime-8.0.22-win-x64.exe` when building from `install/`)
   - `NetDesktopRuntimeUrl` (fallback download URL; default aka.ms alias)
-  - `FoToolboxMsiPath` (path to the MSI to chain; default `FoToolbox.msi`)
+  - `FoToolboxUserMsiPath` (path to the per-user MSI; default `FoToolbox.User.msi`)
+  - `FoToolboxMachineMsiPath` (path to the per-machine MSI; default `FoToolbox.Machine.msi`)
 - `FoToolboxFiles.wxs` expects `SourceDir` to point at a published output containing host dependencies and bundled plugins (example below).
 
 Still required from humans
@@ -22,7 +25,7 @@ Still required from humans
 - Provide the actual .NET Desktop Runtime installer file at `NetDesktopRuntimeExe` (or override the path) before building the bundle.
 - Confirm/lock ProductCode, UpgradeCode, Bundle UpgradeCode, and Manufacturer/ProductName values for release.
 - Supply code-signing certificate/thumbprint; sign MSI/CABs/bundle during build.
-- Decide final install scope (per-user vs per-machine) if requirements change.
+- Decide if you want to lock scope (build only one MSI and skip the scope checkbox).
 - Wire MSI build/publish pipeline with the WiX CLI (`wix` v6) using the variables above; verify file paths under `FoToolboxFiles.wxs` match your publish layout.
 - Channel strategy: if stable/beta MSIs are needed in parallel, adjust `ProductName`/UpgradeCode pairs accordingly.
 
@@ -36,7 +39,7 @@ If you see `error WIX0118: Additional argument '-dSomething=...' was unexpected`
 If you want a single command that:
 - `dotnet publish`es the host into a `SourceDir`,
 - copies `HelloPlugin.dll` + `QueryBuilder.dll` into `SourceDir\plugins\`,
-- builds `FoToolbox.msi` and (optionally) `FoToolboxBundle.exe`,
+- builds `FoToolbox.User.msi` + `FoToolbox.Machine.msi` and (optionally) `FoToolboxBundle.exe`,
 
 run:
 
@@ -45,29 +48,57 @@ cd install
 .\build.ps1
 ```
 
+Optional overrides for branding/codes (examples):
+```powershell
+.\build.ps1 `
+  -ProductName "FOtoolbox" `
+  -Manufacturer "Your Org" `
+  -Version "1.0.0" `
+  -ProductCodeUser "{GUID-HERE}" `
+  -ProductCodeMachine "{GUID-HERE}" `
+  -UpgradeCode "{GUID-HERE}" `
+  -BundleUpgradeCode "{GUID-HERE}" `
+  -BundleVersion "1.0.0.0" `
+  -LicenseUrl "https://example.com/license"
+```
+
 1. Install the tool once: `dotnet tool install --global wix` (or update with `dotnet tool update --global wix`).
-2. Build the MSI:
+2. Build the MSIs:
    ```powershell
    cd install
    wix build .\FoToolbox.wxs .\FoToolboxFiles.wxs `
      -d SourceDir=..\artifacts\FoToolbox `
-     -o .\FoToolbox.msi
+     -d InstallScope=perUser `
+     -d InstallRoot=LocalAppDataFolder `
+     -d StartMenuRoot=ProgramMenuFolder `
+     -d StartMenuRegistryRoot=HKCU `
+     -o .\FoToolbox.User.msi
+
+  wix build .\FoToolbox.wxs .\FoToolboxFiles.wxs `
+    -d SourceDir=..\artifacts\FoToolbox `
+    -d InstallScope=perMachine `
+    -d InstallRoot=ProgramFiles64Folder `
+    -d StartMenuRoot=ProgramMenuFolder `
+    -d StartMenuRegistryRoot=HKLM `
+    -o .\FoToolbox.Machine.msi
    ```
-3. Build the bootstrapper (bundle) after the MSI exists:
+3. Build the bootstrapper (bundle) after the MSIs exist:
    ```powershell
    wix build .\Bundle.wxs `
-     -d FoToolboxMsiPath=FoToolbox.msi `
+     -d FoToolboxUserMsiPath=FoToolbox.User.msi `
+     -d FoToolboxMachineMsiPath=FoToolbox.Machine.msi `
      -o .\FoToolboxBundle.exe `
      -ext WixToolset.BootstrapperApplications.wixext `
      -ext WixToolset.Util.wixext
    ```
 
-All command-line paths can be changed; key requirement is that `SourceDir` points at the published host output (with bundled plugins) and `FoToolboxMsiPath` points at the MSI you just built.
+All command-line paths can be changed; key requirement is that `SourceDir` points at the published host output (with bundled plugins) and the user/machine MSI paths point at the files you just built.
 
 If you prefer building from the repo root (instead of `cd install`), override the relative paths:
 ```powershell
 wix build install/Bundle.wxs `
-  -d FoToolboxMsiPath=install/FoToolbox.msi `
+  -d FoToolboxUserMsiPath=install/FoToolbox.User.msi `
+  -d FoToolboxMachineMsiPath=install/FoToolbox.Machine.msi `
   -d NetDesktopRuntimeExe=install/redist/windowsdesktop-runtime-8.0.22-win-x64.exe `
   -o install/FoToolboxBundle.exe `
   -ext WixToolset.BootstrapperApplications.wixext `
@@ -79,15 +110,49 @@ wix build install/Bundle.wxs `
 Runtime env vars used by the host:
 - `FOTOOLBOX_UPDATE_MANIFEST` — URL to JSON array of packages.
 - `FOTOOLBOX_UPDATE_CHANNEL` — channel name (e.g., `stable`, `beta`); defaults to `stable`.
+- `FOTOOLBOX_UPDATE_SIGNER_THUMBPRINT` — optional Authenticode signer thumbprint to enforce for staged MSIs.
 
 Manifest JSON shape (example):
 ```json
 [
-  { "channel": "stable", "uri": "https://cdn.example.com/fo-toolbox-0.2.0.msi", "hash": "ABC123..." },
-  { "channel": "beta",   "uri": "https://cdn.example.com/fo-toolbox-0.3.0-beta.msi", "hash": "DEF456..." }
+  { "channel": "stable", "version": "1.0.0", "uri": "https://cdn.example.com/footoolbox-1.0.0.msi", "hash": "ABC123..." },
+  {
+    "channel": "beta",
+    "version": "1.1.0",
+    "uri": "https://cdn.example.com/footoolbox-1.1.0.msi",
+    "hash": "DEF456...",
+    "rollbackUri": "https://cdn.example.com/footoolbox-1.0.0.msi",
+    "rollbackHash": "ABC123..."
+  }
 ]
 ```
-The updater will pick the latest entry per channel, SHA256-verify the payload, and stage it under `updates/`.
+The updater will pick the latest entry per channel (highest `version` when parseable, otherwise last entry), SHA256-verify the payload, and stage it under `updates/staged.msi`. If `rollbackUri` + `rollbackHash` are provided, it will also stage `updates/rollback.msi`.
+For per-machine installs, ensure the manifest points at the per-machine MSI. For per-user installs, point at the per-user MSI.
+See `install/update-manifest.sample.json` for a full example file.
+Note: `version` uses `System.Version` parsing, so stick to numeric formats like `0.2.0` or rely on array ordering for pre-release labels.
+
+Local update dev
+----------------
+1. Build MSIs and copy them to `install/` (the default output from `.\build.ps1` already lands here).
+2. Compute the SHA256 for the MSI you want to test (user or machine):
+   ```powershell
+   Get-FileHash -Algorithm SHA256 .\FoToolbox.User.msi
+   ```
+3. Update `install/update-manifest.local.json` with the hash and correct MSI filename.
+4. Run the local update server:
+   ```powershell
+   cd install
+   .\serve-update.ps1 -Root .\
+   ```
+5. Launch FOtoolbox with:
+   - `FOTOOLBOX_UPDATE_MANIFEST=http://localhost:8787/update-manifest.local.json`
+   - `FOTOOLBOX_UPDATE_CHANNEL=stable`
+
+Versioning note
+---------------
+- MSI `Version` must be three-part (e.g., `1.0.0`).
+- Bundle `BundleVersion` can be four-part (e.g., `1.0.0.0`).
+- `install/build.ps1` will trim a four-part `-Version` to three-part for MSI and reuse the original as `BundleVersion` if none is provided.
 
 ## Packaging notes
 

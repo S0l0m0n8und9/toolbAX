@@ -26,8 +26,8 @@ public class UpdateManifestLoaderTests
     {
         var manifest = """
         [
-          {"channel":"stable","uri":"http://a","hash":"H1"},
-          {"channel":"stable","uri":"http://b","hash":"H2"}
+          {"channel":"stable","uri":"http://a","hash":"H1","version":"0.1.0"},
+          {"channel":"stable","uri":"http://b","hash":"H2","version":"0.2.0"}
         ]
         """;
         var loader = new UpdateManifestLoader(new FakeFetcher(manifest));
@@ -35,6 +35,7 @@ public class UpdateManifestLoaderTests
         Assert.NotNull(info);
         Assert.Contains("http://b", info!.PackageUri.ToString());
         Assert.Equal("H2", info.Hash);
+        Assert.Equal("0.2.0", info.Version);
     }
 
     [Fact]
@@ -44,5 +45,20 @@ public class UpdateManifestLoaderTests
         var loader = new UpdateManifestLoader(new FakeFetcher(manifest));
         var info = await loader.LoadLatestAsync(new UpdateChannelConfig("stable", new Uri("http://manifest")));
         Assert.Null(info);
+    }
+
+    [Fact]
+    public async Task Parses_Rollback_Fields_When_Present()
+    {
+        var manifest = """
+        [
+          {"channel":"stable","uri":"http://a","hash":"H1","rollbackUri":"http://rb","rollbackHash":"RH"}
+        ]
+        """;
+        var loader = new UpdateManifestLoader(new FakeFetcher(manifest));
+        var info = await loader.LoadLatestAsync(new UpdateChannelConfig("stable", new Uri("http://manifest")));
+        Assert.NotNull(info);
+        Assert.Equal(new Uri("http://rb"), info!.RollbackUri);
+        Assert.Equal("RH", info.RollbackHash);
     }
 }

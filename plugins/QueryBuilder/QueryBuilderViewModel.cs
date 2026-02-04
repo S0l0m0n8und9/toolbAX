@@ -1,10 +1,12 @@
 using FoToolbox.Core.OData;
 using FoToolbox.Core.Export;
+using FoToolbox.Core.Profiles;
 using FoToolbox.SDK.Plugins;
 using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Data;
 using System.IO;
@@ -14,6 +16,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Data;
 using System.Windows.Input;
 
 namespace QueryBuilderPlugin;
@@ -24,12 +27,17 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     private readonly IMetadataProvider _metadataProvider;
     private readonly SavedQueryStore _savedStore;
     private ODataMetadata? _metadata;
-    private readonly ObservableCollection<string> _entities = new();
-    private readonly ObservableCollection<string> _fields = new();
+    private readonly ObservableCollection<EntityItem> _entities = new();
+    private readonly ObservableCollection<FieldItem> _fields = new();
     private readonly ObservableCollection<string> _navigation = new();
     private readonly ObservableCollection<string> _selectedFields = new();
     private readonly ObservableCollection<SavedQueryItem> _savedQueries = new();
+    private readonly HashSet<FilterNodeViewModel> _filterSubscriptions = new();
     private string? _selectedEntity;
+    private string? _entitySearch;
+    private string? _fieldSearch;
+    private bool _showProperties = true;
+    private bool _showNavigation = true;
     private string? _orderBy;
     private string? _filterText;
     private string? _expandPath;
@@ -37,6 +45,17 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     private string? _company;
     private bool _count;
     private string _status = "Ready";
+    private bool _isLoadingEntities;
+    private string _entityLoadStatus = "Metadata not loaded.";
+    private string _entityListSummary = "0 entities";
+    private string _fieldListSummary = "0 fields";
+    private string _fieldSelectionSummary = "0 selected";
+    private string _selectedEntitySummary = "No entity selected.";
+    private string _filterBuilderPreview = "No builder filter.";
+    private string _effectiveFilterPreview = "No filter.";
+    private string _filterUsageHint = "Builder filter in use.";
+    private string _expandSummary = "No expand selected.";
+    private string _queryPreview = "Select an entity to preview the query.";
     private string? _nextLink;
     private bool _expandInvalid;
     private bool _hasMoreNextLink;
@@ -51,18 +70,25 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     {
         _ctx = ctx;
         _metadataProvider = metadataProvider;
-        _savedStore = new SavedQueryStore(Path.Combine(AppContext.BaseDirectory, "profile.db"));
-        Entities = new ReadOnlyObservableCollection<string>(_entities);
-        Fields = new ReadOnlyObservableCollection<string>(_fields);
+        _savedStore = new SavedQueryStore(ProfilePaths.ResolveProfileDbPath());
+        Entities = new ReadOnlyObservableCollection<EntityItem>(_entities);
+        Fields = new ReadOnlyObservableCollection<FieldItem>(_fields);
         NavigationHints = new ReadOnlyObservableCollection<string>(_navigation);
         SelectedFields = new ReadOnlyObservableCollection<string>(_selectedFields);
         SavedQueries = new ReadOnlyObservableCollection<SavedQueryItem>(_savedQueries);
+        EntitiesView = CollectionViewSource.GetDefaultView(_entities);
+        EntitiesView.Filter = EntityFilter;
+        FieldsView = CollectionViewSource.GetDefaultView(_fields);
+        FieldsView.Filter = FieldFilter;
 
         LoadEntitiesCommand = new AsyncRelayCommand(LoadEntitiesAsync);
         PreviewCommand = new AsyncRelayCommand(PreviewAsync);
         AddConditionCommand = new RelayCommand(_ => AddCondition(RootGroup));
         AddGroupCommand = new RelayCommand(_ => AddGroup(RootGroup));
         RemoveNodeCommand = new RelayCommand(RemoveNode);
+        SelectAllFieldsCommand = new RelayCommand(_ => SelectAllFields());
+        SelectVisibleFieldsCommand = new RelayCommand(_ => SelectVisibleFields());
+        ClearFieldSelectionCommand = new RelayCommand(_ => ClearSelectedFields());
         ExportPageCommand = new AsyncRelayCommand(ExportPageAsync);
         ExportAllCommand = new AsyncRelayCommand(ExportAllAsync);
         LoadMoreCommand = new AsyncRelayCommand(LoadMoreAsync);
@@ -71,15 +97,24 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         DeleteSavedQueryCommand = new AsyncRelayCommand(DeleteSelectedQueryAsync);
         RenameSavedQueryCommand = new AsyncRelayCommand(RenameSelectedQueryAsync);
 
+        HookFilterNode(RootGroup);
+
+        UpdateEntitySummary();
+        UpdateFieldSummary();
+        UpdateFilterPreview();
+        UpdateExpandSummary();
+
         _ = LoadSavedQueriesAsync();
     }
 
-    public ReadOnlyObservableCollection<string> Entities { get; }
-    public ReadOnlyObservableCollection<string> Fields { get; }
+    public ReadOnlyObservableCollection<EntityItem> Entities { get; }
+    public ReadOnlyObservableCollection<FieldItem> Fields { get; }
     public ReadOnlyObservableCollection<string> NavigationHints { get; }
     public ReadOnlyObservableCollection<string> SelectedFields { get; }
     public ReadOnlyObservableCollection<SavedQueryItem> SavedQueries { get; }
-    public string FilterHint => "Operators: eq/ne/gt/ge/lt/le, startswith(value), endswith(value), contains(*value*). When cross-company is off and a company is set, dataAreaId is injected automatically.";
+    public ICollectionView EntitiesView { get; }
+    public ICollectionView FieldsView { get; }
+    public string FilterHint => "Builder operators: eq/ne/gt/ge/lt/le, startswith(value), endswith(value), contains(*value*). Raw $filter overrides the builder. When cross-company is off and a company is set, dataAreaId is injected automatically.";
 
     public string? SelectedEntity
     {
@@ -96,6 +131,71 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
                 PreviewTable = null;
                 SetNextLink(null);
                 PopulateFieldsForSelection();
+                UpdateSelectedEntitySummary();
+                UpdateFieldSummary();
+                UpdateFilterPreview();
+                UpdateExpandSummary();
+                UpdateQueryPreview();
+            }
+        }
+    }
+
+    public string? EntitySearch
+    {
+        get => _entitySearch;
+        set
+        {
+            if (_entitySearch != value)
+            {
+                _entitySearch = value;
+                OnPropertyChanged();
+                EntitiesView.Refresh();
+                UpdateEntitySummary();
+            }
+        }
+    }
+
+    public string? FieldSearch
+    {
+        get => _fieldSearch;
+        set
+        {
+            if (_fieldSearch != value)
+            {
+                _fieldSearch = value;
+                OnPropertyChanged();
+                FieldsView.Refresh();
+                UpdateFieldSummary();
+            }
+        }
+    }
+
+    public bool ShowProperties
+    {
+        get => _showProperties;
+        set
+        {
+            if (_showProperties != value)
+            {
+                _showProperties = value;
+                OnPropertyChanged();
+                FieldsView.Refresh();
+                UpdateFieldSummary();
+            }
+        }
+    }
+
+    public bool ShowNavigation
+    {
+        get => _showNavigation;
+        set
+        {
+            if (_showNavigation != value)
+            {
+                _showNavigation = value;
+                OnPropertyChanged();
+                FieldsView.Refresh();
+                UpdateFieldSummary();
             }
         }
     }
@@ -103,43 +203,107 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     public string? OrderBy
     {
         get => _orderBy;
-        set { _orderBy = value; OnPropertyChanged(); ResetPaging(); }
+        set { _orderBy = value; OnPropertyChanged(); ResetPaging(); UpdateQueryPreview(); }
     }
 
     public string? FilterText
     {
         get => _filterText;
-        set { _filterText = value; OnPropertyChanged(); ResetPaging(); }
+        set
+        {
+            _filterText = value;
+            OnPropertyChanged();
+            ResetPaging();
+            UpdateFilterPreview();
+            UpdateQueryPreview();
+        }
     }
 
     public string? ExpandPath
     {
         get => _expandPath;
-        set { _expandPath = value; OnPropertyChanged(); ResetPaging(); }
+        set
+        {
+            _expandPath = value;
+            OnPropertyChanged();
+            ResetPaging();
+            UpdateExpandSummary();
+            UpdateQueryPreview();
+        }
     }
 
     public bool CrossCompany
     {
         get => _crossCompany;
-        set { _crossCompany = value; OnPropertyChanged(); ResetPaging(); }
+        set
+        {
+            _crossCompany = value;
+            OnPropertyChanged();
+            ResetPaging();
+            UpdateFilterPreview();
+            UpdateQueryPreview();
+        }
     }
 
     public string? Company
     {
         get => _company;
-        set { _company = value; OnPropertyChanged(); ResetPaging(); }
+        set
+        {
+            _company = value;
+            OnPropertyChanged();
+            ResetPaging();
+            UpdateFilterPreview();
+            UpdateQueryPreview();
+        }
     }
 
     public bool Count
     {
         get => _count;
-        set { _count = value; OnPropertyChanged(); }
+        set { _count = value; OnPropertyChanged(); UpdateQueryPreview(); }
     }
 
     public string Status
     {
         get => _status;
         set { _status = value; OnPropertyChanged(); }
+    }
+
+    public bool IsLoadingEntities
+    {
+        get => _isLoadingEntities;
+        set { _isLoadingEntities = value; OnPropertyChanged(); }
+    }
+
+    public string EntityLoadStatus
+    {
+        get => _entityLoadStatus;
+        set { _entityLoadStatus = value; OnPropertyChanged(); }
+    }
+
+    public string EntityListSummary
+    {
+        get => _entityListSummary;
+        set { _entityListSummary = value; OnPropertyChanged(); }
+    }
+
+    public string FieldListSummary
+    {
+        get => _fieldListSummary;
+        set { _fieldListSummary = value; OnPropertyChanged(); }
+    }
+
+    public string FieldSelectionSummary
+    {
+        get => _fieldSelectionSummary;
+        set { _fieldSelectionSummary = value; OnPropertyChanged(); }
+    }
+
+    public string SelectedEntitySummary
+    {
+        get => _selectedEntitySummary;
+        set { _selectedEntitySummary = value; OnPropertyChanged(); }
     }
 
     public string? ValidationWarning
@@ -152,6 +316,36 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     {
         get => _expandWarning;
         set { _expandWarning = value; OnPropertyChanged(); }
+    }
+
+    public string FilterBuilderPreview
+    {
+        get => _filterBuilderPreview;
+        set { _filterBuilderPreview = value; OnPropertyChanged(); }
+    }
+
+    public string EffectiveFilterPreview
+    {
+        get => _effectiveFilterPreview;
+        set { _effectiveFilterPreview = value; OnPropertyChanged(); }
+    }
+
+    public string FilterUsageHint
+    {
+        get => _filterUsageHint;
+        set { _filterUsageHint = value; OnPropertyChanged(); }
+    }
+
+    public string ExpandSummary
+    {
+        get => _expandSummary;
+        set { _expandSummary = value; OnPropertyChanged(); }
+    }
+
+    public string QueryPreview
+    {
+        get => _queryPreview;
+        set { _queryPreview = value; OnPropertyChanged(); }
     }
 
     public DataView? PreviewTable
@@ -177,6 +371,9 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     public RelayCommand AddConditionCommand { get; }
     public RelayCommand AddGroupCommand { get; }
     public RelayCommand RemoveNodeCommand { get; }
+    public RelayCommand SelectAllFieldsCommand { get; }
+    public RelayCommand SelectVisibleFieldsCommand { get; }
+    public RelayCommand ClearFieldSelectionCommand { get; }
     public AsyncRelayCommand ExportPageCommand { get; }
     public AsyncRelayCommand ExportAllCommand { get; }
     public AsyncRelayCommand LoadMoreCommand { get; }
@@ -188,6 +385,8 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     private async Task LoadEntitiesAsync(CancellationToken cancellationToken)
     {
         Status = "Loading entities...";
+        EntityLoadStatus = "Loading metadata...";
+        IsLoadingEntities = true;
         _entities.Clear();
         _fields.Clear();
         _navigation.Clear();
@@ -198,16 +397,25 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
 
         try
         {
+            var started = DateTime.UtcNow;
             _metadata = await _metadataProvider.GetMetadataAsync(_ctx.CurrentEnv.Id, _ctx.CurrentEnv.BaseUrl, cancellationToken);
             foreach (var entity in _metadata.Entities.OrderBy(e => e.Name))
             {
-                _entities.Add(entity.Name);
+                _entities.Add(new EntityItem(entity.Name, entity.Properties.Count, entity.Navigations.Count));
             }
+            EntitiesView.Refresh();
+            UpdateEntitySummary();
+            EntityLoadStatus = $"Loaded {_entities.Count} entities in {(DateTime.UtcNow - started).TotalSeconds:F1}s.";
             Status = "Pick an entity, then choose fields and filters.";
         }
         catch (Exception ex)
         {
-            Status = $"Metadata load failed: {ex.Message}";
+            EntityLoadStatus = $"Metadata load failed: {ex.Message}";
+            Status = EntityLoadStatus;
+        }
+        finally
+        {
+            IsLoadingEntities = false;
         }
     }
 
@@ -266,16 +474,24 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         var entity = _metadata?.Entities.FirstOrDefault(e => string.Equals(e.Name, _selectedEntity, StringComparison.OrdinalIgnoreCase));
         if (entity is null) return;
 
-        foreach (var prop in entity.Properties)
+        foreach (var prop in entity.Properties.OrderBy(p => p.Name))
         {
-            _fields.Add(prop.Name);
+            var field = new FieldItem(prop.Name, prop.Type, "Property", prop.Nullable);
+            field.SelectionChanged += FieldSelectionChanged;
+            _fields.Add(field);
         }
-        foreach (var nav in entity.Navigations)
+        foreach (var nav in entity.Navigations.OrderBy(n => n.Name))
         {
-            _fields.Add(nav.Name);
+            var field = new FieldItem(nav.Name, nav.Type, "Navigation", nullable: true);
+            field.SelectionChanged += FieldSelectionChanged;
+            _fields.Add(field);
             _navigation.Add(nav.Name);
         }
 
+        FieldsView.Refresh();
+        UpdateFieldSummary();
+        UpdateSelectedEntitySummary();
+        UpdateQueryPreview();
         ResetPaging();
     }
 
@@ -284,13 +500,37 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         _selectedFields.Clear();
         foreach (var item in selectedItems)
         {
-            if (item is string s)
+            if (item is FieldItem field)
+            {
+                field.IsSelected = true;
+                _selectedFields.Add(field.Name);
+            }
+            else if (item is string s)
             {
                 _selectedFields.Add(s);
             }
         }
         OnPropertyChanged(nameof(SelectedFields));
         ResetPaging();
+        UpdateFieldSummary();
+        UpdateQueryPreview();
+    }
+
+    private void FieldSelectionChanged(object? sender, EventArgs e)
+    {
+        RebuildSelectedFields();
+    }
+
+    private void RebuildSelectedFields()
+    {
+        _selectedFields.Clear();
+        foreach (var field in _fields.Where(f => f.IsSelected))
+        {
+            _selectedFields.Add(field.Name);
+        }
+        OnPropertyChanged(nameof(SelectedFields));
+        UpdateFieldSummary();
+        UpdateQueryPreview();
     }
 
     public QueryRequest BuildQueryRequest()
@@ -305,31 +545,52 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     public bool TryBuildQueryRequest(out QueryRequest request)
     {
         request = null!;
+        if (!TryBuildQuerySpec(out var spec, out var issue))
+        {
+            ValidationWarning = issue;
+            if (!string.IsNullOrWhiteSpace(issue))
+            {
+                Status = issue;
+            }
+            return false;
+        }
+
+        request = QueryBuilder.Build(_ctx.CurrentEnv.BaseUrl, spec);
+        return true;
+    }
+
+    private bool TryBuildQuerySpec(out QuerySpec spec, out string? issue)
+    {
+        spec = null!;
+        issue = null;
         ValidationWarning = null;
 
         if (string.IsNullOrWhiteSpace(SelectedEntity))
         {
-            ValidationWarning = "Select an entity before running.";
-            Status = ValidationWarning;
+            issue = "Select an entity before running.";
             return false;
         }
 
-        var (validFilter, filterNode) = BuildFilterAst();
-        if (!validFilter)
+        FilterNode? filterNode = null;
+        if (string.IsNullOrWhiteSpace(FilterText))
         {
-            Status = ValidationWarning ?? "Fix validation issues in the filter builder.";
-            return false;
+            var (validFilter, ast) = BuildFilterAst();
+            if (!validFilter)
+            {
+                issue = ValidationWarning ?? "Fix validation issues in the filter builder.";
+                return false;
+            }
+            filterNode = ast;
         }
 
         var expand = NormalizeExpand();
         if (_expandInvalid)
         {
-            ValidationWarning = ExpandWarning ?? "Invalid expand path.";
-            Status = ValidationWarning!;
+            issue = ExpandWarning ?? "Invalid expand path.";
             return false;
         }
 
-        var spec = new QuerySpec(
+        spec = new QuerySpec(
             Entity: SelectedEntity ?? string.Empty,
             CrossCompany: CrossCompany,
             Company: Company,
@@ -339,8 +600,6 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
             Filter: string.IsNullOrWhiteSpace(FilterText) ? null : FilterText,
             Where: filterNode,
             Expand: expand);
-
-        request = QueryBuilder.Build(_ctx.CurrentEnv.BaseUrl, spec);
         return true;
     }
 
@@ -417,18 +676,243 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     private void AddCondition(FilterGroupViewModel parent)
     {
         parent.Children.Add(new FilterConditionViewModel { Parent = parent, Operator = "eq" });
+        UpdateFilterPreview();
+        UpdateQueryPreview();
     }
 
     private void AddGroup(FilterGroupViewModel parent)
     {
         var group = new FilterGroupViewModel { LogicalOperator = "and", Parent = parent };
         parent.Children.Add(group);
+        UpdateFilterPreview();
+        UpdateQueryPreview();
     }
 
     private void RemoveNode(object? parameter)
     {
         if (parameter is not FilterNodeViewModel node || node.Parent is null) return;
         node.Parent.Children.Remove(node);
+        UpdateFilterPreview();
+        UpdateQueryPreview();
+    }
+
+    private void SelectAllFields()
+    {
+        foreach (var field in _fields)
+        {
+            field.IsSelected = true;
+        }
+        RebuildSelectedFields();
+    }
+
+    private void SelectVisibleFields()
+    {
+        foreach (var item in FieldsView)
+        {
+            if (item is FieldItem field)
+            {
+                field.IsSelected = true;
+            }
+        }
+        RebuildSelectedFields();
+    }
+
+    private void ClearSelectedFields()
+    {
+        foreach (var field in _fields)
+        {
+            field.IsSelected = false;
+        }
+        RebuildSelectedFields();
+    }
+
+    private bool EntityFilter(object? item)
+    {
+        if (item is not EntityItem entity) return false;
+        if (string.IsNullOrWhiteSpace(EntitySearch)) return true;
+        return entity.Name.Contains(EntitySearch.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
+    private bool FieldFilter(object? item)
+    {
+        if (item is not FieldItem field) return false;
+
+        if (!ShowProperties && field.Kind == "Property") return false;
+        if (!ShowNavigation && field.Kind == "Navigation") return false;
+
+        if (string.IsNullOrWhiteSpace(FieldSearch)) return true;
+
+        var term = FieldSearch.Trim();
+        return field.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+            || field.Type.Contains(term, StringComparison.OrdinalIgnoreCase)
+            || field.Kind.Contains(term, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private void UpdateEntitySummary()
+    {
+        var total = _entities.Count;
+        var visible = EntitiesView.Cast<object>().Count();
+        EntityListSummary = $"Showing {visible} of {total} entities";
+    }
+
+    private void UpdateFieldSummary()
+    {
+        var total = _fields.Count;
+        var visible = FieldsView.Cast<object>().Count();
+        var selected = _fields.Count(f => f.IsSelected);
+        FieldListSummary = $"Showing {visible} of {total} fields";
+        FieldSelectionSummary = $"{selected} selected";
+    }
+
+    private void UpdateSelectedEntitySummary()
+    {
+        if (string.IsNullOrWhiteSpace(SelectedEntity))
+        {
+            SelectedEntitySummary = "No entity selected.";
+            return;
+        }
+
+        var entity = _metadata?.Entities.FirstOrDefault(e => string.Equals(e.Name, SelectedEntity, StringComparison.OrdinalIgnoreCase));
+        if (entity is null)
+        {
+            SelectedEntitySummary = "No entity selected.";
+            return;
+        }
+
+        SelectedEntitySummary = $"{entity.Name} | {entity.Properties.Count} fields, {entity.Navigations.Count} nav properties";
+    }
+
+    private void HookFilterNode(FilterNodeViewModel node)
+    {
+        if (_filterSubscriptions.Contains(node)) return;
+        _filterSubscriptions.Add(node);
+        node.PropertyChanged += FilterNodeChanged;
+        if (node is FilterGroupViewModel group)
+        {
+            group.Children.CollectionChanged += FilterChildrenChanged;
+            foreach (var child in group.Children)
+            {
+                HookFilterNode(child);
+            }
+        }
+    }
+
+    private void FilterChildrenChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        if (e.NewItems is not null)
+        {
+            foreach (var item in e.NewItems)
+            {
+                if (item is FilterNodeViewModel node)
+                {
+                    HookFilterNode(node);
+                }
+            }
+        }
+        UpdateFilterPreview();
+        UpdateQueryPreview();
+    }
+
+    private void FilterNodeChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        UpdateFilterPreview();
+        UpdateQueryPreview();
+    }
+
+    private void UpdateFilterPreview()
+    {
+        FilterUsageHint = string.IsNullOrWhiteSpace(FilterText)
+            ? "Builder filter in use."
+            : "Raw filter overrides the builder.";
+
+        var (valid, ast) = BuildFilterAst();
+
+        if (!valid)
+        {
+            FilterBuilderPreview = ValidationWarning ?? "Builder filter has issues.";
+            var effectiveInvalid = BuildEffectiveFilter(null);
+            EffectiveFilterPreview = string.IsNullOrWhiteSpace(effectiveInvalid) ? "No filter." : effectiveInvalid;
+            return;
+        }
+
+        if (ast is null)
+        {
+            FilterBuilderPreview = "No builder filter.";
+        }
+        else
+        {
+            FilterBuilderPreview = RenderFilter(ast);
+        }
+
+        var effective = BuildEffectiveFilter(ast);
+        EffectiveFilterPreview = string.IsNullOrWhiteSpace(effective) ? "No filter." : effective;
+    }
+
+    private string? BuildEffectiveFilter(FilterNode? ast)
+    {
+        string? filter = null;
+
+        if (!string.IsNullOrWhiteSpace(FilterText))
+        {
+            filter = FilterText;
+        }
+        else if (ast is not null)
+        {
+            filter = RenderFilter(ast);
+        }
+
+        if (!CrossCompany && !string.IsNullOrWhiteSpace(Company))
+        {
+            var companyClause = $"dataAreaId eq '{Company}'";
+            filter = string.IsNullOrWhiteSpace(filter) ? companyClause : $"({companyClause}) and ({filter})";
+        }
+
+        return filter;
+    }
+
+    private void UpdateExpandSummary()
+    {
+        var expand = NormalizeExpand();
+        if (string.IsNullOrWhiteSpace(ExpandPath))
+        {
+            ExpandSummary = "No expand selected.";
+        }
+        else if (_expandInvalid)
+        {
+            ExpandSummary = "Invalid expand path. Choose a navigation from the hints list.";
+        }
+        else
+        {
+            ExpandSummary = $"Using $expand={expand}";
+        }
+    }
+
+    private void UpdateQueryPreview()
+    {
+        if (string.IsNullOrWhiteSpace(SelectedEntity))
+        {
+            QueryPreview = "Select an entity to preview the query.";
+            return;
+        }
+
+        if (!TryBuildQuerySpec(out var spec, out var issue))
+        {
+            QueryPreview = $"Preview unavailable: {issue}";
+            return;
+        }
+
+        var request = QueryBuilder.Build(_ctx.CurrentEnv.BaseUrl, spec);
+        QueryPreview = request.Url;
+    }
+
+    private static string RenderFilter(FilterNode node)
+    {
+        return node switch
+        {
+            FilterCondition cond => $"{cond.Field} {cond.Operator} {cond.Value}",
+            FilterGroup group => $"({string.Join($" {group.LogicalOperator} ", group.Children.Select(RenderFilter))})",
+            _ => string.Empty
+        };
     }
 
     private async Task ExportPageAsync(CancellationToken cancellationToken)
@@ -612,13 +1096,16 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         FilterText = item.FilterText;
         ExpandPath = item.Expand;
 
-        PopulateFieldsForSelection();
-        _selectedFields.Clear();
-        foreach (var s in item.Select)
+        if (_fields.Count == 0)
         {
-            _selectedFields.Add(s);
+            PopulateFieldsForSelection();
         }
-        OnPropertyChanged(nameof(SelectedFields));
+        var selected = new HashSet<string>(item.Select ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
+        foreach (var field in _fields)
+        {
+            field.IsSelected = selected.Contains(field.Name);
+        }
+        RebuildSelectedFields();
 
         RootGroup.Children.Clear();
         if (item.FilterRoot is not null)

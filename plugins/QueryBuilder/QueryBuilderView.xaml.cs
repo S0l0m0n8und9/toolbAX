@@ -8,9 +8,5 @@ public partial class QueryBuilderView : UserControl
     {
         InitializeComponent();
         DataContext = vm;
-        FieldsList.SelectionChanged += (_, __) =>
-        {
-            vm.UpdateSelectedFields(FieldsList.SelectedItems);
-        };
     }
 }

@@ -50,6 +50,6 @@ public class UpdateOrchestratorTests
 
         var staged = await orch.CheckAndStageAsync();
         Assert.NotNull(staged);
-        Assert.True(File.Exists(staged));
+        Assert.True(File.Exists(staged!.StagedPath));
     }
 }

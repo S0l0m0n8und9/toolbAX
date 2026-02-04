@@ -1,12 +1,25 @@
 ﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
-  <?define ProductName="FO Toolbox" ?>
-  <?define Manufacturer="Contoso" ?>
-  <?define Version="0.1.0" ?>
+  <?ifndef ProductName?>
+    <?define ProductName="FOtoolbox" ?>
+  <?endif?>
+  <?ifndef Manufacturer?>
+    <?define Manufacturer="BenJones" ?>
+  <?endif?>
+  <?ifndef Version?>
+    <?define Version="1.0.0" ?>
+  <?endif?>
+  <?ifndef InstallScope?>
+    <?define InstallScope="perUserOrMachine" ?>
+  <?endif?>
   <!-- Stable GUIDs (update with org-approved values for release) -->
-  <?define ProductCode="{7A1C7E9C-8DCF-4AA0-9582-257D9F57C97C}" ?>
-  <?define UpgradeCode="{F95A6A1B-00D8-4EC9-B391-3F070C220F12}" ?>
+  <?ifndef ProductCode?>
+    <?define ProductCode="{F057FFFE-9295-4B8D-A60F-41CB15E1ABB6}" ?>
+  <?endif?>
+  <?ifndef UpgradeCode?>
+    <?define UpgradeCode="{5E38A1ED-8CDD-4069-81F2-04C4DF076C11}" ?>
+  <?endif?>
 
-  <Package Name="$(var.ProductName)" Language="1033" Version="$(var.Version)" Manufacturer="$(var.Manufacturer)" UpgradeCode="$(var.UpgradeCode)" Scope="perUser" ProductCode="$(var.ProductCode)">
+  <Package Name="$(var.ProductName)" Language="1033" Version="$(var.Version)" Manufacturer="$(var.Manufacturer)" UpgradeCode="$(var.UpgradeCode)" Scope="$(var.InstallScope)" ProductCode="$(var.ProductCode)">
     
     <MajorUpgrade DowngradeErrorMessage="A newer version of $(var.ProductName) is already installed." />
 

@@ -1,8 +1,8 @@
 using FoToolbox.Core.OData;
+using FoToolbox.Core.Profiles;
 using FoToolbox.SDK.Plugins;
 using Microsoft.Extensions.Logging;
 using System.Windows.Controls;
-using System.IO;
 
 namespace QueryBuilderPlugin;
 
@@ -46,7 +46,7 @@ public sealed class QueryBuilderPlugin : IFoToolPlugin
 
     private static IMetadataProvider CreateDefaultMetadataProvider()
     {
-        var cachePath = Path.Combine(AppContext.BaseDirectory, "metadata.db");
+        var cachePath = ProfilePaths.ResolveAppDataPath("metadata.db");
         return new MetadataProviderAdapter(cachePath);
     }
 }

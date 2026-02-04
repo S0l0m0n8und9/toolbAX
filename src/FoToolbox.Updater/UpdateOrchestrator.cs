@@ -19,7 +19,7 @@ public sealed class UpdateOrchestrator
         _channel = channel;
     }
 
-    public async Task<string?> CheckAndStageAsync(CancellationToken cancellationToken = default)
+    public async Task<UpdateStageResult?> CheckAndStageAsync(CancellationToken cancellationToken = default)
     {
         var info = await _manifestLoader.LoadLatestAsync(_channel, cancellationToken);
         if (info is null) return null;

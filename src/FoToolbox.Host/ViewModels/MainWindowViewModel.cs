@@ -44,6 +44,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     private PluginEntry? _selected;
     private string _updateStatus = "Updates not checked.";
     private string? _stagedUpdatePath;
+    private string? _rollbackUpdatePath;
 
     public PluginEntry? Selected
     {
@@ -66,6 +67,15 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         private set
         {
             _stagedUpdatePath = value;
+            OnPropertyChanged();
+        }
+    }
+    public string? RollbackUpdatePath
+    {
+        get => _rollbackUpdatePath;
+        private set
+        {
+            _rollbackUpdatePath = value;
             OnPropertyChanged();
         }
     }
@@ -112,7 +122,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
 
-    private async Task CheckUpdatesAsync()
+    internal async Task CheckUpdatesAsync()
     {
         if (string.IsNullOrWhiteSpace(ManifestUrl))
         {
@@ -127,17 +137,22 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
             using var http = new HttpClient();
             var fetcher = new ResilientUpdateFetcher(new HttpUpdateFetcher(http));
             var loader = new UpdateManifestLoader(fetcher);
-            var updater = new UpdaterClient(fetcher, Path.Combine(AppContext.BaseDirectory, "updates"));
+            var updater = new UpdaterClient(fetcher, ResolveUpdateRoot());
             var orchestrator = new UpdateOrchestrator(loader, updater, channel);
 
             var staged = await orchestrator.CheckAndStageAsync();
-            if (!string.IsNullOrEmpty(staged))
+            if (staged is not null && !string.IsNullOrEmpty(staged.StagedPath))
             {
-                StagedUpdatePath = staged;
-                UpdateStatus = $"Update staged: {Path.GetFileName(staged)}";
+                StagedUpdatePath = staged.StagedPath;
+                RollbackUpdatePath = staged.RollbackPath;
+                UpdateStatus = RollbackUpdatePath is not null
+                    ? $"Update staged: {Path.GetFileName(staged.StagedPath)} (rollback ready)"
+                    : $"Update staged: {Path.GetFileName(staged.StagedPath)}";
             }
             else
             {
+                StagedUpdatePath = null;
+                RollbackUpdatePath = null;
                 UpdateStatus = "No updates available.";
             }
         }
@@ -187,7 +202,39 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
 
     private Task RollbackUpdateAsync()
     {
-        UpdateStatus = "Rollback not implemented yet.";
+        if (string.IsNullOrWhiteSpace(RollbackUpdatePath))
+        {
+            UpdateStatus = "No rollback package available.";
+            return Task.CompletedTask;
+        }
+
+        if (!File.Exists(RollbackUpdatePath))
+        {
+            UpdateStatus = "Rollback file missing. Re-run update check.";
+            return Task.CompletedTask;
+        }
+
+        try
+        {
+            if (!ValidateSignatureIfConfigured(RollbackUpdatePath))
+            {
+                UpdateStatus = "Rollback signature check failed; aborting.";
+                return Task.CompletedTask;
+            }
+
+            UpdateStatus = "Launching rollback installer...";
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "msiexec.exe",
+                Arguments = $"/i \"{RollbackUpdatePath}\" /qb!",
+                UseShellExecute = true
+            });
+            UpdateStatus = "Rollback installer launched. Follow prompts to complete rollback.";
+        }
+        catch (Exception ex)
+        {
+            UpdateStatus = $"Failed to launch rollback: {ex.Message}";
+        }
         return Task.CompletedTask;
     }
 
@@ -216,6 +263,17 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
             UpdateStatus = $"Signature validation failed: {ex.Message}";
             return false;
         }
+    }
+
+    private static string ResolveUpdateRoot()
+    {
+        var localRoot = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var updatesDir = string.IsNullOrWhiteSpace(localRoot)
+            ? Path.Combine(AppContext.BaseDirectory, "updates")
+            : Path.Combine(localRoot, "FoToolbox", "updates");
+
+        Directory.CreateDirectory(updatesDir);
+        return updatesDir;
     }
 }
 

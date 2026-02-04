@@ -1,0 +1,8 @@
+[
+  {
+    "channel": "stable",
+    "version": "1.0.0",
+    "uri": "http://localhost:8787/FoToolbox.User.msi",
+    "hash": "REPLACE_WITH_SHA256"
+  }
+]

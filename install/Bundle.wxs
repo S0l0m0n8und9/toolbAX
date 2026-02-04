@@ -8,14 +8,36 @@
   <?ifndef NetDesktopRuntimeUrl?>
     <?define NetDesktopRuntimeUrl="https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe" ?>
   <?endif?>
-  <?ifndef FoToolboxMsiPath?>
-    <?define FoToolboxMsiPath="FoToolbox.msi" ?>
+  <?ifndef FoToolboxUserMsiPath?>
+    <?define FoToolboxUserMsiPath="FoToolbox.User.msi" ?>
+  <?endif?>
+  <?ifndef FoToolboxMachineMsiPath?>
+    <?define FoToolboxMachineMsiPath="FoToolbox.Machine.msi" ?>
+  <?endif?>
+  <?ifndef BundleName?>
+    <?define BundleName="FOtoolbox Bundle" ?>
+  <?endif?>
+  <?ifndef BundleVersion?>
+    <?define BundleVersion="1.0.0.0" ?>
+  <?endif?>
+  <?ifndef BundleManufacturer?>
+    <?define BundleManufacturer="BenJones" ?>
+  <?endif?>
+  <?ifndef BundleUpgradeCode?>
+    <?define BundleUpgradeCode="{ED449692-157D-46FC-A96D-AFB178DF60F1}" ?>
+  <?endif?>
+  <?ifndef LicenseUrl?>
+    <?define LicenseUrl="https://opensource.org/licenses/MIT" ?>
   <?endif?>
 
-  <Bundle Name="FO Toolbox Bundle" Version="0.1.0.0" Manufacturer="Contoso" UpgradeCode="{E2339E7F-00EC-49F0-ACCA-7A57F93AA363}">
+  <Bundle Name="$(var.BundleName)" Version="$(var.BundleVersion)" Manufacturer="$(var.BundleManufacturer)" UpgradeCode="$(var.BundleUpgradeCode)">
+    <Variable Name="InstallPerMachine" Type="numeric" Value="0" />
     <BootstrapperApplication>
       <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense"
-                                              LicenseUrl="https://example.com/fo-toolbox-license" />
+                                              ThemeFile="theme\HyperlinkTheme.xml"
+                                              LocalizationFile="theme\HyperlinkTheme.wxl"
+                                              LicenseUrl="$(var.LicenseUrl)"
+                                              LogoFile="theme\logo.png" />
     </BootstrapperApplication>
 
     <Variable Name="NetDesktopRuntime80Version" Type="version" Value="0.0.0" />
@@ -27,7 +49,8 @@
 
     <Chain>
       <PackageGroupRef Id="NetDesktopRuntime80" />
-      <MsiPackage Id="FoToolboxMsi" SourceFile="$(var.FoToolboxMsiPath)" />
+      <MsiPackage Id="FoToolboxMsiUser" SourceFile="$(var.FoToolboxUserMsiPath)" InstallCondition="InstallPerMachine = 0" />
+      <MsiPackage Id="FoToolboxMsiMachine" SourceFile="$(var.FoToolboxMachineMsiPath)" InstallCondition="InstallPerMachine = 1" />
     </Chain>
   </Bundle>
 

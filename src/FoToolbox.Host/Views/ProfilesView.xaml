@@ -9,7 +9,7 @@
              d:DesignHeight="600"
              d:DesignWidth="900">
     <UserControl.Resources>
-        <Style x:Key="VisibleWhenClientSecret" TargetType="{x:Type UIElement}">
+        <Style x:Key="VisibleWhenClientSecret" TargetType="{x:Type FrameworkElement}">
             <Setter Property="Visibility" Value="Collapsed" />
             <Style.Triggers>
                 <DataTrigger Binding="{Binding Selected.Principal.AuthMode}" Value="{x:Static models:AuthMode.ClientSecret}">
@@ -17,7 +17,7 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
-        <Style x:Key="VisibleWhenBearerToken" TargetType="{x:Type UIElement}">
+        <Style x:Key="VisibleWhenBearerToken" TargetType="{x:Type FrameworkElement}">
             <Setter Property="Visibility" Value="Collapsed" />
             <Style.Triggers>
                 <DataTrigger Binding="{Binding Selected.Principal.AuthMode}" Value="{x:Static models:AuthMode.BearerToken}">
@@ -25,7 +25,7 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
-        <Style x:Key="VisibleWhenCertificate" TargetType="{x:Type UIElement}">
+        <Style x:Key="VisibleWhenCertificate" TargetType="{x:Type FrameworkElement}">
             <Setter Property="Visibility" Value="Collapsed" />
             <Style.Triggers>
                 <DataTrigger Binding="{Binding Selected.Principal.AuthMode}" Value="{x:Static models:AuthMode.Certificate}">

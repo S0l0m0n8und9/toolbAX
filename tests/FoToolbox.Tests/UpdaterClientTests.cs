@@ -30,8 +30,8 @@ public class UpdaterClientTests
         var fetcher = new FakeFetcher(data);
         var temp = Directory.CreateTempSubdirectory();
         var client = new UpdaterClient(fetcher, temp.FullName);
-        var path = await client.DownloadAndStageAsync(new UpdatePackageInfo(new Uri("http://test"), hash, "stable"));
-        Assert.True(File.Exists(path));
+        var result = await client.DownloadAndStageAsync(new UpdatePackageInfo(new Uri("http://test"), hash, "stable"));
+        Assert.True(File.Exists(result.StagedPath));
     }
 
     [Fact]
@@ -45,5 +45,27 @@ public class UpdaterClientTests
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             client.DownloadAndStageAsync(new UpdatePackageInfo(new Uri("http://test"), wrongHash, "stable")));
+    }
+
+    [Fact]
+    public async Task DownloadAndStage_Downloads_Rollback_When_Configured()
+    {
+        var data = Encoding.UTF8.GetBytes("hello");
+        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(data));
+        var fetcher = new FakeFetcher(data);
+        var temp = Directory.CreateTempSubdirectory();
+        var client = new UpdaterClient(fetcher, temp.FullName);
+
+        var result = await client.DownloadAndStageAsync(new UpdatePackageInfo(
+            new Uri("http://test"),
+            hash,
+            "stable",
+            "0.1.0",
+            new Uri("http://rollback"),
+            hash));
+
+        Assert.True(File.Exists(result.StagedPath));
+        Assert.NotNull(result.RollbackPath);
+        Assert.True(File.Exists(result.RollbackPath!));
     }
 }
