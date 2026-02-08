@@ -29,6 +29,7 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     private ODataMetadata? _metadata;
     private readonly ObservableCollection<EntityItem> _entities = new();
     private readonly ObservableCollection<FieldItem> _fields = new();
+    private readonly ObservableCollection<FieldItem> _filterFields = new();
     private readonly ObservableCollection<string> _navigation = new();
     private readonly ObservableCollection<string> _selectedFields = new();
     private readonly ObservableCollection<SavedQueryItem> _savedQueries = new();
@@ -73,6 +74,7 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         _savedStore = new SavedQueryStore(ProfilePaths.ResolveProfileDbPath());
         Entities = new ReadOnlyObservableCollection<EntityItem>(_entities);
         Fields = new ReadOnlyObservableCollection<FieldItem>(_fields);
+        FilterFields = new ReadOnlyObservableCollection<FieldItem>(_filterFields);
         NavigationHints = new ReadOnlyObservableCollection<string>(_navigation);
         SelectedFields = new ReadOnlyObservableCollection<string>(_selectedFields);
         SavedQueries = new ReadOnlyObservableCollection<SavedQueryItem>(_savedQueries);
@@ -83,8 +85,8 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
 
         LoadEntitiesCommand = new AsyncRelayCommand(LoadEntitiesAsync);
         PreviewCommand = new AsyncRelayCommand(PreviewAsync);
-        AddConditionCommand = new RelayCommand(_ => AddCondition(RootGroup));
-        AddGroupCommand = new RelayCommand(_ => AddGroup(RootGroup));
+        AddConditionCommand = new RelayCommand(p => AddCondition(p as FilterGroupViewModel ?? RootGroup));
+        AddGroupCommand = new RelayCommand(p => AddGroup(p as FilterGroupViewModel ?? RootGroup));
         RemoveNodeCommand = new RelayCommand(RemoveNode);
         SelectAllFieldsCommand = new RelayCommand(_ => SelectAllFields());
         SelectVisibleFieldsCommand = new RelayCommand(_ => SelectVisibleFields());
@@ -109,12 +111,13 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
 
     public ReadOnlyObservableCollection<EntityItem> Entities { get; }
     public ReadOnlyObservableCollection<FieldItem> Fields { get; }
+    public ReadOnlyObservableCollection<FieldItem> FilterFields { get; }
     public ReadOnlyObservableCollection<string> NavigationHints { get; }
     public ReadOnlyObservableCollection<string> SelectedFields { get; }
     public ReadOnlyObservableCollection<SavedQueryItem> SavedQueries { get; }
     public ICollectionView EntitiesView { get; }
     public ICollectionView FieldsView { get; }
-    public string FilterHint => "Builder operators: eq/ne/gt/ge/lt/le, startswith(value), endswith(value), contains(*value*). Raw $filter overrides the builder. When cross-company is off and a company is set, dataAreaId is injected automatically.";
+    public string FilterHint => "Builder operators: eq/ne/gt/ge/lt/le, startswith(field,'value'), endswith(field,'value'), contains(field,'value'). Raw $filter overrides the builder. When cross-company is off and a company is set, dataAreaId is injected automatically.";
 
     public string? SelectedEntity
     {
@@ -126,6 +129,7 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
                 _selectedEntity = value;
                 OnPropertyChanged();
                 _fields.Clear();
+                _filterFields.Clear();
                 _navigation.Clear();
                 _selectedFields.Clear();
                 PreviewTable = null;
@@ -389,6 +393,7 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         IsLoadingEntities = true;
         _entities.Clear();
         _fields.Clear();
+        _filterFields.Clear();
         _navigation.Clear();
         _selectedFields.Clear();
         RootGroup.Children.Clear();
@@ -479,6 +484,7 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
             var field = new FieldItem(prop.Name, prop.Type, "Property", prop.Nullable);
             field.SelectionChanged += FieldSelectionChanged;
             _fields.Add(field);
+            _filterFields.Add(field);
         }
         foreach (var nav in entity.Navigations.OrderBy(n => n.Name))
         {
@@ -614,6 +620,11 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
             ExpandWarning = "Expand limited to 1 level; using the first segment only.";
         }
         var expand = parts[0];
+        if (_navigation.Count == 0)
+        {
+            ExpandWarning = (ExpandWarning is null ? string.Empty : $"{ExpandWarning} ") + "Load entities to validate expand.";
+            return expand;
+        }
         if (_navigation.Count > 0 && !_navigation.Contains(expand))
         {
             ExpandWarning = (ExpandWarning is null ? string.Empty : $"{ExpandWarning} ") + "Pick a navigation from the hints list.";
@@ -825,6 +836,25 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
             ? "Builder filter in use."
             : "Raw filter overrides the builder.";
 
+        if (!string.IsNullOrWhiteSpace(FilterText))
+        {
+            if (RootGroup.Children.Count == 0)
+            {
+                FilterBuilderPreview = "No builder filter.";
+            }
+            else
+            {
+                var (validRawOverride, astRawOverride) = BuildFilterAst();
+                FilterBuilderPreview = validRawOverride && astRawOverride is not null
+                    ? RenderFilter(astRawOverride)
+                    : "Builder has issues (ignored due to raw filter).";
+            }
+
+            var effectiveOverride = BuildEffectiveFilter(null);
+            EffectiveFilterPreview = string.IsNullOrWhiteSpace(effectiveOverride) ? "No filter." : effectiveOverride;
+            return;
+        }
+
         var (valid, ast) = BuildFilterAst();
 
         if (!valid)
@@ -909,10 +939,20 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     {
         return node switch
         {
-            FilterCondition cond => $"{cond.Field} {cond.Operator} {cond.Value}",
+            FilterCondition cond => RenderCondition(cond),
             FilterGroup group => $"({string.Join($" {group.LogicalOperator} ", group.Children.Select(RenderFilter))})",
             _ => string.Empty
         };
+    }
+
+    private static string RenderCondition(FilterCondition cond)
+    {
+        if (cond.Operator is "startswith" or "endswith" or "contains")
+        {
+            return $"{cond.Operator}({cond.Field},{cond.Value})";
+        }
+
+        return $"{cond.Field} {cond.Operator} {cond.Value}";
     }
 
     private async Task ExportPageAsync(CancellationToken cancellationToken)

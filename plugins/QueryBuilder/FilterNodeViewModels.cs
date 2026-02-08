@@ -1,6 +1,7 @@
 using FoToolbox.Core.OData;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Runtime.CompilerServices;
 using System.Text;
@@ -68,14 +69,31 @@ public sealed class FilterConditionViewModel : FilterNodeViewModel
     private string FormatValue()
     {
         var raw = Value ?? string.Empty;
-        var sanitized = raw.Replace("'", "''");
+        var trimmed = raw.Trim();
+        var sanitized = trimmed.Replace("'", "''");
         if (Operator is "startswith" or "endswith" or "contains")
         {
             return $"'{sanitized}'";
         }
-        if (raw.StartsWith("'") && raw.EndsWith("'"))
+        if (trimmed.StartsWith("'") && trimmed.EndsWith("'"))
         {
-            return raw;
+            return trimmed;
+        }
+        if (string.Equals(trimmed, "null", StringComparison.OrdinalIgnoreCase))
+        {
+            return "null";
+        }
+        if (string.Equals(trimmed, "true", StringComparison.OrdinalIgnoreCase))
+        {
+            return "true";
+        }
+        if (string.Equals(trimmed, "false", StringComparison.OrdinalIgnoreCase))
+        {
+            return "false";
+        }
+        if (decimal.TryParse(trimmed, NumberStyles.Float, CultureInfo.InvariantCulture, out _))
+        {
+            return trimmed;
         }
         return $"'{sanitized}'";
     }

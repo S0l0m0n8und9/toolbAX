@@ -86,9 +86,19 @@ public static class QueryBuilder
     {
         return node switch
         {
-            FilterCondition cond => $"{cond.Field} {cond.Operator} {cond.Value}",
+            FilterCondition cond => RenderCondition(cond),
             FilterGroup group => $"({string.Join($" {group.LogicalOperator} ", group.Children.Select(RenderFilter))})",
             _ => throw new ArgumentOutOfRangeException(nameof(node), "Unknown filter node.")
         };
+    }
+
+    private static string RenderCondition(FilterCondition cond)
+    {
+        if (cond.Operator is "startswith" or "endswith" or "contains")
+        {
+            return $"{cond.Operator}({cond.Field},{cond.Value})";
+        }
+
+        return $"{cond.Field} {cond.Operator} {cond.Value}";
     }
 }

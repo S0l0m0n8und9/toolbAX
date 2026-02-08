@@ -33,4 +33,14 @@ public class QuerySpecFilterTests
 
         Assert.Contains("$filter=%28dataAreaId%20eq%20%27USMF%27%29%20and%20%28Name%20eq%20%27Alice%27%29", req.Url);
     }
+
+    [Fact]
+    public void Renders_Function_Filter_Ast()
+    {
+        var ast = new FilterCondition("Name", "contains", "'foo'");
+        var spec = new QuerySpec("Customers", Where: ast);
+        var req = QueryBuilder.Build("https://contoso.operations.dynamics.com", spec);
+
+        Assert.Contains("$filter=contains%28Name%2C%27foo%27%29", req.Url);
+    }
 }

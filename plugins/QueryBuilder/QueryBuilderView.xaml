@@ -134,11 +134,11 @@
                                     <DataTemplate DataType="{x:Type local:FilterConditionViewModel}">
                                         <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
                                             <ComboBox Width="200"
-                                                      ItemsSource="{Binding DataContext.Fields, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                      ItemsSource="{Binding DataContext.FilterFields, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                                       DisplayMemberPath="Name"
                                                       SelectedValuePath="Name"
                                                       SelectedValue="{Binding Field, Mode=TwoWay}" />
-                                            <ComboBox Width="80" Margin="4,0,0,0" SelectedValue="{Binding Operator, Mode=TwoWay}">
+                                            <ComboBox Width="80" Margin="4,0,0,0" SelectedValue="{Binding Operator, Mode=TwoWay}" SelectedValuePath="Content">
                                                 <ComboBoxItem Content="eq" />
                                                 <ComboBoxItem Content="ne" />
                                                 <ComboBoxItem Content="gt" />

@@ -116,4 +116,19 @@ public class QueryBuilderViewModelTests
         Assert.False(ok);
         Assert.NotNull(vm.ValidationWarning);
     }
+
+    [Fact]
+    public async Task Raw_Filter_Overrides_Builder_Errors()
+    {
+        var vm = new QueryBuilderViewModel(new FakeContext(), new FakeMetadataProvider());
+        await vm.LoadEntitiesCommand.ExecuteAsync();
+        vm.SelectedEntity = "Customers";
+        vm.RootGroup.Children.Add(new FilterConditionViewModel { Field = string.Empty, Operator = "eq", Value = string.Empty });
+        vm.FilterText = "AccountNumber eq 'A0001'";
+
+        var ok = vm.TryBuildQueryRequest(out var request);
+
+        Assert.True(ok);
+        Assert.Contains("$filter=AccountNumber%20eq%20%27A0001%27", request.Url);
+    }
 }
