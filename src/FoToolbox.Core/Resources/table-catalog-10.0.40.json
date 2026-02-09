@@ -1,0 +1,39 @@
+{
+  "version": "10.0.40",
+  "source": "Embedded",
+  "updatedUtc": "2026-02-09T00:00:00Z",
+  "tables": [
+    {
+      "name": "CustTable",
+      "label": "Customers",
+      "isView": false,
+      "configurationKey": null,
+      "isDeprecated": false,
+      "notes": null
+    },
+    {
+      "name": "SalesTable",
+      "label": "Sales orders",
+      "isView": false,
+      "configurationKey": null,
+      "isDeprecated": false,
+      "notes": null
+    },
+    {
+      "name": "InventTable",
+      "label": "Released products",
+      "isView": false,
+      "configurationKey": null,
+      "isDeprecated": false,
+      "notes": null
+    },
+    {
+      "name": "DirPartyTable",
+      "label": "Global address book",
+      "isView": false,
+      "configurationKey": null,
+      "isDeprecated": false,
+      "notes": null
+    }
+  ]
+}

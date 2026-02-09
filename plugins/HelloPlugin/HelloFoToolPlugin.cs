@@ -19,7 +19,7 @@ public sealed class HelloFoToolPlugin : IFoToolPlugin
         Id = Id,
         Name = "Hello Plugin",
         Version = Version.ToString(),
-        MinSdk = "0.1.0",
+        MinSdk = "0.2.0",
         Capabilities = new[] { "OData.Read" }
     };
 

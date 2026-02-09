@@ -1,5 +1,6 @@
 using Microsoft.Data.Sqlite;
 using System;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -32,22 +33,37 @@ CREATE TABLE IF NOT EXISTS MetadataCache(
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
-    public async Task<(string ETag, string RawXml)?> GetAsync(string envId, CancellationToken cancellationToken = default)
+    public async Task<ODataMetadataCacheEntry?> GetEntryAsync(string envId, CancellationToken cancellationToken = default)
     {
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(cancellationToken);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT ETag, RawXml FROM MetadataCache WHERE EnvId = $id LIMIT 1";
+        cmd.CommandText = "SELECT ETag, RawXml, UpdatedUtc FROM MetadataCache WHERE EnvId = $id LIMIT 1";
         cmd.Parameters.AddWithValue("$id", envId);
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-        if (await reader.ReadAsync(cancellationToken))
+        if (!await reader.ReadAsync(cancellationToken))
         {
-            var etag = reader.IsDBNull(0) ? null : reader.GetString(0);
-            var xml = reader.GetString(1);
-            return (etag ?? string.Empty, xml);
+            return null;
         }
 
-        return null;
+        var etag = reader.IsDBNull(0) ? null : reader.GetString(0);
+        var xml = reader.GetString(1);
+        var updatedText = reader.IsDBNull(2) ? null : reader.GetString(2);
+        var updatedUtc = DateTime.TryParse(updatedText, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var parsed)
+            ? parsed
+            : DateTime.MinValue;
+        return new ODataMetadataCacheEntry(etag, xml, updatedUtc);
+    }
+
+    public async Task<(string ETag, string RawXml)?> GetAsync(string envId, CancellationToken cancellationToken = default)
+    {
+        var entry = await GetEntryAsync(envId, cancellationToken);
+        if (entry is null)
+        {
+            return null;
+        }
+
+        return (entry.ETag ?? string.Empty, entry.RawXml);
     }
 
     public async Task SaveAsync(string envId, string? etag, string rawXml, CancellationToken cancellationToken = default)
@@ -68,4 +84,19 @@ ON CONFLICT(EnvId) DO UPDATE SET
         cmd.Parameters.AddWithValue("$ts", DateTime.UtcNow.ToString("o"));
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
+
+    public async Task<DateTime> TouchAsync(string envId, CancellationToken cancellationToken = default)
+    {
+        var now = DateTime.UtcNow;
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "UPDATE MetadataCache SET UpdatedUtc = $ts WHERE EnvId = $id";
+        cmd.Parameters.AddWithValue("$ts", now.ToString("o"));
+        cmd.Parameters.AddWithValue("$id", envId);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+        return now;
+    }
 }
+
+public sealed record ODataMetadataCacheEntry(string? ETag, string RawXml, DateTime UpdatedUtc);

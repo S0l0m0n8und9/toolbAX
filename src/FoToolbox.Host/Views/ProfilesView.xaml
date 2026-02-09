@@ -108,6 +108,7 @@
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
                             <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Client ID" VerticalAlignment="Center" />
@@ -132,12 +133,18 @@
                         <PasswordBox x:Name="BearerTokenBox" Grid.Row="4" Grid.Column="1" Margin="0,6,0,0"
                                      Style="{StaticResource VisibleWhenBearerToken}" />
 
-                        <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding StoredCredentialStatus}" Foreground="Gray" FontSize="10" Margin="0,4,0,0"
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Retrieve token" VerticalAlignment="Center" Margin="0,6,0,0"
+                                   Style="{StaticResource VisibleWhenBearerToken}" />
+                        <Button Grid.Row="5" Grid.Column="1" Margin="0,6,0,0" Content="Get bearer token"
+                                Command="{Binding AcquireBearerTokenCommand}"
+                                Style="{StaticResource VisibleWhenBearerToken}" />
+
+                        <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding StoredCredentialStatus}" Foreground="Gray" FontSize="10" Margin="0,4,0,0"
                                    Style="{StaticResource VisibleWhenBearerToken}" />
 
-                        <TextBlock Grid.Row="6" Grid.Column="0" Text="Cert thumbprint" VerticalAlignment="Center" Margin="0,6,0,0"
+                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Cert thumbprint" VerticalAlignment="Center" Margin="0,6,0,0"
                                    Style="{StaticResource VisibleWhenCertificate}" />
-                        <TextBox Grid.Row="6" Grid.Column="1" Margin="0,6,0,0"
+                        <TextBox Grid.Row="7" Grid.Column="1" Margin="0,6,0,0"
                                  Text="{Binding Selected.Principal.CertThumbprint, UpdateSourceTrigger=PropertyChanged}"
                                  Style="{StaticResource VisibleWhenCertificate}" />
                     </Grid>

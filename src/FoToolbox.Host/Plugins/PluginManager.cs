@@ -1,6 +1,7 @@
 using FoToolbox.Core.Models;
 using FoToolbox.SDK;
 using FoToolbox.Core.OData;
+using FoToolbox.Core.Catalog;
 using FoToolbox.SDK.Plugins;
 using Microsoft.Extensions.Logging;
 using System;
@@ -21,14 +22,16 @@ public sealed class PluginManager
     private readonly string _pluginRoot;
     private readonly FoEnvironment _env;
     private readonly IODataClient _odata;
+    private readonly ICatalogService _catalog;
     private readonly ILogger _logger;
     private readonly PluginTrustOptions _trustOptions;
 
-    public PluginManager(string pluginRoot, FoEnvironment env, IODataClient odata, ILogger logger, PluginTrustOptions? trustOptions = null)
+    public PluginManager(string pluginRoot, FoEnvironment env, IODataClient odata, ICatalogService catalog, ILogger logger, PluginTrustOptions? trustOptions = null)
     {
         _pluginRoot = pluginRoot;
         _env = env;
         _odata = odata;
+        _catalog = catalog;
         _logger = logger;
         _trustOptions = trustOptions ?? PluginTrustOptions.Default;
     }
@@ -83,7 +86,7 @@ public sealed class PluginManager
         var plugin = Activator.CreateInstance(pluginType) as IFoToolPlugin
                      ?? throw new InvalidOperationException($"Could not create instance of {pluginType.FullName}.");
 
-        var ctx = new PluginContext(_env, _odata, _logger);
+        var ctx = new PluginContext(_env, _odata, _catalog, _logger);
         plugin.InitializeAsync(ctx).GetAwaiter().GetResult();
         var control = plugin.CreateTool();
 

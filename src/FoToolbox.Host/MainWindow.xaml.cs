@@ -6,6 +6,7 @@ using FoToolbox.Host.Views;
 using FoToolbox.Core.OData;
 using FoToolbox.Core.Profiles;
 using FoToolbox.Core.Auth;
+using FoToolbox.Core.Catalog;
 using Microsoft.Extensions.Logging.Abstractions;
 using System;
 using System.IO;
@@ -56,10 +57,11 @@ public partial class MainWindow : Window
     {
         var logger = NullLogger.Instance;
         var odata = CreateODataClient(env, sp);
+        var catalog = CreateCatalogService(env, sp);
 
         var pluginRoot = ResolvePluginRoot();
         var trust = PluginTrustOptions.FromEnvironment();
-        var manager = new PluginManager(pluginRoot, env, odata, logger, trust);
+        var manager = new PluginManager(pluginRoot, env, odata, catalog, logger, trust);
         var plugins = manager.Discover();
         _vm.LoadPlugins(plugins, _profilesView);
     }
@@ -92,6 +94,16 @@ public partial class MainWindow : Window
         var httpClient = new HttpClient(handler);
         httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         return new HttpODataClient(httpClient);
+    }
+
+    private ICatalogService CreateCatalogService(FoEnvironment env, ServicePrincipal sp)
+    {
+        var handler = new AuthenticatedHandler(env, sp);
+        var httpClient = new HttpClient(handler);
+        var profileStore = new ProfileStore(_profileDbPath);
+        var catalogStorePath = ProfilePaths.ResolveAppDataPath("catalog.db");
+        var catalogStore = new CatalogStore(catalogStorePath);
+        return new CatalogService(httpClient, profileStore, catalogStore);
     }
 
     private static string ResolvePluginRoot()

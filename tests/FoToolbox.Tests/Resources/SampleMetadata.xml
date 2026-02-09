@@ -2,12 +2,17 @@
 <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
   <edmx:DataServices>
     <Schema Namespace="Default" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EnumType Name="CustomerType">
+        <Member Name="Retail" />
+        <Member Name="Wholesale" />
+      </EnumType>
       <EntityType Name="Customer">
         <Key>
           <PropertyRef Name="AccountNumber" />
         </Key>
         <Property Name="AccountNumber" Type="Edm.String" Nullable="false" />
         <Property Name="Name" Type="Edm.String" Nullable="false" />
+        <Property Name="CustomerType" Type="Default.CustomerType" Nullable="false" />
         <NavigationProperty Name="SalesOrders" Type="Collection(Default.SalesOrder)" />
       </EntityType>
       <EntityType Name="SalesOrder">

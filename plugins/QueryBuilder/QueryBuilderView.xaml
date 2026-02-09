@@ -98,6 +98,7 @@
                                 <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="*" />
                                 <DataGridTextColumn Header="Kind" Binding="{Binding Kind}" Width="90" />
                                 <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="160" />
+                                <DataGridTextColumn Header="Enum Values" Binding="{Binding EnumValues}" Width="200" />
                                 <DataGridTextColumn Header="Nullable" Binding="{Binding Nullable}" Width="70" />
                             </DataGrid.Columns>
                         </DataGrid>
@@ -149,7 +150,25 @@
                                                 <ComboBoxItem Content="endswith" />
                                                 <ComboBoxItem Content="contains" />
                                             </ComboBox>
-                                            <TextBox Width="200" Margin="4,0,0,0" Text="{Binding Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                            <Grid Margin="4,0,0,0">
+                                                <ComboBox Width="200"
+                                                          ItemsSource="{Binding EnumValues}"
+                                                          SelectedItem="{Binding Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                          IsEditable="True"
+                                                          Visibility="{Binding HasEnumValues, Converter={StaticResource BoolToVis}}" />
+                                                <TextBox Width="200" Text="{Binding Value, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+                                                    <TextBox.Style>
+                                                        <Style TargetType="TextBox">
+                                                            <Setter Property="Visibility" Value="Visible" />
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding HasEnumValues}" Value="True">
+                                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBox.Style>
+                                                </TextBox>
+                                            </Grid>
                                             <Button Content="X" Margin="4,0,0,0" Command="{Binding DataContext.RemoveNodeCommand, RelativeSource={RelativeSource AncestorType=UserControl}}" CommandParameter="{Binding}" />
                                         </StackPanel>
                                     </DataTemplate>

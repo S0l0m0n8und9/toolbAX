@@ -1,4 +1,5 @@
 using FoToolbox.Core.OData;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Globalization;
@@ -19,11 +20,16 @@ public abstract class FilterNodeViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
+public sealed record EnumFieldInfo(string TypeName, IReadOnlyList<string> Members);
+
 public sealed class FilterConditionViewModel : FilterNodeViewModel
 {
     private string _field = string.Empty;
     private string _operator = "eq";
     private string _value = string.Empty;
+    private readonly ObservableCollection<string> _enumValues = new();
+    private Func<string, EnumFieldInfo?>? _enumProvider;
+    private string? _enumTypeName;
 
     public string Field
     {
@@ -34,6 +40,7 @@ public sealed class FilterConditionViewModel : FilterNodeViewModel
             {
                 _field = value;
                 OnPropertyChanged();
+                RefreshEnumValues();
             }
         }
     }
@@ -64,7 +71,55 @@ public sealed class FilterConditionViewModel : FilterNodeViewModel
         }
     }
 
+    public ObservableCollection<string> EnumValues => _enumValues;
+
+    public bool HasEnumValues => _enumValues.Count > 0;
+
+    public string? EnumTypeName
+    {
+        get => _enumTypeName;
+        private set
+        {
+            if (_enumTypeName != value)
+            {
+                _enumTypeName = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public void ConfigureEnumProvider(Func<string, EnumFieldInfo?> provider)
+    {
+        _enumProvider = provider;
+        RefreshEnumValues();
+    }
+
     public override FilterNode ToAst() => new FilterCondition(Field, Operator, FormatValue());
+
+    private void RefreshEnumValues()
+    {
+        _enumValues.Clear();
+        EnumTypeName = null;
+        if (_enumProvider is null || string.IsNullOrWhiteSpace(Field))
+        {
+            OnPropertyChanged(nameof(HasEnumValues));
+            return;
+        }
+
+        var info = _enumProvider(Field);
+        if (info is null || info.Members.Count == 0)
+        {
+            OnPropertyChanged(nameof(HasEnumValues));
+            return;
+        }
+
+        EnumTypeName = info.TypeName;
+        foreach (var member in info.Members)
+        {
+            _enumValues.Add(member);
+        }
+        OnPropertyChanged(nameof(HasEnumValues));
+    }
 
     private string FormatValue()
     {

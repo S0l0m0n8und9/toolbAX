@@ -1,3 +1,4 @@
+using FoToolbox.Core.Catalog;
 using FoToolbox.Core.OData;
 using FoToolbox.Core.Export;
 using FoToolbox.Core.Profiles;
@@ -24,7 +25,6 @@ namespace QueryBuilderPlugin;
 public sealed class QueryBuilderViewModel : INotifyPropertyChanged
 {
     private readonly IPluginContext _ctx;
-    private readonly IMetadataProvider _metadataProvider;
     private readonly SavedQueryStore _savedStore;
     private ODataMetadata? _metadata;
     private readonly ObservableCollection<EntityItem> _entities = new();
@@ -34,6 +34,8 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     private readonly ObservableCollection<string> _selectedFields = new();
     private readonly ObservableCollection<SavedQueryItem> _savedQueries = new();
     private readonly HashSet<FilterNodeViewModel> _filterSubscriptions = new();
+    private Dictionary<string, ODataEnumType>? _enumLookup;
+    private Dictionary<string, EnumFieldInfo>? _enumFields;
     private string? _selectedEntity;
     private string? _entitySearch;
     private string? _fieldSearch;
@@ -67,10 +69,9 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
 
     public FilterGroupViewModel RootGroup { get; } = new() { LogicalOperator = "and" };
 
-    public QueryBuilderViewModel(IPluginContext ctx, IMetadataProvider metadataProvider)
+    public QueryBuilderViewModel(IPluginContext ctx)
     {
         _ctx = ctx;
-        _metadataProvider = metadataProvider;
         _savedStore = new SavedQueryStore(ProfilePaths.ResolveProfileDbPath());
         Entities = new ReadOnlyObservableCollection<EntityItem>(_entities);
         Fields = new ReadOnlyObservableCollection<FieldItem>(_fields);
@@ -132,6 +133,7 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
                 _filterFields.Clear();
                 _navigation.Clear();
                 _selectedFields.Clear();
+                _enumFields = null;
                 PreviewTable = null;
                 SetNextLink(null);
                 PopulateFieldsForSelection();
@@ -140,6 +142,7 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
                 UpdateFilterPreview();
                 UpdateExpandSummary();
                 UpdateQueryPreview();
+                RefreshFilterEnumProviders();
             }
         }
     }
@@ -403,7 +406,8 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         try
         {
             var started = DateTime.UtcNow;
-            _metadata = await _metadataProvider.GetMetadataAsync(_ctx.CurrentEnv.Id, _ctx.CurrentEnv.BaseUrl, cancellationToken);
+            _metadata = await _ctx.Catalog.GetODataMetadataAsync(_ctx.CurrentEnv, CatalogRefreshMode.ForceRefresh, cancellationToken);
+            _enumLookup = BuildEnumLookup(_metadata.Enums);
             foreach (var entity in _metadata.Entities.OrderBy(e => e.Name))
             {
                 _entities.Add(new EntityItem(entity.Name, entity.Properties.Count, entity.Navigations.Count));
@@ -412,6 +416,7 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
             UpdateEntitySummary();
             EntityLoadStatus = $"Loaded {_entities.Count} entities in {(DateTime.UtcNow - started).TotalSeconds:F1}s.";
             Status = "Pick an entity, then choose fields and filters.";
+            RefreshFilterEnumProviders();
         }
         catch (Exception ex)
         {
@@ -479,26 +484,35 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         var entity = _metadata?.Entities.FirstOrDefault(e => string.Equals(e.Name, _selectedEntity, StringComparison.OrdinalIgnoreCase));
         if (entity is null) return;
 
+        var enumFields = new Dictionary<string, EnumFieldInfo>(StringComparer.OrdinalIgnoreCase);
         foreach (var prop in entity.Properties.OrderBy(p => p.Name))
         {
-            var field = new FieldItem(prop.Name, prop.Type, "Property", prop.Nullable);
+            var enumInfo = ResolveEnumInfo(_enumLookup, prop.Type);
+            var enumValues = enumInfo is null ? null : string.Join(", ", enumInfo.Members);
+            var field = new FieldItem(prop.Name, prop.Type, "Property", prop.Nullable, enumValues);
             field.SelectionChanged += FieldSelectionChanged;
             _fields.Add(field);
             _filterFields.Add(field);
+            if (enumInfo is not null)
+            {
+                enumFields[prop.Name] = enumInfo;
+            }
         }
         foreach (var nav in entity.Navigations.OrderBy(n => n.Name))
         {
-            var field = new FieldItem(nav.Name, nav.Type, "Navigation", nullable: true);
+            var field = new FieldItem(nav.Name, nav.Type, "Navigation", nullable: true, enumValues: null);
             field.SelectionChanged += FieldSelectionChanged;
             _fields.Add(field);
             _navigation.Add(nav.Name);
         }
 
+        _enumFields = enumFields;
         FieldsView.Refresh();
         UpdateFieldSummary();
         UpdateSelectedEntitySummary();
         UpdateQueryPreview();
         ResetPaging();
+        RefreshFilterEnumProviders();
     }
 
     public void UpdateSelectedFields(System.Collections.IList selectedItems)
@@ -793,11 +807,86 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         SelectedEntitySummary = $"{entity.Name} | {entity.Properties.Count} fields, {entity.Navigations.Count} nav properties";
     }
 
+    private static Dictionary<string, ODataEnumType> BuildEnumLookup(IReadOnlyList<ODataEnumType> enums)
+    {
+        var lookup = new Dictionary<string, ODataEnumType>(StringComparer.OrdinalIgnoreCase);
+        foreach (var enumType in enums)
+        {
+            if (!lookup.ContainsKey(enumType.Name))
+            {
+                lookup.Add(enumType.Name, enumType);
+            }
+            var shortName = enumType.Name.Split('.').Last();
+            if (!lookup.ContainsKey(shortName))
+            {
+                lookup.Add(shortName, enumType);
+            }
+        }
+        return lookup;
+    }
+
+    private EnumFieldInfo? ResolveEnumFieldInfo(string fieldName)
+    {
+        if (_enumFields is null || string.IsNullOrWhiteSpace(fieldName))
+        {
+            return null;
+        }
+
+        return _enumFields.TryGetValue(fieldName, out var info) ? info : null;
+    }
+
+    private static EnumFieldInfo? ResolveEnumInfo(Dictionary<string, ODataEnumType>? lookup, string type)
+    {
+        if (lookup is null || string.IsNullOrWhiteSpace(type)) return null;
+        var normalized = type;
+        if (normalized.StartsWith("Collection(", StringComparison.OrdinalIgnoreCase) && normalized.EndsWith(")", StringComparison.OrdinalIgnoreCase))
+        {
+            normalized = normalized.Substring("Collection(".Length, normalized.Length - "Collection(".Length - 1);
+        }
+
+        if (lookup.TryGetValue(normalized, out var enumType))
+        {
+            return new EnumFieldInfo(enumType.Name, enumType.Members);
+        }
+
+        return null;
+    }
+
+    private void RefreshFilterEnumProviders()
+    {
+        foreach (var node in FlattenFilters(RootGroup))
+        {
+            if (node is FilterConditionViewModel cond)
+            {
+                cond.ConfigureEnumProvider(ResolveEnumFieldInfo);
+            }
+        }
+    }
+
+    private static IEnumerable<FilterNodeViewModel> FlattenFilters(FilterNodeViewModel node)
+    {
+        yield return node;
+        if (node is FilterGroupViewModel group)
+        {
+            foreach (var child in group.Children)
+            {
+                foreach (var nested in FlattenFilters(child))
+                {
+                    yield return nested;
+                }
+            }
+        }
+    }
+
     private void HookFilterNode(FilterNodeViewModel node)
     {
         if (_filterSubscriptions.Contains(node)) return;
         _filterSubscriptions.Add(node);
         node.PropertyChanged += FilterNodeChanged;
+        if (node is FilterConditionViewModel cond)
+        {
+            cond.ConfigureEnumProvider(ResolveEnumFieldInfo);
+        }
         if (node is FilterGroupViewModel group)
         {
             group.Children.CollectionChanged += FilterChildrenChanged;

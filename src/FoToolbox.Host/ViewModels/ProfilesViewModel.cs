@@ -4,7 +4,9 @@ using FoToolbox.Core.Profiles;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.ObjectModel;
+using Microsoft.Identity.Client;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -13,6 +15,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Input;
 
 namespace FoToolbox.Host.ViewModels;
@@ -128,6 +131,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     public ICommand SaveCommand { get; }
     public ICommand SetActiveCommand { get; }
     public ICommand TestConnectionCommand { get; }
+    public ICommand AcquireBearerTokenCommand { get; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -145,6 +149,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         SaveCommand = new AsyncCommand(SaveAsync);
         SetActiveCommand = new AsyncCommand(SetActiveAsync);
         TestConnectionCommand = new AsyncCommand(TestConnectionAsync);
+        AcquireBearerTokenCommand = new AsyncCommand(AcquireBearerTokenAsync);
     }
 
     public async Task RefreshAsync()
@@ -390,6 +395,56 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         }
     }
 
+    private async Task AcquireBearerTokenAsync()
+    {
+        if (Selected is null) return;
+
+        var env = Selected.Environment.ToModel();
+        var sp = Selected.Principal.ToModel(env.Id);
+
+        if (sp.AuthMode != AuthMode.BearerToken)
+        {
+            Status = "Switch Auth mode to BearerToken to retrieve a bearer token.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(env.BaseUrl) ||
+            string.IsNullOrWhiteSpace(env.TenantId) ||
+            string.IsNullOrWhiteSpace(sp.ClientId))
+        {
+            Status = "Base URL, Tenant ID, and Client ID are required to retrieve a bearer token.";
+            return;
+        }
+
+        try
+        {
+            Status = "Starting device code flow...";
+
+            var authority = $"https://login.microsoftonline.com/{env.TenantId}";
+            var scope = $"{env.BaseUrl.TrimEnd('/')}/.default";
+            var app = PublicClientApplicationBuilder
+                .Create(sp.ClientId)
+                .WithAuthority(authority)
+                .WithRedirectUri("http://localhost")
+                .Build();
+
+            var result = await app.AcquireTokenWithDeviceCode(new[] { scope }, code =>
+            {
+                PostDeviceCodeStatus(code);
+                return Task.CompletedTask;
+            }).ExecuteAsync();
+
+            PendingBearerToken = NormalizeBearerToken(result.AccessToken);
+            await SaveAsync();
+            Status = $"Bearer token acquired and saved. Expires {result.ExpiresOn.UtcDateTime:u}.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Bearer token retrieval failed for {Env}", env.Name);
+            Status = $"Bearer token retrieval failed: {ex.Message}";
+        }
+    }
+
     private async Task<string> ResolveBearerTokenForTestAsync(ServicePrincipal sp)
     {
         if (!string.IsNullOrWhiteSpace(PendingBearerToken))
@@ -415,7 +470,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         throw new InvalidOperationException("No bearer token found. Paste a token (Profiles → BearerToken) and Save, or set FOTB_BEARER_TOKEN.");
     }
 
-    private async Task<ClientCredential> ResolveCredentialForTestAsync(ServicePrincipal sp)
+    private async Task<FoToolbox.Core.Auth.ClientCredential> ResolveCredentialForTestAsync(ServicePrincipal sp)
     {
         if (!string.IsNullOrWhiteSpace(PendingClientSecret))
         {
@@ -498,6 +553,45 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             url = url[..^5];
         }
         return url;
+    }
+
+    private void PostDeviceCodeStatus(DeviceCodeResult code)
+    {
+        RunOnUi(() =>
+        {
+            Status = code.Message;
+            TryOpenUrl(code.VerificationUrl);
+        });
+    }
+
+    private static void TryOpenUrl(string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url)) return;
+        try
+        {
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = url,
+                UseShellExecute = true
+            });
+        }
+        catch
+        {
+            // Ignore launch failures; user can open the URL manually from the status text.
+        }
+    }
+
+    private static void RunOnUi(Action action)
+    {
+        var dispatcher = Application.Current?.Dispatcher;
+        if (dispatcher is null || dispatcher.CheckAccess())
+        {
+            action();
+        }
+        else
+        {
+            dispatcher.Invoke(action);
+        }
     }
 
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>

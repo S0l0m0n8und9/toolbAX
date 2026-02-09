@@ -1,4 +1,5 @@
 using FoToolbox.Core.Models;
+using FoToolbox.Core.Catalog;
 using FoToolbox.Core.OData;
 using FoToolbox.Core.Export;
 using FoToolbox.SDK.Plugins;
@@ -19,11 +20,13 @@ public class QueryBuilderViewModelTests
         {
             CurrentEnv = new FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com", "tenant", "USMF");
             OData = new FakeODataClient();
+            Catalog = new FakeCatalogService();
             Logger = NullLogger.Instance;
         }
 
         public FoEnvironment CurrentEnv { get; set; }
         public IODataClient OData { get; set; }
+        public ICatalogService Catalog { get; }
         public Microsoft.Extensions.Logging.ILogger Logger { get; }
     }
 
@@ -56,21 +59,55 @@ public class QueryBuilderViewModelTests
         }
     }
 
-    private sealed class FakeMetadataProvider : IMetadataProvider
+    private sealed class FakeCatalogService : ICatalogService
     {
-        public Task<ODataMetadata> GetMetadataAsync(string envId, string baseUrl, System.Threading.CancellationToken cancellationToken = default)
+        public Task<TableCatalog> GetTablesAsync(FoEnvironment env, CatalogRefreshMode mode, System.Threading.CancellationToken ct = default)
+        {
+            var catalog = new TableCatalog("test", "Test", System.DateTime.UtcNow, System.Array.Empty<TableInfo>());
+            return Task.FromResult(catalog);
+        }
+
+        public Task<ODataMetadata> GetODataMetadataAsync(FoEnvironment env, CatalogRefreshMode mode, System.Threading.CancellationToken ct = default)
         {
             var entity = new ODataEntity("Customers",
                 new[] { new ODataProperty("AccountNumber", "Edm.String", false), new ODataProperty("dataAreaId", "Edm.String", true) },
                 new[] { new ODataNavigationProperty("SalesOrders", "Collection(Default.SalesOrder)") });
-            return Task.FromResult(new ODataMetadata(new[] { entity }, null));
+            return Task.FromResult(new ODataMetadata(new[] { entity }, System.Array.Empty<ODataEnumType>(), null));
         }
+
+        public Task<CatalogSnapshot> GetSnapshotAsync(FoEnvironment env, CatalogRefreshMode mode, System.Threading.CancellationToken ct = default)
+        {
+            var tables = new TableCatalog("test", "Test", System.DateTime.UtcNow, System.Array.Empty<TableInfo>());
+            var metadata = new ODataMetadata(System.Array.Empty<ODataEntity>(), System.Array.Empty<ODataEnumType>(), null);
+            return Task.FromResult(new CatalogSnapshot(env.Id, env.BaseUrl, tables, metadata, System.DateTime.UtcNow));
+        }
+
+        public Task RefreshAsync(FoEnvironment env, CatalogRefreshScope scope, System.Threading.CancellationToken ct = default)
+            => Task.CompletedTask;
+
+        public Task<TableCatalog> ImportTableCatalogAsync(FoEnvironment env, string json, System.Threading.CancellationToken ct = default)
+        {
+            var catalog = new TableCatalog("import", "UserImport", System.DateTime.UtcNow, System.Array.Empty<TableInfo>());
+            return Task.FromResult(catalog);
+        }
+
+        public Task<string> GetTableBrowserUrlTemplateAsync(System.Threading.CancellationToken ct = default)
+            => Task.FromResult("{BaseUrl}/?mi=SysTableBrowser&table={TableName}");
+
+        public Task SetTableBrowserUrlTemplateAsync(string template, System.Threading.CancellationToken ct = default)
+            => Task.CompletedTask;
+
+        public string BuildTableBrowserUrl(FoEnvironment env, string tableName)
+            => $"{env.BaseUrl}/?mi=SysTableBrowser&table={tableName}";
+
+        public string BuildODataEntityUrl(FoEnvironment env, string entityName)
+            => $"{env.BaseUrl}/data/{entityName}";
     }
 
     [Fact]
     public async Task BuildQueryRequest_Uses_Metadata_Fields_And_Filter()
     {
-        var vm = new QueryBuilderViewModel(new FakeContext(), new FakeMetadataProvider());
+        var vm = new QueryBuilderViewModel(new FakeContext());
         await vm.LoadEntitiesCommand.ExecuteAsync();
         vm.SelectedEntity = "Customers";
         vm.UpdateSelectedFields(new List<string> { "AccountNumber", "SalesOrders" });
@@ -89,7 +126,7 @@ public class QueryBuilderViewModelTests
     {
         var ctx = new FakeContext();
         ctx.OData = new PagedODataClient();
-        var vm = new QueryBuilderViewModel(ctx, new FakeMetadataProvider());
+        var vm = new QueryBuilderViewModel(ctx);
         await vm.LoadEntitiesCommand.ExecuteAsync();
         vm.SelectedEntity = "Customers";
         vm.UpdateSelectedFields(new List<string> { "AccountNumber" });
@@ -108,7 +145,7 @@ public class QueryBuilderViewModelTests
     [Fact]
     public async Task Invalid_Expand_Path_Blocks_Request()
     {
-        var vm = new QueryBuilderViewModel(new FakeContext(), new FakeMetadataProvider());
+        var vm = new QueryBuilderViewModel(new FakeContext());
         await vm.LoadEntitiesCommand.ExecuteAsync();
         vm.SelectedEntity = "Customers";
         vm.ExpandPath = "BadNav";
@@ -120,7 +157,7 @@ public class QueryBuilderViewModelTests
     [Fact]
     public async Task Raw_Filter_Overrides_Builder_Errors()
     {
-        var vm = new QueryBuilderViewModel(new FakeContext(), new FakeMetadataProvider());
+        var vm = new QueryBuilderViewModel(new FakeContext());
         await vm.LoadEntitiesCommand.ExecuteAsync();
         vm.SelectedEntity = "Customers";
         vm.RootGroup.Children.Add(new FilterConditionViewModel { Field = string.Empty, Operator = "eq", Value = string.Empty });

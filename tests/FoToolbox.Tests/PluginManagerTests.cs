@@ -1,6 +1,7 @@
 using FoToolbox.Core.Models;
 using FoToolbox.Host.Plugins;
 using FoToolbox.Core.OData;
+using FoToolbox.Core.Catalog;
 using FoToolbox.SDK.Plugins;
 using HelloPlugin;
 using QueryBuilderPlugin;
@@ -19,6 +20,36 @@ public sealed class PluginManagerTests
     {
         public IAsyncEnumerable<ODataPage> StreamAsync(QueryRequest request, CancellationToken cancellationToken = default)
             => ODataClientExtensions.EmptyPages(cancellationToken);
+    }
+
+    private sealed class StubCatalogService : ICatalogService
+    {
+        public Task<TableCatalog> GetTablesAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)
+            => Task.FromResult(new TableCatalog("test", "Test", DateTime.UtcNow, Array.Empty<TableInfo>()));
+
+        public Task<ODataMetadata> GetODataMetadataAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)
+            => Task.FromResult(new ODataMetadata(Array.Empty<ODataEntity>(), Array.Empty<ODataEnumType>(), null));
+
+        public Task<CatalogSnapshot> GetSnapshotAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)
+            => Task.FromResult(new CatalogSnapshot(env.Id, env.BaseUrl, new TableCatalog("test", "Test", DateTime.UtcNow, Array.Empty<TableInfo>()), new ODataMetadata(Array.Empty<ODataEntity>(), Array.Empty<ODataEnumType>(), null), DateTime.UtcNow));
+
+        public Task RefreshAsync(FoEnvironment env, CatalogRefreshScope scope, CancellationToken ct = default)
+            => Task.CompletedTask;
+
+        public Task<TableCatalog> ImportTableCatalogAsync(FoEnvironment env, string json, CancellationToken ct = default)
+            => Task.FromResult(new TableCatalog("import", "UserImport", DateTime.UtcNow, Array.Empty<TableInfo>()));
+
+        public Task<string> GetTableBrowserUrlTemplateAsync(CancellationToken ct = default)
+            => Task.FromResult("{BaseUrl}/?mi=SysTableBrowser&table={TableName}");
+
+        public Task SetTableBrowserUrlTemplateAsync(string template, CancellationToken ct = default)
+            => Task.CompletedTask;
+
+        public string BuildTableBrowserUrl(FoEnvironment env, string tableName)
+            => $"{env.BaseUrl}/?mi=SysTableBrowser&table={tableName}";
+
+        public string BuildODataEntityUrl(FoEnvironment env, string entityName)
+            => $"{env.BaseUrl}/data/{entityName}";
     }
 
     private sealed class CapturingLogger : Microsoft.Extensions.Logging.ILogger
@@ -54,7 +85,7 @@ public sealed class PluginManagerTests
             File.Copy(helloAssembly, Path.Combine(pluginDir, Path.GetFileName(helloAssembly)), overwrite: true);
 
             var logger = new CapturingLogger();
-            var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), logger, new PluginTrustOptions(true, Array.Empty<string>()));
+            var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), new StubCatalogService(), logger, new PluginTrustOptions(true, Array.Empty<string>()));
             var plugins = manager.Discover();
 
             if (plugins.Count == 0 && logger.LastException != null)
@@ -79,7 +110,7 @@ public sealed class PluginManagerTests
             File.Copy(pluginAssembly, Path.Combine(pluginDir, Path.GetFileName(pluginAssembly)), overwrite: true);
 
             var logger = new CapturingLogger();
-            var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), logger, new PluginTrustOptions(true, Array.Empty<string>()));
+            var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), new StubCatalogService(), logger, new PluginTrustOptions(true, Array.Empty<string>()));
             var plugins = manager.Discover();
 
             if (plugins.Count == 0 && logger.LastException != null)
@@ -134,7 +165,7 @@ public sealed class PluginManagerTests
             File.Copy(helloAssembly, Path.Combine(pluginDir, Path.GetFileName(helloAssembly)), overwrite: true);
 
             var logger = new CapturingLogger();
-            var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), logger, new PluginTrustOptions(false, Array.Empty<string>()));
+            var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), new StubCatalogService(), logger, new PluginTrustOptions(false, Array.Empty<string>()));
             var plugins = manager.Discover();
 
             Assert.Empty(plugins);

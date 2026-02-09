@@ -24,18 +24,20 @@ public sealed class FieldItem : INotifyPropertyChanged
 {
     private bool _isSelected;
 
-    public FieldItem(string name, string type, string kind, bool nullable)
+    public FieldItem(string name, string type, string kind, bool nullable, string? enumValues)
     {
         Name = name;
         Type = type;
         Kind = kind;
         Nullable = nullable;
+        EnumValues = enumValues;
     }
 
     public string Name { get; }
     public string Type { get; }
     public string Kind { get; }
     public bool Nullable { get; }
+    public string? EnumValues { get; }
 
     public bool IsSelected
     {

@@ -1,5 +1,6 @@
 using FoToolbox.Core.OData;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Threading.Tasks;
@@ -25,6 +26,9 @@ public class ODataMetadataProviderTests
         var customer = meta.Entities[0];
         Assert.Contains(customer.Properties, p => p.Name == "AccountNumber");
         Assert.Contains(customer.Navigations, n => n.Name == "SalesOrders");
+        Assert.Contains(meta.Enums, e => e.Name == "Default.CustomerType");
+        var enumType = meta.Enums.First(e => e.Name == "Default.CustomerType");
+        Assert.Contains("Retail", enumType.Members);
     }
 
     private sealed class StaticHandler : HttpMessageHandler

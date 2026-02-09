@@ -1,4 +1,5 @@
 using FoToolbox.Core.Models;
+using FoToolbox.Core.Catalog;
 using FoToolbox.Core.OData;
 using Microsoft.Extensions.Logging;
 
@@ -20,5 +21,6 @@ public interface IPluginContext
 {
     FoEnvironment CurrentEnv { get; set; }
     IODataClient OData { get; }
+    ICatalogService Catalog { get; }
     ILogger Logger { get; }
 }
