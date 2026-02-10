@@ -3,6 +3,7 @@ using FoToolbox.Core.OData;
 using FoToolbox.Core.Export;
 using FoToolbox.Core.Profiles;
 using FoToolbox.SDK.Plugins;
+using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
@@ -42,6 +43,8 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     private bool _showProperties = true;
     private bool _showNavigation = true;
     private string? _orderBy;
+    private string? _top;
+    private string? _skip;
     private string? _filterText;
     private string? _expandPath;
     private bool _crossCompany = true;
@@ -59,6 +62,8 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     private string _filterUsageHint = "Builder filter in use.";
     private string _expandSummary = "No expand selected.";
     private string _queryPreview = "Select an entity to preview the query.";
+    private string _responseDetails = "No preview run yet.";
+    private long? _lastODataCount;
     private string? _nextLink;
     private bool _expandInvalid;
     private bool _hasMoreNextLink;
@@ -84,21 +89,27 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         FieldsView = CollectionViewSource.GetDefaultView(_fields);
         FieldsView.Filter = FieldFilter;
 
-        LoadEntitiesCommand = new AsyncRelayCommand(LoadEntitiesAsync);
-        PreviewCommand = new AsyncRelayCommand(PreviewAsync);
+        Action<Exception> onCommandError = ex =>
+        {
+            _ctx.Logger.LogError(ex, "QueryBuilder command failed.");
+            Status = $"Command failed: {ex.Message}";
+        };
+
+        LoadEntitiesCommand = new AsyncRelayCommand(LoadEntitiesAsync, onCommandError);
+        PreviewCommand = new AsyncRelayCommand(PreviewAsync, onCommandError);
         AddConditionCommand = new RelayCommand(p => AddCondition(p as FilterGroupViewModel ?? RootGroup));
         AddGroupCommand = new RelayCommand(p => AddGroup(p as FilterGroupViewModel ?? RootGroup));
         RemoveNodeCommand = new RelayCommand(RemoveNode);
         SelectAllFieldsCommand = new RelayCommand(_ => SelectAllFields());
         SelectVisibleFieldsCommand = new RelayCommand(_ => SelectVisibleFields());
         ClearFieldSelectionCommand = new RelayCommand(_ => ClearSelectedFields());
-        ExportPageCommand = new AsyncRelayCommand(ExportPageAsync);
-        ExportAllCommand = new AsyncRelayCommand(ExportAllAsync);
-        LoadMoreCommand = new AsyncRelayCommand(LoadMoreAsync);
-        SaveQueryCommand = new AsyncRelayCommand(SaveCurrentQueryAsync);
+        ExportPageCommand = new AsyncRelayCommand(ExportPageAsync, onCommandError);
+        ExportAllCommand = new AsyncRelayCommand(ExportAllAsync, onCommandError);
+        LoadMoreCommand = new AsyncRelayCommand(LoadMoreAsync, onCommandError);
+        SaveQueryCommand = new AsyncRelayCommand(SaveCurrentQueryAsync, onCommandError);
         LoadSavedQueryCommand = new RelayCommand(_ => LoadSelectedQuery());
-        DeleteSavedQueryCommand = new AsyncRelayCommand(DeleteSelectedQueryAsync);
-        RenameSavedQueryCommand = new AsyncRelayCommand(RenameSelectedQueryAsync);
+        DeleteSavedQueryCommand = new AsyncRelayCommand(DeleteSelectedQueryAsync, onCommandError);
+        RenameSavedQueryCommand = new AsyncRelayCommand(RenameSelectedQueryAsync, onCommandError);
 
         HookFilterNode(RootGroup);
 
@@ -136,6 +147,8 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
                 _enumFields = null;
                 PreviewTable = null;
                 SetNextLink(null);
+                _lastODataCount = null;
+                ResponseDetails = "No preview run yet.";
                 PopulateFieldsForSelection();
                 UpdateSelectedEntitySummary();
                 UpdateFieldSummary();
@@ -211,6 +224,18 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     {
         get => _orderBy;
         set { _orderBy = value; OnPropertyChanged(); ResetPaging(); UpdateQueryPreview(); }
+    }
+
+    public string? Top
+    {
+        get => _top;
+        set { _top = value; OnPropertyChanged(); ResetPaging(); UpdateQueryPreview(); }
+    }
+
+    public string? Skip
+    {
+        get => _skip;
+        set { _skip = value; OnPropertyChanged(); ResetPaging(); UpdateQueryPreview(); }
     }
 
     public string? FilterText
@@ -355,6 +380,12 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         set { _queryPreview = value; OnPropertyChanged(); }
     }
 
+    public string ResponseDetails
+    {
+        get => _responseDetails;
+        set { _responseDetails = value; OnPropertyChanged(); }
+    }
+
     public DataView? PreviewTable
     {
         get => _preview;
@@ -402,15 +433,27 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         RootGroup.Children.Clear();
         PreviewTable = null;
         SetNextLink(null);
+        _lastODataCount = null;
+        ResponseDetails = "No preview run yet.";
 
         try
         {
             var started = DateTime.UtcNow;
-            _metadata = await _ctx.Catalog.GetODataMetadataAsync(_ctx.CurrentEnv, CatalogRefreshMode.ForceRefresh, cancellationToken);
+            _metadata = await _ctx.Catalog.GetODataMetadataAsync(_ctx.CurrentEnv, CatalogRefreshMode.UseCacheIfFresh, cancellationToken);
             _enumLookup = BuildEnumLookup(_metadata.Enums);
-            foreach (var entity in _metadata.Entities.OrderBy(e => e.Name))
+            var ordered = _metadata.Entities.OrderBy(e => e.Name).ToList();
+            var total = ordered.Count;
+            var loaded = 0;
+            foreach (var entity in ordered)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 _entities.Add(new EntityItem(entity.Name, entity.Properties.Count, entity.Navigations.Count));
+                loaded++;
+                if (loaded % 200 == 0)
+                {
+                    EntityLoadStatus = $"Loaded {loaded}/{total} entities...";
+                    await Task.Yield(); // keep UI responsive while loading lots of rows
+                }
             }
             EntitiesView.Refresh();
             UpdateEntitySummary();
@@ -438,12 +481,16 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
 
         Status = "Running query...";
         SetNextLink(null);
+        _lastODataCount = null;
+        ResponseDetails = "Running query...";
         try
         {
             int rowCount = 0;
             DataTable? table = null;
+            ODataPage? first = null;
             await foreach (var page in _ctx.OData.StreamAsync(request, cancellationToken))
             {
+                first = page;
                 if (table == null)
                 {
                     table = BuildTable(page);
@@ -453,11 +500,24 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
                 break; // first page only for now
             }
             PreviewTable = table?.DefaultView;
-            Status = $"{rowCount} rows (first page){(_nextLink is not null ? " | More available" : string.Empty)}";
+
+            if (first is not null)
+            {
+                _lastODataCount = first.ODataCount;
+                ResponseDetails = FormatResponseDetails(first);
+            }
+            else
+            {
+                ResponseDetails = "No response received.";
+            }
+
+            var countHint = _lastODataCount is not null ? $" | Count={_lastODataCount}" : string.Empty;
+            Status = $"{rowCount} rows (first page){countHint}{(_nextLink is not null ? " | More available" : string.Empty)}";
         }
         catch (Exception ex)
         {
             Status = $"Preview failed: {ex.Message}";
+            ResponseDetails = $"Preview failed: {ex.Message}";
         }
     }
 
@@ -473,6 +533,36 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
             table.Rows.Add(values);
         }
         return table;
+    }
+
+    private static string FormatResponseDetails(ODataPage page)
+    {
+        var sb = new StringBuilder();
+
+        if (page.ODataCount is not null)
+        {
+            sb.AppendLine($"@odata.count: {page.ODataCount}");
+        }
+        if (!string.IsNullOrWhiteSpace(page.ODataContext))
+        {
+            sb.AppendLine($"@odata.context: {page.ODataContext}");
+        }
+        if (!string.IsNullOrWhiteSpace(page.NextLink))
+        {
+            sb.AppendLine($"@odata.nextLink: {page.NextLink}");
+        }
+
+        if (page.ResponseHeaders is { Count: > 0 })
+        {
+            if (sb.Length > 0) sb.AppendLine();
+            sb.AppendLine("Headers:");
+            foreach (var kvp in page.ResponseHeaders.OrderBy(h => h.Key, StringComparer.OrdinalIgnoreCase))
+            {
+                sb.AppendLine($"{kvp.Key}: {kvp.Value}");
+            }
+        }
+
+        return sb.Length == 0 ? "No response metadata." : sb.ToString().TrimEnd();
     }
 
     private void PopulateFieldsForSelection()
@@ -610,12 +700,26 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
             return false;
         }
 
+        if (!TryParseNullableInt(Top, minInclusive: 1, out var top))
+        {
+            issue = "$top must be a positive integer.";
+            return false;
+        }
+
+        if (!TryParseNullableInt(Skip, minInclusive: 0, out var skip))
+        {
+            issue = "$skip must be 0 or a positive integer.";
+            return false;
+        }
+
         spec = new QuerySpec(
             Entity: SelectedEntity ?? string.Empty,
             CrossCompany: CrossCompany,
             Company: Company,
             Select: SelectedFields.ToList(),
             OrderBy: OrderBy,
+            Top: top,
+            Skip: skip,
             Count: Count,
             Filter: string.IsNullOrWhiteSpace(FilterText) ? null : FilterText,
             Where: filterNode,
@@ -645,6 +749,16 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
             _expandInvalid = true;
         }
         return expand;
+    }
+
+    private static bool TryParseNullableInt(string? text, int minInclusive, out int? value)
+    {
+        value = null;
+        if (string.IsNullOrWhiteSpace(text)) return true;
+        if (!int.TryParse(text, out var parsed)) return false;
+        if (parsed < minInclusive) return false;
+        value = parsed;
+        return true;
     }
 
     private (bool valid, FilterNode? ast) BuildFilterAst()
@@ -1090,8 +1204,10 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         {
             Status = "Loading more...";
             var req = new QueryRequest(_nextLink);
+            ODataPage? loaded = null;
             await foreach (var page in _ctx.OData.StreamAsync(req, cancellationToken))
             {
+                loaded = page;
                 var cols = table.Columns.Cast<DataColumn>().Select(c => c.ColumnName).ToList();
                 foreach (var row in page.Rows)
                 {
@@ -1102,11 +1218,20 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
                 break;
             }
             PreviewTable = table.DefaultView;
-            Status = $"Loaded more rows (total {table.Rows.Count}){(_nextLink is not null ? " | More available" : string.Empty)}";
+
+            if (loaded is not null)
+            {
+                _lastODataCount ??= loaded.ODataCount;
+                ResponseDetails = FormatResponseDetails(loaded);
+            }
+
+            var countHint = _lastODataCount is not null ? $" | Count={_lastODataCount}" : string.Empty;
+            Status = $"Loaded more rows (total {table.Rows.Count}){countHint}{(_nextLink is not null ? " | More available" : string.Empty)}";
         }
         catch (Exception ex)
         {
             Status = $"Load more failed: {ex.Message}";
+            ResponseDetails = $"Load more failed: {ex.Message}";
         }
     }
 
@@ -1160,6 +1285,9 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
 
     private SavedQueryItem ToSavedModel(string name, SavedQueryItem? existing = null)
     {
+        TryParseNullableInt(Top, minInclusive: 1, out var top);
+        TryParseNullableInt(Skip, minInclusive: 0, out var skip);
+
         return new SavedQueryItem
         {
             Id = existing?.Id ?? string.Empty,
@@ -1170,6 +1298,8 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
             Company = Company,
             Select = SelectedFields.ToList(),
             OrderBy = OrderBy,
+            Top = top,
+            Skip = skip,
             Count = Count,
             FilterText = FilterText,
             Expand = ExpandPath,
@@ -1221,6 +1351,8 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         CrossCompany = item.CrossCompany;
         Company = item.Company;
         OrderBy = item.OrderBy;
+        Top = item.Top?.ToString();
+        Skip = item.Skip?.ToString();
         Count = item.Count;
         FilterText = item.FilterText;
         ExpandPath = item.Expand;
@@ -1331,11 +1463,13 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
 public sealed class AsyncRelayCommand : ICommand
 {
     private readonly Func<CancellationToken, Task> _execute;
+    private readonly Action<Exception>? _onError;
     private readonly CancellationTokenSource _cts = new();
 
-    public AsyncRelayCommand(Func<CancellationToken, Task> execute)
+    public AsyncRelayCommand(Func<CancellationToken, Task> execute, Action<Exception>? onError = null)
     {
         _execute = execute;
+        _onError = onError;
     }
 
     public event EventHandler? CanExecuteChanged { add { } remove { } }
@@ -1348,9 +1482,16 @@ public sealed class AsyncRelayCommand : ICommand
         {
             await _execute(_cts.Token);
         }
-        catch
+        catch (Exception ex)
         {
-            // swallow for now; could log via context
+            if (_onError is not null)
+            {
+                _onError(ex);
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine(ex);
+            }
         }
     }
 
@@ -1385,6 +1526,8 @@ public sealed class SavedQueryItem
     public string? Company { get; set; }
     public List<string> Select { get; set; } = new();
     public string? OrderBy { get; set; }
+    public int? Top { get; set; }
+    public int? Skip { get; set; }
     public bool Count { get; set; }
     public string? FilterText { get; set; }
     public string? Expand { get; set; }

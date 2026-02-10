@@ -3,11 +3,12 @@ using FoToolbox.Host.OData;
 using FoToolbox.Host.Plugins;
 using FoToolbox.Host.ViewModels;
 using FoToolbox.Host.Views;
+using FoToolbox.Host.Diagnostics;
 using FoToolbox.Core.OData;
 using FoToolbox.Core.Profiles;
 using FoToolbox.Core.Auth;
 using FoToolbox.Core.Catalog;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using System;
 using System.IO;
 using System.Net.Http;
@@ -22,12 +23,16 @@ namespace FoToolbox.Host;
 public partial class MainWindow : Window
 {
     private readonly MainWindowViewModel _vm;
+    private readonly ILogger _logger;
     private readonly string _profileDbPath = ProfilePaths.ResolveProfileDbPath();
     private ProfilesView? _profilesView;
 
     public MainWindow()
     {
         InitializeComponent();
+
+        AppDiagnostics.Initialize();
+        _logger = AppDiagnostics.Logger;
 
         _vm = new MainWindowViewModel();
         DataContext = _vm;
@@ -37,7 +42,6 @@ public partial class MainWindow : Window
 
     private void LoadPlugins()
     {
-        var logger = NullLogger.Instance;
         var profile = ResolveProfileAsync(_profileDbPath).GetAwaiter().GetResult();
         if (profile is null)
         {
@@ -46,7 +50,7 @@ public partial class MainWindow : Window
         }
 
         var (env, sp) = profile.Value;
-        _profilesView ??= new ProfilesView(new ProfilesViewModel(_profileDbPath, logger, ApplyProfile));
+        _profilesView ??= new ProfilesView(new ProfilesViewModel(_profileDbPath, _logger, ApplyProfile));
         ApplyProfile(env, sp);
 
         // Kick off a background update check (fire-and-forget).
@@ -55,13 +59,12 @@ public partial class MainWindow : Window
 
     private void ApplyProfile(FoEnvironment env, ServicePrincipal sp)
     {
-        var logger = NullLogger.Instance;
         var odata = CreateODataClient(env, sp);
         var catalog = CreateCatalogService(env, sp);
 
         var pluginRoot = ResolvePluginRoot();
         var trust = PluginTrustOptions.FromEnvironment();
-        var manager = new PluginManager(pluginRoot, env, odata, catalog, logger, trust);
+        var manager = new PluginManager(pluginRoot, env, odata, catalog, _logger, trust);
         var plugins = manager.Discover();
         _vm.LoadPlugins(plugins, _profilesView);
     }

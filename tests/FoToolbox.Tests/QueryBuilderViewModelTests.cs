@@ -69,10 +69,19 @@ public class QueryBuilderViewModelTests
 
         public Task<ODataMetadata> GetODataMetadataAsync(FoEnvironment env, CatalogRefreshMode mode, System.Threading.CancellationToken ct = default)
         {
+            var enums = new[]
+            {
+                new ODataEnumType("Default.CustomerType", new[] { "Retail", "Wholesale" })
+            };
             var entity = new ODataEntity("Customers",
-                new[] { new ODataProperty("AccountNumber", "Edm.String", false), new ODataProperty("dataAreaId", "Edm.String", true) },
+                new[]
+                {
+                    new ODataProperty("AccountNumber", "Edm.String", false),
+                    new ODataProperty("dataAreaId", "Edm.String", true),
+                    new ODataProperty("CustomerType", "Default.CustomerType", false)
+                },
                 new[] { new ODataNavigationProperty("SalesOrders", "Collection(Default.SalesOrder)") });
-            return Task.FromResult(new ODataMetadata(new[] { entity }, System.Array.Empty<ODataEnumType>(), null));
+            return Task.FromResult(new ODataMetadata(new[] { entity }, enums, null));
         }
 
         public Task<CatalogSnapshot> GetSnapshotAsync(FoEnvironment env, CatalogRefreshMode mode, System.Threading.CancellationToken ct = default)
@@ -122,6 +131,22 @@ public class QueryBuilderViewModelTests
     }
 
     [Fact]
+    public async Task BuildQueryRequest_Includes_Top_And_Skip()
+    {
+        var vm = new QueryBuilderViewModel(new FakeContext());
+        await vm.LoadEntitiesCommand.ExecuteAsync();
+        vm.SelectedEntity = "Customers";
+        vm.UpdateSelectedFields(new List<string> { "AccountNumber" });
+        vm.Top = "10";
+        vm.Skip = "20";
+
+        var req = vm.BuildQueryRequest();
+
+        Assert.Contains("$top=10", req.Url);
+        Assert.Contains("$skip=20", req.Url);
+    }
+
+    [Fact]
     public async Task LoadMore_Appends_Rows_When_NextLink_Exists()
     {
         var ctx = new FakeContext();
@@ -167,5 +192,21 @@ public class QueryBuilderViewModelTests
 
         Assert.True(ok);
         Assert.Contains("$filter=AccountNumber%20eq%20%27A0001%27", request.Url);
+    }
+
+    [Fact]
+    public async Task BuilderFilter_Uses_Typed_Enum_Literal()
+    {
+        var vm = new QueryBuilderViewModel(new FakeContext());
+        await vm.LoadEntitiesCommand.ExecuteAsync();
+        vm.SelectedEntity = "Customers";
+        vm.UpdateSelectedFields(new List<string> { "AccountNumber" });
+
+        vm.RootGroup.Children.Add(new FilterConditionViewModel { Field = "CustomerType", Operator = "eq", Value = "Retail" });
+
+        var ok = vm.TryBuildQueryRequest(out var request);
+
+        Assert.True(ok);
+        Assert.Contains("CustomerType%20eq%20Default.CustomerType%27Retail%27", request.Url);
     }
 }

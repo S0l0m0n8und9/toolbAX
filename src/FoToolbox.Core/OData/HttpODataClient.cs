@@ -25,8 +25,18 @@ public sealed class HttpODataClient : IODataClient
         var next = request.Url;
         while (!string.IsNullOrWhiteSpace(next))
         {
-            var response = await _httpClient.GetAsync(next, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            using var response = await _httpClient.GetAsync(next, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             response.EnsureSuccessStatusCode();
+
+            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var header in response.Headers)
+            {
+                headers[header.Key] = string.Join(", ", header.Value);
+            }
+            foreach (var header in response.Content.Headers)
+            {
+                headers[header.Key] = string.Join(", ", header.Value);
+            }
 
             await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
             using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
@@ -46,10 +56,29 @@ public sealed class HttpODataClient : IODataClient
                 }
             }
 
+            long? odataCount = null;
+            if (root.TryGetProperty("@odata.count", out var countEl))
+            {
+                if (countEl.ValueKind == JsonValueKind.Number && countEl.TryGetInt64(out var c))
+                {
+                    odataCount = c;
+                }
+                else if (countEl.ValueKind == JsonValueKind.String && long.TryParse(countEl.GetString(), out var cs))
+                {
+                    odataCount = cs;
+                }
+            }
+
+            string? odataContext = null;
+            if (root.TryGetProperty("@odata.context", out var ctxEl) && ctxEl.ValueKind == JsonValueKind.String)
+            {
+                odataContext = ctxEl.GetString();
+            }
+
             root.TryGetProperty("@odata.nextLink", out var nlElement);
             next = nlElement.ValueKind == JsonValueKind.String ? nlElement.GetString() : null;
 
-            yield return new ODataPage(rows, next);
+            yield return new ODataPage(rows, next, odataCount, headers, odataContext);
         }
     }
 

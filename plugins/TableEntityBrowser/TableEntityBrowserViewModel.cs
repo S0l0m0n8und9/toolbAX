@@ -1,6 +1,7 @@
 using FoToolbox.Core.Catalog;
 using FoToolbox.Core.OData;
 using FoToolbox.SDK.Plugins;
+using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
 using System;
 using System.Collections.Generic;
@@ -53,12 +54,18 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
         EntitiesView = CollectionViewSource.GetDefaultView(_entities);
         EntitiesView.Filter = EntityFilter;
 
-        LoadTablesCommand = new AsyncRelayCommand(LoadTablesAsync);
-        LoadEntitiesCommand = new AsyncRelayCommand(LoadEntitiesAsync);
-        RefreshAllCommand = new AsyncRelayCommand(RefreshAllAsync);
+        Action<Exception> onCommandError = ex =>
+        {
+            _ctx.Logger.LogError(ex, "TableEntityBrowser command failed.");
+            Status = $"Command failed: {ex.Message}";
+        };
+
+        LoadTablesCommand = new AsyncRelayCommand(LoadTablesAsync, onCommandError);
+        LoadEntitiesCommand = new AsyncRelayCommand(LoadEntitiesAsync, onCommandError);
+        RefreshAllCommand = new AsyncRelayCommand(RefreshAllAsync, onCommandError);
         OpenTableBrowserCommand = new RelayCommand(_ => OpenTableBrowser());
-        ImportTablesCommand = new AsyncRelayCommand(ImportTablesAsync);
-        SaveTemplateCommand = new AsyncRelayCommand(SaveTableBrowserTemplateAsync);
+        ImportTablesCommand = new AsyncRelayCommand(ImportTablesAsync, onCommandError);
+        SaveTemplateCommand = new AsyncRelayCommand(SaveTableBrowserTemplateAsync, onCommandError);
 
         _ = LoadTableBrowserTemplateAsync();
     }
@@ -179,14 +186,26 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
     public bool IsLoadingTables
     {
         get => _isLoadingTables;
-        set { _isLoadingTables = value; OnPropertyChanged(); }
+        set
+        {
+            _isLoadingTables = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsBusy));
+        }
     }
 
     public bool IsLoadingEntities
     {
         get => _isLoadingEntities;
-        set { _isLoadingEntities = value; OnPropertyChanged(); }
+        set
+        {
+            _isLoadingEntities = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsBusy));
+        }
     }
+
+    public bool IsBusy => IsLoadingTables || IsLoadingEntities;
 
     public AsyncRelayCommand LoadTablesCommand { get; }
     public AsyncRelayCommand LoadEntitiesCommand { get; }
@@ -213,6 +232,7 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
+            _ctx.Logger.LogError(ex, "Table load failed for {Env}", _ctx.CurrentEnv.Name);
             Status = $"Table load failed: {ex.Message}";
         }
         finally
@@ -231,9 +251,19 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
         try
         {
             _metadata = await _ctx.Catalog.GetODataMetadataAsync(_ctx.CurrentEnv, CatalogRefreshMode.UseCacheIfFresh, ct);
-            foreach (var entity in _metadata.Entities.OrderBy(e => e.Name))
+            var ordered = _metadata.Entities.OrderBy(e => e.Name).ToList();
+            var total = ordered.Count;
+            var loaded = 0;
+            foreach (var entity in ordered)
             {
+                ct.ThrowIfCancellationRequested();
                 _entities.Add(new EntityInfoViewModel(entity));
+                loaded++;
+                if (loaded % 200 == 0)
+                {
+                    Status = $"Loaded {loaded}/{total} entities...";
+                    await Task.Yield(); // keep UI responsive while loading lots of rows
+                }
             }
             EntitiesView.Refresh();
             UpdateEntitySummary();
@@ -241,6 +271,7 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
+            _ctx.Logger.LogError(ex, "Entity load failed for {Env}", _ctx.CurrentEnv.Name);
             Status = $"Entity load failed: {ex.Message}";
         }
         finally
@@ -283,6 +314,7 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
+            _ctx.Logger.LogError(ex, "Import tables failed. File={File}", Path.GetFileName(dlg.FileName));
             Status = $"Import failed: {ex.Message}";
         }
     }
@@ -295,6 +327,7 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
+            _ctx.Logger.LogError(ex, "Template load failed for {Env}", _ctx.CurrentEnv.Name);
             Status = $"Template load failed: {ex.Message}";
         }
     }
@@ -309,6 +342,7 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
+            _ctx.Logger.LogError(ex, "Template save failed for {Env}", _ctx.CurrentEnv.Name);
             Status = $"Template save failed: {ex.Message}";
         }
     }
@@ -329,6 +363,7 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
+            _ctx.Logger.LogError(ex, "Failed to open browser.");
             Status = $"Failed to open browser: {ex.Message}";
         }
     }
@@ -509,11 +544,13 @@ public sealed class EntityFieldItem
 public sealed class AsyncRelayCommand : ICommand
 {
     private readonly Func<CancellationToken, Task> _execute;
+    private readonly Action<Exception>? _onError;
     private readonly CancellationTokenSource _cts = new();
 
-    public AsyncRelayCommand(Func<CancellationToken, Task> execute)
+    public AsyncRelayCommand(Func<CancellationToken, Task> execute, Action<Exception>? onError = null)
     {
         _execute = execute;
+        _onError = onError;
     }
 
     public event EventHandler? CanExecuteChanged { add { } remove { } }
@@ -526,8 +563,16 @@ public sealed class AsyncRelayCommand : ICommand
         {
             await _execute(_cts.Token);
         }
-        catch
+        catch (Exception ex)
         {
+            if (_onError is not null)
+            {
+                _onError(ex);
+            }
+            else
+            {
+                Debug.WriteLine(ex);
+            }
         }
     }
 

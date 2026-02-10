@@ -21,7 +21,12 @@ public sealed record QueryRequest(string Url);
 /// <summary>
 /// Paged OData response slice.
 /// </summary>
-public sealed record ODataPage(IReadOnlyList<IReadOnlyDictionary<string, object?>> Rows, string? NextLink);
+public sealed record ODataPage(
+    IReadOnlyList<IReadOnlyDictionary<string, object?>> Rows,
+    string? NextLink,
+    long? ODataCount = null,
+    IReadOnlyDictionary<string, string>? ResponseHeaders = null,
+    string? ODataContext = null);
 
 /// <summary>
 /// Helper to create an empty async stream.

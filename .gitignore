@@ -1,0 +1,25 @@
+# Build outputs
+**/bin/
+**/obj/
+
+# Packaging / generated outputs
+artifacts/
+publish/
+
+# Installer build outputs (keep WiX sources/scripts checked in)
+install/*.msi
+install/*.exe
+install/*.wixpdb
+install/*.cab
+install/redist/
+install/windowsdesktop-runtime-*.exe
+install/update-manifest.local.json
+
+# Visual Studio / tooling
+.vs/
+*.user
+*.suo
+
+# OS
+Thumbs.db
+.DS_Store

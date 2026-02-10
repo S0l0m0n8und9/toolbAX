@@ -118,6 +118,7 @@ internal sealed class AuthenticatedHandler : DelegatingHandler
     private static bool TryGetJwtExpiryUtc(string jwt, out DateTimeOffset expiryUtc)
     {
         expiryUtc = default;
+        if (string.IsNullOrWhiteSpace(jwt)) return false;
         var parts = jwt.Split('.');
         if (parts.Length < 2) return false;
 

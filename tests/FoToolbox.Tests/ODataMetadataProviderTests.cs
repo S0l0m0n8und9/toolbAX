@@ -22,8 +22,8 @@ public class ODataMetadataProviderTests
         var meta = await provider.GetMetadataAsync("env1", "https://contoso.operations.dynamics.com", default);
 
         Assert.Equal(2, meta.Entities.Count);
-        Assert.Contains(meta.Entities, e => e.Name == "Customer");
-        var customer = meta.Entities[0];
+        Assert.Contains(meta.Entities, e => e.Name == "CustomersV3");
+        var customer = meta.Entities.First(e => e.Name == "CustomersV3");
         Assert.Contains(customer.Properties, p => p.Name == "AccountNumber");
         Assert.Contains(customer.Navigations, n => n.Name == "SalesOrders");
         Assert.Contains(meta.Enums, e => e.Name == "Default.CustomerType");

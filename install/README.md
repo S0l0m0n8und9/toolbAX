@@ -5,8 +5,8 @@ This folder holds the WiX scaffolding for FOtoolbox MSI packaging and notes on t
 Current state
 -------------
 - Installer UI now offers a per-user vs per-machine choice on the **Options** page.
-- Defaults are `ProductName=FOtoolbox`, `Manufacturer=BenJones`, `Version=1.0.0`, `BundleVersion=1.0.0.0`, and `LicenseUrl=https://opensource.org/licenses/MIT`.
-- Default ProductCodes: user `{F057FFFE-9295-4B8D-A60F-41CB15E1ABB6}`, machine `{FF396263-DD51-4616-B0E0-7D1F96E9D0D8}`.
+- WiX defaults (if you build directly with `wix build` without overrides) are `ProductName=FOtoolbox`, `Manufacturer=BenJones`, `Version=1.0.0`, `BundleVersion=1.0.0.0`, and `LicenseUrl=https://opensource.org/licenses/MIT`.
+- `install/build.ps1` defaults are upgrade-friendly for dev: it auto-generates a monotonically-increasing version when `-Version` is not provided, and uses `ProductCode=*` (auto-generated GUID) unless you override it.
 - Components include host binaries and bundled plugins under `%LOCALAPPDATA%\FoToolbox\bin\` (per-user) or `%ProgramFiles%\FoToolbox\bin\` (per-machine).
 - `profile.db` is created on first run under `%LOCALAPPDATA%\FoToolbox\profile.db` and is preserved on uninstall/upgrade (not packaged into the MSI).
 - Profiles can be managed in-app via the built-in **Profiles** tool; client secrets are stored via DPAPI in `profile.db` (`SecretVault`).
@@ -72,6 +72,7 @@ Optional overrides for branding/codes (examples):
      -d InstallRoot=LocalAppDataFolder `
      -d StartMenuRoot=ProgramMenuFolder `
      -d StartMenuRegistryRoot=HKCU `
+     -d ProductCode=* `
      -o .\FoToolbox.User.msi
 
   wix build .\FoToolbox.wxs .\FoToolboxFiles.wxs `
@@ -80,6 +81,7 @@ Optional overrides for branding/codes (examples):
     -d InstallRoot=ProgramFiles64Folder `
     -d StartMenuRoot=ProgramMenuFolder `
     -d StartMenuRegistryRoot=HKLM `
+    -d ProductCode=* `
     -o .\FoToolbox.Machine.msi
    ```
 3. Build the bootstrapper (bundle) after the MSIs exist:
@@ -153,6 +155,7 @@ Versioning note
 - MSI `Version` must be three-part (e.g., `1.0.0`).
 - Bundle `BundleVersion` can be four-part (e.g., `1.0.0.0`).
 - `install/build.ps1` will trim a four-part `-Version` to three-part for MSI and reuse the original as `BundleVersion` if none is provided.
+- To upgrade in-place (no uninstall), keep `UpgradeCode` stable, increase MSI `Version`, and change `ProductCode` (use `ProductCode=*` to auto-generate).
 
 ## Packaging notes
 

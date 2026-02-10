@@ -105,7 +105,8 @@ public sealed class ODataMetadataProvider
         var doc = XDocument.Parse(rawXml);
         XNamespace edm = "http://docs.oasis-open.org/odata/ns/edm";
 
-        var entities = new List<ODataEntity>();
+        var entityTypes = new List<ODataEntity>();
+        var entityTypeLookup = new Dictionary<string, ODataEntity>(StringComparer.OrdinalIgnoreCase);
         var enums = new List<ODataEnumType>();
         foreach (var enumType in doc.Descendants(edm + "EnumType"))
         {
@@ -124,6 +125,8 @@ public sealed class ODataMetadataProvider
         {
             var name = entityType.Attribute("Name")?.Value;
             if (string.IsNullOrWhiteSpace(name)) continue;
+            var ns = entityType.Ancestors(edm + "Schema").FirstOrDefault()?.Attribute("Namespace")?.Value;
+            var fullName = string.IsNullOrWhiteSpace(ns) ? name : $"{ns}.{name}";
 
             var props = new List<ODataProperty>();
             var navs = new List<ODataNavigationProperty>();
@@ -148,9 +151,37 @@ public sealed class ODataMetadataProvider
                 }
             }
 
-            entities.Add(new ODataEntity(name, props, navs));
+            var def = new ODataEntity(name, props, navs);
+            entityTypes.Add(def);
+            if (!entityTypeLookup.ContainsKey(fullName)) entityTypeLookup.Add(fullName, def);
+            if (!entityTypeLookup.ContainsKey(name)) entityTypeLookup.Add(name, def);
         }
 
+        // Prefer entity-set names (what callers use in URLs) over entity-type names.
+        var entitySets = new List<ODataEntity>();
+        foreach (var entitySet in doc.Descendants(edm + "EntitySet"))
+        {
+            var setName = entitySet.Attribute("Name")?.Value;
+            if (string.IsNullOrWhiteSpace(setName)) continue;
+
+            var typeRef = entitySet.Attribute("EntityType")?.Value;
+            ODataEntity? def = null;
+            if (!string.IsNullOrWhiteSpace(typeRef))
+            {
+                if (!entityTypeLookup.TryGetValue(typeRef, out def))
+                {
+                    var shortName = typeRef.Split('.').LastOrDefault();
+                    if (!string.IsNullOrWhiteSpace(shortName))
+                    {
+                        entityTypeLookup.TryGetValue(shortName, out def);
+                    }
+                }
+            }
+
+            entitySets.Add(new ODataEntity(setName, def?.Properties ?? Array.Empty<ODataProperty>(), def?.Navigations ?? Array.Empty<ODataNavigationProperty>()));
+        }
+
+        var entities = entitySets.Count > 0 ? entitySets : entityTypes;
         return new ODataMetadata(entities, enums, etag);
     }
 

@@ -26,6 +26,41 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+$devVersionHelp = @"
+MSI version constraints (Windows Installer):
+- ProductVersion is 3-part: major.minor.build
+- major/minor: 0-255
+- build: 0-65535
+"@
+
+function New-DevVersion {
+    <#
+      Generates a monotonically-increasing version that fits MSI constraints without needing a persisted counter.
+
+      Scheme (UTC-based to avoid DST issues):
+      - major: year % 100 (0-99)
+      - minor: floor((dayOfYear-1) / 2) (0-182)
+      - build: ((dayOfYear-1) % 2) * 28800 + floor(secondsSinceMidnight / 3) (0-57599)
+      - revision (bundle/file only): secondsSinceMidnight % 3 (0-2)
+    #>
+    $now = [DateTime]::UtcNow
+    $yy = $now.Year % 100
+    $dayIndex = [int]$now.DayOfYear - 1
+    $minor = [int][math]::Floor($dayIndex / 2.0)
+    $seconds = [int][math]::Floor($now.TimeOfDay.TotalSeconds)
+    $build = (($dayIndex % 2) * 28800) + [int][math]::Floor($seconds / 3.0)
+    $revision = $seconds % 3
+
+    if ($yy -gt 255 -or $minor -gt 255 -or $build -gt 65535) {
+        throw "Auto-version out of MSI range (computed $yy.$minor.$build). $devVersionHelp"
+    }
+
+    return @{
+        Msi = "$yy.$minor.$build"
+        Bundle = "$yy.$minor.$build.$revision"
+    }
+}
+
 $installDir = Split-Path -Parent $PSCommandPath
 $repoRoot = Resolve-Path (Join-Path $installDir "..") | Select-Object -ExpandProperty Path
 
@@ -49,10 +84,20 @@ if ([string]::IsNullOrWhiteSpace($RuntimeExe)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($ProductCodeUser)) {
-    $ProductCodeUser = if (-not [string]::IsNullOrWhiteSpace($ProductCode)) { $ProductCode } else { "{F057FFFE-9295-4B8D-A60F-41CB15E1ABB6}" }
+    # Default to auto-generated ProductCode so each build can upgrade in-place (no uninstall needed).
+    $ProductCodeUser = if (-not [string]::IsNullOrWhiteSpace($ProductCode)) { $ProductCode } else { "*" }
 }
 if ([string]::IsNullOrWhiteSpace($ProductCodeMachine)) {
-    $ProductCodeMachine = "{FF396263-DD51-4616-B0E0-7D1F96E9D0D8}"
+    $ProductCodeMachine = "*"
+}
+
+# If no version was supplied, generate one that satisfies MSI rules and changes every few seconds.
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    $auto = New-DevVersion
+    $Version = $auto.Bundle
+    if ([string]::IsNullOrWhiteSpace($BundleVersion)) {
+        $BundleVersion = $auto.Bundle
+    }
 }
 
 $msiVersion = $Version
@@ -68,6 +113,9 @@ if (-not [string]::IsNullOrWhiteSpace($Version)) {
     }
 }
 
+$fileVersion = if (-not [string]::IsNullOrWhiteSpace($BundleVersion)) { $BundleVersion } else { "$msiVersion.0" }
+$assemblyVersion = "1.0.0.0"
+
 Write-Host "Repo root: $repoRoot"
 Write-Host "Configuration: $Configuration"
 Write-Host "SourceDir: $SourceDir"
@@ -78,7 +126,8 @@ Write-Host "RuntimeExe: $RuntimeExe"
 if (-not [string]::IsNullOrWhiteSpace($RuntimeVersion)) { Write-Host "RuntimeVersion: $RuntimeVersion" }
 if (-not [string]::IsNullOrWhiteSpace($ProductName)) { Write-Host "ProductName: $ProductName" }
 if (-not [string]::IsNullOrWhiteSpace($Manufacturer)) { Write-Host "Manufacturer: $Manufacturer" }
-if (-not [string]::IsNullOrWhiteSpace($Version)) { Write-Host "Version: $Version (MSI: $msiVersion)" }
+if (-not [string]::IsNullOrWhiteSpace($Version)) { Write-Host "Version: $Version (MSI: $msiVersion, File: $fileVersion)" }
+Write-Host "AssemblyVersion: $assemblyVersion"
 if (-not [string]::IsNullOrWhiteSpace($ProductCode)) { Write-Host "ProductCode: $ProductCode" }
 if (-not [string]::IsNullOrWhiteSpace($ProductCodeUser)) { Write-Host "ProductCodeUser: $ProductCodeUser" }
 if (-not [string]::IsNullOrWhiteSpace($ProductCodeMachine)) { Write-Host "ProductCodeMachine: $ProductCodeMachine" }
@@ -102,20 +151,26 @@ New-Item -ItemType Directory -Force -Path $SourceDir | Out-Null
 Write-Host "`nPublishing host..."
 dotnet publish (Join-Path $repoRoot "src\\FoToolbox.Host\\FoToolbox.Host.csproj") `
     -c $Configuration `
-    -o $SourceDir | Out-Host
+    -o $SourceDir `
+    -p:Version=$msiVersion `
+    -p:AssemblyVersion=$assemblyVersion `
+    -p:FileVersion=$fileVersion | Out-Host
 
 $pluginsOut = Join-Path $SourceDir "plugins"
 New-Item -ItemType Directory -Force -Path $pluginsOut | Out-Null
 
 Write-Host "`nBuilding plugins..."
-dotnet build (Join-Path $repoRoot "plugins\\HelloPlugin\\HelloPlugin.csproj") -c $Configuration | Out-Host
-dotnet build (Join-Path $repoRoot "plugins\\QueryBuilder\\QueryBuilder.csproj") -c $Configuration | Out-Host
+dotnet build (Join-Path $repoRoot "plugins\\HelloPlugin\\HelloPlugin.csproj") -c $Configuration -p:Version=$msiVersion -p:AssemblyVersion=$assemblyVersion -p:FileVersion=$fileVersion | Out-Host
+dotnet build (Join-Path $repoRoot "plugins\\QueryBuilder\\QueryBuilder.csproj") -c $Configuration -p:Version=$msiVersion -p:AssemblyVersion=$assemblyVersion -p:FileVersion=$fileVersion | Out-Host
+dotnet build (Join-Path $repoRoot "plugins\\TableEntityBrowser\\TableEntityBrowser.csproj") -c $Configuration -p:Version=$msiVersion -p:AssemblyVersion=$assemblyVersion -p:FileVersion=$fileVersion | Out-Host
 
 Write-Host "`nCopying plugin binaries to SourceDir..."
 Copy-Item (Join-Path $repoRoot "plugins\\HelloPlugin\\bin\\$Configuration\\net8.0-windows\\HelloPlugin.dll") `
     -Destination (Join-Path $pluginsOut "HelloPlugin.dll") -Force
 Copy-Item (Join-Path $repoRoot "plugins\\QueryBuilder\\bin\\$Configuration\\net8.0-windows\\QueryBuilder.dll") `
     -Destination (Join-Path $pluginsOut "QueryBuilder.dll") -Force
+Copy-Item (Join-Path $repoRoot "plugins\\TableEntityBrowser\\bin\\$Configuration\\net8.0-windows\\TableEntityBrowser.dll") `
+    -Destination (Join-Path $pluginsOut "TableEntityBrowser.dll") -Force
 
 function Build-Msi {
     param(

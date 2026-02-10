@@ -150,6 +150,17 @@ public sealed class FilterConditionViewModel : FilterNodeViewModel
         {
             return trimmed;
         }
+        if (!string.IsNullOrWhiteSpace(EnumTypeName))
+        {
+            // OData v4 enum literals are typed: Namespace.EnumType'Member'.
+            // If the user already typed a literal (contains a quote), don't try to "fix" it.
+            if (trimmed.Contains('\''))
+            {
+                return trimmed;
+            }
+
+            return $"{EnumTypeName}'{sanitized}'";
+        }
         return $"'{sanitized}'";
     }
 }

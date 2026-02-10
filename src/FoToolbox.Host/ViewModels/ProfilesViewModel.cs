@@ -4,7 +4,6 @@ using FoToolbox.Core.Profiles;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.ObjectModel;
-using Microsoft.Identity.Client;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Linq;
@@ -13,6 +12,7 @@ using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -409,47 +409,177 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         }
 
         if (string.IsNullOrWhiteSpace(env.BaseUrl) ||
-            string.IsNullOrWhiteSpace(env.TenantId) ||
-            string.IsNullOrWhiteSpace(sp.ClientId))
+            string.IsNullOrWhiteSpace(env.TenantId))
         {
-            Status = "Base URL, Tenant ID, and Client ID are required to retrieve a bearer token.";
+            Status = "Base URL and Tenant ID are required to retrieve a bearer token.";
             return;
         }
 
         try
         {
-            Status = "Starting device code flow...";
+            Status = "Acquiring bearer token via Azure CLI (az)...";
 
-            var authority = $"https://login.microsoftonline.com/{env.TenantId}";
-            var scope = $"{env.BaseUrl.TrimEnd('/')}/.default";
-            var app = PublicClientApplicationBuilder
-                .Create(sp.ClientId)
-                .WithAuthority(authority)
-                .WithRedirectUri("http://localhost")
-                .Build();
+             var baseUrl = NormalizeBaseUrl(env.BaseUrl);
+             var scope = $"{baseUrl}/.default";
+             var token = await GetAzCliAccessTokenAsync(env.TenantId, scope, CancellationToken.None);
 
-            var result = await app.AcquireTokenWithDeviceCode(new[] { scope }, code =>
-            {
-                PostDeviceCodeStatus(code);
-                return Task.CompletedTask;
-            }).ExecuteAsync();
-
-            PendingBearerToken = NormalizeBearerToken(result.AccessToken);
+            var normalizedToken = NormalizeBearerToken(token);
+            PendingBearerToken = normalizedToken;
             await SaveAsync();
-            Status = $"Bearer token acquired and saved. Expires {result.ExpiresOn.UtcDateTime:u}.";
+
+            // SaveAsync clears PendingBearerToken after persisting; use the normalized local token instead.
+            if (TryGetJwtExpiryUtc(normalizedToken, out var expiryUtc))
+            {
+                Status = $"Bearer token acquired and saved. Expires {expiryUtc.UtcDateTime:u}.";
+            }
+            else
+            {
+                Status = "Bearer token acquired and saved.";
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Bearer token retrieval failed for {Env}", env.Name);
-            Status = $"Bearer token retrieval failed: {ex.Message}";
+            Status = $"Bearer token retrieval failed: {FormatForStatus(ex.Message)}";
         }
+    }
+
+    private static async Task<string> GetAzCliAccessTokenAsync(string tenantId, string scope, CancellationToken cancellationToken)
+    {
+        // Use PowerShell to invoke az, because az is typically a .cmd shim on Windows and may not start
+        // reliably via ProcessStartInfo without shell semantics.
+        //
+        // We request a token for the given scope; if the CLI doesn't support --scope, fall back to --resource.
+        //
+        // Use tsv output (instead of JSON) to avoid parse issues when az prints warnings/preamble text.
+        var tenantPs = EscapeForSingleQuotedPsString(tenantId);
+        var scopePs = EscapeForSingleQuotedPsString(scope);
+
+        var script = $@"
+$ErrorActionPreference = 'Stop'
+$tenant = '{tenantPs}'
+$scope = '{scopePs}'
+
+function Invoke-Az([string[]] $azArgs) {{
+  $out = & az @azArgs 2>&1
+  if ($LASTEXITCODE -ne 0) {{
+    throw ($out | Out-String)
+  }}
+  return ($out | Out-String)
+}}
+
+try {{
+  Invoke-Az @('account','get-access-token','--only-show-errors','--tenant',$tenant,'--scope',$scope,'--query','accessToken','--output','tsv')
+}} catch {{
+  $resource = $scope
+  if ($resource.EndsWith('/.default')) {{
+    $resource = $resource.Substring(0, $resource.Length - '/.default'.Length)
+  }}
+  Invoke-Az @('account','get-access-token','--only-show-errors','--tenant',$tenant,'--resource',$resource,'--query','accessToken','--output','tsv')
+}}
+".Trim();
+
+        var output = await RunPowerShellEncodedAsync(script, cancellationToken);
+        var token = output.Trim();
+
+        // az sometimes still emits warnings even with --only-show-errors (depending on config/version).
+        // If that happens, try to salvage the last non-empty line (token is a single line in tsv mode).
+        if (token.Contains('\n') || token.Contains('\r'))
+        {
+            var lines = token
+                .Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+                .Select(l => l.Trim())
+                .Where(l => !string.IsNullOrWhiteSpace(l))
+                .ToArray();
+            token = lines.Length == 0 ? string.Empty : lines[^1];
+        }
+
+        // Basic sanity: access token should look like a JWT (header.payload.signature) for AAD v2.
+        if (string.IsNullOrWhiteSpace(token) || token.Count(c => c == '.') < 2)
+        {
+            throw new InvalidOperationException($"Azure CLI did not return a usable access token. Output:\n{RedactSecrets(output.Trim())}");
+        }
+
+        return token;
+    }
+
+    private static async Task<string> RunPowerShellEncodedAsync(string script, CancellationToken cancellationToken)
+    {
+        var bytes = Encoding.Unicode.GetBytes(script); // UTF-16LE for Windows PowerShell
+        var encoded = Convert.ToBase64String(bytes);
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = "powershell",
+            Arguments = $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}",
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+
+        using var proc = Process.Start(psi) ?? throw new InvalidOperationException("Failed to start PowerShell.");
+        var stdoutTask = proc.StandardOutput.ReadToEndAsync();
+        var stderrTask = proc.StandardError.ReadToEndAsync();
+
+        await proc.WaitForExitAsync(cancellationToken);
+
+        var stdout = await stdoutTask;
+        var stderr = await stderrTask;
+
+        if (proc.ExitCode != 0)
+        {
+            var msg = string.IsNullOrWhiteSpace(stderr) ? stdout : stderr;
+            msg = msg?.Trim();
+            throw new InvalidOperationException(string.IsNullOrWhiteSpace(msg)
+                ? $"PowerShell exited with code {proc.ExitCode}."
+                : msg);
+        }
+
+        return string.IsNullOrWhiteSpace(stdout) ? stderr : stdout;
+    }
+
+    private static string EscapeForSingleQuotedPsString(string value) =>
+        (value ?? string.Empty).Replace("'", "''");
+
+    private static readonly Regex JwtLikeRegex = new(
+        @"eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+",
+        RegexOptions.Compiled);
+
+    private static readonly Regex LongDotSeparatedTokenRegex = new(
+        @"[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}",
+        RegexOptions.Compiled);
+
+    private static string RedactSecrets(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return string.Empty;
+
+        // AAD access tokens are JWT-like; redact those if they ever show up in error output.
+        var redacted = JwtLikeRegex.Replace(text, "[REDACTED_JWT]");
+
+        // Secondary pass: redact any suspiciously long three-part dot-separated blobs.
+        redacted = LongDotSeparatedTokenRegex.Replace(redacted, "[REDACTED_TOKEN]");
+
+        return redacted;
+    }
+
+    private static string FormatForStatus(string? message, int maxChars = 500)
+    {
+        var text = RedactSecrets(message ?? string.Empty).Trim();
+        if (text.Length <= maxChars) return text;
+        return text.Substring(0, maxChars) + "...";
     }
 
     private async Task<string> ResolveBearerTokenForTestAsync(ServicePrincipal sp)
     {
         if (!string.IsNullOrWhiteSpace(PendingBearerToken))
         {
-            return NormalizeBearerToken(PendingBearerToken);
+            var normalized = NormalizeBearerToken(PendingBearerToken);
+            if (TryGetJwtExpiryUtc(normalized, out var expiryUtc) && expiryUtc <= DateTimeOffset.UtcNow)
+            {
+                throw new InvalidOperationException($"Bearer token expired at {expiryUtc:u}. Retrieve a fresh token.");
+            }
+            return normalized;
         }
 
         if (!string.IsNullOrWhiteSpace(sp.SecretRef))
@@ -457,14 +587,24 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             var payload = await _vault.ReadSecretAsync<BearerTokenPayload>(sp.SecretRef);
             if (!string.IsNullOrWhiteSpace(payload?.AccessToken))
             {
-                return payload.AccessToken;
+                var normalized = NormalizeBearerToken(payload.AccessToken);
+                if (TryGetJwtExpiryUtc(normalized, out var expiryUtc) && expiryUtc <= DateTimeOffset.UtcNow)
+                {
+                    throw new InvalidOperationException($"Stored bearer token expired at {expiryUtc:u}. Retrieve a fresh token.");
+                }
+                return normalized;
             }
         }
 
         var token = Environment.GetEnvironmentVariable("FOTB_BEARER_TOKEN");
         if (!string.IsNullOrWhiteSpace(token))
         {
-            return NormalizeBearerToken(token);
+            var normalized = NormalizeBearerToken(token);
+            if (TryGetJwtExpiryUtc(normalized, out var expiryUtc) && expiryUtc <= DateTimeOffset.UtcNow)
+            {
+                throw new InvalidOperationException($"FOTB_BEARER_TOKEN expired at {expiryUtc:u}. Set a fresh token.");
+            }
+            return normalized;
         }
 
         throw new InvalidOperationException("No bearer token found. Paste a token (Profiles → BearerToken) and Save, or set FOTB_BEARER_TOKEN.");
@@ -515,6 +655,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     private static bool TryGetJwtExpiryUtc(string jwt, out DateTimeOffset expiryUtc)
     {
         expiryUtc = default;
+        if (string.IsNullOrWhiteSpace(jwt)) return false;
         var parts = jwt.Split('.');
         if (parts.Length < 2) return false;
 
@@ -553,32 +694,6 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             url = url[..^5];
         }
         return url;
-    }
-
-    private void PostDeviceCodeStatus(DeviceCodeResult code)
-    {
-        RunOnUi(() =>
-        {
-            Status = code.Message;
-            TryOpenUrl(code.VerificationUrl);
-        });
-    }
-
-    private static void TryOpenUrl(string? url)
-    {
-        if (string.IsNullOrWhiteSpace(url)) return;
-        try
-        {
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = url,
-                UseShellExecute = true
-            });
-        }
-        catch
-        {
-            // Ignore launch failures; user can open the URL manually from the status text.
-        }
     }
 
     private static void RunOnUi(Action action)

@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
@@ -18,11 +19,11 @@ public class ODataClientTests
         {
             new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent("{\"value\":[{\"Id\":1}],\"@odata.nextLink\":\"https://next\"}")
+                Content = new StringContent("{\"@odata.context\":\"ctx\",\"@odata.count\":2,\"value\":[{\"Id\":1}],\"@odata.nextLink\":\"https://next\"}", Encoding.UTF8, "application/json")
             },
             new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent("{\"value\":[{\"Id\":2}]}")
+                Content = new StringContent("{\"value\":[{\"Id\":2}]}", Encoding.UTF8, "application/json")
             }
         });
         var client = new HttpClient(handler);
@@ -37,6 +38,10 @@ public class ODataClientTests
         Assert.Equal(2, pages.Count);
         Assert.Equal(1L, Convert.ToInt64(pages[0].Rows[0]["Id"]));
         Assert.Equal(2L, Convert.ToInt64(pages[1].Rows[0]["Id"]));
+        Assert.Equal(2L, pages[0].ODataCount);
+        Assert.Equal("ctx", pages[0].ODataContext);
+        Assert.NotNull(pages[0].ResponseHeaders);
+        Assert.True(pages[0].ResponseHeaders!.ContainsKey("Content-Type"));
     }
 
     private sealed class SequenceHandler : HttpMessageHandler

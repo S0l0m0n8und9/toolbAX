@@ -21,7 +21,7 @@ public sealed class CatalogStore
     public async Task EnsureCreatedAsync(CancellationToken cancellationToken = default)
     {
         await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(cancellationToken);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
 CREATE TABLE IF NOT EXISTS CatalogData(
@@ -33,19 +33,19 @@ CREATE TABLE IF NOT EXISTS CatalogData(
   UpdatedUtc TEXT NOT NULL,
   PRIMARY KEY(EnvId, Kind)
 );";
-        await cmd.ExecuteNonQueryAsync(cancellationToken);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<CatalogRecord?> GetAsync(string envId, string kind, CancellationToken cancellationToken = default)
     {
         await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(cancellationToken);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT Version, PayloadJson, ETag, UpdatedUtc FROM CatalogData WHERE EnvId = $env AND Kind = $kind LIMIT 1";
         cmd.Parameters.AddWithValue("$env", envId);
         cmd.Parameters.AddWithValue("$kind", kind);
-        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
-        if (await reader.ReadAsync(cancellationToken))
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
+        if (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
         {
             var version = reader.GetString(0);
             var json = reader.GetString(1);
@@ -60,7 +60,7 @@ CREATE TABLE IF NOT EXISTS CatalogData(
     public async Task SaveAsync(string envId, string kind, string version, string payloadJson, string? etag, DateTime updatedUtc, CancellationToken cancellationToken = default)
     {
         await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(cancellationToken);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
 INSERT INTO CatalogData(EnvId, Kind, Version, PayloadJson, ETag, UpdatedUtc)
@@ -76,20 +76,20 @@ ON CONFLICT(EnvId, Kind) DO UPDATE SET
         cmd.Parameters.AddWithValue("$json", payloadJson);
         cmd.Parameters.AddWithValue("$etag", (object?)etag ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$updated", updatedUtc.ToString("o"));
-        await cmd.ExecuteNonQueryAsync(cancellationToken);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<DateTime> TouchAsync(string envId, string kind, CancellationToken cancellationToken = default)
     {
         var updatedUtc = DateTime.UtcNow;
         await using var conn = new SqliteConnection(_connectionString);
-        await conn.OpenAsync(cancellationToken);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "UPDATE CatalogData SET UpdatedUtc = $updated WHERE EnvId = $env AND Kind = $kind";
         cmd.Parameters.AddWithValue("$env", envId);
         cmd.Parameters.AddWithValue("$kind", kind);
         cmd.Parameters.AddWithValue("$updated", updatedUtc.ToString("o"));
-        await cmd.ExecuteNonQueryAsync(cancellationToken);
+        await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
         return updatedUtc;
     }
 }

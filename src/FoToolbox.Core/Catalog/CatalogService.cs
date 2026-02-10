@@ -16,6 +16,7 @@ public sealed class CatalogService : ICatalogService
 {
     private const string TablesKind = "Tables";
     private const string MetadataKind = "ODataMetadata";
+    private const string MetadataSchemaVersion = "metadata-v2";
     private const string TableBrowserUrlTemplateKey = "TableBrowserUrlTemplate";
     private const string DefaultTableBrowserUrlTemplate = "{BaseUrl}/?mi=SysTableBrowser&table={TableName}";
 
@@ -44,12 +45,12 @@ public sealed class CatalogService : ICatalogService
 
     public async Task<TableCatalog> GetTablesAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)
     {
-        await _store.EnsureCreatedAsync(ct);
+        await _store.EnsureCreatedAsync(ct).ConfigureAwait(false);
         var gate = _tableLocks.GetOrAdd(env.Id, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync(ct);
+        await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var cached = await _store.GetAsync(env.Id, TablesKind, ct);
+            var cached = await _store.GetAsync(env.Id, TablesKind, ct).ConfigureAwait(false);
             if (cached is not null)
             {
                 var cachedCatalog = DeserializeTableCatalog(cached.PayloadJson);
@@ -72,7 +73,7 @@ public sealed class CatalogService : ICatalogService
                 builtIn.Tables ?? Array.Empty<TableInfo>());
 
             var json = JsonSerializer.Serialize(normalized, JsonOptions);
-            await _store.SaveAsync(env.Id, TablesKind, normalized.Version, json, null, normalized.UpdatedUtc, ct);
+            await _store.SaveAsync(env.Id, TablesKind, normalized.Version, json, null, normalized.UpdatedUtc, ct).ConfigureAwait(false);
             return normalized;
         }
         finally
@@ -83,37 +84,38 @@ public sealed class CatalogService : ICatalogService
 
     public async Task<ODataMetadata> GetODataMetadataAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)
     {
-        await _store.EnsureCreatedAsync(ct);
+        await _store.EnsureCreatedAsync(ct).ConfigureAwait(false);
         var gate = _metadataLocks.GetOrAdd(env.Id, _ => new SemaphoreSlim(1, 1));
-        await gate.WaitAsync(ct);
+        await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var cached = await _store.GetAsync(env.Id, MetadataKind, ct);
-            if (cached is not null && mode == CatalogRefreshMode.UseCacheIfFresh && IsFresh(cached.UpdatedUtc, _options.MetadataMaxAge))
+            var cached = await _store.GetAsync(env.Id, MetadataKind, ct).ConfigureAwait(false);
+            var cachedValid = cached is not null && string.Equals(cached.Version, MetadataSchemaVersion, StringComparison.OrdinalIgnoreCase);
+            if (cachedValid && mode == CatalogRefreshMode.UseCacheIfFresh && IsFresh(cached!.UpdatedUtc, _options.MetadataMaxAge))
             {
-                return DeserializeMetadata(cached.PayloadJson);
+                return DeserializeMetadata(cached!.PayloadJson);
             }
 
             var request = new HttpRequestMessage(HttpMethod.Get, $"{env.BaseUrl.TrimEnd('/')}/data/$metadata");
-            if (!string.IsNullOrWhiteSpace(cached?.ETag))
+            if (cachedValid && !string.IsNullOrWhiteSpace(cached!.ETag))
             {
-                request.Headers.IfNoneMatch.Add(new System.Net.Http.Headers.EntityTagHeaderValue($"\"{cached.ETag}\""));
+                request.Headers.IfNoneMatch.Add(new System.Net.Http.Headers.EntityTagHeaderValue($"\"{cached!.ETag}\""));
             }
 
-            var response = await _httpClient.SendAsync(request, ct);
-            if (response.StatusCode == System.Net.HttpStatusCode.NotModified && cached is not null)
+            var response = await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
+            if (response.StatusCode == System.Net.HttpStatusCode.NotModified && cachedValid)
             {
-                await _store.TouchAsync(env.Id, MetadataKind, ct);
-                return DeserializeMetadata(cached.PayloadJson);
+                await _store.TouchAsync(env.Id, MetadataKind, ct).ConfigureAwait(false);
+                return DeserializeMetadata(cached!.PayloadJson);
             }
 
             response.EnsureSuccessStatusCode();
-            var xml = await response.Content.ReadAsStringAsync(ct);
+            var xml = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             var etag = response.Headers.ETag?.Tag?.Trim('"');
             var metadata = ODataMetadataProvider.Parse(xml, etag);
             var json = JsonSerializer.Serialize(metadata, JsonOptions);
             var updatedUtc = DateTime.UtcNow;
-            await _store.SaveAsync(env.Id, MetadataKind, "metadata", json, etag, updatedUtc, ct);
+            await _store.SaveAsync(env.Id, MetadataKind, MetadataSchemaVersion, json, etag, updatedUtc, ct).ConfigureAwait(false);
             return metadata;
         }
         finally
@@ -126,7 +128,7 @@ public sealed class CatalogService : ICatalogService
     {
         var tablesTask = GetTablesAsync(env, mode, ct);
         var metadataTask = GetODataMetadataAsync(env, mode, ct);
-        await Task.WhenAll(tablesTask, metadataTask);
+        await Task.WhenAll(tablesTask, metadataTask).ConfigureAwait(false);
         return new CatalogSnapshot(env.Id, env.BaseUrl, tablesTask.Result, metadataTask.Result, DateTime.UtcNow);
     }
 
@@ -134,18 +136,18 @@ public sealed class CatalogService : ICatalogService
     {
         if (scope.HasFlag(CatalogRefreshScope.Tables))
         {
-            _ = await GetTablesAsync(env, CatalogRefreshMode.ForceRefresh, ct);
+            _ = await GetTablesAsync(env, CatalogRefreshMode.ForceRefresh, ct).ConfigureAwait(false);
         }
 
         if (scope.HasFlag(CatalogRefreshScope.ODataMetadata))
         {
-            _ = await GetODataMetadataAsync(env, CatalogRefreshMode.ForceRefresh, ct);
+            _ = await GetODataMetadataAsync(env, CatalogRefreshMode.ForceRefresh, ct).ConfigureAwait(false);
         }
     }
 
     public async Task<TableCatalog> ImportTableCatalogAsync(FoEnvironment env, string json, CancellationToken ct = default)
     {
-        await _store.EnsureCreatedAsync(ct);
+        await _store.EnsureCreatedAsync(ct).ConfigureAwait(false);
         var catalog = DeserializeTableCatalog(json);
         if (catalog.Tables is null)
         {
@@ -159,7 +161,7 @@ public sealed class CatalogService : ICatalogService
             catalog.Tables);
 
         var storedJson = JsonSerializer.Serialize(normalized, JsonOptions);
-        await _store.SaveAsync(env.Id, TablesKind, normalized.Version, storedJson, null, normalized.UpdatedUtc, ct);
+        await _store.SaveAsync(env.Id, TablesKind, normalized.Version, storedJson, null, normalized.UpdatedUtc, ct).ConfigureAwait(false);
         return normalized;
     }
 
@@ -170,8 +172,8 @@ public sealed class CatalogService : ICatalogService
             return _tableBrowserUrlTemplate;
         }
 
-        await _profileStore.EnsureCreatedAsync(ct);
-        var stored = await _profileStore.GetSettingAsync(TableBrowserUrlTemplateKey, ct);
+        await _profileStore.EnsureCreatedAsync(ct).ConfigureAwait(false);
+        var stored = await _profileStore.GetSettingAsync(TableBrowserUrlTemplateKey, ct).ConfigureAwait(false);
         _tableBrowserUrlTemplate = string.IsNullOrWhiteSpace(stored) ? DefaultTableBrowserUrlTemplate : stored;
         return _tableBrowserUrlTemplate;
     }
@@ -184,8 +186,8 @@ public sealed class CatalogService : ICatalogService
         }
 
         _tableBrowserUrlTemplate = template;
-        await _profileStore.EnsureCreatedAsync(ct);
-        await _profileStore.SetSettingAsync(TableBrowserUrlTemplateKey, template, ct);
+        await _profileStore.EnsureCreatedAsync(ct).ConfigureAwait(false);
+        await _profileStore.SetSettingAsync(TableBrowserUrlTemplateKey, template, ct).ConfigureAwait(false);
     }
 
     public string BuildTableBrowserUrl(FoEnvironment env, string tableName)
@@ -203,7 +205,8 @@ public sealed class CatalogService : ICatalogService
 
     private static bool IsFresh(DateTime updatedUtc, TimeSpan maxAge)
     {
-        if (maxAge <= TimeSpan.Zero) return true;
+        // MaxAge <= 0 means "do not consider cached data fresh".
+        if (maxAge <= TimeSpan.Zero) return false;
         return (DateTime.UtcNow - updatedUtc) <= maxAge;
     }
 

@@ -33,6 +33,26 @@ public class CatalogServiceTests
     }
 
     [Fact]
+    public async Task GetTablesAsync_Does_Not_Use_Cache_When_MaxAge_Is_Zero()
+    {
+        var handler = new CountingMetadataHandler("<root />");
+        var httpClient = new HttpClient(handler);
+        var profileDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db");
+        var catalogDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db");
+        var profileStore = new ProfileStore(profileDb);
+        await profileStore.EnsureCreatedAsync();
+        var catalogStore = new CatalogStore(catalogDb);
+        var service = new CatalogService(httpClient, profileStore, catalogStore, new CatalogServiceOptions(TimeSpan.Zero, TimeSpan.FromDays(1)));
+        var env = new FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com", "tenant", "USMF");
+
+        var first = await service.GetTablesAsync(env, CatalogRefreshMode.UseCacheIfFresh, default);
+        await Task.Delay(25);
+        var second = await service.GetTablesAsync(env, CatalogRefreshMode.UseCacheIfFresh, default);
+
+        Assert.True(second.UpdatedUtc > first.UpdatedUtc);
+    }
+
+    [Fact]
     public async Task ImportTableCatalogAsync_Overrides_Default()
     {
         var handler = new CountingMetadataHandler("<root />");

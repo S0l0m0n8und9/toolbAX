@@ -6,16 +6,20 @@
         <Member Name="Retail" />
         <Member Name="Wholesale" />
       </EnumType>
-      <EntityType Name="Customer">
+      <EntityContainer Name="Container">
+        <EntitySet Name="CustomersV3" EntityType="Default.CustomerV3" />
+        <EntitySet Name="SalesOrdersV3" EntityType="Default.SalesOrderV3" />
+      </EntityContainer>
+      <EntityType Name="CustomerV3">
         <Key>
           <PropertyRef Name="AccountNumber" />
         </Key>
         <Property Name="AccountNumber" Type="Edm.String" Nullable="false" />
         <Property Name="Name" Type="Edm.String" Nullable="false" />
         <Property Name="CustomerType" Type="Default.CustomerType" Nullable="false" />
-        <NavigationProperty Name="SalesOrders" Type="Collection(Default.SalesOrder)" />
+        <NavigationProperty Name="SalesOrders" Type="Collection(Default.SalesOrderV3)" />
       </EntityType>
-      <EntityType Name="SalesOrder">
+      <EntityType Name="SalesOrderV3">
         <Key>
           <PropertyRef Name="SalesId" />
         </Key>

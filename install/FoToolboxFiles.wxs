@@ -57,6 +57,9 @@
       <Component Id="FoToolboxPluginQueryBuilder" Guid="{8BE5F3E5-C8D2-4BB2-9B9D-9D2A4D927254}" Directory="PLUGINS">
         <File Id="QueryBuilder.dll" Source="$(var.SourceDir)\plugins\QueryBuilder.dll" />
       </Component>
+      <Component Id="FoToolboxPluginTableEntityBrowser" Guid="{DFAA5D17-7A94-413C-BA6B-41B0AA4FAD00}" Directory="PLUGINS">
+        <File Id="TableEntityBrowser.dll" Source="$(var.SourceDir)\plugins\TableEntityBrowser.dll" />
+      </Component>
 
       <!-- Start menu shortcut -->
       <Component Id="FoToolboxStartMenuShortcut" Guid="{5B18C0A9-A5F2-4E8C-9F3E-798A80C511C3}" Directory="ProgramMenuFoToolbox">
