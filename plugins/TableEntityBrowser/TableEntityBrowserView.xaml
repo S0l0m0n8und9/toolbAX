@@ -25,12 +25,15 @@
                 <ColumnDefinition Width="Auto" />
             </Grid.ColumnDefinitions>
 
-            <StackPanel Orientation="Horizontal">
+            <WrapPanel>
                 <Button Content="Load Tables" Command="{Binding LoadTablesCommand}"
                         MinWidth="96" Padding="10,4"
                         IsEnabled="{Binding IsBusy, Converter={StaticResource NotBool}}" />
                 <Button Content="Load Entities" Command="{Binding LoadEntitiesCommand}"
                         MinWidth="96" Padding="10,4" Margin="6,0,0,0"
+                        IsEnabled="{Binding IsBusy, Converter={StaticResource NotBool}}" />
+                <Button Content="Refresh Entities" Command="{Binding RefreshEntitiesCommand}"
+                        MinWidth="110" Padding="10,4" Margin="6,0,0,0"
                         IsEnabled="{Binding IsBusy, Converter={StaticResource NotBool}}" />
                 <Button Content="Refresh All" Command="{Binding RefreshAllCommand}"
                         MinWidth="96" Padding="10,4" Margin="6,0,0,0"
@@ -38,10 +41,10 @@
                 <Button Content="Import Tables" Command="{Binding ImportTablesCommand}"
                         MinWidth="96" Padding="10,4" Margin="6,0,0,0"
                         IsEnabled="{Binding IsBusy, Converter={StaticResource NotBool}}" />
-            </StackPanel>
+            </WrapPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                <TextBlock Text="Working..." Foreground="Gray" Margin="0,0,8,0"
+                <TextBlock Text="Working..." Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="0,0,8,0"
                            Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}" />
                 <ProgressBar Width="140" Height="10" IsIndeterminate="True"
                              Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}" />
@@ -56,15 +59,15 @@
             </Grid.ColumnDefinitions>
 
             <Border Grid.Column="0"
-                    Background="#f9fafb"
-                    BorderBrush="#e5e7eb"
+                    Background="{DynamicResource Fo.SurfaceAltBrush}"
+                    BorderBrush="{DynamicResource Fo.BorderBrush}"
                     BorderThickness="1"
                     CornerRadius="6"
                     Padding="10">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top">
                         <TextBlock Text="Tables" FontWeight="SemiBold" FontSize="14" />
-                        <TextBlock Text="Search" FontSize="11" Foreground="Gray" Margin="0,10,0,2" />
+                        <TextBlock Text="Search" FontSize="11" Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="0,10,0,2" />
                         <TextBox Text="{Binding TableSearch, UpdateSourceTrigger=PropertyChanged}" />
                     </StackPanel>
 
@@ -83,8 +86,8 @@
                     </ListView>
 
                     <StackPanel DockPanel.Dock="Bottom" Margin="0,10,0,0">
-                        <TextBlock Text="{Binding TableListSummary}" FontSize="11" Foreground="Gray" />
-                        <TextBlock Text="{Binding SelectedTableSummary}" FontSize="11" Foreground="Gray" Margin="0,2,0,0" />
+                        <TextBlock Text="{Binding TableListSummary}" FontSize="11" Foreground="{DynamicResource Fo.SubtleTextBrush}" />
+                        <TextBlock Text="{Binding SelectedTableSummary}" FontSize="11" Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="0,2,0,0" />
 
                         <TextBox Text="{Binding SelectedTableBrowserUrl}"
                                  IsReadOnly="True"
@@ -102,12 +105,12 @@
 
                         <Separator Margin="0,12,0,12" />
 
-                        <TextBlock Text="Table Browser URL Template" FontSize="11" Foreground="Gray" Margin="0,0,0,2" />
+                        <TextBlock Text="Table Browser URL Template" FontSize="11" Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="0,0,0,2" />
                         <TextBox Text="{Binding TableBrowserTemplate, UpdateSourceTrigger=PropertyChanged}"
                                  FontSize="11"
                                  FontFamily="Consolas"
                                  ToolTip="Use {BaseUrl} and {TableName}" />
-                        <TextBlock Text="Use {BaseUrl} and {TableName}" FontSize="10" Foreground="Gray" Margin="0,4,0,0" />
+                        <TextBlock Text="Use {BaseUrl} and {TableName}" FontSize="10" Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="0,4,0,0" />
                         <Button Content="Save Template"
                                 Command="{Binding SaveTemplateCommand}"
                                 Margin="0,6,0,0"
@@ -119,12 +122,12 @@
             <GridSplitter Grid.Column="1"
                           HorizontalAlignment="Stretch"
                           VerticalAlignment="Stretch"
-                          Background="#e5e7eb"
+                          Background="{DynamicResource Fo.BorderBrush}"
                           ShowsPreview="True" />
 
             <Border Grid.Column="2"
-                    Background="White"
-                    BorderBrush="#e5e7eb"
+                    Background="{DynamicResource Fo.SurfaceBrush}"
+                    BorderBrush="{DynamicResource Fo.BorderBrush}"
                     BorderThickness="1"
                     CornerRadius="6"
                     Padding="10">
@@ -138,7 +141,7 @@
 
                     <StackPanel Grid.Row="0">
                         <TextBlock Text="Entities" FontWeight="SemiBold" FontSize="14" />
-                        <TextBlock Text="Search" FontSize="11" Foreground="Gray" Margin="0,10,0,2" />
+                        <TextBlock Text="Search" FontSize="11" Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="0,10,0,2" />
                         <TextBox Text="{Binding EntitySearch, UpdateSourceTrigger=PropertyChanged}" />
                     </StackPanel>
 
@@ -159,8 +162,8 @@
                     </ListView>
 
                     <StackPanel Grid.Row="2" Margin="0,10,0,0">
-                        <TextBlock Text="{Binding EntityListSummary}" FontSize="11" Foreground="Gray" />
-                        <TextBlock Text="{Binding SelectedEntitySummary}" FontSize="11" Foreground="Gray" Margin="0,2,0,0" />
+                        <TextBlock Text="{Binding EntityListSummary}" FontSize="11" Foreground="{DynamicResource Fo.SubtleTextBrush}" />
+                        <TextBlock Text="{Binding SelectedEntitySummary}" FontSize="11" Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="0,2,0,0" />
                         <TextBox Text="{Binding SelectedEntityEndpoint}"
                                  IsReadOnly="True"
                                  FontSize="11"
@@ -169,6 +172,11 @@
                                  HorizontalScrollBarVisibility="Auto"
                                  VerticalScrollBarVisibility="Hidden"
                                  ToolTip="{Binding SelectedEntityEndpoint}" />
+                        <Button Content="Refresh Selected Entity"
+                                Command="{Binding RefreshSelectedEntityCommand}"
+                                Margin="0,6,0,0"
+                                Padding="10,4"
+                                IsEnabled="{Binding IsBusy, Converter={StaticResource NotBool}}" />
                     </StackPanel>
 
                     <Grid Grid.Row="3" Margin="0,10,0,0">
@@ -185,17 +193,18 @@
                                   HeadersVisibility="Column"
                                   GridLinesVisibility="Horizontal">
                             <DataGrid.Columns>
-                                <DataGridTextColumn Header="Name" Binding="{Binding Name}" Width="200" />
-                                <DataGridTextColumn Header="Type" Binding="{Binding Type}" Width="240" />
-                                <DataGridCheckBoxColumn Header="Nullable" Binding="{Binding Nullable}" Width="90" />
-                                <DataGridTextColumn Header="Enum Values" Binding="{Binding EnumValues}" Width="*" />
+                                <!-- Explicit OneWay bindings avoid WPF defaulting to TwoWay and crashing on get-only properties. -->
+                                <DataGridTextColumn Header="Name" Binding="{Binding Name, Mode=OneWay}" IsReadOnly="True" Width="200" />
+                                <DataGridTextColumn Header="Type" Binding="{Binding Type, Mode=OneWay}" IsReadOnly="True" Width="240" />
+                                <DataGridCheckBoxColumn Header="Nullable" Binding="{Binding Nullable, Mode=OneWay}" IsReadOnly="True" Width="90" />
+                                <DataGridTextColumn Header="Enum Values" Binding="{Binding EnumValues, Mode=OneWay}" IsReadOnly="True" Width="*" />
                             </DataGrid.Columns>
                         </DataGrid>
 
                         <ItemsControl Grid.Row="1" ItemsSource="{Binding NavigationHints}" Margin="0,8,0,0">
                             <ItemsControl.ItemTemplate>
                                 <DataTemplate>
-                                    <TextBlock Text="{Binding}" FontSize="11" Foreground="Gray" />
+                                    <TextBlock Text="{Binding}" FontSize="11" Foreground="{DynamicResource Fo.SubtleTextBrush}" />
                                 </DataTemplate>
                             </ItemsControl.ItemTemplate>
                         </ItemsControl>
@@ -205,12 +214,11 @@
         </Grid>
 
         <Border Grid.Row="2"
-                BorderBrush="#e5e7eb"
+                BorderBrush="{DynamicResource Fo.BorderBrush}"
                 BorderThickness="0,1,0,0"
-                Background="#f3f4f6"
+                Background="{DynamicResource Fo.SurfaceAltBrush}"
                 Padding="8">
             <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
         </Border>
     </Grid>
 </UserControl>
-

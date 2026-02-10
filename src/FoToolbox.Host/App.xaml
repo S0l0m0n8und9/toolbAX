@@ -4,6 +4,12 @@
              xmlns:local="clr-namespace:FoToolbox.Host"
              StartupUri="MainWindow.xaml">
     <Application.Resources>
-         
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <!-- Fluent-ish baseline theme (light). -->
+                <ResourceDictionary Source="Themes/Fluent.Light.xaml" />
+                <ResourceDictionary Source="Themes/Fluent.Controls.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

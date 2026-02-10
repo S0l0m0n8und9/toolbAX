@@ -1,0 +1,43 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--
+      Fluent-ish (Win11) light palette.
+      Keep these as the single source of truth; views should reference the Brushes via DynamicResource.
+    -->
+
+    <!-- Typography -->
+    <FontFamily x:Key="Fo.FontFamily">Segoe UI</FontFamily>
+    <sys:Double x:Key="Fo.FontSize.Body" xmlns:sys="clr-namespace:System;assembly=mscorlib">12</sys:Double>
+
+    <!-- Base colors -->
+    <Color x:Key="Fo.Color.WindowBackground">#FFF6F7F9</Color>
+    <Color x:Key="Fo.Color.Surface">#FFFFFFFF</Color>
+    <Color x:Key="Fo.Color.SurfaceAlt">#FFF2F4F7</Color>
+    <Color x:Key="Fo.Color.Border">#FFE2E6EA</Color>
+    <Color x:Key="Fo.Color.Text">#FF1F2328</Color>
+    <Color x:Key="Fo.Color.SubtleText">#FF6B7280</Color>
+
+    <!-- Accent (default Windows-ish blue) -->
+    <Color x:Key="Fo.Color.Accent">#FF2563EB</Color>
+    <Color x:Key="Fo.Color.AccentHover">#FF1D4ED8</Color>
+    <Color x:Key="Fo.Color.AccentPressed">#FF1E40AF</Color>
+
+    <!-- Brushes -->
+    <SolidColorBrush x:Key="Fo.WindowBackgroundBrush" Color="{StaticResource Fo.Color.WindowBackground}" />
+    <SolidColorBrush x:Key="Fo.SurfaceBrush" Color="{StaticResource Fo.Color.Surface}" />
+    <SolidColorBrush x:Key="Fo.SurfaceAltBrush" Color="{StaticResource Fo.Color.SurfaceAlt}" />
+    <SolidColorBrush x:Key="Fo.BorderBrush" Color="{StaticResource Fo.Color.Border}" />
+    <SolidColorBrush x:Key="Fo.TextBrush" Color="{StaticResource Fo.Color.Text}" />
+    <SolidColorBrush x:Key="Fo.SubtleTextBrush" Color="{StaticResource Fo.Color.SubtleText}" />
+
+    <SolidColorBrush x:Key="Fo.AccentBrush" Color="{StaticResource Fo.Color.Accent}" />
+    <SolidColorBrush x:Key="Fo.AccentHoverBrush" Color="{StaticResource Fo.Color.AccentHover}" />
+    <SolidColorBrush x:Key="Fo.AccentPressedBrush" Color="{StaticResource Fo.Color.AccentPressed}" />
+
+    <!-- Layout tokens -->
+    <CornerRadius x:Key="Fo.CornerRadius.Card">10</CornerRadius>
+    <CornerRadius x:Key="Fo.CornerRadius.Control">8</CornerRadius>
+    <Thickness x:Key="Fo.BorderThickness.Control">1</Thickness>
+    <Thickness x:Key="Fo.Padding.Control">12,6</Thickness>
+</ResourceDictionary>
+

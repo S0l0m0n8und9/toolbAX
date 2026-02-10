@@ -2,6 +2,7 @@ using FoToolbox.Core.Catalog;
 using FoToolbox.Core.OData;
 using FoToolbox.Core.Export;
 using FoToolbox.Core.Profiles;
+using FoToolbox.SDK.Collections;
 using FoToolbox.SDK.Plugins;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
@@ -27,8 +28,9 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
 {
     private readonly IPluginContext _ctx;
     private readonly SavedQueryStore _savedStore;
-    private ODataMetadata? _metadata;
-    private readonly ObservableCollection<EntityItem> _entities = new();
+    private ODataEntityIndex? _entityIndex;
+    private ODataEntity? _selectedEntityDetails;
+    private readonly BulkObservableCollection<EntityItem> _entities = new();
     private readonly ObservableCollection<FieldItem> _fields = new();
     private readonly ObservableCollection<FieldItem> _filterFields = new();
     private readonly ObservableCollection<string> _navigation = new();
@@ -71,6 +73,14 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     private string? _expandWarning;
     private DataView? _preview;
     private SavedQueryItem? _selectedSaved;
+    private readonly SynchronizationContext? _syncContext = SynchronizationContext.Current;
+    private CancellationTokenSource? _entitySearchCts;
+    private CancellationTokenSource? _fieldSearchCts;
+    private CancellationTokenSource? _selectedEntityDetailsCts;
+    private bool _suppressFieldSelectionRebuild;
+
+    // Useful for tests and for callers that want to await details loading.
+    public Task SelectedEntityDetailsTask { get; private set; } = Task.CompletedTask;
 
     public FilterGroupViewModel RootGroup { get; } = new() { LogicalOperator = "and" };
 
@@ -96,6 +106,8 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         };
 
         LoadEntitiesCommand = new AsyncRelayCommand(LoadEntitiesAsync, onCommandError);
+        RefreshEntitiesCommand = new AsyncRelayCommand(RefreshEntitiesAsync, onCommandError);
+        RefreshSelectedEntityCommand = new AsyncRelayCommand(RefreshSelectedEntityAsync, onCommandError);
         PreviewCommand = new AsyncRelayCommand(PreviewAsync, onCommandError);
         AddConditionCommand = new RelayCommand(p => AddCondition(p as FilterGroupViewModel ?? RootGroup));
         AddGroupCommand = new RelayCommand(p => AddGroup(p as FilterGroupViewModel ?? RootGroup));
@@ -145,17 +157,18 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
                 _navigation.Clear();
                 _selectedFields.Clear();
                 _enumFields = null;
+                _selectedEntityDetails = null;
                 PreviewTable = null;
                 SetNextLink(null);
                 _lastODataCount = null;
                 ResponseDetails = "No preview run yet.";
-                PopulateFieldsForSelection();
                 UpdateSelectedEntitySummary();
                 UpdateFieldSummary();
                 UpdateFilterPreview();
                 UpdateExpandSummary();
                 UpdateQueryPreview();
                 RefreshFilterEnumProviders();
+                StartLoadSelectedEntityDetails();
             }
         }
     }
@@ -169,8 +182,7 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
             {
                 _entitySearch = value;
                 OnPropertyChanged();
-                EntitiesView.Refresh();
-                UpdateEntitySummary();
+                ScheduleEntitySearchRefresh();
             }
         }
     }
@@ -184,8 +196,7 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
             {
                 _fieldSearch = value;
                 OnPropertyChanged();
-                FieldsView.Refresh();
-                UpdateFieldSummary();
+                ScheduleFieldSearchRefresh();
             }
         }
     }
@@ -405,6 +416,8 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     }
 
     public AsyncRelayCommand LoadEntitiesCommand { get; }
+    public AsyncRelayCommand RefreshEntitiesCommand { get; }
+    public AsyncRelayCommand RefreshSelectedEntityCommand { get; }
     public AsyncRelayCommand PreviewCommand { get; }
     public RelayCommand AddConditionCommand { get; }
     public RelayCommand AddGroupCommand { get; }
@@ -422,6 +435,18 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
 
     private async Task LoadEntitiesAsync(CancellationToken cancellationToken)
     {
+        await LoadEntitiesCoreAsync(CatalogRefreshMode.UseCacheIfAvailable, cancellationToken);
+    }
+
+    private async Task RefreshEntitiesAsync(CancellationToken cancellationToken)
+    {
+        // Explicit refresh: pull metadata from source and rebuild the index cache.
+        await _ctx.Catalog.RefreshAsync(_ctx.CurrentEnv, CatalogRefreshScope.ODataMetadata, cancellationToken);
+        await LoadEntitiesCoreAsync(CatalogRefreshMode.UseCacheIfAvailable, cancellationToken);
+    }
+
+    private async Task LoadEntitiesCoreAsync(CatalogRefreshMode mode, CancellationToken cancellationToken)
+    {
         Status = "Loading entities...";
         EntityLoadStatus = "Loading metadata...";
         IsLoadingEntities = true;
@@ -430,6 +455,9 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         _filterFields.Clear();
         _navigation.Clear();
         _selectedFields.Clear();
+        _selectedEntityDetails = null;
+        _selectedEntityDetailsCts?.Cancel();
+        SelectedEntityDetailsTask = Task.CompletedTask;
         RootGroup.Children.Clear();
         PreviewTable = null;
         SetNextLink(null);
@@ -439,22 +467,16 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         try
         {
             var started = DateTime.UtcNow;
-            _metadata = await _ctx.Catalog.GetODataMetadataAsync(_ctx.CurrentEnv, CatalogRefreshMode.UseCacheIfFresh, cancellationToken);
-            _enumLookup = BuildEnumLookup(_metadata.Enums);
-            var ordered = _metadata.Entities.OrderBy(e => e.Name).ToList();
-            var total = ordered.Count;
-            var loaded = 0;
-            foreach (var entity in ordered)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                _entities.Add(new EntityItem(entity.Name, entity.Properties.Count, entity.Navigations.Count));
-                loaded++;
-                if (loaded % 200 == 0)
-                {
-                    EntityLoadStatus = $"Loaded {loaded}/{total} entities...";
-                    await Task.Yield(); // keep UI responsive while loading lots of rows
-                }
-            }
+            _entityIndex = await _ctx.Catalog.GetODataEntityIndexAsync(_ctx.CurrentEnv, mode, cancellationToken);
+            _enumLookup = BuildEnumLookup(_entityIndex.Enums);
+            EntityLoadStatus = "Populating entity list...";
+
+            var ordered = _entityIndex.Entities
+                .OrderBy(e => e.Name)
+                .Select(e => new EntityItem(e.Name, e.PropertyCount, e.NavigationCount))
+                .ToList();
+
+            _entities.ReplaceAll(ordered);
             EntitiesView.Refresh();
             UpdateEntitySummary();
             EntityLoadStatus = $"Loaded {_entities.Count} entities in {(DateTime.UtcNow - started).TotalSeconds:F1}s.";
@@ -470,6 +492,55 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         {
             IsLoadingEntities = false;
         }
+    }
+
+    private async Task RefreshSelectedEntityAsync(CancellationToken cancellationToken)
+    {
+        if (string.IsNullOrWhiteSpace(_selectedEntity))
+        {
+            Status = "Select an entity first.";
+            return;
+        }
+
+        var selected = new HashSet<string>(_selectedFields, StringComparer.OrdinalIgnoreCase);
+
+        _fields.Clear();
+        _filterFields.Clear();
+        _navigation.Clear();
+        _selectedFields.Clear();
+        _enumFields = null;
+        _selectedEntityDetails = null;
+        FieldsView.Refresh();
+        UpdateFieldSummary();
+        UpdateSelectedEntitySummary();
+        UpdateExpandSummary();
+        UpdateQueryPreview();
+
+        _selectedEntityDetailsCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _selectedEntityDetailsCts = cts;
+        SelectedEntityDetailsTask = LoadSelectedEntityDetailsAsync(_selectedEntity, CatalogRefreshMode.ForceRefresh, cts.Token);
+        await SelectedEntityDetailsTask;
+
+        // Reapply field selection by name (best-effort).
+        _suppressFieldSelectionRebuild = true;
+        try
+        {
+            foreach (var field in _fields)
+            {
+                if (selected.Contains(field.Name))
+                {
+                    field.IsSelected = true;
+                }
+            }
+        }
+        finally
+        {
+            _suppressFieldSelectionRebuild = false;
+        }
+
+        RebuildSelectedFields();
+        Status = $"Refreshed entity: {_selectedEntity}";
     }
 
     private async Task PreviewAsync(CancellationToken cancellationToken)
@@ -565,44 +636,88 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         return sb.Length == 0 ? "No response metadata." : sb.ToString().TrimEnd();
     }
 
-    private void PopulateFieldsForSelection()
+    private void StartLoadSelectedEntityDetails()
     {
+        _selectedEntityDetailsCts?.Cancel();
+
         if (string.IsNullOrWhiteSpace(_selectedEntity))
         {
+            SelectedEntityDetailsTask = Task.CompletedTask;
             return;
         }
-        var entity = _metadata?.Entities.FirstOrDefault(e => string.Equals(e.Name, _selectedEntity, StringComparison.OrdinalIgnoreCase));
-        if (entity is null) return;
 
-        var enumFields = new Dictionary<string, EnumFieldInfo>(StringComparer.OrdinalIgnoreCase);
-        foreach (var prop in entity.Properties.OrderBy(p => p.Name))
+        var cts = new CancellationTokenSource();
+        _selectedEntityDetailsCts = cts;
+        SelectedEntityDetailsTask = LoadSelectedEntityDetailsAsync(_selectedEntity, CatalogRefreshMode.UseCacheIfAvailable, cts.Token);
+    }
+
+    private async Task LoadSelectedEntityDetailsAsync(string entityName, CatalogRefreshMode mode, CancellationToken cancellationToken)
+    {
+        try
         {
-            var enumInfo = ResolveEnumInfo(_enumLookup, prop.Type);
-            var enumValues = enumInfo is null ? null : string.Join(", ", enumInfo.Members);
-            var field = new FieldItem(prop.Name, prop.Type, "Property", prop.Nullable, enumValues);
-            field.SelectionChanged += FieldSelectionChanged;
-            _fields.Add(field);
-            _filterFields.Add(field);
-            if (enumInfo is not null)
+            // This can be async if the catalog chooses to lazily parse or fetch per-entity details.
+            Status = $"Loading fields for {entityName}...";
+            var entity = await _ctx.Catalog.GetODataEntityDetailsAsync(_ctx.CurrentEnv, entityName, mode, cancellationToken);
+            if (cancellationToken.IsCancellationRequested)
             {
-                enumFields[prop.Name] = enumInfo;
+                return;
             }
-        }
-        foreach (var nav in entity.Navigations.OrderBy(n => n.Name))
-        {
-            var field = new FieldItem(nav.Name, nav.Type, "Navigation", nullable: true, enumValues: null);
-            field.SelectionChanged += FieldSelectionChanged;
-            _fields.Add(field);
-            _navigation.Add(nav.Name);
-        }
 
-        _enumFields = enumFields;
-        FieldsView.Refresh();
-        UpdateFieldSummary();
-        UpdateSelectedEntitySummary();
-        UpdateQueryPreview();
-        ResetPaging();
-        RefreshFilterEnumProviders();
+            if (entity is null)
+            {
+                Status = $"Entity not found in metadata: {entityName}";
+                return;
+            }
+
+            // Ensure we still match the current selection.
+            if (!string.Equals(_selectedEntity, entityName, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            _selectedEntityDetails = entity;
+
+            var enumFields = new Dictionary<string, EnumFieldInfo>(StringComparer.OrdinalIgnoreCase);
+            foreach (var prop in entity.Properties.OrderBy(p => p.Name))
+            {
+                var enumInfo = ResolveEnumInfo(_enumLookup, prop.Type);
+                var enumValues = enumInfo is null ? null : string.Join(", ", enumInfo.Members);
+                var field = new FieldItem(prop.Name, prop.Type, "Property", prop.Nullable, enumValues);
+                field.SelectionChanged += FieldSelectionChanged;
+                _fields.Add(field);
+                _filterFields.Add(field);
+                if (enumInfo is not null)
+                {
+                    enumFields[prop.Name] = enumInfo;
+                }
+            }
+            foreach (var nav in entity.Navigations.OrderBy(n => n.Name))
+            {
+                var field = new FieldItem(nav.Name, nav.Type, "Navigation", nullable: true, enumValues: null);
+                field.SelectionChanged += FieldSelectionChanged;
+                _fields.Add(field);
+                _navigation.Add(nav.Name);
+            }
+
+            _enumFields = enumFields;
+            FieldsView.Refresh();
+            UpdateFieldSummary();
+            UpdateSelectedEntitySummary();
+            UpdateExpandSummary();
+            UpdateQueryPreview();
+            ResetPaging();
+            RefreshFilterEnumProviders();
+            Status = "Pick an entity, then choose fields and filters.";
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // ignore
+        }
+        catch (Exception ex)
+        {
+            _ctx.Logger.LogError(ex, "Failed to load entity details for {Entity}", entityName);
+            Status = $"Failed to load fields: {ex.Message}";
+        }
     }
 
     public void UpdateSelectedFields(System.Collections.IList selectedItems)
@@ -628,6 +743,7 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
 
     private void FieldSelectionChanged(object? sender, EventArgs e)
     {
+        if (_suppressFieldSelectionRebuild) return;
         RebuildSelectedFields();
     }
 
@@ -911,14 +1027,73 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
             return;
         }
 
-        var entity = _metadata?.Entities.FirstOrDefault(e => string.Equals(e.Name, SelectedEntity, StringComparison.OrdinalIgnoreCase));
-        if (entity is null)
+        var item = _entities.FirstOrDefault(e => string.Equals(e.Name, SelectedEntity, StringComparison.OrdinalIgnoreCase));
+        if (item is null)
         {
             SelectedEntitySummary = "No entity selected.";
             return;
         }
 
-        SelectedEntitySummary = $"{entity.Name} | {entity.Properties.Count} fields, {entity.Navigations.Count} nav properties";
+        SelectedEntitySummary = $"{item.Name} | {item.PropertyCount} fields, {item.NavigationCount} nav properties";
+    }
+
+    private void ScheduleEntitySearchRefresh()
+    {
+        if (_syncContext is null)
+        {
+            EntitiesView.Refresh();
+            UpdateEntitySummary();
+            return;
+        }
+
+        _entitySearchCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _entitySearchCts = cts;
+        _ = DebounceAsync(cts.Token, () =>
+        {
+            EntitiesView.Refresh();
+            UpdateEntitySummary();
+        });
+    }
+
+    private void ScheduleFieldSearchRefresh()
+    {
+        if (_syncContext is null)
+        {
+            FieldsView.Refresh();
+            UpdateFieldSummary();
+            return;
+        }
+
+        _fieldSearchCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _fieldSearchCts = cts;
+        _ = DebounceAsync(cts.Token, () =>
+        {
+            FieldsView.Refresh();
+            UpdateFieldSummary();
+        });
+    }
+
+    private async Task DebounceAsync(CancellationToken token, Action action)
+    {
+        try
+        {
+            await Task.Delay(200, token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            return;
+        }
+
+        if (token.IsCancellationRequested) return;
+        _syncContext!.Post(_ =>
+        {
+            if (!token.IsCancellationRequested)
+            {
+                action();
+            }
+        }, null);
     }
 
     private static Dictionary<string, ODataEnumType> BuildEnumLookup(IReadOnlyList<ODataEnumType> enums)
@@ -1357,21 +1532,35 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         FilterText = item.FilterText;
         ExpandPath = item.Expand;
 
-        if (_fields.Count == 0)
-        {
-            PopulateFieldsForSelection();
-        }
         var selected = new HashSet<string>(item.Select ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
-        foreach (var field in _fields)
-        {
-            field.IsSelected = selected.Contains(field.Name);
-        }
-        RebuildSelectedFields();
+        _ = ApplySavedFieldSelectionAsync(item.Entity, selected);
 
         RootGroup.Children.Clear();
         if (item.FilterRoot is not null)
         {
             RootGroup.Children.Add(FromFilterDto(item.FilterRoot, RootGroup));
+        }
+    }
+
+    private async Task ApplySavedFieldSelectionAsync(string entityName, HashSet<string> selected)
+    {
+        try
+        {
+            await SelectedEntityDetailsTask.ConfigureAwait(true);
+            if (!string.Equals(SelectedEntity, entityName, StringComparison.OrdinalIgnoreCase))
+            {
+                return;
+            }
+
+            foreach (var field in _fields)
+            {
+                field.IsSelected = selected.Contains(field.Name);
+            }
+            RebuildSelectedFields();
+        }
+        catch (Exception ex)
+        {
+            _ctx.Logger.LogError(ex, "Failed applying saved field selection for {Entity}", entityName);
         }
     }
 

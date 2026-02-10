@@ -27,6 +27,10 @@ public sealed record CatalogSnapshot(
 
 public enum CatalogRefreshMode
 {
+    /// <summary>
+    /// Use any cached payload if it exists (even if stale). Falls back to fetching/building when absent.
+    /// </summary>
+    UseCacheIfAvailable,
     UseCacheIfFresh,
     ForceRefresh
 }

@@ -7,15 +7,15 @@
              d:DesignWidth="400"
              d:DesignHeight="200">
     <Border Padding="12"
-            Background="White"
-            BorderBrush="#e5e7eb"
+            Background="{DynamicResource Fo.SurfaceBrush}"
+            BorderBrush="{DynamicResource Fo.BorderBrush}"
             BorderThickness="1"
             CornerRadius="6">
         <StackPanel Orientation="Vertical">
             <TextBlock Text="{Binding Title}" FontWeight="Bold" FontSize="16" />
             <TextBlock Text="Environment" FontWeight="SemiBold" Margin="0,6,0,0" />
             <TextBlock Text="{Binding EnvironmentName}" />
-            <TextBlock Text="{Binding BaseUrl}" Foreground="Gray" />
+            <TextBlock Text="{Binding BaseUrl}" Foreground="{DynamicResource Fo.SubtleTextBrush}" />
             <TextBlock Text="OData" FontWeight="SemiBold" Margin="0,8,0,0" />
             <TextBlock Text="{Binding ODataStatus}" />
         </StackPanel>

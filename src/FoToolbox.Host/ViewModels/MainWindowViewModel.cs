@@ -25,6 +25,12 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
 {
     public ObservableCollection<PluginEntry> Plugins { get; } = new();
 
+    // Updater UI should not be shown unless updates are explicitly configured.
+    public bool ShowUpdaterUi { get; }
+    public bool CanCheckUpdates { get; }
+    public bool HasStagedUpdate => !string.IsNullOrWhiteSpace(StagedUpdatePath);
+    public bool HasRollbackUpdate => !string.IsNullOrWhiteSpace(RollbackUpdatePath);
+
     public string UpdateStatus
     {
         get => _updateStatus;
@@ -68,6 +74,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             _stagedUpdatePath = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(HasStagedUpdate));
         }
     }
     public string? RollbackUpdatePath
@@ -77,6 +84,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         {
             _rollbackUpdatePath = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(HasRollbackUpdate));
         }
     }
 
@@ -86,6 +94,8 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     {
         UpdateChannel = Environment.GetEnvironmentVariable("FOTOOLBOX_UPDATE_CHANNEL") ?? "stable";
         ManifestUrl = Environment.GetEnvironmentVariable("FOTOOLBOX_UPDATE_MANIFEST") ?? string.Empty;
+        ShowUpdaterUi = !string.IsNullOrWhiteSpace(ManifestUrl);
+        CanCheckUpdates = !string.IsNullOrWhiteSpace(ManifestUrl);
         CheckUpdatesCommand = new AsyncCommand(CheckUpdatesAsync);
         ApplyUpdateCommand = new AsyncCommand(ApplyUpdateAsync);
         RollbackUpdateCommand = new AsyncCommand(RollbackUpdateAsync);

@@ -23,8 +23,8 @@
         </Grid.RowDefinitions>
 
         <Border Grid.Column="0" Grid.Row="0" Margin="8"
-                Background="#f9fafb"
-                BorderBrush="#e5e7eb"
+                Background="{DynamicResource Fo.SurfaceAltBrush}"
+                BorderBrush="{DynamicResource Fo.BorderBrush}"
                 BorderThickness="1"
                 CornerRadius="6"
                 Padding="10">
@@ -32,17 +32,24 @@
                 <StackPanel DockPanel.Dock="Top" Margin="0,0,0,8">
                     <DockPanel LastChildFill="False">
                         <TextBlock Text="Entity Explorer" FontWeight="Bold" DockPanel.Dock="Left" />
-                        <Button Content="Load Entities"
-                                Command="{Binding LoadEntitiesCommand}"
-                                IsEnabled="{Binding IsLoadingEntities, Converter={StaticResource NotBool}}"
-                                MinWidth="96"
-                                Padding="10,4"
-                                DockPanel.Dock="Right" />
+                        <StackPanel Orientation="Horizontal" DockPanel.Dock="Right">
+                            <Button Content="Load Entities"
+                                    Command="{Binding LoadEntitiesCommand}"
+                                    IsEnabled="{Binding IsLoadingEntities, Converter={StaticResource NotBool}}"
+                                    MinWidth="96"
+                                    Padding="10,4"
+                                    Margin="0,0,6,0" />
+                            <Button Content="Refresh"
+                                    Command="{Binding RefreshEntitiesCommand}"
+                                    IsEnabled="{Binding IsLoadingEntities, Converter={StaticResource NotBool}}"
+                                    MinWidth="72"
+                                    Padding="10,4" />
+                        </StackPanel>
                     </DockPanel>
-                    <TextBlock Text="Search" FontSize="11" Foreground="Gray" Margin="0,10,0,2" />
+                    <TextBlock Text="Search" FontSize="11" Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="0,10,0,2" />
                     <TextBox Text="{Binding EntitySearch, UpdateSourceTrigger=PropertyChanged}" />
                     <ProgressBar Height="6" Margin="0,6,0,0" IsIndeterminate="True" Visibility="{Binding IsLoadingEntities, Converter={StaticResource BoolToVis}}" />
-                    <TextBlock Text="{Binding EntityLoadStatus}" FontSize="11" Foreground="Gray" Margin="0,4,0,0" />
+                    <TextBlock Text="{Binding EntityLoadStatus}" FontSize="11" Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="0,4,0,0" />
                 </StackPanel>
 
                 <ListView ItemsSource="{Binding EntitiesView}"
@@ -61,15 +68,20 @@
                 </ListView>
 
                 <StackPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
-                    <TextBlock Text="{Binding EntityListSummary}" FontSize="11" Foreground="Gray" />
-                    <TextBlock Text="{Binding SelectedEntitySummary}" FontSize="11" Foreground="Gray" Margin="0,2,0,0" />
+                    <TextBlock Text="{Binding EntityListSummary}" FontSize="11" Foreground="{DynamicResource Fo.SubtleTextBrush}" />
+                    <TextBlock Text="{Binding SelectedEntitySummary}" FontSize="11" Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="0,2,0,0" />
+                    <Button Content="Refresh Selected Entity"
+                            Command="{Binding RefreshSelectedEntityCommand}"
+                            IsEnabled="{Binding IsLoadingEntities, Converter={StaticResource NotBool}}"
+                            Padding="10,4"
+                            Margin="0,6,0,0" />
                 </StackPanel>
             </DockPanel>
         </Border>
 
         <Border Grid.Column="1" Grid.Row="0" Margin="8"
-                Background="White"
-                BorderBrush="#e5e7eb"
+                Background="{DynamicResource Fo.SurfaceBrush}"
+                BorderBrush="{DynamicResource Fo.BorderBrush}"
                 BorderThickness="1"
                 CornerRadius="6"
                 Padding="10">
@@ -87,8 +99,8 @@
                              VerticalScrollBarVisibility="Auto"
                              Height="80"
                              FontFamily="Consolas"
-                             Background="#f9fafb"
-                             BorderBrush="#e5e7eb"
+                             Background="{DynamicResource Fo.SurfaceAltBrush}"
+                             BorderBrush="{DynamicResource Fo.BorderBrush}"
                              Margin="0,6,0,0" />
                 </StackPanel>
 
@@ -100,17 +112,19 @@
                             <RowDefinition Height="*" />
                             <RowDefinition Height="Auto" />
                         </Grid.RowDefinitions>
-                        <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,6">
-                            <StackPanel Width="220">
-                                <TextBlock Text="Search fields" FontSize="10" Foreground="Gray" />
+                        <DockPanel Grid.Row="0" Margin="0,0,0,6" LastChildFill="True">
+                            <StackPanel Width="220" DockPanel.Dock="Left" Margin="0,0,12,0">
+                                <TextBlock Text="Search fields" FontSize="10" Foreground="{DynamicResource Fo.SubtleTextBrush}" />
                                 <TextBox Text="{Binding FieldSearch, UpdateSourceTrigger=PropertyChanged}" />
                             </StackPanel>
-                            <CheckBox Content="Properties" IsChecked="{Binding ShowProperties}" Margin="8,18,0,0" />
-                            <CheckBox Content="Navigation" IsChecked="{Binding ShowNavigation}" Margin="8,18,0,0" />
-                            <Button Content="Select All" Command="{Binding SelectAllFieldsCommand}" Margin="16,16,0,0" />
-                            <Button Content="Select Visible" Command="{Binding SelectVisibleFieldsCommand}" Margin="4,16,0,0" />
-                            <Button Content="Clear" Command="{Binding ClearFieldSelectionCommand}" Margin="4,16,0,0" />
-                        </StackPanel>
+                            <WrapPanel VerticalAlignment="Bottom">
+                                <CheckBox Content="Properties" IsChecked="{Binding ShowProperties}" Margin="0,0,12,2" />
+                                <CheckBox Content="Navigation" IsChecked="{Binding ShowNavigation}" Margin="0,0,12,2" />
+                                <Button Content="Select All" Command="{Binding SelectAllFieldsCommand}" Margin="0,0,6,2" />
+                                <Button Content="Select Visible" Command="{Binding SelectVisibleFieldsCommand}" Margin="0,0,6,2" />
+                                <Button Content="Clear" Command="{Binding ClearFieldSelectionCommand}" Margin="0,0,0,2" />
+                            </WrapPanel>
+                        </DockPanel>
 
                         <DataGrid Grid.Row="1"
                                   ItemsSource="{Binding FieldsView}"
@@ -132,9 +146,9 @@
                         </DataGrid>
 
                         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,6,0,0">
-                            <TextBlock Text="{Binding FieldListSummary}" FontSize="10" Foreground="Gray" />
-                            <TextBlock Text=" | " FontSize="10" Foreground="Gray" Margin="4,0" />
-                            <TextBlock Text="{Binding FieldSelectionSummary}" FontSize="10" Foreground="Gray" />
+                            <TextBlock Text="{Binding FieldListSummary}" FontSize="10" Foreground="{DynamicResource Fo.SubtleTextBrush}" />
+                            <TextBlock Text=" | " FontSize="10" Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="4,0" />
+                            <TextBlock Text="{Binding FieldSelectionSummary}" FontSize="10" Foreground="{DynamicResource Fo.SubtleTextBrush}" />
                         </StackPanel>
                     </Grid>
                 </TabItem>
@@ -142,12 +156,16 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel Margin="8">
                             <TextBlock Text="Filter Builder" FontWeight="Bold" />
-                            <TextBlock Text="{Binding FilterHint}" FontSize="10" Foreground="Gray" Margin="0,0,0,6" />
+                            <TextBlock Text="{Binding FilterHint}" FontSize="10" Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="0,0,0,6" />
                             <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
                                 <Button Content="+ Condition" Command="{Binding AddConditionCommand}" Margin="0,0,4,0" />
                                 <Button Content="+ Group" Command="{Binding AddGroupCommand}" />
                             </StackPanel>
-                            <TreeView ItemsSource="{Binding RootGroup.Children}" BorderThickness="1" Height="200">
+                            <TreeView ItemsSource="{Binding RootGroup.Children}"
+                                      BorderThickness="1"
+                                      Height="200"
+                                      ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                      ScrollViewer.VerticalScrollBarVisibility="Auto">
                                 <TreeView.Resources>
                                     <HierarchicalDataTemplate DataType="{x:Type local:FilterGroupViewModel}" ItemsSource="{Binding Children}">
                                         <StackPanel Orientation="Horizontal" Margin="0,2,0,2">
@@ -211,7 +229,7 @@
                             <TextBlock Text="Raw $filter" FontWeight="Bold" Margin="0,12,0,0" />
                             <TextBox Text="{Binding FilterText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Height="60" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" />
 
-                            <TextBlock Text="{Binding FilterUsageHint}" FontSize="10" Foreground="Gray" Margin="0,4,0,0" />
+                            <TextBlock Text="{Binding FilterUsageHint}" FontSize="10" Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="0,4,0,0" />
 
                             <TextBlock Text="Effective Filter" FontWeight="Bold" Margin="0,12,0,0" />
                             <TextBox Text="{Binding EffectiveFilterPreview}" IsReadOnly="True" TextWrapping="Wrap" Height="60" VerticalScrollBarVisibility="Auto" />
@@ -240,25 +258,25 @@
                                 <TextBlock Text="$skip" Grid.Column="2" VerticalAlignment="Center" Margin="12,0,6,0" />
                                 <TextBox Text="{Binding Skip, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Grid.Column="3" MinWidth="60" />
                             </Grid>
-                            <TextBlock Text="Leave empty to use server-driven paging." FontSize="10" Foreground="Gray" Margin="0,4,0,0" />
+                            <TextBlock Text="Leave empty to use server-driven paging." FontSize="10" Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="0,4,0,0" />
 
                             <TextBlock Text="Order by" FontWeight="Bold" Margin="0,12,0,0" />
                             <TextBox Text="{Binding OrderBy, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
 
                             <TextBlock Text="$expand (1 level)" FontWeight="Bold" Margin="0,12,0,0" />
-                            <TextBlock Text="Choose a navigation property to bring related records. Only one level is supported." FontSize="10" Foreground="Gray" Margin="0,0,0,4" />
+                            <TextBlock Text="Choose a navigation property to bring related records. Only one level is supported." FontSize="10" Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="0,0,0,4" />
                             <ComboBox IsEditable="True"
                                       ItemsSource="{Binding NavigationHints}"
                                       Text="{Binding ExpandPath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                                       StaysOpenOnEdit="True"
                                       IsTextSearchEnabled="True" />
-                            <TextBlock Text="{Binding ExpandSummary}" FontSize="10" Foreground="Gray" Margin="0,4,0,0" />
+                            <TextBlock Text="{Binding ExpandSummary}" FontSize="10" Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="0,4,0,0" />
                             <TextBlock Text="{Binding ExpandWarning}" Foreground="OrangeRed" />
                             <TextBlock Text="Navigation hints" FontWeight="Bold" Margin="0,12,0,0" />
                             <ItemsControl ItemsSource="{Binding NavigationHints}">
                                 <ItemsControl.ItemTemplate>
                                     <DataTemplate>
-                                        <TextBlock Text="{Binding}" FontSize="10" Foreground="Gray" />
+                                        <TextBlock Text="{Binding}" FontSize="10" Foreground="{DynamicResource Fo.SubtleTextBrush}" />
                                     </DataTemplate>
                                 </ItemsControl.ItemTemplate>
                             </ItemsControl>
@@ -269,15 +287,15 @@
                     <ScrollViewer VerticalScrollBarVisibility="Auto">
                         <StackPanel Margin="8">
                             <TextBlock Text="Last Response" FontWeight="Bold" />
-                            <TextBlock Text="Run Preview to populate response metadata and headers." FontSize="10" Foreground="Gray" Margin="0,0,0,6" />
+                            <TextBlock Text="Run Preview to populate response metadata and headers." FontSize="10" Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="0,0,0,6" />
                             <TextBox Text="{Binding ResponseDetails}"
                                      IsReadOnly="True"
                                      TextWrapping="Wrap"
                                      VerticalScrollBarVisibility="Auto"
                                      Height="300"
                                      FontFamily="Consolas"
-                                     Background="#f9fafb"
-                                     BorderBrush="#e5e7eb" />
+                                     Background="{DynamicResource Fo.SurfaceAltBrush}"
+                                     BorderBrush="{DynamicResource Fo.BorderBrush}" />
                         </StackPanel>
                     </ScrollViewer>
                 </TabItem>
@@ -288,12 +306,12 @@
                                  SelectedItem="{Binding SelectedSaved, Mode=TwoWay}"
                                  DisplayMemberPath="Name"
                                  Height="200" />
-                        <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <WrapPanel Margin="0,6,0,0">
                             <Button Content="Save" Command="{Binding SaveQueryCommand}" Margin="0,0,4,0" />
                             <Button Content="Load" Command="{Binding LoadSavedQueryCommand}" Margin="0,0,4,0" />
                             <Button Content="Delete" Command="{Binding DeleteSavedQueryCommand}" Margin="0,0,4,0" />
                             <Button Content="Rename" Command="{Binding RenameSavedQueryCommand}" />
-                        </StackPanel>
+                        </WrapPanel>
                     </StackPanel>
                 </TabItem>
                 </TabControl>
@@ -301,8 +319,8 @@
         </Border>
 
         <Border Grid.Column="0" Grid.ColumnSpan="2" Grid.Row="1" Margin="8"
-                Background="White"
-                BorderBrush="#e5e7eb"
+                Background="{DynamicResource Fo.SurfaceBrush}"
+                BorderBrush="{DynamicResource Fo.BorderBrush}"
                 BorderThickness="1"
                 CornerRadius="6"
                 Padding="10">
@@ -315,19 +333,19 @@
         </Border>
 
         <Border Grid.Column="0" Grid.ColumnSpan="2" Grid.Row="2" Margin="8"
-                Background="#f3f4f6"
-                BorderBrush="#e5e7eb"
+                Background="{DynamicResource Fo.SurfaceAltBrush}"
+                BorderBrush="{DynamicResource Fo.BorderBrush}"
                 BorderThickness="1"
                 CornerRadius="6"
                 Padding="8">
             <DockPanel>
                 <TextBlock Text="{Binding Status}" DockPanel.Dock="Left" TextWrapping="Wrap" VerticalAlignment="Center" />
-                <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <WrapPanel HorizontalAlignment="Right">
                     <Button Content="Preview" Command="{Binding PreviewCommand}" Margin="4,0,0,0" Padding="10,4" />
                     <Button Content="Load more" Command="{Binding LoadMoreCommand}" Margin="4,0,0,0" Padding="10,4" IsEnabled="{Binding HasMoreNextLink}" />
                     <Button Content="Export Page" Command="{Binding ExportPageCommand}" Margin="4,0,0,0" Padding="10,4" />
                     <Button Content="Export All" Command="{Binding ExportAllCommand}" Margin="4,0,0,0" Padding="10,4" />
-                </StackPanel>
+                </WrapPanel>
             </DockPanel>
         </Border>
     </Grid>

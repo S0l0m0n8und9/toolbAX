@@ -4,45 +4,75 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="FOtoolbox" Height="540" Width="900"
+        Title="FOtoolbox"
+        Width="1100"
+        Height="700"
+        MinWidth="900"
+        MinHeight="600"
+        WindowStartupLocation="CenterScreen"
         Icon="Assets/fo-toolbox.ico">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVis" />
+    </Window.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="*" />
             <RowDefinition Height="Auto" />
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="220" />
+            <ColumnDefinition Width="220" MinWidth="180" />
+            <ColumnDefinition Width="6" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <Border Grid.Column="0" Grid.Row="0" Background="#f3f4f6" Padding="8">
+        <Border Grid.Column="0" Grid.Row="0" Background="{DynamicResource Fo.SurfaceAltBrush}" Padding="8">
             <StackPanel>
                 <TextBlock Text="Plugins" FontWeight="Bold" FontSize="14" Margin="0,0,0,8" />
                 <ListBox ItemsSource="{Binding Plugins}"
                          SelectedItem="{Binding Selected, Mode=TwoWay}"
                          DisplayMemberPath="Name"
+                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                         ScrollViewer.VerticalScrollBarVisibility="Auto"
                          BorderThickness="0" />
             </StackPanel>
         </Border>
 
-        <Border Grid.Column="1" Grid.Row="0" Padding="12">
+        <GridSplitter Grid.Column="1"
+                      Grid.Row="0"
+                      HorizontalAlignment="Stretch"
+                      VerticalAlignment="Stretch"
+                      Background="{DynamicResource Fo.BorderBrush}"
+                      ShowsPreview="True" />
+
+        <Border Grid.Column="2" Grid.Row="0" Padding="12">
             <ContentControl Content="{Binding ActiveControl}" />
         </Border>
 
-        <Border Grid.Column="0" Grid.Row="1" Grid.ColumnSpan="2" Background="#eef2f7" Padding="8" BorderThickness="1" BorderBrush="#d5d7dc">
-            <StackPanel>
-                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <TextBlock Text="Channel:" Margin="0,0,4,0" />
-                    <TextBlock Text="{Binding UpdateChannel}" FontWeight="Bold" Margin="0,0,12,0" />
-                    <Button Content="Check updates" Command="{Binding CheckUpdatesCommand}" Margin="0,0,6,0" />
-                    <Button Content="Apply staged update" Command="{Binding ApplyUpdateCommand}" Margin="0,0,6,0" />
-                    <Button Content="Rollback" Command="{Binding RollbackUpdateCommand}" />
-                </StackPanel>
-                <TextBlock Text="{Binding UpdateStatus}" Margin="0,4,0,0" />
-                <TextBlock Text="{Binding StagedUpdatePath}" FontSize="10" Foreground="Gray" />
-                <TextBlock Text="{Binding RollbackUpdatePath}" FontSize="10" Foreground="Gray" />
-            </StackPanel>
+        <Border Grid.Column="0"
+                Grid.Row="1"
+                Grid.ColumnSpan="3"
+                Background="{DynamicResource Fo.SurfaceAltBrush}"
+                Padding="8"
+                BorderThickness="1"
+                BorderBrush="{DynamicResource Fo.BorderBrush}"
+                Visibility="{Binding ShowUpdaterUi, Converter={StaticResource BoolToVis}}">
+            <DockPanel LastChildFill="True">
+                <WrapPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
+                    <Button Content="Check updates"
+                            Command="{Binding CheckUpdatesCommand}"
+                            IsEnabled="{Binding CanCheckUpdates}"
+                            Margin="0,0,6,0" />
+                    <Button Content="Apply staged update"
+                            Command="{Binding ApplyUpdateCommand}"
+                            IsEnabled="{Binding HasStagedUpdate}"
+                            Margin="0,0,6,0" />
+                    <Button Content="Rollback"
+                            Command="{Binding RollbackUpdateCommand}"
+                            IsEnabled="{Binding HasRollbackUpdate}" />
+                </WrapPanel>
+
+                <TextBlock Text="{Binding UpdateStatus}" TextWrapping="Wrap" VerticalAlignment="Center" />
+            </DockPanel>
         </Border>
     </Grid>
 </Window>

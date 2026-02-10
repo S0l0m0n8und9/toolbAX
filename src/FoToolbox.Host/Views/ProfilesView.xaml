@@ -40,7 +40,11 @@
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
-        <Border Grid.Column="0" Background="#f9fafb" BorderBrush="#e5e7eb" BorderThickness="1" Padding="8">
+        <Border Grid.Column="0"
+                Background="{DynamicResource Fo.SurfaceAltBrush}"
+                BorderBrush="{DynamicResource Fo.BorderBrush}"
+                BorderThickness="1"
+                Padding="8">
             <DockPanel>
                 <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
                     <Button Content="Add" Command="{Binding AddProfileCommand}" Margin="0,0,6,0" />
@@ -50,7 +54,9 @@
                 <StackPanel>
                     <TextBlock Text="Profiles" FontWeight="Bold" FontSize="14" Margin="0,0,0,8" />
                     <ListBox ItemsSource="{Binding Profiles}"
-                             SelectedItem="{Binding Selected, Mode=TwoWay}">
+                             SelectedItem="{Binding Selected, Mode=TwoWay}"
+                             ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                             ScrollViewer.VerticalScrollBarVisibility="Auto">
                         <ListBox.ItemTemplate>
                             <DataTemplate>
                                 <TextBlock Text="{Binding Environment.Name}" />
@@ -125,7 +131,7 @@
                         <PasswordBox x:Name="ClientSecretBox" Grid.Row="2" Grid.Column="1" Margin="0,6,0,0"
                                      Style="{StaticResource VisibleWhenClientSecret}" />
 
-                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding StoredCredentialStatus}" Foreground="Gray" FontSize="10" Margin="0,4,0,0"
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding StoredCredentialStatus}" Foreground="{DynamicResource Fo.SubtleTextBrush}" FontSize="10" Margin="0,4,0,0"
                                    Style="{StaticResource VisibleWhenClientSecret}" />
 
                         <TextBlock Grid.Row="4" Grid.Column="0" Text="Bearer token" VerticalAlignment="Center" Margin="0,6,0,0"
@@ -139,7 +145,7 @@
                                 Command="{Binding AcquireBearerTokenCommand}"
                                 Style="{StaticResource VisibleWhenBearerToken}" />
 
-                        <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding StoredCredentialStatus}" Foreground="Gray" FontSize="10" Margin="0,4,0,0"
+                        <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding StoredCredentialStatus}" Foreground="{DynamicResource Fo.SubtleTextBrush}" FontSize="10" Margin="0,4,0,0"
                                    Style="{StaticResource VisibleWhenBearerToken}" />
 
                         <TextBlock Grid.Row="7" Grid.Column="0" Text="Cert thumbprint" VerticalAlignment="Center" Margin="0,6,0,0"
@@ -150,12 +156,12 @@
                     </Grid>
                 </GroupBox>
 
-                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                <WrapPanel Margin="0,0,0,10">
                     <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,6,0" />
                     <Button Content="Save" Command="{Binding SaveCommand}" Margin="0,0,6,0" />
                     <Button Content="Set active" Command="{Binding SetActiveCommand}" Margin="0,0,6,0" />
                     <Button Content="Test connection" Command="{Binding TestConnectionCommand}" />
-                </StackPanel>
+                </WrapPanel>
 
                 <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />
             </StackPanel>

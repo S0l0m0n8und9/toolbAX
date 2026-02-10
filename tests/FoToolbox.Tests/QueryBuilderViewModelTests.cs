@@ -119,6 +119,7 @@ public class QueryBuilderViewModelTests
         var vm = new QueryBuilderViewModel(new FakeContext());
         await vm.LoadEntitiesCommand.ExecuteAsync();
         vm.SelectedEntity = "Customers";
+        await vm.SelectedEntityDetailsTask;
         vm.UpdateSelectedFields(new List<string> { "AccountNumber", "SalesOrders" });
         vm.CrossCompany = false;
         vm.Company = "USMF";
@@ -136,6 +137,7 @@ public class QueryBuilderViewModelTests
         var vm = new QueryBuilderViewModel(new FakeContext());
         await vm.LoadEntitiesCommand.ExecuteAsync();
         vm.SelectedEntity = "Customers";
+        await vm.SelectedEntityDetailsTask;
         vm.UpdateSelectedFields(new List<string> { "AccountNumber" });
         vm.Top = "10";
         vm.Skip = "20";
@@ -154,6 +156,7 @@ public class QueryBuilderViewModelTests
         var vm = new QueryBuilderViewModel(ctx);
         await vm.LoadEntitiesCommand.ExecuteAsync();
         vm.SelectedEntity = "Customers";
+        await vm.SelectedEntityDetailsTask;
         vm.UpdateSelectedFields(new List<string> { "AccountNumber" });
 
         await vm.PreviewCommand.ExecuteAsync();
@@ -173,6 +176,7 @@ public class QueryBuilderViewModelTests
         var vm = new QueryBuilderViewModel(new FakeContext());
         await vm.LoadEntitiesCommand.ExecuteAsync();
         vm.SelectedEntity = "Customers";
+        await vm.SelectedEntityDetailsTask;
         vm.ExpandPath = "BadNav";
         var ok = vm.TryBuildQueryRequest(out _);
         Assert.False(ok);
@@ -185,6 +189,7 @@ public class QueryBuilderViewModelTests
         var vm = new QueryBuilderViewModel(new FakeContext());
         await vm.LoadEntitiesCommand.ExecuteAsync();
         vm.SelectedEntity = "Customers";
+        await vm.SelectedEntityDetailsTask;
         vm.RootGroup.Children.Add(new FilterConditionViewModel { Field = string.Empty, Operator = "eq", Value = string.Empty });
         vm.FilterText = "AccountNumber eq 'A0001'";
 
@@ -200,6 +205,7 @@ public class QueryBuilderViewModelTests
         var vm = new QueryBuilderViewModel(new FakeContext());
         await vm.LoadEntitiesCommand.ExecuteAsync();
         vm.SelectedEntity = "Customers";
+        await vm.SelectedEntityDetailsTask;
         vm.UpdateSelectedFields(new List<string> { "AccountNumber" });
 
         vm.RootGroup.Children.Add(new FilterConditionViewModel { Field = "CustomerType", Operator = "eq", Value = "Retail" });
