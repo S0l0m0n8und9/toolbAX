@@ -12,6 +12,8 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Data;
@@ -21,6 +23,13 @@ namespace TableEntityBrowserPlugin;
 
 public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
 {
+    private static readonly JsonSerializerOptions TemplateJsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        PropertyNameCaseInsensitive = true,
+        WriteIndented = true
+    };
+
     private readonly IPluginContext _ctx;
     private readonly ObservableCollection<TableInfoViewModel> _tables = new();
     private readonly BulkObservableCollection<EntityInfoViewModel> _entities = new();
@@ -73,6 +82,7 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
         RefreshAllCommand = new AsyncRelayCommand(RefreshAllAsync, onCommandError);
         OpenTableBrowserCommand = new RelayCommand(_ => OpenTableBrowser());
         ImportTablesCommand = new AsyncRelayCommand(ImportTablesAsync, onCommandError);
+        SaveImportTemplateCommand = new AsyncRelayCommand(SaveImportTemplateAsync, onCommandError);
         SaveTemplateCommand = new AsyncRelayCommand(SaveTableBrowserTemplateAsync, onCommandError);
 
         _ = LoadTableBrowserTemplateAsync();
@@ -220,6 +230,7 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
     public AsyncRelayCommand RefreshAllCommand { get; }
     public RelayCommand OpenTableBrowserCommand { get; }
     public AsyncRelayCommand ImportTablesCommand { get; }
+    public AsyncRelayCommand SaveImportTemplateCommand { get; }
     public AsyncRelayCommand SaveTemplateCommand { get; }
 
     private async Task LoadTablesAsync(CancellationToken ct)
@@ -344,6 +355,32 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
         }
     }
 
+    private async Task SaveImportTemplateAsync(CancellationToken ct)
+    {
+        var dlg = new SaveFileDialog
+        {
+            Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
+            FileName = "table-catalog.import.template.json",
+            OverwritePrompt = true
+        };
+        if (dlg.ShowDialog() != true)
+        {
+            return;
+        }
+
+        try
+        {
+            var json = BuildTableCatalogImportTemplateJson();
+            await File.WriteAllTextAsync(dlg.FileName, json, Encoding.UTF8, ct);
+            Status = $"Template saved: {Path.GetFileName(dlg.FileName)}";
+        }
+        catch (Exception ex)
+        {
+            _ctx.Logger.LogError(ex, "Save import template failed. File={File}", Path.GetFileName(dlg.FileName));
+            Status = $"Template save failed: {ex.Message}";
+        }
+    }
+
     private async Task LoadTableBrowserTemplateAsync()
     {
         try
@@ -370,6 +407,36 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
             _ctx.Logger.LogError(ex, "Template save failed for {Env}", _ctx.CurrentEnv.Name);
             Status = $"Template save failed: {ex.Message}";
         }
+    }
+
+    private static string BuildTableCatalogImportTemplateJson()
+    {
+        // Notes:
+        // - `source` and `updatedUtc` are ignored on import (the app overwrites them).
+        // - Keep the property names (camelCase) and booleans as shown.
+        var template = new TableCatalog(
+            Version: "unknown",
+            Source: "UserImport",
+            UpdatedUtc: new DateTime(2000, 1, 1, 0, 0, 0, DateTimeKind.Utc),
+            Tables: new List<TableInfo>
+            {
+                new(
+                    Name: "REPLACE_ME_TABLE_NAME",
+                    Label: "Optional label (what you want shown in the UI)",
+                    IsView: false,
+                    ConfigurationKey: null,
+                    IsDeprecated: false,
+                    Notes: "Optional notes (free text)."),
+                new(
+                    Name: "ANOTHER_TABLE_NAME",
+                    Label: null,
+                    IsView: true,
+                    ConfigurationKey: "Optional config key",
+                    IsDeprecated: false,
+                    Notes: null)
+            });
+
+        return JsonSerializer.Serialize(template, TemplateJsonOptions);
     }
 
     private void OpenTableBrowser()

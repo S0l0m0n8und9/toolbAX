@@ -41,6 +41,10 @@
                 <Button Content="Import Tables" Command="{Binding ImportTablesCommand}"
                         MinWidth="96" Padding="10,4" Margin="6,0,0,0"
                         IsEnabled="{Binding IsBusy, Converter={StaticResource NotBool}}" />
+                <Button Content="Save Import Template" Command="{Binding SaveImportTemplateCommand}"
+                        MinWidth="140" Padding="10,4" Margin="6,0,0,0"
+                        ToolTip="Creates a starter JSON file for the Import Tables feature."
+                        IsEnabled="{Binding IsBusy, Converter={StaticResource NotBool}}" />
             </WrapPanel>
 
             <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
