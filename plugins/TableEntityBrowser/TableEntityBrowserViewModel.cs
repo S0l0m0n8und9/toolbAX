@@ -517,7 +517,7 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
             foreach (var prop in entity.Properties.OrderBy(p => p.Name))
             {
                 var enumValues = ResolveEnumValues(lookup, prop.Type);
-                _entityFields.Add(new EntityFieldItem(prop.Name, prop.Type, prop.Nullable, enumValues));
+                _entityFields.Add(new EntityFieldItem(prop.Name, prop.Type, prop.Nullable, prop.IsKey, prop.IsMandatory, enumValues));
             }
 
             _navigation.Clear();
@@ -704,17 +704,22 @@ public sealed class EntityInfoViewModel
 
 public sealed class EntityFieldItem
 {
-    public EntityFieldItem(string name, string type, bool nullable, string? enumValues)
+    public EntityFieldItem(string name, string type, bool nullable, bool isKey, bool isMandatory, string? enumValues)
     {
         Name = name;
         Type = type;
         Nullable = nullable;
+        IsKey = isKey;
+        IsMandatory = isMandatory;
         EnumValues = enumValues;
     }
 
     public string Name { get; }
     public string Type { get; }
     public bool Nullable { get; }
+    public bool IsKey { get; }
+    public bool IsMandatory { get; }
+    public bool Mandatory => IsKey || IsMandatory;
     public string? EnumValues { get; }
 }
 

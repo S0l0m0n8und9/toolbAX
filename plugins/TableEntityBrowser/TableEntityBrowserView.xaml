@@ -211,6 +211,8 @@
                                 <!-- Explicit OneWay bindings avoid WPF defaulting to TwoWay and crashing on get-only properties. -->
                                 <DataGridTextColumn Header="Name" Binding="{Binding Name, Mode=OneWay}" IsReadOnly="True" Width="200" />
                                 <DataGridTextColumn Header="Type" Binding="{Binding Type, Mode=OneWay}" IsReadOnly="True" Width="240" />
+                                <DataGridCheckBoxColumn Header="Key" Binding="{Binding IsKey, Mode=OneWay}" IsReadOnly="True" Width="60" />
+                                <DataGridCheckBoxColumn Header="Mandatory" Binding="{Binding Mandatory, Mode=OneWay}" IsReadOnly="True" Width="90" />
                                 <DataGridCheckBoxColumn Header="Nullable" Binding="{Binding Nullable, Mode=OneWay}" IsReadOnly="True" Width="90" />
                                 <DataGridTextColumn Header="Enum Values" Binding="{Binding EnumValues, Mode=OneWay}" IsReadOnly="True" Width="*" />
                             </DataGrid.Columns>

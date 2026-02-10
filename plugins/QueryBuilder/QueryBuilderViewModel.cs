@@ -682,7 +682,7 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
             {
                 var enumInfo = ResolveEnumInfo(_enumLookup, prop.Type);
                 var enumValues = enumInfo is null ? null : string.Join(", ", enumInfo.Members);
-                var field = new FieldItem(prop.Name, prop.Type, "Property", prop.Nullable, enumValues);
+                var field = new FieldItem(prop.Name, prop.Type, "Property", prop.Nullable, enumValues, isKey: prop.IsKey, isMandatory: prop.IsMandatory);
                 field.SelectionChanged += FieldSelectionChanged;
                 _fields.Add(field);
                 _filterFields.Add(field);

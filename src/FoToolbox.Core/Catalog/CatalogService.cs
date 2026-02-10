@@ -22,7 +22,7 @@ public sealed class CatalogService : ICatalogService
     private const string EntityIndexKind = "ODataEntityIndex";
     private const string EntityIndexSchemaVersion = "entity-index-v1";
     private const string EntityDetailsKindPrefix = "ODataEntityDetails:";
-    private const string EntityDetailsSchemaVersion = "entity-details-v1";
+    private const string EntityDetailsSchemaVersion = "entity-details-v2";
     private const string TableBrowserUrlTemplateKey = "TableBrowserUrlTemplate";
     private const string DefaultTableBrowserUrlTemplate = "{BaseUrl}/?mi=SysTableBrowser&table={TableName}";
 
@@ -223,6 +223,10 @@ public sealed class CatalogService : ICatalogService
                 return null;
             }
 
+            // FO's /metadata layer exposes accurate key/mandatory flags for Data Entities.
+            // OData $metadata nullability is not a reliable proxy for "mandatory" and keys can be inherited.
+            entity = await TryEnrichEntityFromPublicEntitiesAsync(env, entity, ct).ConfigureAwait(false) ?? entity;
+
             var json = JsonSerializer.Serialize(entity, JsonOptions);
             await _store.SaveAsync(env.Id, kind, EntityDetailsSchemaVersion, json, etag, updatedUtc, ct).ConfigureAwait(false);
             return entity;
@@ -416,6 +420,86 @@ public sealed class CatalogService : ICatalogService
         var json = reader.ReadToEnd();
         return DeserializeTableCatalog(json);
     }
+
+    private async Task<ODataEntity?> TryEnrichEntityFromPublicEntitiesAsync(FoEnvironment env, ODataEntity entity, CancellationToken ct)
+    {
+        try
+        {
+            var flags = await TryGetPublicEntityPropertyFlagsAsync(env, entity.Name, ct).ConfigureAwait(false);
+            if (flags is null || flags.Count == 0)
+            {
+                return null;
+            }
+
+            var updatedProps = entity.Properties
+                .Select(p =>
+                {
+                    if (flags.TryGetValue(p.Name, out var f))
+                    {
+                        return p with { IsKey = f.IsKey, IsMandatory = f.IsMandatory };
+                    }
+                    return p;
+                })
+                .ToList();
+
+            return entity with { Properties = updatedProps };
+        }
+        catch
+        {
+            // Best-effort enrichment only; callers should still work using OData $metadata alone.
+            return null;
+        }
+    }
+
+    private async Task<Dictionary<string, (bool IsKey, bool IsMandatory)>?> TryGetPublicEntityPropertyFlagsAsync(
+        FoEnvironment env,
+        string entitySetName,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(entitySetName))
+        {
+            return null;
+        }
+
+        // Example:
+        //   /metadata/PublicEntities?$filter=EntitySetName%20eq%20%27CDSParties%27
+        var escapedLiteral = entitySetName.Replace("'", "''", StringComparison.Ordinal);
+        var filter = Uri.EscapeDataString($"EntitySetName eq '{escapedLiteral}'");
+        var url = $"{env.BaseUrl.TrimEnd('/')}/metadata/PublicEntities?$filter={filter}";
+
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Accept.ParseAdd("application/json");
+
+        using var resp = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);
+        if (!resp.IsSuccessStatusCode)
+        {
+            return null;
+        }
+
+        var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+        var parsed = JsonSerializer.Deserialize<PublicEntitiesResponse>(json, JsonOptions);
+        var match = parsed?.Value?.FirstOrDefault(x =>
+            string.Equals(x.EntitySetName, entitySetName, StringComparison.OrdinalIgnoreCase));
+
+        if (match?.Properties is null || match.Properties.Count == 0)
+        {
+            return null;
+        }
+
+        var flags = new Dictionary<string, (bool IsKey, bool IsMandatory)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var prop in match.Properties)
+        {
+            if (!string.IsNullOrWhiteSpace(prop.Name))
+            {
+                flags[prop.Name] = (prop.IsKey, prop.IsMandatory);
+            }
+        }
+        return flags;
+    }
+
+    private sealed record PublicEntitiesResponse(List<PublicEntityDto>? Value);
+    private sealed record PublicEntityDto(string? EntitySetName, List<PublicEntityPropertyDto>? Properties);
+    private sealed record PublicEntityPropertyDto(string? Name, bool IsKey, bool IsMandatory);
 }
 
 public sealed record CatalogServiceOptions(TimeSpan TableMaxAge, TimeSpan MetadataMaxAge)

@@ -128,6 +128,14 @@ public sealed class ODataMetadataProvider
             var ns = entityType.Ancestors(edm + "Schema").FirstOrDefault()?.Attribute("Namespace")?.Value;
             var fullName = string.IsNullOrWhiteSpace(ns) ? name : $"{ns}.{name}";
 
+            var keyNames = entityType.Element(edm + "Key")?
+                .Elements(edm + "PropertyRef")
+                .Select(pr => pr.Attribute("Name")?.Value)
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .Select(n => n!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase)
+                ?? new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
             var props = new List<ODataProperty>();
             var navs = new List<ODataNavigationProperty>();
             foreach (var prop in entityType.Elements(edm + "Property"))
@@ -137,7 +145,7 @@ public sealed class ODataMetadataProvider
                 var nullable = prop.Attribute("Nullable")?.Value != "false";
                 if (!string.IsNullOrWhiteSpace(propName))
                 {
-                    props.Add(new ODataProperty(propName!, type, nullable));
+                    props.Add(new ODataProperty(propName!, type, nullable, IsKey: keyNames.Contains(propName!)));
                 }
             }
 

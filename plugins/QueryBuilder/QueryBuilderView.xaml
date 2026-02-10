@@ -155,6 +155,8 @@
                                 <DataGridCheckBoxColumn Header="Sel" Binding="{Binding IsSelected, Mode=TwoWay}" Width="40" />
                                 <DataGridTextColumn Header="Name" Binding="{Binding Name, Mode=OneWay}" IsReadOnly="True" Width="*" />
                                 <DataGridTextColumn Header="Kind" Binding="{Binding Kind, Mode=OneWay}" IsReadOnly="True" Width="90" />
+                                <DataGridCheckBoxColumn Header="Key" Binding="{Binding IsKey, Mode=OneWay}" IsReadOnly="True" Width="50" />
+                                <DataGridCheckBoxColumn Header="Mandatory" Binding="{Binding Mandatory, Mode=OneWay}" IsReadOnly="True" Width="85" />
                                 <DataGridTextColumn Header="Type" Binding="{Binding Type, Mode=OneWay}" IsReadOnly="True" Width="160" />
                                 <DataGridTextColumn Header="Enum Values" Binding="{Binding EnumValues, Mode=OneWay}" IsReadOnly="True" Width="200" />
                                 <DataGridCheckBoxColumn Header="Nullable" Binding="{Binding Nullable, Mode=OneWay}" IsReadOnly="True" Width="70" />

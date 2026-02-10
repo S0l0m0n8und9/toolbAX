@@ -183,6 +183,7 @@ public static class ODataMetadataIndexParser
 
             var props = new List<ODataProperty>();
             var navs = new List<ODataNavigationProperty>();
+            var keyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             if (!reader.IsEmptyElement)
             {
@@ -199,13 +200,36 @@ public static class ODataMetadataIndexParser
                         continue;
                     }
 
-                    if (reader.LocalName == "Property")
+                    if (reader.LocalName == "Key")
+                    {
+                        if (!reader.IsEmptyElement)
+                        {
+                            var keyDepth = reader.Depth;
+                            while (reader.Read())
+                            {
+                                if (reader.NodeType == XmlNodeType.EndElement && reader.Depth == keyDepth && reader.LocalName == "Key")
+                                {
+                                    break;
+                                }
+
+                                if (reader.NodeType == XmlNodeType.Element && reader.LocalName == "PropertyRef")
+                                {
+                                    var keyName = reader.GetAttribute("Name");
+                                    if (!string.IsNullOrWhiteSpace(keyName))
+                                    {
+                                        keyNames.Add(keyName);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    else if (reader.LocalName == "Property")
                     {
                         var propName = reader.GetAttribute("Name");
                         if (string.IsNullOrWhiteSpace(propName)) continue;
                         var type = reader.GetAttribute("Type") ?? "Edm.String";
                         var nullable = !string.Equals(reader.GetAttribute("Nullable"), "false", StringComparison.OrdinalIgnoreCase);
-                        props.Add(new ODataProperty(propName, type, nullable));
+                        props.Add(new ODataProperty(propName, type, nullable, IsKey: keyNames.Contains(propName)));
                     }
                     else if (reader.LocalName == "NavigationProperty")
                     {
@@ -213,6 +237,19 @@ public static class ODataMetadataIndexParser
                         var navType = reader.GetAttribute("Type");
                         if (string.IsNullOrWhiteSpace(navName) || string.IsNullOrWhiteSpace(navType)) continue;
                         navs.Add(new ODataNavigationProperty(navName, navType));
+                    }
+                }
+            }
+
+            // In case <Key> appears after <Property> (unusual, but valid), fix up key flags.
+            if (keyNames.Count > 0 && props.Count > 0)
+            {
+                for (var i = 0; i < props.Count; i++)
+                {
+                    var p = props[i];
+                    if (!p.IsKey && keyNames.Contains(p.Name))
+                    {
+                        props[i] = p with { IsKey = true };
                     }
                 }
             }
@@ -282,4 +319,3 @@ public static class ODataMetadataIndexParser
             CloseInput = true
         };
 }
-

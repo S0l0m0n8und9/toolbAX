@@ -25,6 +25,10 @@ public class ODataMetadataProviderTests
         Assert.Contains(meta.Entities, e => e.Name == "CustomersV3");
         var customer = meta.Entities.First(e => e.Name == "CustomersV3");
         Assert.Contains(customer.Properties, p => p.Name == "AccountNumber");
+        Assert.True(customer.Properties.First(p => p.Name == "AccountNumber").IsKey);
+        Assert.True(customer.Properties.First(p => p.Name == "AccountNumber").Mandatory);
+        Assert.False(customer.Properties.First(p => p.Name == "Name").IsKey);
+        Assert.False(customer.Properties.First(p => p.Name == "Name").Mandatory);
         Assert.Contains(customer.Navigations, n => n.Name == "SalesOrders");
         Assert.Contains(meta.Enums, e => e.Name == "Default.CustomerType");
         var enumType = meta.Enums.First(e => e.Name == "Default.CustomerType");
