@@ -44,15 +44,15 @@ internal sealed class AuthenticatedHandler : DelegatingHandler
     private ITokenProvider BuildTokenProvider()
     {
         var authorityBase = "https://login.microsoftonline.com";
-        return new MsalTokenProvider(authorityBase, ResolveCredential);
+        return new MsalTokenProvider(authorityBase, ResolveCredentialAsync);
     }
 
-    private ClientCredential ResolveCredential(ServicePrincipal sp)
+    private async Task<ClientCredential> ResolveCredentialAsync(ServicePrincipal sp, CancellationToken cancellationToken)
     {
         // Prefer DPAPI vault secret for this service principal.
         if (!string.IsNullOrWhiteSpace(sp.SecretRef))
         {
-            var secretPayload = _vault.ReadSecretAsync<ClientSecretPayload>(sp.SecretRef).GetAwaiter().GetResult();
+            var secretPayload = await _vault.ReadSecretAsync<ClientSecretPayload>(sp.SecretRef, cancellationToken);
             if (secretPayload is not null && !string.IsNullOrWhiteSpace(secretPayload.Value))
             {
                 return new ClientSecretCredential(secretPayload.Value);
@@ -65,8 +65,7 @@ internal sealed class AuthenticatedHandler : DelegatingHandler
             return new ClientSecretCredential(secret);
         }
 
-        // Fallback: no secret, return dummy to avoid null.
-        return new ClientSecretCredential("dummy");
+        throw new InvalidOperationException("No client secret configured for this profile. Set it in Profiles and Save, or set FOTB_CLIENT_SECRET.");
     }
 
     private async Task<string> ResolveBearerTokenAsync(ServicePrincipal sp, CancellationToken cancellationToken)

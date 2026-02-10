@@ -458,7 +458,7 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         _selectedEntityDetails = null;
         _selectedEntityDetailsCts?.Cancel();
         SelectedEntityDetailsTask = Task.CompletedTask;
-        RootGroup.Children.Clear();
+        ClearFilterTree();
         PreviewTable = null;
         SetNextLink(null);
         _lastODataCount = null;
@@ -946,6 +946,7 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     private void RemoveNode(object? parameter)
     {
         if (parameter is not FilterNodeViewModel node || node.Parent is null) return;
+        UnhookFilterNode(node);
         node.Parent.Children.Remove(node);
         UpdateFilterPreview();
         UpdateQueryPreview();
@@ -1167,6 +1168,16 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         }
     }
 
+    private void ClearFilterTree()
+    {
+        // RootGroup stays hooked for future adds/removes; we only unhook and clear descendants.
+        foreach (var child in RootGroup.Children.ToList())
+        {
+            UnhookFilterNode(child);
+        }
+        RootGroup.Children.Clear();
+    }
+
     private void HookFilterNode(FilterNodeViewModel node)
     {
         if (_filterSubscriptions.Contains(node)) return;
@@ -1186,6 +1197,24 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         }
     }
 
+    private void UnhookFilterNode(FilterNodeViewModel node)
+    {
+        if (!_filterSubscriptions.Contains(node)) return;
+
+        node.PropertyChanged -= FilterNodeChanged;
+
+        if (node is FilterGroupViewModel group)
+        {
+            group.Children.CollectionChanged -= FilterChildrenChanged;
+            foreach (var child in group.Children.ToList())
+            {
+                UnhookFilterNode(child);
+            }
+        }
+
+        _filterSubscriptions.Remove(node);
+    }
+
     private void FilterChildrenChanged(object? sender, NotifyCollectionChangedEventArgs e)
     {
         if (e.NewItems is not null)
@@ -1195,6 +1224,17 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
                 if (item is FilterNodeViewModel node)
                 {
                     HookFilterNode(node);
+                }
+            }
+        }
+
+        if (e.OldItems is not null)
+        {
+            foreach (var item in e.OldItems)
+            {
+                if (item is FilterNodeViewModel node)
+                {
+                    UnhookFilterNode(node);
                 }
             }
         }
@@ -1271,11 +1311,18 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
 
         if (!CrossCompany && !string.IsNullOrWhiteSpace(Company))
         {
-            var companyClause = $"dataAreaId eq '{Company}'";
+            var companyClause = $"dataAreaId eq {QuoteStringLiteral(Company)}";
             filter = string.IsNullOrWhiteSpace(filter) ? companyClause : $"({companyClause}) and ({filter})";
         }
 
         return filter;
+    }
+
+    private static string QuoteStringLiteral(string value)
+    {
+        // OData string literals are single-quoted and escape a single quote by doubling it.
+        var escaped = (value ?? string.Empty).Replace("'", "''");
+        return $"'{escaped}'";
     }
 
     private void UpdateExpandSummary()
@@ -1343,9 +1390,28 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         }
         var path = PromptForCsvPath();
         if (path == null) return;
-        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
-        await CsvExporter.ExportTableAsync(table, stream, cancellationToken);
-        Status = $"Exported page to {path}";
+
+        var tempPath = path + ".tmp";
+        try
+        {
+            await using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                await CsvExporter.ExportTableAsync(table, stream, cancellationToken);
+            }
+
+            File.Move(tempPath, path, overwrite: true);
+            Status = $"Exported page to {path}";
+        }
+        catch (OperationCanceledException)
+        {
+            TryDeleteFile(tempPath);
+            Status = "Export cancelled.";
+        }
+        catch
+        {
+            TryDeleteFile(tempPath);
+            throw;
+        }
     }
 
     private async Task ExportAllAsync(CancellationToken cancellationToken)
@@ -1355,9 +1421,42 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
 
         if (!TryBuildQueryRequest(out var request)) return;
 
-        await using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
-        await CsvExporter.ExportAsync(_ctx.OData, request, stream, rows => Status = $"Exported {rows} rows...", cancellationToken);
-        Status = $"Exported to {path}";
+        var tempPath = path + ".tmp";
+        try
+        {
+            await using (var stream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None))
+            {
+                await CsvExporter.ExportAsync(_ctx.OData, request, stream, total => Status = $"Exported {total} rows...", cancellationToken);
+            }
+
+            File.Move(tempPath, path, overwrite: true);
+            Status = $"Exported to {path}";
+        }
+        catch (OperationCanceledException)
+        {
+            TryDeleteFile(tempPath);
+            Status = "Export cancelled.";
+        }
+        catch
+        {
+            TryDeleteFile(tempPath);
+            throw;
+        }
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch
+        {
+            // Best-effort cleanup only.
+        }
     }
 
     private async Task LoadMoreAsync(CancellationToken cancellationToken)
@@ -1535,7 +1634,7 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         var selected = new HashSet<string>(item.Select ?? new List<string>(), StringComparer.OrdinalIgnoreCase);
         _ = ApplySavedFieldSelectionAsync(item.Entity, selected);
 
-        RootGroup.Children.Clear();
+        ClearFilterTree();
         if (item.FilterRoot is not null)
         {
             RootGroup.Children.Add(FromFilterDto(item.FilterRoot, RootGroup));

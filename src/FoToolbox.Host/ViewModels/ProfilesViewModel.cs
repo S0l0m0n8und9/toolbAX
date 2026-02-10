@@ -367,7 +367,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
 
                 var authorityBase = "https://login.microsoftonline.com";
                 var credential = await ResolveCredentialForTestAsync(sp);
-                var tokenProvider = new MsalTokenProvider(authorityBase, _ => credential);
+                var tokenProvider = new MsalTokenProvider(authorityBase, (_, _) => Task.FromResult(credential));
                 var auth = new AuthService(tokenProvider);
                 token = await auth.AcquireTokenAsync(env, sp, CancellationToken.None);
             }
@@ -632,7 +632,7 @@ try {{
             return new ClientSecretCredential(secret);
         }
 
-        return new ClientSecretCredential("dummy");
+        throw new InvalidOperationException("No client secret configured for this profile. Set it in Profiles and Save, or set FOTB_CLIENT_SECRET.");
     }
 
     private static string NormalizeBearerToken(string token)

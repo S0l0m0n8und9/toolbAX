@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private readonly ILogger _logger;
     private readonly string _profileDbPath = ProfilePaths.ResolveProfileDbPath();
     private ProfilesView? _profilesView;
+    private bool _loadedOnce;
 
     public MainWindow()
     {
@@ -37,12 +38,29 @@ public partial class MainWindow : Window
         _vm = new MainWindowViewModel();
         DataContext = _vm;
 
-        LoadPlugins();
+        Loaded += MainWindow_Loaded;
     }
 
-    private void LoadPlugins()
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
     {
-        var profile = ResolveProfileAsync(_profileDbPath).GetAwaiter().GetResult();
+        if (_loadedOnce) return;
+        _loadedOnce = true;
+        Loaded -= MainWindow_Loaded;
+
+        try
+        {
+            await LoadPluginsAsync();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed during startup plugin load.");
+            MessageBox.Show($"Startup failed: {ex.Message}", "FOtoolbox", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+    }
+
+    private async Task LoadPluginsAsync()
+    {
+        var profile = await ResolveProfileAsync(_profileDbPath);
         if (profile is null)
         {
             MessageBox.Show("No environment profiles found. Seed data could not be created.", "FOtoolbox", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -51,7 +69,7 @@ public partial class MainWindow : Window
 
         var (env, sp) = profile.Value;
         _profilesView ??= new ProfilesView(new ProfilesViewModel(_profileDbPath, _logger, ApplyProfile));
-        ApplyProfile(env, sp);
+        await ApplyProfileAsync(env, sp);
 
         // Kick off a background update check (fire-and-forget).
         _ = _vm.CheckUpdatesAsync();
@@ -59,14 +77,27 @@ public partial class MainWindow : Window
 
     private void ApplyProfile(FoEnvironment env, ServicePrincipal sp)
     {
-        var odata = CreateODataClient(env, sp);
-        var catalog = CreateCatalogService(env, sp);
+        _ = ApplyProfileAsync(env, sp);
+    }
 
-        var pluginRoot = ResolvePluginRoot();
-        var trust = PluginTrustOptions.FromEnvironment();
-        var manager = new PluginManager(pluginRoot, env, odata, catalog, _logger, trust);
-        var plugins = manager.Discover();
-        _vm.LoadPlugins(plugins, _profilesView);
+    private async Task ApplyProfileAsync(FoEnvironment env, ServicePrincipal sp)
+    {
+        try
+        {
+            var odata = CreateODataClient(env, sp);
+            var catalog = CreateCatalogService(env, sp);
+
+            var pluginRoot = ResolvePluginRoot();
+            var trust = PluginTrustOptions.FromEnvironment();
+            var manager = new PluginManager(pluginRoot, env, odata, catalog, _logger, trust);
+            var plugins = await manager.DiscoverAsync();
+            _vm.LoadPlugins(plugins, _profilesView);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to apply profile {EnvId}", env.Id);
+            MessageBox.Show($"Failed to apply profile: {ex.Message}", "FOtoolbox", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private static async Task<(FoEnvironment Env, ServicePrincipal Sp)?> ResolveProfileAsync(string dbPath)

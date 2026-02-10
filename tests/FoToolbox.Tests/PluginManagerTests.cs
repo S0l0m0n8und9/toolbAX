@@ -78,7 +78,7 @@ public sealed class PluginManagerTests
     [Fact]
     public void Discover_Loads_HelloPlugin()
     {
-        RunSta(() =>
+        RunSta(async () =>
         {
             var helloAssembly = typeof(HelloFoToolPlugin).Assembly.Location;
             var pluginDir = Directory.CreateTempSubdirectory("helloplugin").FullName;
@@ -86,7 +86,7 @@ public sealed class PluginManagerTests
 
             var logger = new CapturingLogger();
             var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), new StubCatalogService(), logger, new PluginTrustOptions(true, Array.Empty<string>()));
-            var plugins = manager.Discover();
+            var plugins = await manager.DiscoverAsync();
 
             if (plugins.Count == 0 && logger.LastException != null)
             {
@@ -103,7 +103,7 @@ public sealed class PluginManagerTests
     [Fact]
     public void Discover_Loads_QueryBuilderPlugin()
     {
-        RunSta(() =>
+        RunSta(async () =>
         {
             var pluginAssembly = typeof(QueryBuilderPlugin.QueryBuilderPlugin).Assembly.Location;
             var pluginDir = Directory.CreateTempSubdirectory("querybuilder").FullName;
@@ -111,7 +111,7 @@ public sealed class PluginManagerTests
 
             var logger = new CapturingLogger();
             var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), new StubCatalogService(), logger, new PluginTrustOptions(true, Array.Empty<string>()));
-            var plugins = manager.Discover();
+            var plugins = await manager.DiscoverAsync();
 
             if (plugins.Count == 0 && logger.LastException != null)
             {
@@ -158,7 +158,7 @@ public sealed class PluginManagerTests
     [Fact]
     public void Unsigned_Plugin_Blocked_When_Not_Allowed()
     {
-        RunSta(() =>
+        RunSta(async () =>
         {
             var helloAssembly = typeof(HelloFoToolPlugin).Assembly.Location;
             var pluginDir = Directory.CreateTempSubdirectory("helloplugin").FullName;
@@ -166,21 +166,21 @@ public sealed class PluginManagerTests
 
             var logger = new CapturingLogger();
             var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), new StubCatalogService(), logger, new PluginTrustOptions(false, Array.Empty<string>()));
-            var plugins = manager.Discover();
+            var plugins = await manager.DiscoverAsync();
 
             Assert.Empty(plugins);
             Assert.NotNull(logger.LastException);
         });
     }
 
-    private static void RunSta(Action action)
+    private static void RunSta(Func<Task> action)
     {
         Exception? failure = null;
         var thread = new Thread(() =>
         {
             try
             {
-                action();
+                action().GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {

@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace QueryBuilderPlugin;
@@ -18,21 +19,34 @@ internal sealed class SavedQueryStore
     };
 
     private readonly ProfileStore _store;
+    private Task? _ensureCreatedTask;
 
     public SavedQueryStore(string dbPath)
     {
         _store = new ProfileStore(dbPath);
-        _store.EnsureCreatedAsync().GetAwaiter().GetResult();
+    }
+
+    private Task EnsureCreatedAsync()
+    {
+        // Don't allow cancellation to prevent vault/db initialization. Callers can cancel their own work later.
+        var existing = Volatile.Read(ref _ensureCreatedTask);
+        if (existing is not null) return existing;
+
+        var created = _store.EnsureCreatedAsync();
+        var prior = Interlocked.CompareExchange(ref _ensureCreatedTask, created, null);
+        return prior ?? created;
     }
 
     public async Task<IEnumerable<SavedQueryItem>> LoadForEnvAsync(string envId)
     {
+        await EnsureCreatedAsync().ConfigureAwait(false);
         var records = await _store.GetSavedQueriesAsync(envId);
         return records.Select(r => Deserialize(r));
     }
 
     public async Task SaveAsync(SavedQueryItem item)
     {
+        await EnsureCreatedAsync().ConfigureAwait(false);
         var record = new SavedQueryRecord(
             string.IsNullOrWhiteSpace(item.Id) ? Guid.NewGuid().ToString("N") : item.Id,
             item.EnvId,
@@ -47,6 +61,7 @@ internal sealed class SavedQueryStore
 
     public async Task DeleteAsync(SavedQueryItem item)
     {
+        await EnsureCreatedAsync().ConfigureAwait(false);
         if (string.IsNullOrWhiteSpace(item.Id)) return;
         await _store.DeleteQueryAsync(item.Id);
     }

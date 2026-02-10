@@ -1,0 +1,7 @@
+<Project>
+  <PropertyGroup>
+    <!-- Keep local builds low-friction; tighten only in CI. -->
+    <TreatWarningsAsErrors Condition="'$(CI)' == 'true'">true</TreatWarningsAsErrors>
+  </PropertyGroup>
+</Project>
+

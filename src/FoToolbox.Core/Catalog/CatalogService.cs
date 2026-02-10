@@ -238,7 +238,9 @@ public sealed class CatalogService : ICatalogService
         var tablesTask = GetTablesAsync(env, mode, ct);
         var metadataTask = GetODataMetadataAsync(env, mode, ct);
         await Task.WhenAll(tablesTask, metadataTask).ConfigureAwait(false);
-        return new CatalogSnapshot(env.Id, env.BaseUrl, tablesTask.Result, metadataTask.Result, DateTime.UtcNow);
+        var tables = await tablesTask.ConfigureAwait(false);
+        var metadata = await metadataTask.ConfigureAwait(false);
+        return new CatalogSnapshot(env.Id, env.BaseUrl, tables, metadata, DateTime.UtcNow);
     }
 
     public async Task RefreshAsync(FoEnvironment env, CatalogRefreshScope scope, CancellationToken ct = default)

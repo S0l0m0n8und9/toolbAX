@@ -11,6 +11,8 @@ using System.Linq;
 using System.Reflection;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace FoToolbox.Host.Plugins;
 
@@ -36,7 +38,7 @@ public sealed class PluginManager
         _trustOptions = trustOptions ?? PluginTrustOptions.Default;
     }
 
-    public IReadOnlyList<LoadedPlugin> Discover()
+    public async Task<IReadOnlyList<LoadedPlugin>> DiscoverAsync(CancellationToken cancellationToken = default)
     {
         var results = new List<LoadedPlugin>();
 
@@ -46,11 +48,34 @@ public sealed class PluginManager
             return results;
         }
 
-        foreach (var dll in Directory.GetFiles(_pluginRoot, "*.dll", SearchOption.AllDirectories))
+        // Prefer "one plugin per directory" layout:
+        // plugins/
+        //   QueryBuilder/QueryBuilder.dll (+ deps)
+        //   HelloPlugin/HelloPlugin.dll (+ deps)
+        // This avoids attempting to load every dependency DLL as if it were a plugin.
+        var candidates = new List<string>();
+        foreach (var dir in Directory.GetDirectories(_pluginRoot))
         {
+            var name = Path.GetFileName(dir);
+            var primary = Path.Combine(dir, name + ".dll");
+            if (File.Exists(primary))
+            {
+                candidates.Add(primary);
+            }
+        }
+
+        if (candidates.Count == 0)
+        {
+            // Flat layout fallback (used by tests and some dev setups).
+            candidates.AddRange(Directory.GetFiles(_pluginRoot, "*.dll", SearchOption.TopDirectoryOnly));
+        }
+
+        foreach (var dll in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
-                var loaded = LoadPlugin(dll);
+                var loaded = await LoadPluginAsync(dll, cancellationToken);
                 if (loaded is not null)
                 {
                     results.Add(loaded);
@@ -65,7 +90,7 @@ public sealed class PluginManager
         return results;
     }
 
-    private LoadedPlugin? LoadPlugin(string assemblyPath)
+    private async Task<LoadedPlugin?> LoadPluginAsync(string assemblyPath, CancellationToken cancellationToken)
     {
         ValidateSignatureOrThrow(assemblyPath);
 
@@ -87,7 +112,7 @@ public sealed class PluginManager
                      ?? throw new InvalidOperationException($"Could not create instance of {pluginType.FullName}.");
 
         var ctx = new PluginContext(_env, _odata, _catalog, _logger);
-        plugin.InitializeAsync(ctx).GetAwaiter().GetResult();
+        await plugin.InitializeAsync(ctx);
         var control = plugin.CreateTool();
 
         return new LoadedPlugin
@@ -145,7 +170,7 @@ public sealed class PluginManager
         {
             ChainPolicy =
             {
-                RevocationMode = X509RevocationMode.NoCheck,
+                RevocationMode = GetRevocationModeFromEnvironment(),
                 VerificationFlags = X509VerificationFlags.NoFlag
             }
         };
@@ -155,5 +180,20 @@ public sealed class PluginManager
             var statuses = string.Join("; ", chain.ChainStatus.Select(s => s.StatusInformation.Trim()));
             throw new InvalidOperationException($"Plugin {assemblyPath} failed signature trust validation: {statuses}");
         }
+    }
+
+    private static X509RevocationMode GetRevocationModeFromEnvironment()
+    {
+        // Default preserves existing behavior. Online revocation checks can be slow/blocked in some environments.
+        var mode = Environment.GetEnvironmentVariable("FOTOOLBOX_PLUGIN_REVOCATION");
+        if (string.IsNullOrWhiteSpace(mode)) return X509RevocationMode.NoCheck;
+
+        return mode.Trim().ToLowerInvariant() switch
+        {
+            "online" => X509RevocationMode.Online,
+            "offline" => X509RevocationMode.Offline,
+            "nocheck" => X509RevocationMode.NoCheck,
+            _ => X509RevocationMode.NoCheck
+        };
     }
 }

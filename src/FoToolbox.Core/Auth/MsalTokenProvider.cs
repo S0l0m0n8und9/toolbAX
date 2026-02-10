@@ -12,10 +12,16 @@ namespace FoToolbox.Core.Auth;
 public sealed class MsalTokenProvider : ITokenProvider
 {
     private readonly string _authorityBase;
-    private readonly Func<ServicePrincipal, ClientCredential> _credentialProvider;
+    private readonly Func<ServicePrincipal, CancellationToken, Task<ClientCredential>> _credentialProvider;
     private readonly int _maxAttempts;
 
+    [Obsolete("Use the async credential-provider constructor overload.")]
     public MsalTokenProvider(string authorityBase, Func<ServicePrincipal, ClientCredential> credentialProvider, int maxAttempts = 3)
+        : this(authorityBase, (sp, _) => Task.FromResult(credentialProvider(sp)), maxAttempts)
+    {
+    }
+
+    public MsalTokenProvider(string authorityBase, Func<ServicePrincipal, CancellationToken, Task<ClientCredential>> credentialProvider, int maxAttempts = 3)
     {
         _authorityBase = authorityBase.TrimEnd('/');
         _credentialProvider = credentialProvider;
@@ -32,7 +38,7 @@ public sealed class MsalTokenProvider : ITokenProvider
             attempts++;
             try
             {
-                var credential = _credentialProvider(request.Principal);
+                var credential = await _credentialProvider(request.Principal, cancellationToken);
                 var authority = $"{_authorityBase}/{request.TenantId}";
                 var appBuilder = ConfidentialClientApplicationBuilder
                     .Create(request.Principal.ClientId)

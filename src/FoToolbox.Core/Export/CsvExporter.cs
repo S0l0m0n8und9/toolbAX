@@ -20,10 +20,11 @@ public static class CsvExporter
         await using var writer = new StreamWriter(output, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true), leaveOpen: true);
         bool headerWritten = false;
         List<string> columns = new();
+        var totalRows = 0;
 
         await foreach (var page in client.StreamAsync(request, cancellationToken))
         {
-            if (cancellationToken.IsCancellationRequested) break;
+            cancellationToken.ThrowIfCancellationRequested();
 
             if (!headerWritten)
             {
@@ -34,13 +35,14 @@ public static class CsvExporter
 
             foreach (var row in page.Rows)
             {
-                if (cancellationToken.IsCancellationRequested) break;
+                cancellationToken.ThrowIfCancellationRequested();
                 var line = string.Join(",", columns.Select(c => Escape(row.TryGetValue(c, out var v) ? v?.ToString() ?? string.Empty : string.Empty)));
                 await writer.WriteLineAsync(line);
             }
 
             await writer.FlushAsync(); // back-pressure: flush before fetching next page
-            progress?.Invoke(page.Rows.Count);
+            totalRows += page.Rows.Count;
+            progress?.Invoke(totalRows);
         }
     }
 
@@ -51,7 +53,7 @@ public static class CsvExporter
         await writer.WriteLineAsync(string.Join(",", cols.Select(Escape)));
         foreach (DataRow row in table.Rows)
         {
-            if (cancellationToken.IsCancellationRequested) break;
+            cancellationToken.ThrowIfCancellationRequested();
             var line = string.Join(",", cols.Select(c => Escape(row[c]?.ToString() ?? string.Empty)));
             await writer.WriteLineAsync(line);
         }

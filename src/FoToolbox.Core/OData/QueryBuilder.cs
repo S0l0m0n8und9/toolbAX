@@ -8,6 +8,13 @@ namespace FoToolbox.Core.OData;
 
 public static class QueryBuilder
 {
+    private static string QuoteStringLiteral(string value)
+    {
+        // OData string literals are single-quoted and escape a single quote by doubling it.
+        var escaped = (value ?? string.Empty).Replace("'", "''");
+        return $"'{escaped}'";
+    }
+
     public static QueryRequest Build(string baseUrl, QuerySpec spec)
     {
         if (string.IsNullOrWhiteSpace(spec.Entity))
@@ -75,7 +82,7 @@ public static class QueryBuilder
 
         if (!spec.CrossCompany && !string.IsNullOrWhiteSpace(spec.Company))
         {
-            var companyClause = $"dataAreaId eq '{spec.Company}'";
+            var companyClause = $"dataAreaId eq {QuoteStringLiteral(spec.Company)}";
             filter = string.IsNullOrWhiteSpace(filter) ? companyClause : $"({companyClause}) and ({filter})";
         }
 

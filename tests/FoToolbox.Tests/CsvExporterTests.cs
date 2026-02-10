@@ -53,7 +53,8 @@ public class CsvExporterTests
         await using var ms = new MemoryStream();
         using var cts = new CancellationTokenSource();
 
-        await CsvExporter.ExportAsync(client, new QueryRequest("http://test"), ms, _ => cts.Cancel(), cts.Token);
+        await Assert.ThrowsAsync<OperationCanceledException>(() =>
+            CsvExporter.ExportAsync(client, new QueryRequest("http://test"), ms, _ => cts.Cancel(), cts.Token));
 
         var csv = Encoding.UTF8.GetString(ms.ToArray());
         Assert.Contains("1", csv);
@@ -74,5 +75,24 @@ public class CsvExporterTests
         var csv = Encoding.UTF8.GetString(ms.ToArray());
         Assert.Contains("A", csv);
         Assert.Contains("value", csv);
+    }
+
+    [Fact]
+    public async Task Reports_Cumulative_Progress()
+    {
+        var page1 = new ODataPage(new List<IReadOnlyDictionary<string, object?>> { new Dictionary<string, object?> { { "A", "1" } } }, "next");
+        var page2 = new ODataPage(new List<IReadOnlyDictionary<string, object?>>
+        {
+            new Dictionary<string, object?> { { "A", "2" } },
+            new Dictionary<string, object?> { { "A", "3" } }
+        }, null);
+
+        var client = new FakeClient(page1, page2);
+        var progress = new List<int>();
+
+        await using var ms = new MemoryStream();
+        await CsvExporter.ExportAsync(client, new QueryRequest("http://test"), ms, progress.Add);
+
+        Assert.Equal(new[] { 1, 3 }, progress);
     }
 }

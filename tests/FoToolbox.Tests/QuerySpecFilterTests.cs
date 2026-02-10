@@ -28,10 +28,10 @@ public class QuerySpecFilterTests
     public void Company_Filter_Appends_To_Ast_When_CrossCompany_Off()
     {
         var ast = new FilterCondition("Name", "eq", "'Alice'");
-        var spec = new QuerySpec("Customers", CrossCompany: false, Company: "USMF", Where: ast);
+        var spec = new QuerySpec("Customers", CrossCompany: false, Company: "O'Reilly", Where: ast);
         var req = QueryBuilder.Build("https://contoso.operations.dynamics.com", spec);
 
-        Assert.Contains("$filter=%28dataAreaId%20eq%20%27USMF%27%29%20and%20%28Name%20eq%20%27Alice%27%29", req.Url);
+        Assert.Contains("$filter=%28dataAreaId%20eq%20%27O%27%27Reilly%27%29%20and%20%28Name%20eq%20%27Alice%27%29", req.Url);
     }
 
     [Fact]

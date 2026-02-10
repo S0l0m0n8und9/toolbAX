@@ -24,6 +24,15 @@ public class ODataQueryBuilderTests
     }
 
     [Fact]
+    public void CrossCompany_Off_Escapes_SingleQuotes_In_Company()
+    {
+        var spec = new QuerySpec(Entity: "Customers", CrossCompany: false, Company: "O'Reilly", Select: new[] { "AccountNumber" });
+        var req = QueryBuilder.Build("https://contoso.operations.dynamics.com", spec);
+
+        Assert.Equal("https://contoso.operations.dynamics.com/data/Customers?$select=AccountNumber&$filter=dataAreaId%20eq%20%27O%27%27Reilly%27", req.Url);
+    }
+
+    [Fact]
     public void CrossCompany_Off_Appends_Company_When_Filter_Present()
     {
         var spec = new QuerySpec(Entity: "Customers", CrossCompany: false, Company: "USMF", Select: new[] { "AccountNumber" }, Filter: "AccountNumber eq 'A0001'");
