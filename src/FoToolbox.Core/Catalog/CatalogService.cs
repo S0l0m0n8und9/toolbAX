@@ -380,6 +380,7 @@ public sealed class CatalogService : ICatalogService
         }
 
         var request = new HttpRequestMessage(HttpMethod.Get, $"{env.BaseUrl.TrimEnd('/')}/data/$metadata");
+        request.Headers.Accept.ParseAdd("application/xml");
         if (cachedValid && !string.IsNullOrWhiteSpace(cached!.ETag))
         {
             request.Headers.IfNoneMatch.Add(new System.Net.Http.Headers.EntityTagHeaderValue($"\"{cached!.ETag}\""));

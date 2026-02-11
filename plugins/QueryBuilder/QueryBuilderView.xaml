@@ -330,6 +330,11 @@
                             <Button Content="Delete" Command="{Binding DeleteSavedQueryCommand}" Margin="0,0,4,0" />
                             <Button Content="Rename" Command="{Binding RenameSavedQueryCommand}" />
                         </WrapPanel>
+                        <WrapPanel Margin="0,6,0,0">
+                            <Button Content="Export OpenCollection" Command="{Binding ExportSavedOpenCollectionCommand}" Margin="0,0,4,0" />
+                            <Button Content="Export All (OpenCollection)" Command="{Binding ExportAllSavedOpenCollectionCommand}" Margin="0,0,4,0" />
+                            <Button Content="Import OpenCollection" Command="{Binding ImportOpenCollectionCommand}" />
+                        </WrapPanel>
                     </StackPanel>
                 </TabItem>
                 </TabControl>

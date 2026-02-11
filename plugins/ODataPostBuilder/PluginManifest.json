@@ -1,0 +1,8 @@
+{
+  "id": "fo.odatapostbuilder",
+  "name": "OData POST Builder",
+  "version": "0.1.0",
+  "minSdk": "0.3.0",
+  "capabilities": [ "OData.Read", "OData.Write" ]
+}
+

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Net.Http;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -68,6 +69,26 @@ internal sealed class FakeODataServer : IAsyncDisposable
 
                         context.Response.ContentType = "application/json";
                         await context.Response.WriteAsync(JsonSerializer.Serialize(payload));
+                    });
+
+                    endpoints.MapPost("/data/{entity}", async context =>
+                    {
+                        // Minimal write endpoint used by HttpODataWriteClient tests.
+                        var contentType = context.Request.ContentType ?? string.Empty;
+                        if (!contentType.Contains("application/json", StringComparison.OrdinalIgnoreCase))
+                        {
+                            context.Response.StatusCode = 415;
+                            await context.Response.WriteAsync("Expected application/json");
+                            return;
+                        }
+
+                        using var reader = new StreamReader(context.Request.Body);
+                        var body = await reader.ReadToEndAsync();
+
+                        context.Response.StatusCode = 201;
+                        context.Response.ContentType = "application/json";
+                        context.Response.Headers["X-Echo-Method"] = "POST";
+                        await context.Response.WriteAsync(body);
                     });
                 });
             });

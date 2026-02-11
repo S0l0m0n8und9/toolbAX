@@ -64,6 +64,16 @@ CREATE TABLE IF NOT EXISTS SavedQuery(
   CrossCompany INTEGER NOT NULL,
   CreatedUtc TEXT NOT NULL,
   UpdatedUtc TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS SavedApiRequest(
+  Id TEXT PRIMARY KEY,
+  EnvId TEXT NOT NULL REFERENCES Environments(Id) ON DELETE CASCADE,
+  Name TEXT NOT NULL,
+  Method TEXT NOT NULL,
+  Url TEXT NOT NULL,
+  OpenCollectionJson TEXT NOT NULL,
+  CreatedUtc TEXT NOT NULL,
+  UpdatedUtc TEXT NOT NULL
 );";
 
         await using var cmd = conn.CreateCommand();
@@ -259,6 +269,66 @@ ON CONFLICT(Id) DO UPDATE SET
         await conn.OpenAsync(cancellationToken);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = "DELETE FROM SavedQuery WHERE Id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<IReadOnlyList<SavedApiRequestRecord>> GetSavedApiRequestsAsync(string envId, CancellationToken cancellationToken = default)
+    {
+        var list = new List<SavedApiRequestRecord>();
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT Id, EnvId, Name, Method, Url, OpenCollectionJson, CreatedUtc, UpdatedUtc FROM SavedApiRequest WHERE EnvId = $env";
+        cmd.Parameters.AddWithValue("$env", envId);
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        while (await reader.ReadAsync(cancellationToken))
+        {
+            list.Add(new SavedApiRequestRecord(
+                reader.GetString(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetString(3),
+                reader.GetString(4),
+                reader.GetString(5),
+                reader.GetString(6),
+                reader.GetString(7)
+            ));
+        }
+        return list;
+    }
+
+    public async Task SaveApiRequestAsync(SavedApiRequestRecord record, CancellationToken cancellationToken = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+INSERT INTO SavedApiRequest(Id, EnvId, Name, Method, Url, OpenCollectionJson, CreatedUtc, UpdatedUtc)
+VALUES($id, $env, $name, $method, $url, $json, $created, $updated)
+ON CONFLICT(Id) DO UPDATE SET
+ Name = excluded.Name,
+ Method = excluded.Method,
+ Url = excluded.Url,
+ OpenCollectionJson = excluded.OpenCollectionJson,
+ UpdatedUtc = excluded.UpdatedUtc;";
+        cmd.Parameters.AddWithValue("$id", record.Id);
+        cmd.Parameters.AddWithValue("$env", record.EnvId);
+        cmd.Parameters.AddWithValue("$name", record.Name);
+        cmd.Parameters.AddWithValue("$method", record.Method);
+        cmd.Parameters.AddWithValue("$url", record.Url);
+        cmd.Parameters.AddWithValue("$json", record.OpenCollectionJson);
+        cmd.Parameters.AddWithValue("$created", record.CreatedUtc);
+        cmd.Parameters.AddWithValue("$updated", record.UpdatedUtc);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task DeleteApiRequestAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM SavedApiRequest WHERE Id = $id";
         cmd.Parameters.AddWithValue("$id", id);
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }

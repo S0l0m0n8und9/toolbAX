@@ -12,7 +12,6 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.IO;
 using System.Net.Http;
-using System.Net.Http.Headers;
 using System.Windows;
 
 namespace FoToolbox.Host;
@@ -27,6 +26,7 @@ public partial class MainWindow : Window
     private readonly string _profileDbPath = ProfilePaths.ResolveProfileDbPath();
     private ProfilesView? _profilesView;
     private bool _loadedOnce;
+    private HttpClient? _activeHttpClient;
 
     public MainWindow()
     {
@@ -84,12 +84,16 @@ public partial class MainWindow : Window
     {
         try
         {
-            var odata = CreateODataClient(env, sp);
-            var catalog = CreateCatalogService(env, sp);
+            _activeHttpClient?.Dispose();
+            _activeHttpClient = CreateAuthenticatedHttpClient(env, sp);
+
+            var odata = CreateODataClient(_activeHttpClient);
+            var odataWrite = CreateODataWriteClient(_activeHttpClient);
+            var catalog = CreateCatalogService(_activeHttpClient);
 
             var pluginRoot = ResolvePluginRoot();
             var trust = PluginTrustOptions.FromEnvironment();
-            var manager = new PluginManager(pluginRoot, env, odata, catalog, _logger, trust);
+            var manager = new PluginManager(pluginRoot, env, odata, odataWrite, catalog, _logger, trust);
             var plugins = await manager.DiscoverAsync();
             _vm.LoadPlugins(plugins, _profilesView);
         }
@@ -122,18 +126,24 @@ public partial class MainWindow : Window
         return await svc.GetDefaultAsync();
     }
 
-    private static IODataClient CreateODataClient(FoEnvironment env, ServicePrincipal sp)
+    private static HttpClient CreateAuthenticatedHttpClient(FoEnvironment env, ServicePrincipal sp)
     {
         var handler = new AuthenticatedHandler(env, sp);
-        var httpClient = new HttpClient(handler);
-        httpClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        return new HttpClient(handler);
+    }
+
+    private static IODataClient CreateODataClient(HttpClient httpClient)
+    {
         return new HttpODataClient(httpClient);
     }
 
-    private ICatalogService CreateCatalogService(FoEnvironment env, ServicePrincipal sp)
+    private static IODataWriteClient CreateODataWriteClient(HttpClient httpClient)
     {
-        var handler = new AuthenticatedHandler(env, sp);
-        var httpClient = new HttpClient(handler);
+        return new HttpODataWriteClient(httpClient);
+    }
+
+    private ICatalogService CreateCatalogService(HttpClient httpClient)
+    {
         var profileStore = new ProfileStore(_profileDbPath);
         var catalogStorePath = ProfilePaths.ResolveAppDataPath("catalog.db");
         var catalogStore = new CatalogStore(catalogStorePath);

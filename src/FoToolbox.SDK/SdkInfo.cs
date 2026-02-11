@@ -7,5 +7,5 @@ namespace FoToolbox.SDK;
 /// </summary>
 public static class SdkInfo
 {
-    public static Version Version { get; } = new Version(0, 2, 0, 0);
+    public static Version Version { get; } = new Version(0, 3, 0, 0);
 }

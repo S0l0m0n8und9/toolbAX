@@ -24,15 +24,17 @@ public sealed class PluginManager
     private readonly string _pluginRoot;
     private readonly FoEnvironment _env;
     private readonly IODataClient _odata;
+    private readonly IODataWriteClient _odataWrite;
     private readonly ICatalogService _catalog;
     private readonly ILogger _logger;
     private readonly PluginTrustOptions _trustOptions;
 
-    public PluginManager(string pluginRoot, FoEnvironment env, IODataClient odata, ICatalogService catalog, ILogger logger, PluginTrustOptions? trustOptions = null)
+    public PluginManager(string pluginRoot, FoEnvironment env, IODataClient odata, IODataWriteClient odataWrite, ICatalogService catalog, ILogger logger, PluginTrustOptions? trustOptions = null)
     {
         _pluginRoot = pluginRoot;
         _env = env;
         _odata = odata;
+        _odataWrite = odataWrite;
         _catalog = catalog;
         _logger = logger;
         _trustOptions = trustOptions ?? PluginTrustOptions.Default;
@@ -111,7 +113,9 @@ public sealed class PluginManager
         var plugin = Activator.CreateInstance(pluginType) as IFoToolPlugin
                      ?? throw new InvalidOperationException($"Could not create instance of {pluginType.FullName}.");
 
-        var ctx = new PluginContext(_env, _odata, _catalog, _logger);
+        IPluginContext ctx = RequiresWrite(manifest)
+            ? new PluginContextWrite(_env, _odata, _odataWrite, _catalog, _logger)
+            : new PluginContext(_env, _odata, _catalog, _logger);
         await plugin.InitializeAsync(ctx);
         var control = plugin.CreateTool();
 
@@ -196,4 +200,15 @@ public sealed class PluginManager
             _ => X509RevocationMode.NoCheck
         };
     }
+
+    private static bool RequiresWrite(FoPluginManifest manifest)
+    {
+        return manifest.CapabilitiesOrEmpty().Contains("OData.Write", StringComparer.OrdinalIgnoreCase);
+    }
+}
+
+internal static class FoPluginManifestExtensions
+{
+    public static IReadOnlyCollection<string> CapabilitiesOrEmpty(this FoPluginManifest manifest) =>
+        manifest.Capabilities ?? Array.Empty<string>();
 }

@@ -60,6 +60,9 @@
       <Component Id="FoToolboxPluginTableEntityBrowser" Guid="{DFAA5D17-7A94-413C-BA6B-41B0AA4FAD00}" Directory="PLUGINS">
         <File Id="TableEntityBrowser.dll" Source="$(var.SourceDir)\plugins\TableEntityBrowser.dll" />
       </Component>
+      <Component Id="FoToolboxPluginODataPostBuilder" Guid="{B4E5D6B8-1A2F-4CCB-B0C8-2E47E72D1F6A}" Directory="PLUGINS">
+        <File Id="ODataPostBuilder.dll" Source="$(var.SourceDir)\plugins\ODataPostBuilder.dll" />
+      </Component>
 
       <!-- Start menu shortcut -->
       <Component Id="FoToolboxStartMenuShortcut" Guid="{5B18C0A9-A5F2-4E8C-9F3E-798A80C511C3}" Directory="ProgramMenuFoToolbox">

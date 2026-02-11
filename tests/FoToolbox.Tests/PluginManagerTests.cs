@@ -22,6 +22,12 @@ public sealed class PluginManagerTests
             => ODataClientExtensions.EmptyPages(cancellationToken);
     }
 
+    private sealed class StubODataWriteClient : IODataWriteClient
+    {
+        public Task<ODataWriteResponse> SendAsync(ODataWriteRequest request, CancellationToken ct = default) =>
+            Task.FromResult(new ODataWriteResponse(200, null, new Dictionary<string, string>()));
+    }
+
     private sealed class StubCatalogService : ICatalogService
     {
         public Task<TableCatalog> GetTablesAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)
@@ -85,7 +91,7 @@ public sealed class PluginManagerTests
             File.Copy(helloAssembly, Path.Combine(pluginDir, Path.GetFileName(helloAssembly)), overwrite: true);
 
             var logger = new CapturingLogger();
-            var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), new StubCatalogService(), logger, new PluginTrustOptions(true, Array.Empty<string>()));
+            var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), new StubODataWriteClient(), new StubCatalogService(), logger, new PluginTrustOptions(true, Array.Empty<string>()));
             var plugins = await manager.DiscoverAsync();
 
             if (plugins.Count == 0 && logger.LastException != null)
@@ -110,7 +116,7 @@ public sealed class PluginManagerTests
             File.Copy(pluginAssembly, Path.Combine(pluginDir, Path.GetFileName(pluginAssembly)), overwrite: true);
 
             var logger = new CapturingLogger();
-            var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), new StubCatalogService(), logger, new PluginTrustOptions(true, Array.Empty<string>()));
+            var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), new StubODataWriteClient(), new StubCatalogService(), logger, new PluginTrustOptions(true, Array.Empty<string>()));
             var plugins = await manager.DiscoverAsync();
 
             if (plugins.Count == 0 && logger.LastException != null)
@@ -165,7 +171,7 @@ public sealed class PluginManagerTests
             File.Copy(helloAssembly, Path.Combine(pluginDir, Path.GetFileName(helloAssembly)), overwrite: true);
 
             var logger = new CapturingLogger();
-            var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), new StubCatalogService(), logger, new PluginTrustOptions(false, Array.Empty<string>()));
+            var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), new StubODataWriteClient(), new StubCatalogService(), logger, new PluginTrustOptions(false, Array.Empty<string>()));
             var plugins = await manager.DiscoverAsync();
 
             Assert.Empty(plugins);

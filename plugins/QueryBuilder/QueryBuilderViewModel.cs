@@ -122,6 +122,9 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         LoadSavedQueryCommand = new RelayCommand(_ => LoadSelectedQuery());
         DeleteSavedQueryCommand = new AsyncRelayCommand(DeleteSelectedQueryAsync, onCommandError);
         RenameSavedQueryCommand = new AsyncRelayCommand(RenameSelectedQueryAsync, onCommandError);
+        ExportSavedOpenCollectionCommand = new RelayCommand(_ => ExportSelectedOpenCollection());
+        ExportAllSavedOpenCollectionCommand = new RelayCommand(_ => ExportAllOpenCollection());
+        ImportOpenCollectionCommand = new AsyncRelayCommand(ImportOpenCollectionAsync, onCommandError);
 
         HookFilterNode(RootGroup);
 
@@ -432,6 +435,9 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     public RelayCommand LoadSavedQueryCommand { get; }
     public AsyncRelayCommand DeleteSavedQueryCommand { get; }
     public AsyncRelayCommand RenameSavedQueryCommand { get; }
+    public RelayCommand ExportSavedOpenCollectionCommand { get; }
+    public RelayCommand ExportAllSavedOpenCollectionCommand { get; }
+    public AsyncRelayCommand ImportOpenCollectionCommand { get; }
 
     private async Task LoadEntitiesAsync(CancellationToken cancellationToken)
     {
@@ -1737,10 +1743,133 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         }
     }
 
+    private void ExportSelectedOpenCollection()
+    {
+        if (SelectedSaved is null)
+        {
+            Status = "Select a saved query to export.";
+            return;
+        }
+
+        var dlg = new SaveFileDialog
+        {
+            Title = "Export OpenCollection collection (1 query)",
+            Filter = "JSON (*.json)|*.json",
+            FileName = $"{SanitizeFileName(SelectedSaved.Name)}.json"
+        };
+
+        if (dlg.ShowDialog() != true) return;
+
+        try
+        {
+            var json = _savedStore.ExportAllAsOpenCollection(
+                SelectedSaved.Name,
+                _ctx.CurrentEnv.BaseUrl,
+                new[] { SelectedSaved });
+
+            File.WriteAllText(dlg.FileName, json, Encoding.UTF8);
+            Status = $"Exported to {dlg.FileName}";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Export failed: {ex.Message}";
+        }
+    }
+
+    private void ExportAllOpenCollection()
+    {
+        if (_savedQueries.Count == 0)
+        {
+            Status = "No saved queries to export.";
+            return;
+        }
+
+        var dlg = new SaveFileDialog
+        {
+            Title = "Export OpenCollection collection",
+            Filter = "JSON (*.json)|*.json",
+            FileName = "FoToolbox-Queries.json"
+        };
+
+        if (dlg.ShowDialog() != true) return;
+
+        try
+        {
+            var json = _savedStore.ExportAllAsOpenCollection(
+                $"FoToolbox Queries ({_ctx.CurrentEnv.Name})",
+                _ctx.CurrentEnv.BaseUrl,
+                _savedQueries.ToList());
+
+            File.WriteAllText(dlg.FileName, json, Encoding.UTF8);
+            Status = $"Exported to {dlg.FileName}";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Export failed: {ex.Message}";
+        }
+    }
+
+    private async Task ImportOpenCollectionAsync(CancellationToken cancellationToken)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Title = "Import OpenCollection JSON",
+            Filter = "JSON (*.json)|*.json"
+        };
+
+        if (dlg.ShowDialog() != true) return;
+
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var json = await File.ReadAllTextAsync(dlg.FileName, cancellationToken).ConfigureAwait(false);
+            var imported = _savedStore.ImportOpenCollection(json, _ctx.CurrentEnv.Id, _ctx.CurrentEnv.BaseUrl);
+            if (imported.Count == 0)
+            {
+                Status = "No GET requests found to import.";
+                return;
+            }
+
+            foreach (var item in imported)
+            {
+                var baseName = string.IsNullOrWhiteSpace(item.Name) ? $"GET {item.Entity}" : item.Name;
+                var name = baseName;
+                var i = 2;
+                while (_savedQueries.Any(s => string.Equals(s.Name, name, StringComparison.OrdinalIgnoreCase)))
+                {
+                    name = $"{baseName} ({i++})";
+                }
+                item.Name = name;
+                item.EnvId = _ctx.CurrentEnv.Id;
+
+                await _savedStore.SaveAsync(item).ConfigureAwait(false);
+            }
+
+            await LoadSavedQueriesAsync().ConfigureAwait(false);
+            Status = $"Imported {imported.Count} query(s).";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Import failed: {ex.Message}";
+        }
+    }
+
     private static bool ConfirmOverwrite(string name)
     {
         var result = MessageBox.Show($"A saved query named '{name}' already exists. Overwrite it?", "Overwrite saved query", MessageBoxButton.YesNo, MessageBoxImage.Question);
         return result == MessageBoxResult.Yes;
+    }
+
+    private static string SanitizeFileName(string name)
+    {
+        var bad = Path.GetInvalidFileNameChars();
+        var sb = new StringBuilder(name.Length);
+        foreach (var ch in name)
+        {
+            sb.Append(bad.Contains(ch) ? '_' : ch);
+        }
+        return sb.ToString();
     }
 
     public event PropertyChangedEventHandler? PropertyChanged;

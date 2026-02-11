@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Net.Http.Headers;
 
 namespace FoToolbox.Core.OData;
 
@@ -14,6 +15,7 @@ namespace FoToolbox.Core.OData;
 public sealed class HttpODataClient : IODataClient
 {
     private readonly HttpClient _httpClient;
+    private static readonly MediaTypeWithQualityHeaderValue JsonAccept = new("application/json");
 
     public HttpODataClient(HttpClient httpClient)
     {
@@ -25,7 +27,11 @@ public sealed class HttpODataClient : IODataClient
         var next = request.Url;
         while (!string.IsNullOrWhiteSpace(next))
         {
-            using var response = await _httpClient.GetAsync(next, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            using var msg = new HttpRequestMessage(HttpMethod.Get, next);
+            msg.Headers.Accept.Clear();
+            msg.Headers.Accept.Add(JsonAccept);
+
+            using var response = await _httpClient.SendAsync(msg, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             response.EnsureSuccessStatusCode();
 
             var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
