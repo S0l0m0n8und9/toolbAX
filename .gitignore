@@ -5,6 +5,7 @@
 # Packaging / generated outputs
 artifacts/
 publish/
+codex/
 
 # Installer build outputs (keep WiX sources/scripts checked in)
 install/*.msi
@@ -19,7 +20,12 @@ install/update-manifest.local.json
 .vs/
 *.user
 *.suo
+*.code-workspace
 
 # OS
 Thumbs.db
 .DS_Store
+
+# Local package/download artifacts
+*.nupkg
+install/wix_*.html

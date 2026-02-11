@@ -84,8 +84,11 @@ public sealed partial class ODataPostBuilderViewModel
                     return false;
                 }
             }
+        }
 
-            // Checkbox controls whether the final write URL uses cross-company.
+        // Checkbox controls whether the final write URL uses cross-company.
+        if (method is "PATCH" or "DELETE")
+        {
             querySuffix = CrossCompany ? "?cross-company=true" : string.Empty;
         }
 
