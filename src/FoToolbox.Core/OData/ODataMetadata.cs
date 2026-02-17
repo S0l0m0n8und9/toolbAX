@@ -2,7 +2,17 @@ using System.Collections.Generic;
 
 namespace FoToolbox.Core.OData;
 
-public sealed record ODataProperty(string Name, string Type, bool Nullable, bool IsKey = false, bool IsMandatory = false)
+public sealed record ODataProperty(
+    string Name,
+    string Type,
+    bool Nullable,
+    bool IsKey = false,
+    bool IsMandatory = false,
+    string? MaxLength = null,
+    string? Precision = null,
+    string? Scale = null,
+    string? MinValue = null,
+    string? MaxValue = null)
 {
     // FO "mandatory" is not the same thing as OData nullability.
     // When available, prefer /metadata/PublicEntities flags (IsMandatory/IsKey).

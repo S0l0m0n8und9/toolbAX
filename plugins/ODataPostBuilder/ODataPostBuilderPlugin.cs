@@ -13,7 +13,7 @@ public sealed class ODataPostBuilderPlugin : IFoToolPlugin
     public FoPluginManifest Manifest => new()
     {
         Id = Id,
-        Name = "OData POST Builder",
+        Name = "OData API Builder",
         Version = Version.ToString(),
         MinSdk = "0.3.0",
         Capabilities = new[] { "OData.Read", "OData.Write" }
@@ -22,7 +22,7 @@ public sealed class ODataPostBuilderPlugin : IFoToolPlugin
     public Task InitializeAsync(IPluginContext context)
     {
         _ctx = context;
-        _ctx.Logger.LogInformation("OData POST Builder initialized for {Env}", context.CurrentEnv.Name);
+        _ctx.Logger.LogInformation("OData API Builder initialized for {Env}", context.CurrentEnv.Name);
         return Task.CompletedTask;
     }
 
@@ -32,4 +32,3 @@ public sealed class ODataPostBuilderPlugin : IFoToolPlugin
         return new ODataPostBuilderView(new ODataPostBuilderViewModel(_ctx));
     }
 }
-

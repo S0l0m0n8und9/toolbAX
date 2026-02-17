@@ -116,6 +116,11 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
 
         foreach (var plugin in plugins)
         {
+            if (IsHiddenPlugin(plugin))
+            {
+                continue;
+            }
+
             Plugins.Add(new PluginEntry
             {
                 Name = plugin.Manifest.Name,
@@ -125,6 +130,12 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         }
 
         Selected = Plugins.FirstOrDefault(p => p.Loaded is not null) ?? Plugins.FirstOrDefault();
+    }
+
+    private static bool IsHiddenPlugin(LoadedPlugin plugin)
+    {
+        return string.Equals(plugin.Manifest.Id, "fo.hello", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(plugin.Manifest.Name, "Hello Plugin", StringComparison.OrdinalIgnoreCase);
     }
 
     private void OnPropertyChanged([CallerMemberName] string? name = null)

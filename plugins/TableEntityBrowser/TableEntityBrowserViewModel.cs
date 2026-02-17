@@ -517,7 +517,18 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
             foreach (var prop in entity.Properties.OrderBy(p => p.Name))
             {
                 var enumValues = ResolveEnumValues(lookup, prop.Type);
-                _entityFields.Add(new EntityFieldItem(prop.Name, prop.Type, prop.Nullable, prop.IsKey, prop.IsMandatory, enumValues));
+                _entityFields.Add(new EntityFieldItem(
+                    prop.Name,
+                    prop.Type,
+                    prop.Nullable,
+                    prop.IsKey,
+                    prop.IsMandatory,
+                    enumValues,
+                    prop.MaxLength,
+                    prop.Precision,
+                    prop.Scale,
+                    prop.MinValue,
+                    prop.MaxValue));
             }
 
             _navigation.Clear();
@@ -704,7 +715,18 @@ public sealed class EntityInfoViewModel
 
 public sealed class EntityFieldItem
 {
-    public EntityFieldItem(string name, string type, bool nullable, bool isKey, bool isMandatory, string? enumValues)
+    public EntityFieldItem(
+        string name,
+        string type,
+        bool nullable,
+        bool isKey,
+        bool isMandatory,
+        string? enumValues,
+        string? maxLength = null,
+        string? precision = null,
+        string? scale = null,
+        string? minValue = null,
+        string? maxValue = null)
     {
         Name = name;
         Type = type;
@@ -712,6 +734,11 @@ public sealed class EntityFieldItem
         IsKey = isKey;
         IsMandatory = isMandatory;
         EnumValues = enumValues;
+        MaxLength = maxLength;
+        Precision = precision;
+        Scale = scale;
+        MinValue = minValue;
+        MaxValue = maxValue;
     }
 
     public string Name { get; }
@@ -721,6 +748,17 @@ public sealed class EntityFieldItem
     public bool IsMandatory { get; }
     public bool Mandatory => IsKey || IsMandatory;
     public string? EnumValues { get; }
+    public string? MaxLength { get; }
+    public string? Precision { get; }
+    public string? Scale { get; }
+    public string? MinValue { get; }
+    public string? MaxValue { get; }
+    public string? PrecisionScale => string.IsNullOrWhiteSpace(Precision) && string.IsNullOrWhiteSpace(Scale)
+        ? null
+        : $"{(string.IsNullOrWhiteSpace(Precision) ? "-" : Precision)}/{(string.IsNullOrWhiteSpace(Scale) ? "-" : Scale)}";
+    public string? Range => string.IsNullOrWhiteSpace(MinValue) && string.IsNullOrWhiteSpace(MaxValue)
+        ? null
+        : $"{(string.IsNullOrWhiteSpace(MinValue) ? "-" : MinValue)} .. {(string.IsNullOrWhiteSpace(MaxValue) ? "-" : MaxValue)}";
 }
 
 public sealed class AsyncRelayCommand : ICommand

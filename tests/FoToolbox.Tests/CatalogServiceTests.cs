@@ -2,6 +2,7 @@ using FoToolbox.Core.Catalog;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.Profiles;
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
@@ -144,6 +145,66 @@ public class CatalogServiceTests
         Assert.False(customerType.Mandatory);
     }
 
+    [Fact]
+    public async Task GetODataEntityDetailsAsync_Enriches_MaxLength_From_DataManagementTargetMapEntities_With_Paging()
+    {
+        var xml = """
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Default" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityContainer Name="Container">
+        <EntitySet Name="CustomersV3" EntityType="Default.CustomerV3" />
+      </EntityContainer>
+      <EntityType Name="CustomerV3">
+        <Key>
+          <PropertyRef Name="AccountNumber" />
+        </Key>
+        <Property Name="AccountNumber" Type="Edm.String" Nullable="false" />
+        <Property Name="IdentificationNumber" Type="Edm.String" />
+      </EntityType>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>
+""";
+        var publicEntitiesJson = """
+{ "value": [] }
+""";
+        var targetMapPage1 = """
+{
+  "value": [
+    { "Entity": "Customers V3", "FieldAOTName": "IgnoredField", "FieldLength": 10 }
+  ],
+  "@odata.nextLink": "https://contoso.operations.dynamics.com/data/DataManagementTargetMapEntities?$skiptoken=page2"
+}
+""";
+        var targetMapPage2 = """
+{
+  "value": [
+    { "Entity": "Customers V3", "FieldAOTName": "IdentificationNumber", "FieldLength": 50 }
+  ]
+}
+""";
+
+        var handler = new DataManagementPagingHandler(xml, publicEntitiesJson, targetMapPage1, targetMapPage2);
+        var httpClient = new HttpClient(handler);
+        var profileDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db");
+        var catalogDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db");
+        var profileStore = new ProfileStore(profileDb);
+        await profileStore.EnsureCreatedAsync();
+        var catalogStore = new CatalogStore(catalogDb);
+        var service = new CatalogService(httpClient, profileStore, catalogStore, new CatalogServiceOptions(TimeSpan.FromDays(1), TimeSpan.FromDays(1)));
+        var env = new FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com", "tenant", "USMF");
+
+        var entity = await service.GetODataEntityDetailsAsync(env, "CustomersV3", CatalogRefreshMode.ForceRefresh, default);
+
+        Assert.NotNull(entity);
+        Assert.True(handler.TargetMapCalls >= 2);
+        Assert.Contains(handler.TargetMapQueries, q => q.Contains("Entity%20eq%20%27Customers%20V3%27", StringComparison.OrdinalIgnoreCase));
+        var identificationNumber = entity!.Properties.First(p => p.Name == "IdentificationNumber");
+        Assert.Equal("50", identificationNumber.MaxLength);
+    }
+
     private sealed class CountingMetadataHandler : HttpMessageHandler
     {
         private readonly string _content;
@@ -194,6 +255,76 @@ public class CatalogServiceTests
             {
                 PublicEntitiesCalls++;
                 content = _json;
+            }
+            else
+            {
+                content = "{}";
+            }
+
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(content)
+            };
+            response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue("\"etag\"");
+            return Task.FromResult(response);
+        }
+    }
+
+    private sealed class DataManagementPagingHandler : HttpMessageHandler
+    {
+        private readonly string _xml;
+        private readonly string _publicEntitiesJson;
+        private readonly string _targetMapPage1;
+        private readonly string _targetMapPage2;
+
+        public int TargetMapCalls { get; private set; }
+        public List<string> TargetMapQueries { get; } = new();
+
+        public DataManagementPagingHandler(
+            string xml,
+            string publicEntitiesJson,
+            string targetMapPage1,
+            string targetMapPage2)
+        {
+            _xml = xml;
+            _publicEntitiesJson = publicEntitiesJson;
+            _targetMapPage1 = targetMapPage1;
+            _targetMapPage2 = targetMapPage2;
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var uri = request.RequestUri ?? new Uri("https://contoso.operations.dynamics.com/");
+            var path = uri.AbsolutePath;
+            var query = uri.Query ?? string.Empty;
+
+            string content;
+            if (path.EndsWith("/data/$metadata", StringComparison.OrdinalIgnoreCase))
+            {
+                content = _xml;
+            }
+            else if (path.EndsWith("/metadata/PublicEntities", StringComparison.OrdinalIgnoreCase))
+            {
+                content = _publicEntitiesJson;
+            }
+            else if (path.EndsWith("/data/DataManagementTargetMapEntities", StringComparison.OrdinalIgnoreCase))
+            {
+                TargetMapCalls++;
+                TargetMapQueries.Add(query);
+                var isPage2 = query.Contains("skiptoken=page2", StringComparison.OrdinalIgnoreCase);
+                var hasExpectedEntityFilter = query.Contains("Entity%20eq%20%27Customers%20V3%27", StringComparison.OrdinalIgnoreCase);
+                if (isPage2)
+                {
+                    content = _targetMapPage2;
+                }
+                else if (!hasExpectedEntityFilter)
+                {
+                    content = """{ "value": [] }""";
+                }
+                else
+                {
+                    content = _targetMapPage1;
+                }
             }
             else
             {

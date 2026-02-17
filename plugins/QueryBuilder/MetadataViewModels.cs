@@ -24,7 +24,19 @@ public sealed class FieldItem : INotifyPropertyChanged
 {
     private bool _isSelected;
 
-    public FieldItem(string name, string type, string kind, bool nullable, string? enumValues, bool isKey = false, bool isMandatory = false)
+    public FieldItem(
+        string name,
+        string type,
+        string kind,
+        bool nullable,
+        string? enumValues,
+        bool isKey = false,
+        bool isMandatory = false,
+        string? maxLength = null,
+        string? precision = null,
+        string? scale = null,
+        string? minValue = null,
+        string? maxValue = null)
     {
         Name = name;
         Type = type;
@@ -33,6 +45,11 @@ public sealed class FieldItem : INotifyPropertyChanged
         EnumValues = enumValues;
         IsKey = isKey;
         IsMandatory = isMandatory;
+        MaxLength = maxLength;
+        Precision = precision;
+        Scale = scale;
+        MinValue = minValue;
+        MaxValue = maxValue;
     }
 
     public string Name { get; }
@@ -43,6 +60,17 @@ public sealed class FieldItem : INotifyPropertyChanged
     public bool IsMandatory { get; }
     public bool Mandatory => IsKey || IsMandatory;
     public string? EnumValues { get; }
+    public string? MaxLength { get; }
+    public string? Precision { get; }
+    public string? Scale { get; }
+    public string? MinValue { get; }
+    public string? MaxValue { get; }
+    public string? PrecisionScale => string.IsNullOrWhiteSpace(Precision) && string.IsNullOrWhiteSpace(Scale)
+        ? null
+        : $"{(string.IsNullOrWhiteSpace(Precision) ? "-" : Precision)}/{(string.IsNullOrWhiteSpace(Scale) ? "-" : Scale)}";
+    public string? Range => string.IsNullOrWhiteSpace(MinValue) && string.IsNullOrWhiteSpace(MaxValue)
+        ? null
+        : $"{(string.IsNullOrWhiteSpace(MinValue) ? "-" : MinValue)} .. {(string.IsNullOrWhiteSpace(MaxValue) ? "-" : MaxValue)}";
 
     public bool IsSelected
     {

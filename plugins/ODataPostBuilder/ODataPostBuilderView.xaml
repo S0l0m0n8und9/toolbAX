@@ -21,11 +21,13 @@
     </DataTemplate>
   </UserControl.Resources>
 
-  <Grid Margin="10">
+  <Grid Margin="12">
     <Grid.ColumnDefinitions>
-      <ColumnDefinition Width="280" />
-      <ColumnDefinition Width="*" />
-      <ColumnDefinition Width="420" />
+      <ColumnDefinition Width="280" MinWidth="240" />
+      <ColumnDefinition Width="6" />
+      <ColumnDefinition Width="*" MinWidth="520" />
+      <ColumnDefinition Width="6" />
+      <ColumnDefinition Width="440" MinWidth="380" />
     </Grid.ColumnDefinitions>
     <Grid.RowDefinitions>
       <RowDefinition Height="Auto" />
@@ -33,13 +35,13 @@
       <RowDefinition Height="Auto" />
     </Grid.RowDefinitions>
 
-    <TextBlock Grid.ColumnSpan="3"
+    <TextBlock Grid.ColumnSpan="5"
                FontSize="16"
                FontWeight="SemiBold"
                Text="OData API Builder" />
 
     <!-- Left: entity picker -->
-    <Grid Grid.Row="1" Grid.Column="0" Margin="0,10,10,0">
+    <Grid Grid.Row="1" Grid.Column="0" Margin="0,12,12,0">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />
         <RowDefinition Height="Auto" />
@@ -49,7 +51,7 @@
       <StackPanel Orientation="Horizontal">
         <Button Content="Load Entities"
                 Command="{Binding LoadEntitiesCommand}" />
-        <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" Text="{Binding EntityLoadStatus}" />
+        <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" Text="{Binding EntityLoadStatus}" TextWrapping="Wrap" />
       </StackPanel>
 
       <TextBox Grid.Row="1"
@@ -64,8 +66,15 @@
                HorizontalContentAlignment="Stretch" />
     </Grid>
 
+    <GridSplitter Grid.Row="1"
+                  Grid.Column="1"
+                  HorizontalAlignment="Stretch"
+                  VerticalAlignment="Stretch"
+                  Background="{DynamicResource Fo.BorderBrush}"
+                  ShowsPreview="True" />
+
     <!-- Center: field/value grid -->
-    <Grid Grid.Row="1" Grid.Column="1" Margin="0,10,10,0">
+    <Grid Grid.Row="1" Grid.Column="2" Margin="0,12,12,0">
       <Grid.RowDefinitions>
         <RowDefinition Height="Auto" />
         <RowDefinition Height="*" />
@@ -77,14 +86,16 @@
                 ItemsSource="{Binding Fields}"
                 AutoGenerateColumns="False"
                 CanUserAddRows="False"
+                CanUserResizeColumns="True"
                 HeadersVisibility="Column"
-                IsReadOnly="False">
+                IsReadOnly="False"
+                ScrollViewer.HorizontalScrollBarVisibility="Auto">
         <DataGrid.Columns>
-          <DataGridCheckBoxColumn Header="Include" Binding="{Binding Include, UpdateSourceTrigger=PropertyChanged}" Width="70" />
-          <DataGridTextColumn Header="Name" Binding="{Binding Name}" IsReadOnly="True" Width="*" />
-          <DataGridTextColumn Header="Type" Binding="{Binding Type}" IsReadOnly="True" Width="150" />
-          <DataGridTextColumn Header="Mandatory" Binding="{Binding MandatoryText}" IsReadOnly="True" Width="90" />
-          <DataGridTemplateColumn Header="Value" Width="180">
+          <DataGridCheckBoxColumn Header="Include" Binding="{Binding Include, UpdateSourceTrigger=PropertyChanged}" Width="80" />
+          <DataGridTextColumn Header="Name" Binding="{Binding Name}" IsReadOnly="True" Width="260" MinWidth="180" />
+          <DataGridTextColumn Header="Type" Binding="{Binding Type}" IsReadOnly="True" Width="180" MinWidth="140" />
+          <DataGridTextColumn Header="Mandatory" Binding="{Binding MandatoryText}" IsReadOnly="True" Width="120" MinWidth="100" />
+          <DataGridTemplateColumn Header="Value" Width="260" MinWidth="200">
             <DataGridTemplateColumn.CellTemplate>
               <DataTemplate>
                 <!-- Bind Content so the chosen ContentTemplate receives the row item as DataContext.
@@ -111,11 +122,18 @@
       </DataGrid>
     </Grid>
 
+    <GridSplitter Grid.Row="1"
+                  Grid.Column="3"
+                  HorizontalAlignment="Stretch"
+                  VerticalAlignment="Stretch"
+                  Background="{DynamicResource Fo.BorderBrush}"
+                  ShowsPreview="True" />
+
     <!-- Right: single request + batch + saved -->
-    <Grid Grid.Row="1" Grid.Column="2" Margin="0,10,0,0">
+    <Grid Grid.Row="1" Grid.Column="4" Margin="0,12,0,0">
       <TabControl>
         <TabItem Header="Single">
-          <Grid Margin="8">
+          <Grid Margin="10">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />
               <RowDefinition Height="Auto" />
@@ -125,22 +143,26 @@
               <RowDefinition Height="*" />
             </Grid.RowDefinitions>
 
-            <StackPanel Orientation="Horizontal">
+            <WrapPanel Orientation="Horizontal" ItemHeight="34">
               <TextBlock VerticalAlignment="Center" Text="Method:" Margin="0,0,6,0"/>
-              <ComboBox Width="90" ItemsSource="{Binding Methods}" SelectedItem="{Binding SelectedMethod}" />
+              <ComboBox Width="118" ItemsSource="{Binding Methods}" SelectedItem="{Binding SelectedMethod}" />
               <TextBlock VerticalAlignment="Center" Text="Cross-company:" Margin="12,0,6,0"/>
               <CheckBox VerticalAlignment="Center" IsChecked="{Binding CrossCompany}" IsEnabled="{Binding IsCrossCompanyApplicable}" ToolTip="When enabled, PATCH/DELETE URL includes ?cross-company=true" />
               <TextBlock VerticalAlignment="Center" Text="If-Match:*" Margin="12,0,6,0"/>
               <CheckBox VerticalAlignment="Center" IsChecked="{Binding UseIfMatchStar}" />
               <TextBox Width="120" Margin="8,0,0,0" Text="{Binding IfMatchCustom, UpdateSourceTrigger=PropertyChanged}" ToolTip="Custom If-Match value (overrides *)" />
-            </StackPanel>
+            </WrapPanel>
 
-            <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,8,0,0">
-              <TextBox Width="300" Text="{Binding ApiUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="API URL (can include key predicate for PATCH/DELETE)" />
-              <Button Margin="8,0,0,0" Content="Copy URL" Command="{Binding CopyUrlCommand}" />
-            </StackPanel>
+            <Grid Grid.Row="1" Margin="0,10,0,0">
+              <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+              </Grid.ColumnDefinitions>
+              <TextBox Grid.Column="0" MinWidth="260" Text="{Binding ApiUrl, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" ToolTip="API URL (can include key predicate for PATCH/DELETE)" />
+              <Button Grid.Column="1" Margin="10,0,0,0" Content="Copy URL" Command="{Binding CopyUrlCommand}" />
+            </Grid>
 
-            <GroupBox Grid.Row="3" Header="Payload (JSON)" Margin="0,10,0,0">
+            <GroupBox Grid.Row="3" Header="Payload (JSON)" Margin="0,12,0,0">
               <Grid>
                 <Grid.RowDefinitions>
                   <RowDefinition Height="Auto" />
@@ -150,23 +172,23 @@
                   <Button Content="Copy Payload" Command="{Binding CopyPayloadCommand}" />
                   <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" Text="{Binding PayloadStatus}" />
                 </StackPanel>
-                <TextBox Grid.Row="1" Text="{Binding PayloadJson, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
+                <TextBox Grid.Row="1" Text="{Binding PayloadJson, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" MinHeight="170" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
               </Grid>
             </GroupBox>
 
-            <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,10,0,0">
+            <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,12,0,0">
               <Button Content="{Binding SendButtonText, Mode=OneWay}" Command="{Binding SendCommand}" />
-              <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" Text="{Binding SendStatus}" />
+              <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" Text="{Binding SendStatus}" TextWrapping="Wrap" />
             </StackPanel>
 
-            <GroupBox Grid.Row="5" Header="Response" Margin="0,10,0,0">
-              <TextBox Text="{Binding ResponseDetails, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
+            <GroupBox Grid.Row="5" Header="Response" Margin="0,12,0,0">
+              <TextBox Text="{Binding ResponseDetails, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" MinHeight="170" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
             </GroupBox>
           </Grid>
         </TabItem>
 
         <TabItem Header="Batch">
-          <Grid Margin="8">
+          <Grid Margin="10">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />
               <RowDefinition Height="*" />
@@ -188,40 +210,42 @@
                       SelectedItem="{Binding SelectedBatchOperation}"
                       AutoGenerateColumns="False"
                       CanUserAddRows="True"
-                      HeadersVisibility="Column">
+                      CanUserResizeColumns="True"
+                      HeadersVisibility="Column"
+                      ScrollViewer.HorizontalScrollBarVisibility="Auto">
               <DataGrid.Columns>
-                <DataGridComboBoxColumn Header="Method" Width="90"
+                <DataGridComboBoxColumn Header="Method" Width="120"
                                         ItemsSource="{Binding DataContext.Methods, RelativeSource={RelativeSource AncestorType=UserControl}}"
                                         SelectedItemBinding="{Binding Method, UpdateSourceTrigger=PropertyChanged}" />
-                <DataGridTextColumn Header="URL" Width="*"
+                <DataGridTextColumn Header="URL" Width="360" MinWidth="260"
                                    Binding="{Binding Url, UpdateSourceTrigger=PropertyChanged}" />
-                <DataGridTextColumn Header="Body" Width="220"
+                <DataGridTextColumn Header="Body" Width="280" MinWidth="220"
                                    Binding="{Binding BodyJson, UpdateSourceTrigger=PropertyChanged}" />
               </DataGrid.Columns>
             </DataGrid>
 
             <StackPanel Grid.Row="2" Orientation="Vertical" Margin="0,10,0,0">
-              <TextBlock Text="{Binding BatchUrl, Mode=OneWay}" />
-              <TextBlock Text="{Binding BatchContentType, Mode=OneWay}" />
+              <TextBlock Text="{Binding BatchUrl, Mode=OneWay}" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding BatchContentType, Mode=OneWay}" TextWrapping="Wrap" />
             </StackPanel>
 
-            <GroupBox Grid.Row="3" Header="Batch Body (preview)" Margin="0,10,0,0">
-              <TextBox Text="{Binding BatchBodyPreview, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
+            <GroupBox Grid.Row="3" Header="Batch Body (preview)" Margin="0,12,0,0">
+              <TextBox Text="{Binding BatchBodyPreview, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" MinHeight="150" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
             </GroupBox>
 
-            <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,10,0,0">
+            <StackPanel Grid.Row="4" Orientation="Horizontal" Margin="0,12,0,0">
               <Button Content="Send Batch" Command="{Binding SendBatchCommand}" />
-              <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" Text="{Binding BatchSendStatus}" />
+              <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" Text="{Binding BatchSendStatus}" TextWrapping="Wrap" />
             </StackPanel>
 
-            <GroupBox Grid.Row="5" Header="Batch Response" Margin="0,10,0,0">
-              <TextBox Text="{Binding BatchResponseDetails, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
+            <GroupBox Grid.Row="5" Header="Batch Response" Margin="0,12,0,0">
+              <TextBox Text="{Binding BatchResponseDetails, Mode=OneWay}" IsReadOnly="True" AcceptsReturn="True" MinHeight="150" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
             </GroupBox>
           </Grid>
         </TabItem>
 
         <TabItem Header="Saved">
-          <Grid Margin="8">
+          <Grid Margin="10">
             <Grid.RowDefinitions>
               <RowDefinition Height="Auto" />
               <RowDefinition Height="*" />
@@ -253,12 +277,12 @@
                      DisplayMemberPath="Name"
                      HorizontalContentAlignment="Stretch" />
 
-            <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding SavedStatus, Mode=OneWay}" />
+            <TextBlock Grid.Row="2" Grid.ColumnSpan="2" Text="{Binding SavedStatus, Mode=OneWay}" TextWrapping="Wrap" />
           </Grid>
         </TabItem>
       </TabControl>
     </Grid>
 
-    <TextBlock Grid.Row="2" Grid.ColumnSpan="3" Margin="0,10,0,0" Text="{Binding Status}" />
+    <TextBlock Grid.Row="2" Grid.ColumnSpan="5" Margin="0,12,0,0" Text="{Binding Status}" TextWrapping="Wrap" />
   </Grid>
 </UserControl>

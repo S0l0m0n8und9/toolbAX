@@ -3,6 +3,7 @@ using FoToolbox.Core.OData;
 using FoToolbox.Core.Profiles;
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -226,6 +227,7 @@ public sealed class CatalogService : ICatalogService
             // FO's /metadata layer exposes accurate key/mandatory flags for Data Entities.
             // OData $metadata nullability is not a reliable proxy for "mandatory" and keys can be inherited.
             entity = await TryEnrichEntityFromPublicEntitiesAsync(env, entity, ct).ConfigureAwait(false) ?? entity;
+            entity = await TryEnrichEntityFromDataManagementTargetMapAsync(env, entity, ct).ConfigureAwait(false) ?? entity;
 
             var json = JsonSerializer.Serialize(entity, JsonOptions);
             await _store.SaveAsync(env.Id, kind, EntityDetailsSchemaVersion, json, etag, updatedUtc, ct).ConfigureAwait(false);
@@ -452,6 +454,49 @@ public sealed class CatalogService : ICatalogService
         }
     }
 
+    private async Task<ODataEntity?> TryEnrichEntityFromDataManagementTargetMapAsync(FoEnvironment env, ODataEntity entity, CancellationToken ct)
+    {
+        try
+        {
+            var lengths = await TryGetDataManagementFieldLengthsAsync(env, entity.Name, ct).ConfigureAwait(false);
+            if (lengths is null || lengths.Count == 0)
+            {
+                return null;
+            }
+
+            var changed = false;
+            var updatedProps = entity.Properties
+                .Select(p =>
+                {
+                    if (HasMeaningfulMaxLength(p.MaxLength))
+                    {
+                        return p;
+                    }
+
+                    if (!TryResolveFieldLength(lengths, p.Name, out var maxLength))
+                    {
+                        return p;
+                    }
+
+                    changed = true;
+                    return p with { MaxLength = maxLength };
+                })
+                .ToList();
+
+            if (!changed)
+            {
+                return null;
+            }
+
+            return entity with { Properties = updatedProps };
+        }
+        catch
+        {
+            // Best-effort enrichment only; callers should still work using OData metadata alone.
+            return null;
+        }
+    }
+
     private async Task<Dictionary<string, (bool IsKey, bool IsMandatory)>?> TryGetPublicEntityPropertyFlagsAsync(
         FoEnvironment env,
         string entitySetName,
@@ -498,9 +543,311 @@ public sealed class CatalogService : ICatalogService
         return flags;
     }
 
+    private async Task<Dictionary<string, string>?> TryGetDataManagementFieldLengthsAsync(
+        FoEnvironment env,
+        string entitySetName,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(entitySetName))
+        {
+            return null;
+        }
+
+        foreach (var candidate in BuildEntityNameCandidates(entitySetName))
+        {
+            var rows = await FetchDataManagementTargetMapRowsAsync(env, candidate, ct).ConfigureAwait(false);
+            if (rows.Count == 0)
+            {
+                continue;
+            }
+
+            var map = BuildFieldLengthMap(rows);
+            if (map.Count > 0)
+            {
+                return map;
+            }
+        }
+
+        return null;
+    }
+
+    private async Task<List<DataManagementTargetMapRow>> FetchDataManagementTargetMapRowsAsync(
+        FoEnvironment env,
+        string entityName,
+        CancellationToken ct)
+    {
+        var rows = new List<DataManagementTargetMapRow>();
+        var escapedLiteral = entityName.Replace("'", "''", StringComparison.Ordinal);
+        var filter = Uri.EscapeDataString($"Entity eq '{escapedLiteral}'");
+        var select = Uri.EscapeDataString("StagingField,ShortStagingField,TargetField,FieldAOTName,DataSourceField,FieldLength");
+        var nextUrl = $"{env.BaseUrl.TrimEnd('/')}/data/DataManagementTargetMapEntities?$filter={filter}&$select={select}&$top=1000&$count=true&cross-company=true";
+        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        while (!string.IsNullOrWhiteSpace(nextUrl) && visited.Add(nextUrl))
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Get, nextUrl);
+            req.Headers.Accept.ParseAdd("application/json");
+
+            using var resp = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+            {
+                return rows;
+            }
+
+            var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("value", out var valueNode) && valueNode.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var item in valueNode.EnumerateArray())
+                {
+                    var fieldLength = ReadInt32Property(item, "FieldLength");
+                    if (fieldLength is null || fieldLength <= 0)
+                    {
+                        continue;
+                    }
+
+                    rows.Add(new DataManagementTargetMapRow(
+                        ReadStringProperty(item, "StagingField"),
+                        ReadStringProperty(item, "ShortStagingField"),
+                        ReadStringProperty(item, "TargetField"),
+                        ReadStringProperty(item, "FieldAOTName"),
+                        ReadStringProperty(item, "DataSourceField"),
+                        fieldLength.Value));
+                }
+            }
+
+            var nextLink = ReadStringProperty(root, "@odata.nextLink");
+            if (string.IsNullOrWhiteSpace(nextLink))
+            {
+                break;
+            }
+
+            if (Uri.TryCreate(nextLink, UriKind.Absolute, out var absolute))
+            {
+                nextUrl = absolute.ToString();
+            }
+            else
+            {
+                nextUrl = $"{env.BaseUrl.TrimEnd('/')}/{nextLink.TrimStart('/')}";
+            }
+        }
+
+        return rows;
+    }
+
+    private static Dictionary<string, string> BuildFieldLengthMap(IEnumerable<DataManagementTargetMapRow> rows)
+    {
+        var map = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        foreach (var row in rows)
+        {
+            foreach (var candidate in EnumerateFieldNameCandidates(row))
+            {
+                var normalized = NormalizeFieldName(candidate);
+                if (string.IsNullOrWhiteSpace(normalized))
+                {
+                    continue;
+                }
+
+                if (!map.TryGetValue(normalized, out var existing) || row.FieldLength > existing)
+                {
+                    map[normalized] = row.FieldLength;
+                }
+            }
+        }
+
+        return map.ToDictionary(
+            kvp => kvp.Key,
+            kvp => kvp.Value.ToString(),
+            StringComparer.OrdinalIgnoreCase);
+    }
+
+    private static IEnumerable<string?> EnumerateFieldNameCandidates(DataManagementTargetMapRow row)
+    {
+        yield return row.FieldAOTName;
+        yield return row.StagingField;
+        yield return row.ShortStagingField;
+        yield return row.TargetField;
+        yield return row.DataSourceField;
+    }
+
+    private static bool TryResolveFieldLength(IReadOnlyDictionary<string, string> lengths, string propertyName, out string maxLength)
+    {
+        maxLength = string.Empty;
+        var normalized = NormalizeFieldName(propertyName);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return false;
+        }
+
+        return lengths.TryGetValue(normalized, out maxLength!);
+    }
+
+    private static bool HasMeaningfulMaxLength(string? maxLength)
+    {
+        if (string.IsNullOrWhiteSpace(maxLength))
+        {
+            return false;
+        }
+
+        if (int.TryParse(maxLength, out var value))
+        {
+            return value > 0;
+        }
+
+        return true;
+    }
+
+    private static string? NormalizeFieldName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        var chars = value
+            .Where(char.IsLetterOrDigit)
+            .Select(char.ToUpperInvariant)
+            .ToArray();
+
+        return chars.Length == 0 ? null : new string(chars);
+    }
+
+    private static IReadOnlyList<string> BuildEntityNameCandidates(string entitySetName)
+    {
+        var values = new List<string>();
+        AddCandidate(values, entitySetName);
+
+        var spaced = InsertEntityNameSpaces(entitySetName);
+        AddCandidate(values, spaced);
+
+        var singular = RemovePluralSuffixBeforeVersion(entitySetName);
+        if (!string.IsNullOrWhiteSpace(singular))
+        {
+            AddCandidate(values, singular);
+            AddCandidate(values, InsertEntityNameSpaces(singular));
+        }
+
+        return values;
+    }
+
+    private static void AddCandidate(List<string> values, string? candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate))
+        {
+            return;
+        }
+
+        if (!values.Contains(candidate, StringComparer.OrdinalIgnoreCase))
+        {
+            values.Add(candidate);
+        }
+    }
+
+    private static string InsertEntityNameSpaces(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return value;
+        }
+
+        var chars = new List<char>(value.Length * 2);
+        for (var i = 0; i < value.Length; i++)
+        {
+            var current = value[i];
+            if (i > 0)
+            {
+                var previous = value[i - 1];
+                var boundary =
+                    (char.IsLower(previous) && char.IsUpper(current)) ||
+                    (char.IsDigit(previous) && char.IsLetter(current));
+                if (boundary && chars.Count > 0 && chars[^1] != ' ')
+                {
+                    chars.Add(' ');
+                }
+            }
+
+            chars.Add(current);
+        }
+
+        return new string(chars.ToArray());
+    }
+
+    private static string? RemovePluralSuffixBeforeVersion(string entitySetName)
+    {
+        if (string.IsNullOrWhiteSpace(entitySetName))
+        {
+            return null;
+        }
+
+        var i = entitySetName.Length - 1;
+        while (i >= 0 && char.IsDigit(entitySetName[i]))
+        {
+            i--;
+        }
+
+        if (i <= 1 || char.ToUpperInvariant(entitySetName[i]) != 'V')
+        {
+            return null;
+        }
+
+        var pluralIndex = i - 1;
+        if (pluralIndex <= 0 || char.ToLowerInvariant(entitySetName[pluralIndex]) != 's')
+        {
+            return null;
+        }
+
+        return entitySetName.Remove(pluralIndex, 1);
+    }
+
+    private static string? ReadStringProperty(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var node))
+        {
+            return null;
+        }
+
+        return node.ValueKind switch
+        {
+            JsonValueKind.String => node.GetString(),
+            JsonValueKind.Number => node.ToString(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            _ => null
+        };
+    }
+
+    private static int? ReadInt32Property(JsonElement element, string propertyName)
+    {
+        if (!element.TryGetProperty(propertyName, out var node))
+        {
+            return null;
+        }
+
+        if (node.ValueKind == JsonValueKind.Number && node.TryGetInt32(out var number))
+        {
+            return number;
+        }
+
+        if (node.ValueKind == JsonValueKind.String &&
+            int.TryParse(node.GetString(), out var parsed))
+        {
+            return parsed;
+        }
+
+        return null;
+    }
+
     private sealed record PublicEntitiesResponse(List<PublicEntityDto>? Value);
     private sealed record PublicEntityDto(string? EntitySetName, List<PublicEntityPropertyDto>? Properties);
     private sealed record PublicEntityPropertyDto(string? Name, bool IsKey, bool IsMandatory);
+    private sealed record DataManagementTargetMapRow(
+        string? StagingField,
+        string? ShortStagingField,
+        string? TargetField,
+        string? FieldAOTName,
+        string? DataSourceField,
+        int FieldLength);
 }
 
 public sealed record CatalogServiceOptions(TimeSpan TableMaxAge, TimeSpan MetadataMaxAge)

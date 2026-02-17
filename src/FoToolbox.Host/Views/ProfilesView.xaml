@@ -6,8 +6,8 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d"
-             d:DesignHeight="600"
-             d:DesignWidth="900">
+             d:DesignHeight="700"
+             d:DesignWidth="1100">
     <UserControl.Resources>
         <Style x:Key="VisibleWhenClientSecret" TargetType="{x:Type FrameworkElement}">
             <Setter Property="Visibility" Value="Collapsed" />
@@ -34,9 +34,9 @@
             </Style.Triggers>
         </Style>
     </UserControl.Resources>
-    <Grid>
+    <Grid Margin="2">
         <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="240" />
+            <ColumnDefinition Width="280" />
             <ColumnDefinition Width="*" />
         </Grid.ColumnDefinitions>
 
@@ -44,17 +44,18 @@
                 Background="{DynamicResource Fo.SurfaceAltBrush}"
                 BorderBrush="{DynamicResource Fo.BorderBrush}"
                 BorderThickness="1"
-                Padding="8">
+                Padding="10">
             <DockPanel>
-                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,8,0,0">
-                    <Button Content="Add" Command="{Binding AddProfileCommand}" Margin="0,0,6,0" />
-                    <Button Content="Delete" Command="{Binding DeleteProfileCommand}" />
+                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Margin="0,10,0,0">
+                    <Button Content="Add" Command="{Binding AddProfileCommand}" MinWidth="90" Margin="0,0,8,0" />
+                    <Button Content="Delete" Command="{Binding DeleteProfileCommand}" MinWidth="90" />
                 </StackPanel>
 
                 <StackPanel>
-                    <TextBlock Text="Profiles" FontWeight="Bold" FontSize="14" Margin="0,0,0,8" />
+                    <TextBlock Text="Profiles" FontWeight="Bold" FontSize="15" Margin="0,0,0,10" />
                     <ListBox ItemsSource="{Binding Profiles}"
                              SelectedItem="{Binding Selected, Mode=TwoWay}"
+                             MinHeight="520"
                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
                              ScrollViewer.VerticalScrollBarVisibility="Auto">
                         <ListBox.ItemTemplate>
@@ -67,12 +68,12 @@
             </DockPanel>
         </Border>
 
-        <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" Padding="12">
+        <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="16">
             <StackPanel>
-                <GroupBox Header="Environment" Margin="0,0,0,10">
-                    <Grid Margin="10">
+                <GroupBox Header="Environment">
+                    <Grid Margin="12">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="170" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
@@ -86,24 +87,24 @@
                         <TextBox Grid.Row="0" Grid.Column="1"
                                  Text="{Binding Selected.Environment.Name, UpdateSourceTrigger=PropertyChanged}" />
 
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Base URL" VerticalAlignment="Center" Margin="0,6,0,0" />
-                        <TextBox Grid.Row="1" Grid.Column="1" Margin="0,6,0,0"
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Base URL" VerticalAlignment="Center" Margin="0,10,0,0" />
+                        <TextBox Grid.Row="1" Grid.Column="1" Margin="0,10,0,0"
                                  Text="{Binding Selected.Environment.BaseUrl, UpdateSourceTrigger=PropertyChanged}" />
 
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Tenant ID" VerticalAlignment="Center" Margin="0,6,0,0" />
-                        <TextBox Grid.Row="2" Grid.Column="1" Margin="0,6,0,0"
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Tenant ID" VerticalAlignment="Center" Margin="0,10,0,0" />
+                        <TextBox Grid.Row="2" Grid.Column="1" Margin="0,10,0,0"
                                  Text="{Binding Selected.Environment.TenantId, UpdateSourceTrigger=PropertyChanged}" />
 
-                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Default company" VerticalAlignment="Center" Margin="0,6,0,0" />
-                        <TextBox Grid.Row="3" Grid.Column="1" Margin="0,6,0,0"
+                        <TextBlock Grid.Row="3" Grid.Column="0" Text="Default company" VerticalAlignment="Center" Margin="0,10,0,0" />
+                        <TextBox Grid.Row="3" Grid.Column="1" Margin="0,10,0,0"
                                  Text="{Binding Selected.Environment.DefaultCompany, UpdateSourceTrigger=PropertyChanged}" />
                     </Grid>
                 </GroupBox>
 
-                <GroupBox Header="Authentication" Margin="0,0,0,10">
-                    <Grid Margin="10">
+                <GroupBox Header="Authentication">
+                    <Grid Margin="12">
                         <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="140" />
+                            <ColumnDefinition Width="170" />
                             <ColumnDefinition Width="*" />
                         </Grid.ColumnDefinitions>
                         <Grid.RowDefinitions>
@@ -121,46 +122,55 @@
                         <TextBox Grid.Row="0" Grid.Column="1"
                                  Text="{Binding Selected.Principal.ClientId, UpdateSourceTrigger=PropertyChanged}" />
 
-                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Auth mode" VerticalAlignment="Center" Margin="0,6,0,0" />
-                        <ComboBox x:Name="AuthModeComboBox" Grid.Row="1" Grid.Column="1" Margin="0,6,0,0"
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Auth mode" VerticalAlignment="Center" Margin="0,10,0,0" />
+                        <ComboBox x:Name="AuthModeComboBox" Grid.Row="1" Grid.Column="1" Margin="0,10,0,0" MinWidth="220"
                                   ItemsSource="{Binding AuthModeValues}"
                                   SelectedItem="{Binding Selected.Principal.AuthMode, Mode=TwoWay}" />
 
-                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Client secret" VerticalAlignment="Center" Margin="0,6,0,0"
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Client secret" VerticalAlignment="Center" Margin="0,10,0,0"
                                    Style="{StaticResource VisibleWhenClientSecret}" />
-                        <PasswordBox x:Name="ClientSecretBox" Grid.Row="2" Grid.Column="1" Margin="0,6,0,0"
-                                     Style="{StaticResource VisibleWhenClientSecret}" />
+                        <Grid Grid.Row="2" Grid.Column="1" Margin="0,10,0,0"
+                              Style="{StaticResource VisibleWhenClientSecret}">
+                            <PasswordBox x:Name="ClientSecretBox" />
+                        </Grid>
 
-                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding StoredCredentialStatus}" Foreground="{DynamicResource Fo.SubtleTextBrush}" FontSize="10" Margin="0,4,0,0"
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding StoredCredentialStatus}" Foreground="{DynamicResource Fo.SubtleTextBrush}" FontSize="11" Margin="0,5,0,0"
                                    Style="{StaticResource VisibleWhenClientSecret}" />
 
-                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Bearer token" VerticalAlignment="Center" Margin="0,6,0,0"
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Bearer token" VerticalAlignment="Center" Margin="0,10,0,0"
                                    Style="{StaticResource VisibleWhenBearerToken}" />
-                        <PasswordBox x:Name="BearerTokenBox" Grid.Row="4" Grid.Column="1" Margin="0,6,0,0"
-                                     Style="{StaticResource VisibleWhenBearerToken}" />
+                        <Grid Grid.Row="4" Grid.Column="1" Margin="0,10,0,0"
+                              Style="{StaticResource VisibleWhenBearerToken}">
+                            <PasswordBox x:Name="BearerTokenBox" />
+                        </Grid>
 
-                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Retrieve token" VerticalAlignment="Center" Margin="0,6,0,0"
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Retrieve token" VerticalAlignment="Center" Margin="0,10,0,0"
                                    Style="{StaticResource VisibleWhenBearerToken}" />
-                        <Button Grid.Row="5" Grid.Column="1" Margin="0,6,0,0" Content="Get bearer token"
-                                Command="{Binding AcquireBearerTokenCommand}"
-                                Style="{StaticResource VisibleWhenBearerToken}" />
+                        <Grid Grid.Row="5" Grid.Column="1" Margin="0,10,0,0"
+                              Style="{StaticResource VisibleWhenBearerToken}">
+                            <Button Content="Get bearer token"
+                                    HorizontalAlignment="Left"
+                                    MinWidth="150"
+                                    Command="{Binding AcquireBearerTokenCommand}" />
+                        </Grid>
 
-                        <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding StoredCredentialStatus}" Foreground="{DynamicResource Fo.SubtleTextBrush}" FontSize="10" Margin="0,4,0,0"
+                        <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding StoredCredentialStatus}" Foreground="{DynamicResource Fo.SubtleTextBrush}" FontSize="11" Margin="0,5,0,0"
                                    Style="{StaticResource VisibleWhenBearerToken}" />
 
-                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Cert thumbprint" VerticalAlignment="Center" Margin="0,6,0,0"
+                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Cert thumbprint" VerticalAlignment="Center" Margin="0,10,0,0"
                                    Style="{StaticResource VisibleWhenCertificate}" />
-                        <TextBox Grid.Row="7" Grid.Column="1" Margin="0,6,0,0"
-                                 Text="{Binding Selected.Principal.CertThumbprint, UpdateSourceTrigger=PropertyChanged}"
-                                 Style="{StaticResource VisibleWhenCertificate}" />
+                        <Grid Grid.Row="7" Grid.Column="1" Margin="0,10,0,0"
+                              Style="{StaticResource VisibleWhenCertificate}">
+                            <TextBox Text="{Binding Selected.Principal.CertThumbprint, UpdateSourceTrigger=PropertyChanged}" />
+                        </Grid>
                     </Grid>
                 </GroupBox>
 
-                <WrapPanel Margin="0,0,0,10">
-                    <Button Content="Refresh" Command="{Binding RefreshCommand}" Margin="0,0,6,0" />
-                    <Button Content="Save" Command="{Binding SaveCommand}" Margin="0,0,6,0" />
-                    <Button Content="Set active" Command="{Binding SetActiveCommand}" Margin="0,0,6,0" />
-                    <Button Content="Test connection" Command="{Binding TestConnectionCommand}" />
+                <WrapPanel Margin="0,2,0,12">
+                    <Button Content="Refresh" Command="{Binding RefreshCommand}" MinWidth="98" Margin="0,0,8,0" />
+                    <Button Content="Save" Command="{Binding SaveCommand}" MinWidth="98" Margin="0,0,8,0" />
+                    <Button Content="Set active" Command="{Binding SetActiveCommand}" MinWidth="110" Margin="0,0,8,0" />
+                    <Button Content="Test connection" Command="{Binding TestConnectionCommand}" MinWidth="130" />
                 </WrapPanel>
 
                 <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />

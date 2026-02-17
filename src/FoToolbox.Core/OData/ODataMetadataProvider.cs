@@ -104,6 +104,7 @@ public sealed class ODataMetadataProvider
     {
         var doc = XDocument.Parse(rawXml);
         XNamespace edm = "http://docs.oasis-open.org/odata/ns/edm";
+        var termAliases = ReadTermAliases(doc, edm);
 
         var entityTypes = new List<ODataEntity>();
         var entityTypeLookup = new Dictionary<string, ODataEntity>(StringComparer.OrdinalIgnoreCase);
@@ -143,9 +144,26 @@ public sealed class ODataMetadataProvider
                 var propName = prop.Attribute("Name")?.Value;
                 var type = prop.Attribute("Type")?.Value ?? "Edm.String";
                 var nullable = prop.Attribute("Nullable")?.Value != "false";
+                var maxLength = TrimOrNull(prop.Attribute("MaxLength")?.Value)
+                    ?? TryReadAnnotationValue(prop, edm, termAliases, ValidationMaxLengthTerm, "MaxLength")
+                    ?? TryReadAnnotationValue(prop, edm, termAliases, CoreMaxLengthTerm, "MaxLength");
+                var precision = TrimOrNull(prop.Attribute("Precision")?.Value);
+                var scale = TrimOrNull(prop.Attribute("Scale")?.Value);
+                var minValue = TryReadAnnotationValue(prop, edm, termAliases, ValidationMinimumTerm, "Minimum");
+                var maxValue = TryReadAnnotationValue(prop, edm, termAliases, ValidationMaximumTerm, "Maximum");
+                (minValue, maxValue) = ApplyDefaultNumericRange(type, minValue, maxValue);
                 if (!string.IsNullOrWhiteSpace(propName))
                 {
-                    props.Add(new ODataProperty(propName!, type, nullable, IsKey: keyNames.Contains(propName!)));
+                    props.Add(new ODataProperty(
+                        propName!,
+                        type,
+                        nullable,
+                        IsKey: keyNames.Contains(propName!),
+                        MaxLength: maxLength,
+                        Precision: precision,
+                        Scale: scale,
+                        MinValue: minValue,
+                        MaxValue: maxValue));
                 }
             }
 
@@ -192,6 +210,206 @@ public sealed class ODataMetadataProvider
         var entities = entitySets.Count > 0 ? entitySets : entityTypes;
         return new ODataMetadata(entities, enums, etag);
     }
+
+    private static Dictionary<string, string> ReadTermAliases(XDocument doc, XNamespace edm)
+    {
+        var aliases = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var schema in doc.Descendants(edm + "Schema"))
+        {
+            var alias = TrimOrNull(schema.Attribute("Alias")?.Value);
+            var ns = TrimOrNull(schema.Attribute("Namespace")?.Value);
+            if (!string.IsNullOrWhiteSpace(alias) &&
+                !string.IsNullOrWhiteSpace(ns) &&
+                !aliases.ContainsKey(alias))
+            {
+                aliases[alias] = ns;
+            }
+        }
+        return aliases;
+    }
+
+    private static string? TryReadAnnotationValue(
+        XElement property,
+        XNamespace edm,
+        IReadOnlyDictionary<string, string> termAliases,
+        string canonicalTerm,
+        string recordPropertyName)
+    {
+        var annotation = property.Elements(edm + "Annotation")
+            .FirstOrDefault(a =>
+            {
+                var term = NormalizeTerm(a.Attribute("Term")?.Value, termAliases);
+                return string.Equals(term, canonicalTerm, StringComparison.OrdinalIgnoreCase);
+            });
+        if (annotation is null)
+        {
+            return null;
+        }
+
+        return TryReadLiteral(annotation, recordPropertyName);
+    }
+
+    private static string? NormalizeTerm(string? term, IReadOnlyDictionary<string, string> aliases)
+    {
+        var trimmed = TrimOrNull(term);
+        if (string.IsNullOrWhiteSpace(trimmed))
+        {
+            return null;
+        }
+
+        var dot = trimmed.IndexOf('.');
+        if (dot <= 0)
+        {
+            return trimmed;
+        }
+
+        var alias = trimmed[..dot];
+        if (!aliases.TryGetValue(alias, out var ns))
+        {
+            return trimmed;
+        }
+
+        return $"{ns}{trimmed[dot..]}";
+    }
+
+    private static string? TryReadLiteral(XElement element, string? recordPropertyName = null)
+    {
+        var literalFromAttrs = TryGetLiteralAttributeValue(element);
+        if (!string.IsNullOrWhiteSpace(literalFromAttrs))
+        {
+            return literalFromAttrs;
+        }
+
+        if (string.Equals(element.Name.LocalName, "PropertyValue", StringComparison.OrdinalIgnoreCase) && recordPropertyName is not null)
+        {
+            var propertyName = element.Attribute("Property")?.Value;
+            if (!string.Equals(propertyName, recordPropertyName, StringComparison.OrdinalIgnoreCase))
+            {
+                return null;
+            }
+        }
+
+        if (IsLiteralElementName(element.Name.LocalName))
+        {
+            return TrimOrNull(element.Value);
+        }
+
+        foreach (var child in element.Elements())
+        {
+            var value = TryReadLiteral(child, recordPropertyName);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    private static string? TryGetLiteralAttributeValue(XElement element)
+    {
+        foreach (var attrName in LiteralAttributeNames)
+        {
+            var value = TrimOrNull(element.Attribute(attrName)?.Value);
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static bool IsLiteralElementName(string name)
+    {
+        return LiteralElementNames.Contains(name);
+    }
+
+    private static string? TrimOrNull(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return null;
+        }
+
+        return value.Trim();
+    }
+
+    private static (string? MinValue, string? MaxValue) ApplyDefaultNumericRange(string type, string? minValue, string? maxValue)
+    {
+        var normalized = TrimOrNull(type);
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return (minValue, maxValue);
+        }
+
+        string? defaultMin = null;
+        string? defaultMax = null;
+        switch (normalized)
+        {
+            case "Edm.SByte":
+                defaultMin = "-128";
+                defaultMax = "127";
+                break;
+            case "Edm.Byte":
+                defaultMin = "0";
+                defaultMax = "255";
+                break;
+            case "Edm.Int16":
+                defaultMin = "-32768";
+                defaultMax = "32767";
+                break;
+            case "Edm.Int32":
+                defaultMin = "-2147483648";
+                defaultMax = "2147483647";
+                break;
+            case "Edm.Int64":
+                defaultMin = "-9223372036854775808";
+                defaultMax = "9223372036854775807";
+                break;
+        }
+
+        if (defaultMin is null || defaultMax is null)
+        {
+            return (minValue, maxValue);
+        }
+
+        return (minValue ?? defaultMin, maxValue ?? defaultMax);
+    }
+
+    private static readonly HashSet<string> LiteralAttributeNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Int",
+        "Decimal",
+        "Float",
+        "String",
+        "Date",
+        "DateTimeOffset",
+        "Duration",
+        "TimeOfDay",
+        "Bool",
+        "Guid",
+        "Binary"
+    };
+
+    private static readonly HashSet<string> LiteralElementNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Int",
+        "Decimal",
+        "Float",
+        "String",
+        "Date",
+        "DateTimeOffset",
+        "Duration",
+        "TimeOfDay",
+        "Bool",
+        "Guid",
+        "Binary"
+    };
+
+    private const string ValidationMinimumTerm = "Org.OData.Validation.V1.Minimum";
+    private const string ValidationMaximumTerm = "Org.OData.Validation.V1.Maximum";
+    private const string ValidationMaxLengthTerm = "Org.OData.Validation.V1.MaxLength";
+    private const string CoreMaxLengthTerm = "Org.OData.Core.V1.MaxLength";
 
     private static bool IsFresh(DateTime updatedUtc, TimeSpan maxAge)
     {

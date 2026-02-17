@@ -1,43 +1,63 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=mscorlib"
+                    xmlns:sw="clr-namespace:System.Windows;assembly=PresentationFramework">
     <!--
-      Fluent-ish (Win11) light palette.
+      Fluent-inspired dark palette.
       Keep these as the single source of truth; views should reference the Brushes via DynamicResource.
     -->
 
     <!-- Typography -->
     <FontFamily x:Key="Fo.FontFamily">Segoe UI</FontFamily>
-    <sys:Double x:Key="Fo.FontSize.Body" xmlns:sys="clr-namespace:System;assembly=mscorlib">12</sys:Double>
+    <sys:Double x:Key="Fo.FontSize.Body">12</sys:Double>
 
     <!-- Base colors -->
-    <Color x:Key="Fo.Color.WindowBackground">#FFF6F7F9</Color>
-    <Color x:Key="Fo.Color.Surface">#FFFFFFFF</Color>
-    <Color x:Key="Fo.Color.SurfaceAlt">#FFF2F4F7</Color>
-    <Color x:Key="Fo.Color.Border">#FFE2E6EA</Color>
-    <Color x:Key="Fo.Color.Text">#FF1F2328</Color>
-    <Color x:Key="Fo.Color.SubtleText">#FF6B7280</Color>
+    <Color x:Key="Fo.Color.WindowBackground">#FF161C24</Color>
+    <Color x:Key="Fo.Color.Surface">#FF1D2530</Color>
+    <Color x:Key="Fo.Color.SurfaceAlt">#FF232E3C</Color>
+    <Color x:Key="Fo.Color.SurfaceMuted">#FF2A3849</Color>
+    <Color x:Key="Fo.Color.Border">#FF3A4B60</Color>
+    <Color x:Key="Fo.Color.Text">#FFEFF5FC</Color>
+    <Color x:Key="Fo.Color.SubtleText">#FFB5C0CF</Color>
 
-    <!-- Accent (default Windows-ish blue) -->
-    <Color x:Key="Fo.Color.Accent">#FF2563EB</Color>
-    <Color x:Key="Fo.Color.AccentHover">#FF1D4ED8</Color>
-    <Color x:Key="Fo.Color.AccentPressed">#FF1E40AF</Color>
+    <!-- Accent -->
+    <Color x:Key="Fo.Color.Accent">#FF5AA6FF</Color>
+    <Color x:Key="Fo.Color.AccentHover">#FF79B8FF</Color>
+    <Color x:Key="Fo.Color.AccentPressed">#FF3E8BDF</Color>
+    <Color x:Key="Fo.Color.ControlHover">#FF304054</Color>
+    <Color x:Key="Fo.Color.ControlPressed">#FF3A4D65</Color>
+    <Color x:Key="Fo.Color.Selection">#4D5AA6FF</Color>
 
     <!-- Brushes -->
     <SolidColorBrush x:Key="Fo.WindowBackgroundBrush" Color="{StaticResource Fo.Color.WindowBackground}" />
     <SolidColorBrush x:Key="Fo.SurfaceBrush" Color="{StaticResource Fo.Color.Surface}" />
     <SolidColorBrush x:Key="Fo.SurfaceAltBrush" Color="{StaticResource Fo.Color.SurfaceAlt}" />
+    <SolidColorBrush x:Key="Fo.SurfaceMutedBrush" Color="{StaticResource Fo.Color.SurfaceMuted}" />
     <SolidColorBrush x:Key="Fo.BorderBrush" Color="{StaticResource Fo.Color.Border}" />
     <SolidColorBrush x:Key="Fo.TextBrush" Color="{StaticResource Fo.Color.Text}" />
     <SolidColorBrush x:Key="Fo.SubtleTextBrush" Color="{StaticResource Fo.Color.SubtleText}" />
+    <SolidColorBrush x:Key="Fo.SelectionBrush" Color="{StaticResource Fo.Color.Selection}" />
 
     <SolidColorBrush x:Key="Fo.AccentBrush" Color="{StaticResource Fo.Color.Accent}" />
     <SolidColorBrush x:Key="Fo.AccentHoverBrush" Color="{StaticResource Fo.Color.AccentHover}" />
     <SolidColorBrush x:Key="Fo.AccentPressedBrush" Color="{StaticResource Fo.Color.AccentPressed}" />
+    <SolidColorBrush x:Key="Fo.ControlHoverBrush" Color="{StaticResource Fo.Color.ControlHover}" />
+    <SolidColorBrush x:Key="Fo.ControlPressedBrush" Color="{StaticResource Fo.Color.ControlPressed}" />
+
+    <!-- Keep default WPF templates readable under dark theme. -->
+    <SolidColorBrush x:Key="{x:Static sw:SystemColors.WindowBrushKey}" Color="{StaticResource Fo.Color.Surface}" />
+    <SolidColorBrush x:Key="{x:Static sw:SystemColors.ControlBrushKey}" Color="{StaticResource Fo.Color.SurfaceAlt}" />
+    <SolidColorBrush x:Key="{x:Static sw:SystemColors.ControlLightBrushKey}" Color="{StaticResource Fo.Color.SurfaceMuted}" />
+    <SolidColorBrush x:Key="{x:Static sw:SystemColors.ControlDarkBrushKey}" Color="{StaticResource Fo.Color.Border}" />
+    <SolidColorBrush x:Key="{x:Static sw:SystemColors.ControlTextBrushKey}" Color="{StaticResource Fo.Color.Text}" />
+    <SolidColorBrush x:Key="{x:Static sw:SystemColors.WindowTextBrushKey}" Color="{StaticResource Fo.Color.Text}" />
+    <SolidColorBrush x:Key="{x:Static sw:SystemColors.GrayTextBrushKey}" Color="{StaticResource Fo.Color.SubtleText}" />
+    <SolidColorBrush x:Key="{x:Static sw:SystemColors.HighlightBrushKey}" Color="{StaticResource Fo.Color.Selection}" />
+    <SolidColorBrush x:Key="{x:Static sw:SystemColors.HighlightTextBrushKey}" Color="{StaticResource Fo.Color.Text}" />
 
     <!-- Layout tokens -->
     <CornerRadius x:Key="Fo.CornerRadius.Card">10</CornerRadius>
     <CornerRadius x:Key="Fo.CornerRadius.Control">8</CornerRadius>
     <Thickness x:Key="Fo.BorderThickness.Control">1</Thickness>
-    <Thickness x:Key="Fo.Padding.Control">12,6</Thickness>
+    <Thickness x:Key="Fo.Padding.Control">12,7</Thickness>
 </ResourceDictionary>
-

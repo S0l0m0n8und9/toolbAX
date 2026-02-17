@@ -14,8 +14,8 @@
         <Key>
           <PropertyRef Name="AccountNumber" />
         </Key>
-        <Property Name="AccountNumber" Type="Edm.String" Nullable="false" />
-        <Property Name="Name" Type="Edm.String" Nullable="false" />
+        <Property Name="AccountNumber" Type="Edm.String" Nullable="false" MaxLength="20" />
+        <Property Name="Name" Type="Edm.String" Nullable="false" MaxLength="100" />
         <Property Name="CustomerType" Type="Default.CustomerType" Nullable="false" />
         <NavigationProperty Name="SalesOrders" Type="Collection(Default.SalesOrderV3)" />
       </EntityType>
@@ -23,8 +23,21 @@
         <Key>
           <PropertyRef Name="SalesId" />
         </Key>
-        <Property Name="SalesId" Type="Edm.String" Nullable="false" />
-        <Property Name="TotalAmount" Type="Edm.Decimal" Nullable="false" />
+        <Property Name="SalesId" Type="Edm.String" Nullable="false" MaxLength="20" />
+        <Property Name="TotalAmount" Type="Edm.Decimal" Nullable="false" Precision="32" Scale="6">
+          <Annotation Term="Org.OData.Validation.V1.Minimum" Decimal="0" />
+          <Annotation Term="Org.OData.Validation.V1.Maximum" Decimal="999999999999.999999" />
+        </Property>
+        <Property Name="Quantity" Type="Edm.Int32" Nullable="false">
+          <Annotation Term="Org.OData.Validation.V1.Minimum">
+            <Int>1</Int>
+          </Annotation>
+          <Annotation Term="Org.OData.Validation.V1.Maximum">
+            <Record>
+              <PropertyValue Property="Maximum" Int="1000" />
+            </Record>
+          </Annotation>
+        </Property>
       </EntityType>
     </Schema>
   </edmx:DataServices>

@@ -146,7 +146,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         RefreshCommand = new AsyncCommand(RefreshAsync);
         AddProfileCommand = new AsyncCommand(AddAsync);
         DeleteProfileCommand = new AsyncCommand(DeleteAsync);
-        SaveCommand = new AsyncCommand(SaveAsync);
+        SaveCommand = new AsyncCommand(async () => { await SaveAsync(promptForPluginRefresh: true); });
         SetActiveCommand = new AsyncCommand(SetActiveAsync);
         TestConnectionCommand = new AsyncCommand(TestConnectionAsync);
         AcquireBearerTokenCommand = new AsyncCommand(AcquireBearerTokenAsync);
@@ -236,9 +236,9 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         }
     }
 
-    private async Task SaveAsync()
+    private async Task<bool> SaveAsync(bool promptForPluginRefresh)
     {
-        if (Selected is null) return;
+        if (Selected is null) return false;
 
         var env = Selected.Environment.ToModel();
         var sp = Selected.Principal.ToModel(env.Id);
@@ -302,12 +302,30 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
                 _activeEnvId = env.Id;
             }
 
-            Status = "Saved.";
+            if (promptForPluginRefresh && IsSelectedProfileActive(env.Id))
+            {
+                if (ConfirmRefreshOtherPlugins())
+                {
+                    _applyProfile(env, sp);
+                    Status = "Saved. Other plugins are refreshing.";
+                }
+                else
+                {
+                    Status = "Saved. Other plugins were not refreshed.";
+                }
+            }
+            else
+            {
+                Status = "Saved.";
+            }
+
+            return true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save profile {EnvId}", env.Id);
             Status = $"Save failed: {ex.Message}";
+            return false;
         }
     }
 
@@ -315,7 +333,11 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     {
         if (Selected is null) return;
 
-        await SaveAsync();
+        var saveSucceeded = await SaveAsync(promptForPluginRefresh: false);
+        if (!saveSucceeded || Selected is null)
+        {
+            return;
+        }
 
         var env = Selected.Environment.ToModel();
         var sp = Selected.Principal.ToModel(env.Id);
@@ -325,8 +347,15 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             await _profiles.SetDefaultEnvironmentAsync(env.Id);
             _activeEnvId = env.Id;
 
-            _applyProfile(env, sp);
-            Status = "Active profile updated.";
+            if (ConfirmRefreshOtherPlugins())
+            {
+                _applyProfile(env, sp);
+                Status = "Active profile updated. Other plugins are refreshing.";
+            }
+            else
+            {
+                Status = "Active profile updated. Other plugins were not refreshed.";
+            }
         }
         catch (Exception ex)
         {
@@ -425,16 +454,39 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
 
             var normalizedToken = NormalizeBearerToken(token);
             PendingBearerToken = normalizedToken;
-            await SaveAsync();
+            var saveSucceeded = await SaveAsync(promptForPluginRefresh: false);
+            if (!saveSucceeded)
+            {
+                return;
+            }
 
             // SaveAsync clears PendingBearerToken after persisting; use the normalized local token instead.
+            string tokenStatus;
             if (TryGetJwtExpiryUtc(normalizedToken, out var expiryUtc))
             {
-                Status = $"Bearer token acquired and saved. Expires {expiryUtc.UtcDateTime:u}.";
+                tokenStatus = $"Bearer token acquired and saved. Expires {expiryUtc.UtcDateTime:u}.";
             }
             else
             {
-                Status = "Bearer token acquired and saved.";
+                tokenStatus = "Bearer token acquired and saved.";
+            }
+
+            if (IsSelectedProfileActive(env.Id))
+            {
+                if (ConfirmRefreshOtherPlugins())
+                {
+                    var activeSp = Selected?.Principal.ToModel(env.Id) ?? sp;
+                    _applyProfile(env, activeSp);
+                    Status = $"{tokenStatus} Other plugins are refreshing.";
+                }
+                else
+                {
+                    Status = $"{tokenStatus} Other plugins were not refreshed.";
+                }
+            }
+            else
+            {
+                Status = tokenStatus;
             }
         }
         catch (Exception ex)
@@ -694,6 +746,28 @@ try {{
             url = url[..^5];
         }
         return url;
+    }
+
+    private bool IsSelectedProfileActive(string envId)
+    {
+        return !string.IsNullOrWhiteSpace(_activeEnvId) &&
+               string.Equals(_activeEnvId, envId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool ConfirmRefreshOtherPlugins()
+    {
+        var result = MessageBoxResult.No;
+        RunOnUi(() =>
+        {
+            result = MessageBox.Show(
+                "This update changes the active profile context. Refresh other plugins now?",
+                "FOtoolbox",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.No);
+        });
+
+        return result == MessageBoxResult.Yes;
     }
 
     private static void RunOnUi(Action action)

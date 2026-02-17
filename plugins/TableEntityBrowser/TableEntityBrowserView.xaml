@@ -82,16 +82,18 @@
                               AutoGenerateColumns="False"
                               CanUserAddRows="False"
                               CanUserDeleteRows="False"
+                              CanUserResizeColumns="True"
                               IsReadOnly="True"
                               HeadersVisibility="Column"
                               GridLinesVisibility="Horizontal"
                               RowHeaderWidth="0"
+                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
                               BorderThickness="0"
                               EnableRowVirtualization="True"
                               EnableColumnVirtualization="True">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Name" Binding="{Binding Name, Mode=OneWay}" Width="*" />
-                            <DataGridTextColumn Header="Label" Binding="{Binding Label, Mode=OneWay}" Width="2*" />
+                            <DataGridTextColumn Header="Name" Binding="{Binding Name, Mode=OneWay}" Width="240" MinWidth="180" />
+                            <DataGridTextColumn Header="Label" Binding="{Binding Label, Mode=OneWay}" Width="360" MinWidth="260" />
                         </DataGrid.Columns>
                     </DataGrid>
 
@@ -162,17 +164,19 @@
                               AutoGenerateColumns="False"
                               CanUserAddRows="False"
                               CanUserDeleteRows="False"
+                              CanUserResizeColumns="True"
                               IsReadOnly="True"
                               HeadersVisibility="Column"
                               GridLinesVisibility="Horizontal"
                               RowHeaderWidth="0"
+                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
                               BorderThickness="0"
                               EnableRowVirtualization="True"
                               EnableColumnVirtualization="True">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Name" Binding="{Binding Name, Mode=OneWay}" Width="*" />
-                            <DataGridTextColumn Header="Fields" Binding="{Binding PropertyCount, Mode=OneWay}" Width="90" />
-                            <DataGridTextColumn Header="Nav" Binding="{Binding NavigationCount, Mode=OneWay}" Width="80" />
+                            <DataGridTextColumn Header="Name" Binding="{Binding Name, Mode=OneWay}" Width="260" MinWidth="180" />
+                            <DataGridTextColumn Header="Fields" Binding="{Binding PropertyCount, Mode=OneWay}" Width="100" MinWidth="90" />
+                            <DataGridTextColumn Header="Nav" Binding="{Binding NavigationCount, Mode=OneWay}" Width="90" MinWidth="80" />
                         </DataGrid.Columns>
                     </DataGrid>
 
@@ -204,17 +208,22 @@
                                   ItemsSource="{Binding EntityFields}"
                                   AutoGenerateColumns="False"
                                   CanUserAddRows="False"
+                                  CanUserResizeColumns="True"
                                   IsReadOnly="True"
                                   HeadersVisibility="Column"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
                                   GridLinesVisibility="Horizontal">
                             <DataGrid.Columns>
                                 <!-- Explicit OneWay bindings avoid WPF defaulting to TwoWay and crashing on get-only properties. -->
-                                <DataGridTextColumn Header="Name" Binding="{Binding Name, Mode=OneWay}" IsReadOnly="True" Width="200" />
-                                <DataGridTextColumn Header="Type" Binding="{Binding Type, Mode=OneWay}" IsReadOnly="True" Width="240" />
-                                <DataGridCheckBoxColumn Header="Key" Binding="{Binding IsKey, Mode=OneWay}" IsReadOnly="True" Width="60" />
-                                <DataGridCheckBoxColumn Header="Mandatory" Binding="{Binding Mandatory, Mode=OneWay}" IsReadOnly="True" Width="90" />
-                                <DataGridCheckBoxColumn Header="Nullable" Binding="{Binding Nullable, Mode=OneWay}" IsReadOnly="True" Width="90" />
-                                <DataGridTextColumn Header="Enum Values" Binding="{Binding EnumValues, Mode=OneWay}" IsReadOnly="True" Width="*" />
+                                <DataGridTextColumn Header="Name" Binding="{Binding Name, Mode=OneWay}" IsReadOnly="True" Width="240" MinWidth="180" />
+                                <DataGridTextColumn Header="Type" Binding="{Binding Type, Mode=OneWay}" IsReadOnly="True" Width="220" MinWidth="160" />
+                                <DataGridTextColumn Header="Max Len" Binding="{Binding MaxLength, Mode=OneWay}" IsReadOnly="True" Width="100" />
+                                <DataGridTextColumn Header="Prec/Scale" Binding="{Binding PrecisionScale, Mode=OneWay}" IsReadOnly="True" Width="130" />
+                                <DataGridTextColumn Header="Range" Binding="{Binding Range, Mode=OneWay}" IsReadOnly="True" Width="180" />
+                                <DataGridCheckBoxColumn Header="Key" Binding="{Binding IsKey, Mode=OneWay}" IsReadOnly="True" Width="70" />
+                                <DataGridCheckBoxColumn Header="Mandatory" Binding="{Binding Mandatory, Mode=OneWay}" IsReadOnly="True" Width="110" />
+                                <DataGridCheckBoxColumn Header="Nullable" Binding="{Binding Nullable, Mode=OneWay}" IsReadOnly="True" Width="100" />
+                                <DataGridTextColumn Header="Enum Values" Binding="{Binding EnumValues, Mode=OneWay}" IsReadOnly="True" Width="320" MinWidth="220" />
                             </DataGrid.Columns>
                         </DataGrid>
 

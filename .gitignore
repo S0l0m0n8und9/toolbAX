@@ -29,3 +29,4 @@ Thumbs.db
 # Local package/download artifacts
 *.nupkg
 install/wix_*.html
+/FO/
