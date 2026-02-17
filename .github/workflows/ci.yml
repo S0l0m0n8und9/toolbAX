@@ -19,6 +19,9 @@ jobs:
         with:
           global-json-file: global.json
           cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Build.props
 
       - name: Restore
         run: dotnet restore .\FoToolbox.sln
@@ -32,4 +35,3 @@ jobs:
       - name: Vulnerable packages (non-fatal)
         run: dotnet list .\FoToolbox.sln package --vulnerable --include-transitive
         continue-on-error: true
-
