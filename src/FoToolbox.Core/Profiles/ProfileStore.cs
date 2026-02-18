@@ -37,7 +37,9 @@ CREATE TABLE IF NOT EXISTS Environments(
   Name TEXT NOT NULL,
   BaseUrl TEXT NOT NULL,
   TenantId TEXT NOT NULL,
-  DefaultCompany TEXT NULL
+  DefaultCompany TEXT NULL,
+  CeBaseUrl TEXT NULL,
+  CeTenantId TEXT NULL
 );
 CREATE TABLE IF NOT EXISTS Settings(
   Key TEXT PRIMARY KEY,
@@ -49,7 +51,8 @@ CREATE TABLE IF NOT EXISTS ServicePrincipals(
   ClientId TEXT NOT NULL,
   AuthMode TEXT NOT NULL,
   SecretRef TEXT NULL,
-  CertThumbprint TEXT NULL
+  CertThumbprint TEXT NULL,
+  Target TEXT NOT NULL DEFAULT 'Fo'
 );
 CREATE TABLE IF NOT EXISTS SecretVault(
   Id TEXT PRIMARY KEY,
@@ -79,6 +82,34 @@ CREATE TABLE IF NOT EXISTS SavedApiRequest(
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = sql;
         await cmd.ExecuteNonQueryAsync(cancellationToken);
+
+        await EnsureColumnExistsAsync(conn, "Environments", "CeBaseUrl", "TEXT NULL", cancellationToken);
+        await EnsureColumnExistsAsync(conn, "Environments", "CeTenantId", "TEXT NULL", cancellationToken);
+        await EnsureColumnExistsAsync(conn, "ServicePrincipals", "Target", "TEXT NOT NULL DEFAULT 'Fo'", cancellationToken);
+
+        await using (var normalizeTargets = conn.CreateCommand())
+        {
+            normalizeTargets.CommandText = "UPDATE ServicePrincipals SET Target = 'Fo' WHERE Target IS NULL OR trim(Target) = ''";
+            await normalizeTargets.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var dedupe = conn.CreateCommand())
+        {
+            dedupe.CommandText = @"
+DELETE FROM ServicePrincipals
+WHERE rowid NOT IN (
+    SELECT MIN(rowid)
+    FROM ServicePrincipals
+    GROUP BY EnvId, Target
+);";
+            await dedupe.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        await using (var ensureIndex = conn.CreateCommand())
+        {
+            ensureIndex.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS UX_ServicePrincipals_EnvId_Target ON ServicePrincipals(EnvId, Target)";
+            await ensureIndex.ExecuteNonQueryAsync(cancellationToken);
+        }
     }
 
     public async Task<string?> GetSettingAsync(string key, CancellationToken cancellationToken = default)
@@ -124,6 +155,40 @@ ON CONFLICT(Id) DO UPDATE SET
         cmd.Parameters.AddWithValue("$baseUrl", env.BaseUrl);
         cmd.Parameters.AddWithValue("$tenant", env.TenantId);
         cmd.Parameters.AddWithValue("$company", (object?)env.DefaultCompany ?? DBNull.Value);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    public async Task<DataverseEnvironment?> GetDataverseEnvironmentAsync(string envId, CancellationToken cancellationToken = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT CeBaseUrl, CeTenantId FROM Environments WHERE Id = $id LIMIT 1";
+        cmd.Parameters.AddWithValue("$id", envId);
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        var baseUrl = reader.IsDBNull(0) ? string.Empty : reader.GetString(0);
+        var tenantId = reader.IsDBNull(1) ? string.Empty : reader.GetString(1);
+        return new DataverseEnvironment(envId, baseUrl, tenantId);
+    }
+
+    public async Task UpsertDataverseEnvironmentAsync(DataverseEnvironment env, CancellationToken cancellationToken = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+UPDATE Environments
+SET CeBaseUrl = $baseUrl,
+    CeTenantId = $tenant
+WHERE Id = $id;";
+        cmd.Parameters.AddWithValue("$id", env.ProfileId);
+        cmd.Parameters.AddWithValue("$baseUrl", string.IsNullOrWhiteSpace(env.BaseUrl) ? (object)DBNull.Value : env.BaseUrl);
+        cmd.Parameters.AddWithValue("$tenant", string.IsNullOrWhiteSpace(env.TenantId) ? (object)DBNull.Value : env.TenantId);
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -175,7 +240,7 @@ ON CONFLICT(Id) DO UPDATE SET
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(cancellationToken);
         await using var cmd = conn.CreateCommand();
-        cmd.CommandText = "SELECT Id, EnvId, ClientId, AuthMode, SecretRef, CertThumbprint FROM ServicePrincipals WHERE EnvId = $env";
+        cmd.CommandText = "SELECT Id, EnvId, ClientId, AuthMode, SecretRef, CertThumbprint, Target FROM ServicePrincipals WHERE EnvId = $env";
         cmd.Parameters.AddWithValue("$env", envId);
         await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
         while (await reader.ReadAsync(cancellationToken))
@@ -186,11 +251,41 @@ ON CONFLICT(Id) DO UPDATE SET
                 reader.GetString(2),
                 Enum.Parse<AuthMode>(reader.GetString(3)),
                 reader.IsDBNull(4) ? null : reader.GetString(4),
-                reader.IsDBNull(5) ? null : reader.GetString(5)
+                reader.IsDBNull(5) ? null : reader.GetString(5),
+                reader.IsDBNull(6) ? AuthTarget.Fo : ParseAuthTarget(reader.GetString(6))
             ));
         }
 
         return list;
+    }
+
+    public async Task<ServicePrincipal?> GetServicePrincipalAsync(string envId, AuthTarget target, CancellationToken cancellationToken = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+SELECT Id, EnvId, ClientId, AuthMode, SecretRef, CertThumbprint, Target
+FROM ServicePrincipals
+WHERE EnvId = $env AND Target = $target
+LIMIT 1";
+        cmd.Parameters.AddWithValue("$env", envId);
+        cmd.Parameters.AddWithValue("$target", target.ToString());
+        await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+        if (!await reader.ReadAsync(cancellationToken))
+        {
+            return null;
+        }
+
+        return new ServicePrincipal(
+            reader.GetString(0),
+            reader.GetString(1),
+            reader.GetString(2),
+            Enum.Parse<AuthMode>(reader.GetString(3)),
+            reader.IsDBNull(4) ? null : reader.GetString(4),
+            reader.IsDBNull(5) ? null : reader.GetString(5),
+            reader.IsDBNull(6) ? AuthTarget.Fo : ParseAuthTarget(reader.GetString(6))
+        );
     }
 
     public async Task UpsertServicePrincipalAsync(ServicePrincipal sp, CancellationToken cancellationToken = default)
@@ -199,10 +294,9 @@ ON CONFLICT(Id) DO UPDATE SET
         await conn.OpenAsync(cancellationToken);
         await using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
-INSERT INTO ServicePrincipals(Id, EnvId, ClientId, AuthMode, SecretRef, CertThumbprint)
-VALUES($id, $env, $client, $mode, $secret, $thumb)
-ON CONFLICT(Id) DO UPDATE SET
- EnvId = excluded.EnvId,
+INSERT INTO ServicePrincipals(Id, EnvId, ClientId, AuthMode, SecretRef, CertThumbprint, Target)
+VALUES($id, $env, $client, $mode, $secret, $thumb, $target)
+ON CONFLICT(EnvId, Target) DO UPDATE SET
  ClientId = excluded.ClientId,
  AuthMode = excluded.AuthMode,
  SecretRef = excluded.SecretRef,
@@ -213,6 +307,7 @@ ON CONFLICT(Id) DO UPDATE SET
         cmd.Parameters.AddWithValue("$mode", sp.AuthMode.ToString());
         cmd.Parameters.AddWithValue("$secret", (object?)sp.SecretRef ?? DBNull.Value);
         cmd.Parameters.AddWithValue("$thumb", (object?)sp.CertThumbprint ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$target", sp.Target.ToString());
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
@@ -331,5 +426,42 @@ ON CONFLICT(Id) DO UPDATE SET
         cmd.CommandText = "DELETE FROM SavedApiRequest WHERE Id = $id";
         cmd.Parameters.AddWithValue("$id", id);
         await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
+    private static async Task EnsureColumnExistsAsync(SqliteConnection conn, string table, string column, string definitionSql, CancellationToken cancellationToken)
+    {
+        var existing = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        await using (var cmd = conn.CreateCommand())
+        {
+            cmd.CommandText = $"PRAGMA table_info({table})";
+            await using var reader = await cmd.ExecuteReaderAsync(cancellationToken);
+            while (await reader.ReadAsync(cancellationToken))
+            {
+                existing.Add(reader.GetString(1));
+            }
+        }
+
+        if (existing.Contains(column))
+        {
+            return;
+        }
+
+        await using (var alter = conn.CreateCommand())
+        {
+            alter.CommandText = $"ALTER TABLE {table} ADD COLUMN {column} {definitionSql}";
+            await alter.ExecuteNonQueryAsync(cancellationToken);
+        }
+    }
+
+    private static AuthTarget ParseAuthTarget(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            return AuthTarget.Fo;
+        }
+
+        return Enum.TryParse<AuthTarget>(value, ignoreCase: true, out var parsed)
+            ? parsed
+            : AuthTarget.Fo;
     }
 }

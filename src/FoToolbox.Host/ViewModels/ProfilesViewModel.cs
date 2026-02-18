@@ -26,13 +26,16 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     private readonly ProfileService _profiles;
     private readonly SecretVaultService _vault;
     private readonly ILogger _logger;
-    private readonly Action<FoEnvironment, ServicePrincipal> _applyProfile;
+    private readonly Action<ProfileBundle> _applyProfile;
 
     private ProfileItem? _selected;
-    private ServicePrincipalEditor? _selectedPrincipal;
+    private ServicePrincipalEditor? _selectedFoPrincipal;
+    private ServicePrincipalEditor? _selectedCePrincipal;
     private string _status = "Load or create a profile to get started.";
-    private string? _pendingClientSecret;
-    private string? _pendingBearerToken;
+    private string? _pendingFoClientSecret;
+    private string? _pendingFoBearerToken;
+    private string? _pendingCeClientSecret;
+    private string? _pendingCeBearerToken;
     private string? _activeEnvId;
 
     public ObservableCollection<ProfileItem> Profiles { get; } = new();
@@ -45,20 +48,31 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         {
             if (!ReferenceEquals(_selected, value))
             {
-                if (_selectedPrincipal is not null)
+                if (_selectedFoPrincipal is not null)
                 {
-                    _selectedPrincipal.PropertyChanged -= OnSelectedPrincipalChanged;
+                    _selectedFoPrincipal.PropertyChanged -= OnSelectedPrincipalChanged;
+                }
+
+                if (_selectedCePrincipal is not null)
+                {
+                    _selectedCePrincipal.PropertyChanged -= OnSelectedPrincipalChanged;
                 }
 
                 _selected = value;
-                _selectedPrincipal = value?.Principal;
-                if (_selectedPrincipal is not null)
+                _selectedFoPrincipal = value?.FoPrincipal;
+                _selectedCePrincipal = value?.DataversePrincipal;
+                if (_selectedFoPrincipal is not null)
                 {
-                    _selectedPrincipal.PropertyChanged += OnSelectedPrincipalChanged;
+                    _selectedFoPrincipal.PropertyChanged += OnSelectedPrincipalChanged;
+                }
+                if (_selectedCePrincipal is not null)
+                {
+                    _selectedCePrincipal.PropertyChanged += OnSelectedPrincipalChanged;
                 }
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(HasSelection));
-                OnPropertyChanged(nameof(StoredCredentialStatus));
+                OnPropertyChanged(nameof(FoStoredCredentialStatus));
+                OnPropertyChanged(nameof(CeStoredCredentialStatus));
             }
         }
     }
@@ -78,64 +92,78 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         }
     }
 
-    public string? PendingClientSecret
+    public string? PendingFoClientSecret
     {
-        get => _pendingClientSecret;
+        get => _pendingFoClientSecret;
         set
         {
-            if (_pendingClientSecret != value)
+            if (_pendingFoClientSecret != value)
             {
-                _pendingClientSecret = value;
+                _pendingFoClientSecret = value;
                 OnPropertyChanged();
             }
         }
     }
 
-    public string? PendingBearerToken
+    public string? PendingFoBearerToken
     {
-        get => _pendingBearerToken;
+        get => _pendingFoBearerToken;
         set
         {
-            if (_pendingBearerToken != value)
+            if (_pendingFoBearerToken != value)
             {
-                _pendingBearerToken = value;
+                _pendingFoBearerToken = value;
                 OnPropertyChanged();
             }
         }
     }
 
-    public string StoredCredentialStatus
+    public string? PendingCeClientSecret
     {
-        get
+        get => _pendingCeClientSecret;
+        set
         {
-            if (Selected is null) return string.Empty;
-            return Selected.Principal.AuthMode switch
+            if (_pendingCeClientSecret != value)
             {
-                AuthMode.BearerToken => Selected.Principal.SecretRef is null or ""
-                    ? "No stored bearer token."
-                    : "Bearer token stored (DPAPI).",
-                AuthMode.ClientSecret => Selected.Principal.SecretRef is null or ""
-                    ? "No stored client secret."
-                    : "Client secret stored (DPAPI).",
-                AuthMode.Certificate => string.IsNullOrWhiteSpace(Selected.Principal.CertThumbprint)
-                    ? "No certificate thumbprint."
-                    : "Certificate thumbprint set.",
-                _ => "No stored credential."
-            };
+                _pendingCeClientSecret = value;
+                OnPropertyChanged();
+            }
         }
     }
+
+    public string? PendingCeBearerToken
+    {
+        get => _pendingCeBearerToken;
+        set
+        {
+            if (_pendingCeBearerToken != value)
+            {
+                _pendingCeBearerToken = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public string FoStoredCredentialStatus
+    {
+        get => BuildStoredCredentialStatus(Selected?.FoPrincipal);
+    }
+
+    public string CeStoredCredentialStatus => BuildStoredCredentialStatus(Selected?.DataversePrincipal);
 
     public ICommand RefreshCommand { get; }
     public ICommand AddProfileCommand { get; }
     public ICommand DeleteProfileCommand { get; }
     public ICommand SaveCommand { get; }
     public ICommand SetActiveCommand { get; }
-    public ICommand TestConnectionCommand { get; }
-    public ICommand AcquireBearerTokenCommand { get; }
+    public ICommand TestFoConnectionCommand { get; }
+    public ICommand TestCeConnectionCommand { get; }
+    public ICommand AcquireFoBearerTokenCommand { get; }
+    public ICommand AcquireCeBearerTokenCommand { get; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    public ProfilesViewModel(string dbPath, ILogger logger, Action<FoEnvironment, ServicePrincipal> applyProfile)
+    public ProfilesViewModel(string dbPath, ILogger logger, Action<ProfileBundle> applyProfile)
     {
         _store = new ProfileStore(dbPath);
         _profiles = new ProfileService(_store);
@@ -148,8 +176,10 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         DeleteProfileCommand = new AsyncCommand(DeleteAsync);
         SaveCommand = new AsyncCommand(async () => { await SaveAsync(promptForPluginRefresh: true); });
         SetActiveCommand = new AsyncCommand(SetActiveAsync);
-        TestConnectionCommand = new AsyncCommand(TestConnectionAsync);
-        AcquireBearerTokenCommand = new AsyncCommand(AcquireBearerTokenAsync);
+        TestFoConnectionCommand = new AsyncCommand(TestFoConnectionAsync);
+        TestCeConnectionCommand = new AsyncCommand(TestCeConnectionAsync);
+        AcquireFoBearerTokenCommand = new AsyncCommand(AcquireFoBearerTokenAsync);
+        AcquireCeBearerTokenCommand = new AsyncCommand(AcquireCeBearerTokenAsync);
     }
 
     public async Task RefreshAsync()
@@ -164,10 +194,17 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
 
             foreach (var env in envs)
             {
-                var sps = await _profiles.GetServicePrincipalsAsync(env.Id);
-                var sp = sps.FirstOrDefault()
-                         ?? new ServicePrincipal(Guid.NewGuid().ToString("N"), env.Id, string.Empty, AuthMode.ClientSecret, null, null);
-                Profiles.Add(new ProfileItem(new EnvironmentEditor(env), new ServicePrincipalEditor(sp)));
+                var bundle = await _profiles.GetBundleAsync(env.Id);
+                if (bundle is null)
+                {
+                    continue;
+                }
+
+                Profiles.Add(new ProfileItem(
+                    new EnvironmentEditor(bundle.FoEnvironment),
+                    new DataverseEnvironmentEditor(bundle.DataverseEnvironment),
+                    new ServicePrincipalEditor(bundle.FoPrincipal),
+                    new ServicePrincipalEditor(bundle.DataversePrincipal)));
             }
 
             Selected = Profiles.FirstOrDefault(p => p.Environment.Id == _activeEnvId) ?? Profiles.FirstOrDefault();
@@ -191,10 +228,11 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     private async Task AddAsync()
     {
         var envId = Guid.NewGuid().ToString("N");
-        var spId = Guid.NewGuid().ToString("N");
         var env = new FoEnvironment(envId, "New environment", string.Empty, string.Empty, null);
-        var sp = new ServicePrincipal(spId, envId, string.Empty, AuthMode.ClientSecret, null, null);
-        var profile = new ProfileItem(new EnvironmentEditor(env), new ServicePrincipalEditor(sp));
+        var ceEnv = new DataverseEnvironment(envId, string.Empty, string.Empty);
+        var foSp = new ServicePrincipal(Guid.NewGuid().ToString("N"), envId, string.Empty, AuthMode.ClientSecret, null, null, AuthTarget.Fo);
+        var ceSp = new ServicePrincipal(Guid.NewGuid().ToString("N"), envId, string.Empty, AuthMode.ClientSecret, null, null, AuthTarget.Dataverse);
+        var profile = new ProfileItem(new EnvironmentEditor(env), new DataverseEnvironmentEditor(ceEnv), new ServicePrincipalEditor(foSp), new ServicePrincipalEditor(ceSp));
         Profiles.Add(profile);
         Selected = profile;
         Status = "New profile added. Fill in details and click Save.";
@@ -241,60 +279,43 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         if (Selected is null) return false;
 
         var env = Selected.Environment.ToModel();
-        var sp = Selected.Principal.ToModel(env.Id);
+        if (string.IsNullOrWhiteSpace(env.Name) ||
+            string.IsNullOrWhiteSpace(env.BaseUrl) ||
+            string.IsNullOrWhiteSpace(env.TenantId))
+        {
+            Status = "FO name, base URL, and tenant ID are required.";
+            return false;
+        }
+
+        var ceEnv = Selected.DataverseEnvironment.ToModel(env.Id);
+        var foSp = Selected.FoPrincipal.ToModel(env.Id, AuthTarget.Fo);
+        var ceSp = Selected.DataversePrincipal.ToModel(env.Id, AuthTarget.Dataverse);
 
         try
         {
             await _profiles.UpsertEnvironmentAsync(env);
+            await _profiles.UpsertDataverseEnvironmentAsync(ceEnv);
 
-            if (sp.AuthMode == AuthMode.ClientSecret)
-            {
-                sp = sp with { CertThumbprint = null };
-                if (!string.IsNullOrWhiteSpace(PendingClientSecret))
-                {
-                    var secretRef = await _vault.StoreSecretAsync("ClientSecret", new ClientSecretPayload { Value = PendingClientSecret });
-                    sp = sp with { SecretRef = secretRef };
-                    Selected.Principal.SecretRef = secretRef;
-                    PendingClientSecret = null;
-                    OnPropertyChanged(nameof(StoredCredentialStatus));
-                }
-                else if (!string.IsNullOrWhiteSpace(sp.SecretRef))
-                {
-                    var payload = await _vault.ReadSecretAsync<ClientSecretPayload>(sp.SecretRef);
-                    if (string.IsNullOrWhiteSpace(payload?.Value))
-                    {
-                        sp = sp with { SecretRef = null };
-                        Selected.Principal.SecretRef = null;
-                        OnPropertyChanged(nameof(StoredCredentialStatus));
-                    }
-                }
-            }
-            else if (sp.AuthMode == AuthMode.BearerToken)
-            {
-                sp = sp with { CertThumbprint = null };
-                if (!string.IsNullOrWhiteSpace(PendingBearerToken))
-                {
-                    var token = NormalizeBearerToken(PendingBearerToken);
-                    var expiresUtc = TryGetJwtExpiryUtc(token, out var expiryUtc) ? expiryUtc.UtcDateTime.ToString("o") : null;
-                    var secretRef = await _vault.StoreSecretAsync("BearerToken", new BearerTokenPayload { AccessToken = token, ExpiresUtc = expiresUtc });
-                    sp = sp with { SecretRef = secretRef };
-                    Selected.Principal.SecretRef = secretRef;
-                    PendingBearerToken = null;
-                    OnPropertyChanged(nameof(StoredCredentialStatus));
-                }
-                else if (!string.IsNullOrWhiteSpace(sp.SecretRef))
-                {
-                    var payload = await _vault.ReadSecretAsync<BearerTokenPayload>(sp.SecretRef);
-                    if (string.IsNullOrWhiteSpace(payload?.AccessToken))
-                    {
-                        sp = sp with { SecretRef = null };
-                        Selected.Principal.SecretRef = null;
-                        OnPropertyChanged(nameof(StoredCredentialStatus));
-                    }
-                }
-            }
+            foSp = await PersistCredentialsForPrincipalAsync(
+                foSp,
+                PendingFoClientSecret,
+                PendingFoBearerToken,
+                secretRef => Selected.FoPrincipal.SecretRef = secretRef,
+                () => PendingFoClientSecret = null,
+                () => PendingFoBearerToken = null,
+                nameof(FoStoredCredentialStatus));
 
-            await _profiles.UpsertServicePrincipalAsync(sp);
+            ceSp = await PersistCredentialsForPrincipalAsync(
+                ceSp,
+                PendingCeClientSecret,
+                PendingCeBearerToken,
+                secretRef => Selected.DataversePrincipal.SecretRef = secretRef,
+                () => PendingCeClientSecret = null,
+                () => PendingCeBearerToken = null,
+                nameof(CeStoredCredentialStatus));
+
+            await _profiles.UpsertServicePrincipalAsync(foSp);
+            await _profiles.UpsertServicePrincipalAsync(ceSp);
 
             if (string.IsNullOrWhiteSpace(_activeEnvId))
             {
@@ -306,7 +327,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             {
                 if (ConfirmRefreshOtherPlugins())
                 {
-                    _applyProfile(env, sp);
+                    _applyProfile(new ProfileBundle(env, foSp, ceEnv, ceSp));
                     Status = "Saved. Other plugins are refreshing.";
                 }
                 else
@@ -340,7 +361,9 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         }
 
         var env = Selected.Environment.ToModel();
-        var sp = Selected.Principal.ToModel(env.Id);
+        var ceEnv = Selected.DataverseEnvironment.ToModel(env.Id);
+        var foSp = Selected.FoPrincipal.ToModel(env.Id, AuthTarget.Fo);
+        var ceSp = Selected.DataversePrincipal.ToModel(env.Id, AuthTarget.Dataverse);
 
         try
         {
@@ -349,7 +372,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
 
             if (ConfirmRefreshOtherPlugins())
             {
-                _applyProfile(env, sp);
+                _applyProfile(new ProfileBundle(env, foSp, ceEnv, ceSp));
                 Status = "Active profile updated. Other plugins are refreshing.";
             }
             else
@@ -364,119 +387,153 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         }
     }
 
-    private async Task TestConnectionAsync()
+    private async Task TestFoConnectionAsync()
     {
         if (Selected is null) return;
 
         var env = Selected.Environment.ToModel();
-        var sp = Selected.Principal.ToModel(env.Id);
+        var sp = Selected.FoPrincipal.ToModel(env.Id, AuthTarget.Fo);
 
         if (string.IsNullOrWhiteSpace(env.BaseUrl))
         {
-            Status = "Base URL is required to test a connection.";
+            Status = "FO base URL is required to test a connection.";
             return;
         }
 
         try
         {
-            Status = "Testing connection...";
-
-            string token;
-            if (sp.AuthMode == AuthMode.BearerToken)
-            {
-                token = await ResolveBearerTokenForTestAsync(sp);
-            }
-            else
-            {
-                if (string.IsNullOrWhiteSpace(env.TenantId) || string.IsNullOrWhiteSpace(sp.ClientId))
-                {
-                    Status = "Tenant ID and Client ID are required to test this auth mode.";
-                    return;
-                }
-
-                var authorityBase = "https://login.microsoftonline.com";
-                var credential = await ResolveCredentialForTestAsync(sp);
-                var tokenProvider = new MsalTokenProvider(authorityBase, (_, _) => Task.FromResult(credential));
-                var auth = new AuthService(tokenProvider);
-                token = await auth.AcquireTokenAsync(env, sp, CancellationToken.None);
-            }
+            Status = "Testing FO connection...";
+            var token = await AcquireTokenForTestAsync(env.BaseUrl, env.TenantId, sp, PendingFoBearerToken, PendingFoClientSecret, "FOTB_BEARER_TOKEN", "FOTB_CLIENT_SECRET", AuthTarget.Fo);
 
             using var http = new HttpClient();
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
             http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-            var baseUrl = NormalizeBaseUrl(env.BaseUrl);
+            var baseUrl = ResourceUrlNormalizer.NormalizeFoBaseUrl(env.BaseUrl);
             var resp = await http.GetAsync($"{baseUrl}/data", CancellationToken.None);
             if (resp.IsSuccessStatusCode)
             {
-                Status = "Connection OK.";
+                Status = "FO connection OK.";
             }
             else
             {
                 var body = await resp.Content.ReadAsStringAsync(CancellationToken.None);
-                Status = $"Connection failed: {(int)resp.StatusCode} {resp.ReasonPhrase}\n{body}";
+                Status = $"FO connection failed: {(int)resp.StatusCode} {resp.ReasonPhrase}\n{body}";
             }
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Connection test failed for {Env}", env.Name);
-            Status = $"Connection test failed: {ex.Message}";
+            _logger.LogError(ex, "FO connection test failed for {Env}", env.Name);
+            Status = $"FO connection test failed: {ex.Message}";
         }
     }
 
-    private async Task AcquireBearerTokenAsync()
+    private async Task TestCeConnectionAsync()
     {
         if (Selected is null) return;
 
-        var env = Selected.Environment.ToModel();
-        var sp = Selected.Principal.ToModel(env.Id);
+        var env = Selected.DataverseEnvironment.ToModel(Selected.Environment.Id);
+        var sp = Selected.DataversePrincipal.ToModel(env.ProfileId, AuthTarget.Dataverse);
 
-        if (sp.AuthMode != AuthMode.BearerToken)
+        if (string.IsNullOrWhiteSpace(env.BaseUrl) || string.IsNullOrWhiteSpace(env.TenantId))
         {
-            Status = "Switch Auth mode to BearerToken to retrieve a bearer token.";
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(env.BaseUrl) ||
-            string.IsNullOrWhiteSpace(env.TenantId))
-        {
-            Status = "Base URL and Tenant ID are required to retrieve a bearer token.";
+            Status = "CE base URL and tenant ID are required to test a connection.";
             return;
         }
 
         try
         {
-            Status = "Acquiring bearer token via Azure CLI (az)...";
+            Status = "Testing CE connection...";
+            var token = await AcquireTokenForTestAsync(env.BaseUrl, env.TenantId, sp, PendingCeBearerToken, PendingCeClientSecret, "FOTB_CE_BEARER_TOKEN", "FOTB_CE_CLIENT_SECRET", AuthTarget.Dataverse);
 
-             var baseUrl = NormalizeBaseUrl(env.BaseUrl);
-             var scope = $"{baseUrl}/.default";
-             var token = await GetAzCliAccessTokenAsync(env.TenantId, scope, CancellationToken.None);
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
+            var apiBase = ResourceUrlNormalizer.BuildDataverseApiBaseUrl(env.BaseUrl);
+            var resp = await http.GetAsync($"{apiBase}/WhoAmI", CancellationToken.None);
+            if (resp.IsSuccessStatusCode)
+            {
+                Status = "CE connection OK.";
+            }
+            else
+            {
+                var body = await resp.Content.ReadAsStringAsync(CancellationToken.None);
+                Status = $"CE connection failed: {(int)resp.StatusCode} {resp.ReasonPhrase}\n{body}";
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "CE connection test failed for {Env}", env.ProfileId);
+            Status = $"CE connection test failed: {ex.Message}";
+        }
+    }
+
+    private Task AcquireFoBearerTokenAsync() => AcquireBearerTokenAsync(AuthTarget.Fo);
+
+    private Task AcquireCeBearerTokenAsync() => AcquireBearerTokenAsync(AuthTarget.Dataverse);
+
+    private async Task AcquireBearerTokenAsync(AuthTarget target)
+    {
+        if (Selected is null) return;
+
+        var env = Selected.Environment.ToModel();
+        var ceEnv = Selected.DataverseEnvironment.ToModel(env.Id);
+        var targetEnvBaseUrl = target == AuthTarget.Fo ? env.BaseUrl : ceEnv.BaseUrl;
+        var targetTenantId = target == AuthTarget.Fo ? env.TenantId : ceEnv.TenantId;
+        var targetSp = target == AuthTarget.Fo
+            ? Selected.FoPrincipal.ToModel(env.Id, AuthTarget.Fo)
+            : Selected.DataversePrincipal.ToModel(env.Id, AuthTarget.Dataverse);
+
+        if (targetSp.AuthMode != AuthMode.BearerToken)
+        {
+            Status = $"Switch {(target == AuthTarget.Fo ? "FO" : "CE")} Auth mode to BearerToken to retrieve a bearer token.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(targetEnvBaseUrl) || string.IsNullOrWhiteSpace(targetTenantId))
+        {
+            Status = $"{(target == AuthTarget.Fo ? "FO" : "CE")} base URL and tenant ID are required to retrieve a bearer token.";
+            return;
+        }
+
+        try
+        {
+            Status = $"Acquiring {(target == AuthTarget.Fo ? "FO" : "CE")} bearer token via Azure CLI (az)...";
+            var resourceBaseUrl = target == AuthTarget.Fo
+                ? ResourceUrlNormalizer.NormalizeFoBaseUrl(targetEnvBaseUrl)
+                : ResourceUrlNormalizer.NormalizeDataverseResourceBaseUrl(targetEnvBaseUrl);
+
+            var scope = $"{resourceBaseUrl}/.default";
+            var token = await GetAzCliAccessTokenAsync(targetTenantId, scope, CancellationToken.None);
             var normalizedToken = NormalizeBearerToken(token);
-            PendingBearerToken = normalizedToken;
+
+            if (target == AuthTarget.Fo) PendingFoBearerToken = normalizedToken;
+            else PendingCeBearerToken = normalizedToken;
+
             var saveSucceeded = await SaveAsync(promptForPluginRefresh: false);
             if (!saveSucceeded)
             {
                 return;
             }
 
-            // SaveAsync clears PendingBearerToken after persisting; use the normalized local token instead.
             string tokenStatus;
             if (TryGetJwtExpiryUtc(normalizedToken, out var expiryUtc))
             {
-                tokenStatus = $"Bearer token acquired and saved. Expires {expiryUtc.UtcDateTime:u}.";
+                tokenStatus = $"{(target == AuthTarget.Fo ? "FO" : "CE")} bearer token acquired and saved. Expires {expiryUtc.UtcDateTime:u}.";
             }
             else
             {
-                tokenStatus = "Bearer token acquired and saved.";
+                tokenStatus = $"{(target == AuthTarget.Fo ? "FO" : "CE")} bearer token acquired and saved.";
             }
 
             if (IsSelectedProfileActive(env.Id))
             {
                 if (ConfirmRefreshOtherPlugins())
                 {
-                    var activeSp = Selected?.Principal.ToModel(env.Id) ?? sp;
-                    _applyProfile(env, activeSp);
+                    var foSp = Selected.FoPrincipal.ToModel(env.Id, AuthTarget.Fo);
+                    var savedCeSp = Selected.DataversePrincipal.ToModel(env.Id, AuthTarget.Dataverse);
+                    _applyProfile(new ProfileBundle(env, foSp, ceEnv, savedCeSp));
                     Status = $"{tokenStatus} Other plugins are refreshing.";
                 }
                 else
@@ -491,9 +548,39 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Bearer token retrieval failed for {Env}", env.Name);
-            Status = $"Bearer token retrieval failed: {FormatForStatus(ex.Message)}";
+            _logger.LogError(ex, "{Target} bearer token retrieval failed for {Env}", target.ToString(), env.Name);
+            Status = $"{(target == AuthTarget.Fo ? "FO" : "CE")} bearer token retrieval failed: {FormatForStatus(ex.Message)}";
         }
+    }
+
+    private async Task<string> AcquireTokenForTestAsync(
+        string baseUrl,
+        string tenantId,
+        ServicePrincipal sp,
+        string? pendingBearerToken,
+        string? pendingClientSecret,
+        string bearerTokenEnvVar,
+        string clientSecretEnvVar,
+        AuthTarget target)
+    {
+        if (sp.AuthMode == AuthMode.BearerToken)
+        {
+            return await ResolveBearerTokenForTestAsync(sp, pendingBearerToken, bearerTokenEnvVar);
+        }
+
+        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(sp.ClientId))
+        {
+            throw new InvalidOperationException("Tenant ID and Client ID are required to test this auth mode.");
+        }
+
+        var authorityBase = "https://login.microsoftonline.com";
+        var credential = await ResolveCredentialForTestAsync(sp, pendingClientSecret, clientSecretEnvVar);
+        var tokenProvider = new MsalTokenProvider(authorityBase, (_, _) => Task.FromResult(credential));
+        var auth = new AuthService(tokenProvider);
+        var resourceBase = target == AuthTarget.Fo
+            ? ResourceUrlNormalizer.NormalizeFoBaseUrl(baseUrl)
+            : ResourceUrlNormalizer.NormalizeDataverseResourceBaseUrl(baseUrl);
+        return await auth.AcquireTokenAsync(resourceBase, tenantId, sp, CancellationToken.None);
     }
 
     private static async Task<string> GetAzCliAccessTokenAsync(string tenantId, string scope, CancellationToken cancellationToken)
@@ -622,11 +709,11 @@ try {{
         return text.Substring(0, maxChars) + "...";
     }
 
-    private async Task<string> ResolveBearerTokenForTestAsync(ServicePrincipal sp)
+    private async Task<string> ResolveBearerTokenForTestAsync(ServicePrincipal sp, string? pendingToken, string envVarName)
     {
-        if (!string.IsNullOrWhiteSpace(PendingBearerToken))
+        if (!string.IsNullOrWhiteSpace(pendingToken))
         {
-            var normalized = NormalizeBearerToken(PendingBearerToken);
+            var normalized = NormalizeBearerToken(pendingToken);
             if (TryGetJwtExpiryUtc(normalized, out var expiryUtc) && expiryUtc <= DateTimeOffset.UtcNow)
             {
                 throw new InvalidOperationException($"Bearer token expired at {expiryUtc:u}. Retrieve a fresh token.");
@@ -648,25 +735,25 @@ try {{
             }
         }
 
-        var token = Environment.GetEnvironmentVariable("FOTB_BEARER_TOKEN");
+        var token = Environment.GetEnvironmentVariable(envVarName);
         if (!string.IsNullOrWhiteSpace(token))
         {
             var normalized = NormalizeBearerToken(token);
             if (TryGetJwtExpiryUtc(normalized, out var expiryUtc) && expiryUtc <= DateTimeOffset.UtcNow)
             {
-                throw new InvalidOperationException($"FOTB_BEARER_TOKEN expired at {expiryUtc:u}. Set a fresh token.");
+                throw new InvalidOperationException($"{envVarName} expired at {expiryUtc:u}. Set a fresh token.");
             }
             return normalized;
         }
 
-        throw new InvalidOperationException("No bearer token found. Paste a token (Profiles → BearerToken) and Save, or set FOTB_BEARER_TOKEN.");
+        throw new InvalidOperationException($"No bearer token found. Paste a token and Save, or set {envVarName}.");
     }
 
-    private async Task<FoToolbox.Core.Auth.ClientCredential> ResolveCredentialForTestAsync(ServicePrincipal sp)
+    private async Task<FoToolbox.Core.Auth.ClientCredential> ResolveCredentialForTestAsync(ServicePrincipal sp, string? pendingClientSecret, string envVarName)
     {
-        if (!string.IsNullOrWhiteSpace(PendingClientSecret))
+        if (!string.IsNullOrWhiteSpace(pendingClientSecret))
         {
-            return new ClientSecretCredential(PendingClientSecret);
+            return new ClientSecretCredential(pendingClientSecret);
         }
 
         if (!string.IsNullOrWhiteSpace(sp.SecretRef))
@@ -678,13 +765,90 @@ try {{
             }
         }
 
-        var secret = Environment.GetEnvironmentVariable("FOTB_CLIENT_SECRET");
+        var secret = Environment.GetEnvironmentVariable(envVarName);
         if (!string.IsNullOrWhiteSpace(secret))
         {
             return new ClientSecretCredential(secret);
         }
 
-        throw new InvalidOperationException("No client secret configured for this profile. Set it in Profiles and Save, or set FOTB_CLIENT_SECRET.");
+        throw new InvalidOperationException($"No client secret configured for this profile. Set it in Profiles and Save, or set {envVarName}.");
+    }
+
+    private async Task<ServicePrincipal> PersistCredentialsForPrincipalAsync(
+        ServicePrincipal principal,
+        string? pendingClientSecret,
+        string? pendingBearerToken,
+        Action<string?> updateSecretRef,
+        Action clearClientSecret,
+        Action clearBearerToken,
+        string statusPropertyName)
+    {
+        if (principal.AuthMode == AuthMode.ClientSecret)
+        {
+            principal = principal with { CertThumbprint = null };
+            if (!string.IsNullOrWhiteSpace(pendingClientSecret))
+            {
+                var secretRef = await _vault.StoreSecretAsync("ClientSecret", new ClientSecretPayload { Value = pendingClientSecret });
+                principal = principal with { SecretRef = secretRef };
+                updateSecretRef(secretRef);
+                clearClientSecret();
+                OnPropertyChanged(statusPropertyName);
+            }
+            else if (!string.IsNullOrWhiteSpace(principal.SecretRef))
+            {
+                var payload = await _vault.ReadSecretAsync<ClientSecretPayload>(principal.SecretRef);
+                if (string.IsNullOrWhiteSpace(payload?.Value))
+                {
+                    principal = principal with { SecretRef = null };
+                    updateSecretRef(null);
+                    OnPropertyChanged(statusPropertyName);
+                }
+            }
+        }
+        else if (principal.AuthMode == AuthMode.BearerToken)
+        {
+            principal = principal with { CertThumbprint = null };
+            if (!string.IsNullOrWhiteSpace(pendingBearerToken))
+            {
+                var token = NormalizeBearerToken(pendingBearerToken);
+                var expiresUtc = TryGetJwtExpiryUtc(token, out var expiryUtc) ? expiryUtc.UtcDateTime.ToString("o") : null;
+                var secretRef = await _vault.StoreSecretAsync("BearerToken", new BearerTokenPayload { AccessToken = token, ExpiresUtc = expiresUtc });
+                principal = principal with { SecretRef = secretRef };
+                updateSecretRef(secretRef);
+                clearBearerToken();
+                OnPropertyChanged(statusPropertyName);
+            }
+            else if (!string.IsNullOrWhiteSpace(principal.SecretRef))
+            {
+                var payload = await _vault.ReadSecretAsync<BearerTokenPayload>(principal.SecretRef);
+                if (string.IsNullOrWhiteSpace(payload?.AccessToken))
+                {
+                    principal = principal with { SecretRef = null };
+                    updateSecretRef(null);
+                    OnPropertyChanged(statusPropertyName);
+                }
+            }
+        }
+
+        return principal;
+    }
+
+    private static string BuildStoredCredentialStatus(ServicePrincipalEditor? principal)
+    {
+        if (principal is null) return string.Empty;
+        return principal.AuthMode switch
+        {
+            AuthMode.BearerToken => principal.SecretRef is null or ""
+                ? "No stored bearer token."
+                : "Bearer token stored (DPAPI).",
+            AuthMode.ClientSecret => principal.SecretRef is null or ""
+                ? "No stored client secret."
+                : "Client secret stored (DPAPI).",
+            AuthMode.Certificate => string.IsNullOrWhiteSpace(principal.CertThumbprint)
+                ? "No certificate thumbprint."
+                : "Certificate thumbprint set.",
+            _ => "No stored credential."
+        };
     }
 
     private static string NormalizeBearerToken(string token)
@@ -737,17 +901,6 @@ try {{
         return Convert.FromBase64String(s);
     }
 
-    private static string NormalizeBaseUrl(string baseUrl)
-    {
-        var url = baseUrl.Trim();
-        url = url.TrimEnd('/');
-        if (url.EndsWith("/data", StringComparison.OrdinalIgnoreCase))
-        {
-            url = url[..^5];
-        }
-        return url;
-    }
-
     private bool IsSelectedProfileActive(string envId)
     {
         return !string.IsNullOrWhiteSpace(_activeEnvId) &&
@@ -792,7 +945,8 @@ try {{
             e.PropertyName == nameof(ServicePrincipalEditor.SecretRef) ||
             e.PropertyName == nameof(ServicePrincipalEditor.CertThumbprint))
         {
-            OnPropertyChanged(nameof(StoredCredentialStatus));
+            OnPropertyChanged(nameof(FoStoredCredentialStatus));
+            OnPropertyChanged(nameof(CeStoredCredentialStatus));
         }
     }
 
@@ -810,14 +964,18 @@ try {{
 
 internal sealed class ProfileItem
 {
-    public ProfileItem(EnvironmentEditor environment, ServicePrincipalEditor principal)
+    public ProfileItem(EnvironmentEditor environment, DataverseEnvironmentEditor dataverseEnvironment, ServicePrincipalEditor foPrincipal, ServicePrincipalEditor dataversePrincipal)
     {
         Environment = environment;
-        Principal = principal;
+        DataverseEnvironment = dataverseEnvironment;
+        FoPrincipal = foPrincipal;
+        DataversePrincipal = dataversePrincipal;
     }
 
     public EnvironmentEditor Environment { get; }
-    public ServicePrincipalEditor Principal { get; }
+    public DataverseEnvironmentEditor DataverseEnvironment { get; }
+    public ServicePrincipalEditor FoPrincipal { get; }
+    public ServicePrincipalEditor DataversePrincipal { get; }
 }
 
 internal sealed class EnvironmentEditor : INotifyPropertyChanged
@@ -871,6 +1029,41 @@ internal sealed class EnvironmentEditor : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
+internal sealed class DataverseEnvironmentEditor : INotifyPropertyChanged
+{
+    private string _baseUrl;
+    private string _tenantId;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public DataverseEnvironmentEditor(DataverseEnvironment env)
+    {
+        ProfileId = env.ProfileId;
+        _baseUrl = env.BaseUrl;
+        _tenantId = env.TenantId;
+    }
+
+    public string ProfileId { get; }
+
+    public string BaseUrl
+    {
+        get => _baseUrl;
+        set { _baseUrl = value; OnPropertyChanged(); }
+    }
+
+    public string TenantId
+    {
+        get => _tenantId;
+        set { _tenantId = value; OnPropertyChanged(); }
+    }
+
+    public DataverseEnvironment ToModel(string profileId) =>
+        new(profileId, BaseUrl.Trim(), TenantId.Trim());
+
+    private void OnPropertyChanged([CallerMemberName] string? name = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}
+
 internal sealed class ServicePrincipalEditor : INotifyPropertyChanged
 {
     private string _clientId;
@@ -887,9 +1080,11 @@ internal sealed class ServicePrincipalEditor : INotifyPropertyChanged
         _authMode = sp.AuthMode;
         _secretRef = sp.SecretRef;
         _certThumbprint = sp.CertThumbprint;
+        Target = sp.Target;
     }
 
     public string Id { get; }
+    public AuthTarget Target { get; }
 
     public string ClientId
     {
@@ -915,8 +1110,15 @@ internal sealed class ServicePrincipalEditor : INotifyPropertyChanged
         set { _certThumbprint = value; OnPropertyChanged(); }
     }
 
-    public ServicePrincipal ToModel(string envId) =>
-        new(Id, envId, ClientId.Trim(), AuthMode, string.IsNullOrWhiteSpace(SecretRef) ? null : SecretRef.Trim(), string.IsNullOrWhiteSpace(CertThumbprint) ? null : CertThumbprint.Trim());
+    public ServicePrincipal ToModel(string envId, AuthTarget defaultTarget) =>
+        new(
+            Id,
+            envId,
+            ClientId.Trim(),
+            AuthMode,
+            string.IsNullOrWhiteSpace(SecretRef) ? null : SecretRef.Trim(),
+            string.IsNullOrWhiteSpace(CertThumbprint) ? null : CertThumbprint.Trim(),
+            Target == default ? defaultTarget : Target);
 
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));

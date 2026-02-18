@@ -15,15 +15,22 @@ namespace FoToolbox.Host;
 /// </summary>
 internal sealed class AuthenticatedHandler : DelegatingHandler
 {
-    private readonly FoEnvironment _env;
+    private readonly string _resourceBaseUrl;
+    private readonly string _tenantId;
     private readonly ServicePrincipal _sp;
     private readonly AuthService _auth;
     private readonly SecretVaultService _vault;
 
     public AuthenticatedHandler(FoEnvironment env, ServicePrincipal sp)
+        : this(ResourceUrlNormalizer.NormalizeFoBaseUrl(env.BaseUrl), env.TenantId, sp)
+    {
+    }
+
+    public AuthenticatedHandler(string resourceBaseUrl, string tenantId, ServicePrincipal sp)
         : base(new HttpClientHandler())
     {
-        _env = env;
+        _resourceBaseUrl = resourceBaseUrl;
+        _tenantId = tenantId;
         _sp = sp;
         _auth = new AuthService(BuildTokenProvider());
 
@@ -36,7 +43,7 @@ internal sealed class AuthenticatedHandler : DelegatingHandler
     {
         var token = _sp.AuthMode == AuthMode.BearerToken
             ? await ResolveBearerTokenAsync(_sp, cancellationToken)
-            : await _auth.AcquireTokenAsync(_env, _sp, cancellationToken);
+            : await _auth.AcquireTokenAsync(_resourceBaseUrl, _tenantId, _sp, cancellationToken);
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
         return await base.SendAsync(request, cancellationToken);
     }

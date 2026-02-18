@@ -19,8 +19,14 @@ public sealed class AuthService
 
     public async Task<string> AcquireTokenAsync(FoEnvironment env, ServicePrincipal sp, CancellationToken cancellationToken = default)
     {
-        var scope = $"{env.BaseUrl.TrimEnd('/')}/.default";
-        var request = new TokenRequest(scope, env.TenantId, sp);
+        var resourceBaseUrl = ResourceUrlNormalizer.NormalizeFoBaseUrl(env.BaseUrl);
+        return await AcquireTokenAsync(resourceBaseUrl, env.TenantId, sp, cancellationToken);
+    }
+
+    public async Task<string> AcquireTokenAsync(string resourceBaseUrl, string tenantId, ServicePrincipal sp, CancellationToken cancellationToken = default)
+    {
+        var scope = $"{resourceBaseUrl.TrimEnd('/')}/.default";
+        var request = new TokenRequest(scope, tenantId, sp);
 
         var attempts = 0;
         Exception? last = null;

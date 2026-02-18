@@ -13,6 +13,7 @@ using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Net.Http;
 
 namespace FoToolbox.Host.Plugins;
 
@@ -28,8 +29,19 @@ public sealed class PluginManager
     private readonly ICatalogService _catalog;
     private readonly ILogger _logger;
     private readonly PluginTrustOptions _trustOptions;
+    private readonly DataverseEnvironment? _dataverseEnv;
+    private readonly HttpClient? _dataverseHttp;
 
-    public PluginManager(string pluginRoot, FoEnvironment env, IODataClient odata, IODataWriteClient odataWrite, ICatalogService catalog, ILogger logger, PluginTrustOptions? trustOptions = null)
+    public PluginManager(
+        string pluginRoot,
+        FoEnvironment env,
+        IODataClient odata,
+        IODataWriteClient odataWrite,
+        ICatalogService catalog,
+        ILogger logger,
+        DataverseEnvironment? dataverseEnv = null,
+        HttpClient? dataverseHttp = null,
+        PluginTrustOptions? trustOptions = null)
     {
         _pluginRoot = pluginRoot;
         _env = env;
@@ -37,6 +49,8 @@ public sealed class PluginManager
         _odataWrite = odataWrite;
         _catalog = catalog;
         _logger = logger;
+        _dataverseEnv = dataverseEnv;
+        _dataverseHttp = dataverseHttp;
         _trustOptions = trustOptions ?? PluginTrustOptions.Default;
     }
 
@@ -114,8 +128,8 @@ public sealed class PluginManager
                      ?? throw new InvalidOperationException($"Could not create instance of {pluginType.FullName}.");
 
         IPluginContext ctx = RequiresWrite(manifest)
-            ? new PluginContextWrite(_env, _odata, _odataWrite, _catalog, _logger)
-            : new PluginContext(_env, _odata, _catalog, _logger);
+            ? new PluginContextWrite(_env, _odata, _odataWrite, _catalog, _logger, _dataverseEnv, _dataverseHttp)
+            : new PluginContext(_env, _odata, _catalog, _logger, _dataverseEnv, _dataverseHttp);
         await plugin.InitializeAsync(ctx);
         var control = plugin.CreateTool();
 

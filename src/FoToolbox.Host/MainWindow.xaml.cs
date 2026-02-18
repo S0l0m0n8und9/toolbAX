@@ -26,7 +26,8 @@ public partial class MainWindow : Window
     private readonly string _profileDbPath = ProfilePaths.ResolveProfileDbPath();
     private ProfilesView? _profilesView;
     private bool _loadedOnce;
-    private HttpClient? _activeHttpClient;
+    private HttpClient? _activeFoHttpClient;
+    private HttpClient? _activeDataverseHttpClient;
 
     public MainWindow()
     {
@@ -67,68 +68,100 @@ public partial class MainWindow : Window
             return;
         }
 
-        var (env, sp) = profile.Value;
+        var bundle = profile;
         _profilesView ??= new ProfilesView(new ProfilesViewModel(_profileDbPath, _logger, ApplyProfile));
-        await ApplyProfileAsync(env, sp);
+        await ApplyProfileAsync(bundle);
 
         // Kick off a background update check (fire-and-forget).
         _ = _vm.CheckUpdatesAsync();
     }
 
-    private void ApplyProfile(FoEnvironment env, ServicePrincipal sp)
+    private void ApplyProfile(ProfileBundle bundle)
     {
-        _ = ApplyProfileAsync(env, sp);
+        _ = ApplyProfileAsync(bundle);
     }
 
-    private async Task ApplyProfileAsync(FoEnvironment env, ServicePrincipal sp)
+    private async Task ApplyProfileAsync(ProfileBundle bundle)
     {
         try
         {
-            _activeHttpClient?.Dispose();
-            _activeHttpClient = CreateAuthenticatedHttpClient(env, sp);
+            _activeFoHttpClient?.Dispose();
+            _activeFoHttpClient = CreateAuthenticatedHttpClient(bundle.FoEnvironment, bundle.FoPrincipal);
 
-            var odata = CreateODataClient(_activeHttpClient);
-            var odataWrite = CreateODataWriteClient(_activeHttpClient);
-            var catalog = CreateCatalogService(_activeHttpClient);
+            _activeDataverseHttpClient?.Dispose();
+            if (IsDataverseConfigured(bundle.DataverseEnvironment))
+            {
+                _activeDataverseHttpClient = CreateAuthenticatedHttpClient(
+                    ResourceUrlNormalizer.NormalizeDataverseResourceBaseUrl(bundle.DataverseEnvironment.BaseUrl),
+                    bundle.DataverseEnvironment.TenantId,
+                    bundle.DataversePrincipal);
+            }
+            else
+            {
+                _activeDataverseHttpClient = null;
+            }
+
+            var odata = CreateODataClient(_activeFoHttpClient);
+            var odataWrite = CreateODataWriteClient(_activeFoHttpClient);
+            var catalog = CreateCatalogService(_activeFoHttpClient);
 
             var pluginRoot = ResolvePluginRoot();
             var trust = PluginTrustOptions.FromEnvironment();
-            var manager = new PluginManager(pluginRoot, env, odata, odataWrite, catalog, _logger, trust);
+            var manager = new PluginManager(
+                pluginRoot,
+                bundle.FoEnvironment,
+                odata,
+                odataWrite,
+                catalog,
+                _logger,
+                IsDataverseConfigured(bundle.DataverseEnvironment) ? bundle.DataverseEnvironment : null,
+                _activeDataverseHttpClient,
+                trust);
             var plugins = await manager.DiscoverAsync();
             _vm.LoadPlugins(plugins, _profilesView);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to apply profile {EnvId}", env.Id);
+            _logger.LogError(ex, "Failed to apply profile {EnvId}", bundle.FoEnvironment.Id);
             MessageBox.Show($"Failed to apply profile: {ex.Message}", "FOtoolbox", MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
 
-    private static async Task<(FoEnvironment Env, ServicePrincipal Sp)?> ResolveProfileAsync(string dbPath)
+    private static async Task<ProfileBundle?> ResolveProfileAsync(string dbPath)
     {
         var store = new ProfileStore(dbPath);
         var svc = new ProfileService(store);
         await svc.EnsureCreatedAsync();
 
         // Seed a placeholder profile if empty.
-        var defaultProfile = await svc.GetDefaultAsync();
+        var defaultProfile = await svc.GetDefaultBundleAsync();
         if (defaultProfile is null)
         {
             var env = new FoEnvironment("dev", "Dev environment", "https://contoso.operations.dynamics.com", "00000000-0000-0000-0000-000000000000", "USMF");
             await svc.UpsertEnvironmentAsync(env);
-            var sp = new ServicePrincipal("sp-dev", env.Id, "00000000-0000-0000-0000-000000000000", AuthMode.ClientSecret, null, null);
-            await svc.UpsertServicePrincipalAsync(sp);
+            var foSp = new ServicePrincipal("sp-dev", env.Id, "00000000-0000-0000-0000-000000000000", AuthMode.ClientSecret, null, null, AuthTarget.Fo);
+            await svc.UpsertServicePrincipalAsync(foSp);
+            var ceEnv = new DataverseEnvironment(env.Id, string.Empty, string.Empty);
+            await svc.UpsertDataverseEnvironmentAsync(ceEnv);
+            var ceSp = new ServicePrincipal("sp-dev-ce", env.Id, string.Empty, AuthMode.ClientSecret, null, null, AuthTarget.Dataverse);
+            await svc.UpsertServicePrincipalAsync(ceSp);
             await svc.SetDefaultEnvironmentAsync(env.Id);
 
-            return (env, sp);
+            return await svc.GetDefaultBundleAsync();
         }
 
-        return await svc.GetDefaultAsync();
+        return await svc.GetDefaultBundleAsync();
     }
 
     private static HttpClient CreateAuthenticatedHttpClient(FoEnvironment env, ServicePrincipal sp)
     {
         var handler = new AuthenticatedHandler(env, sp);
+        return new HttpClient(handler);
+    }
+
+    private static HttpClient CreateAuthenticatedHttpClient(string resourceBaseUrl, string tenantId, ServicePrincipal sp)
+    {
+        var handler = new AuthenticatedHandler(resourceBaseUrl, tenantId, sp);
         return new HttpClient(handler);
     }
 
@@ -177,6 +210,12 @@ public partial class MainWindow : Window
         }
 
         return candidate;
+    }
+
+    private static bool IsDataverseConfigured(DataverseEnvironment env)
+    {
+        return !string.IsNullOrWhiteSpace(env.BaseUrl) &&
+               !string.IsNullOrWhiteSpace(env.TenantId);
     }
 
 }

@@ -6,29 +6,54 @@
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d"
-             d:DesignHeight="700"
-             d:DesignWidth="1100">
+             d:DesignHeight="780"
+             d:DesignWidth="1200">
     <UserControl.Resources>
-        <Style x:Key="VisibleWhenClientSecret" TargetType="{x:Type FrameworkElement}">
+        <Style x:Key="VisibleWhenFoClientSecret" TargetType="{x:Type FrameworkElement}">
             <Setter Property="Visibility" Value="Collapsed" />
             <Style.Triggers>
-                <DataTrigger Binding="{Binding Selected.Principal.AuthMode}" Value="{x:Static models:AuthMode.ClientSecret}">
+                <DataTrigger Binding="{Binding Selected.FoPrincipal.AuthMode}" Value="{x:Static models:AuthMode.ClientSecret}">
                     <Setter Property="Visibility" Value="Visible" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
-        <Style x:Key="VisibleWhenBearerToken" TargetType="{x:Type FrameworkElement}">
+        <Style x:Key="VisibleWhenFoBearerToken" TargetType="{x:Type FrameworkElement}">
             <Setter Property="Visibility" Value="Collapsed" />
             <Style.Triggers>
-                <DataTrigger Binding="{Binding Selected.Principal.AuthMode}" Value="{x:Static models:AuthMode.BearerToken}">
+                <DataTrigger Binding="{Binding Selected.FoPrincipal.AuthMode}" Value="{x:Static models:AuthMode.BearerToken}">
                     <Setter Property="Visibility" Value="Visible" />
                 </DataTrigger>
             </Style.Triggers>
         </Style>
-        <Style x:Key="VisibleWhenCertificate" TargetType="{x:Type FrameworkElement}">
+        <Style x:Key="VisibleWhenFoCertificate" TargetType="{x:Type FrameworkElement}">
             <Setter Property="Visibility" Value="Collapsed" />
             <Style.Triggers>
-                <DataTrigger Binding="{Binding Selected.Principal.AuthMode}" Value="{x:Static models:AuthMode.Certificate}">
+                <DataTrigger Binding="{Binding Selected.FoPrincipal.AuthMode}" Value="{x:Static models:AuthMode.Certificate}">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+
+        <Style x:Key="VisibleWhenCeClientSecret" TargetType="{x:Type FrameworkElement}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Selected.DataversePrincipal.AuthMode}" Value="{x:Static models:AuthMode.ClientSecret}">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="VisibleWhenCeBearerToken" TargetType="{x:Type FrameworkElement}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Selected.DataversePrincipal.AuthMode}" Value="{x:Static models:AuthMode.BearerToken}">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="VisibleWhenCeCertificate" TargetType="{x:Type FrameworkElement}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Selected.DataversePrincipal.AuthMode}" Value="{x:Static models:AuthMode.Certificate}">
                     <Setter Property="Visibility" Value="Visible" />
                 </DataTrigger>
             </Style.Triggers>
@@ -55,7 +80,7 @@
                     <TextBlock Text="Profiles" FontWeight="Bold" FontSize="15" Margin="0,0,0,10" />
                     <ListBox ItemsSource="{Binding Profiles}"
                              SelectedItem="{Binding Selected, Mode=TwoWay}"
-                             MinHeight="520"
+                             MinHeight="620"
                              ScrollViewer.HorizontalScrollBarVisibility="Auto"
                              ScrollViewer.VerticalScrollBarVisibility="Auto">
                         <ListBox.ItemTemplate>
@@ -70,7 +95,7 @@
 
         <ScrollViewer Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="16">
             <StackPanel>
-                <GroupBox Header="Environment">
+                <GroupBox Header="FO Environment" Margin="0,0,0,10">
                     <Grid Margin="12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="170" />
@@ -101,7 +126,7 @@
                     </Grid>
                 </GroupBox>
 
-                <GroupBox Header="Authentication">
+                <GroupBox Header="FO Authentication" Margin="0,0,0,10">
                     <Grid Margin="12">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="170" />
@@ -120,57 +145,144 @@
 
                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Client ID" VerticalAlignment="Center" />
                         <TextBox Grid.Row="0" Grid.Column="1"
-                                 Text="{Binding Selected.Principal.ClientId, UpdateSourceTrigger=PropertyChanged}" />
+                                 Text="{Binding Selected.FoPrincipal.ClientId, UpdateSourceTrigger=PropertyChanged}" />
 
                         <TextBlock Grid.Row="1" Grid.Column="0" Text="Auth mode" VerticalAlignment="Center" Margin="0,10,0,0" />
-                        <ComboBox x:Name="AuthModeComboBox" Grid.Row="1" Grid.Column="1" Margin="0,10,0,0" MinWidth="220"
+                        <ComboBox x:Name="FoAuthModeComboBox" Grid.Row="1" Grid.Column="1" Margin="0,10,0,0" MinWidth="220"
                                   ItemsSource="{Binding AuthModeValues}"
-                                  SelectedItem="{Binding Selected.Principal.AuthMode, Mode=TwoWay}" />
+                                  SelectedItem="{Binding Selected.FoPrincipal.AuthMode, Mode=TwoWay}" />
 
                         <TextBlock Grid.Row="2" Grid.Column="0" Text="Client secret" VerticalAlignment="Center" Margin="0,10,0,0"
-                                   Style="{StaticResource VisibleWhenClientSecret}" />
+                                   Style="{StaticResource VisibleWhenFoClientSecret}" />
                         <Grid Grid.Row="2" Grid.Column="1" Margin="0,10,0,0"
-                              Style="{StaticResource VisibleWhenClientSecret}">
-                            <PasswordBox x:Name="ClientSecretBox" />
+                              Style="{StaticResource VisibleWhenFoClientSecret}">
+                            <PasswordBox x:Name="FoClientSecretBox" />
                         </Grid>
 
-                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding StoredCredentialStatus}" Foreground="{DynamicResource Fo.SubtleTextBrush}" FontSize="11" Margin="0,5,0,0"
-                                   Style="{StaticResource VisibleWhenClientSecret}" />
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding FoStoredCredentialStatus}" Foreground="{DynamicResource Fo.SubtleTextBrush}" FontSize="11" Margin="0,5,0,0"
+                                   Style="{StaticResource VisibleWhenFoClientSecret}" />
 
                         <TextBlock Grid.Row="4" Grid.Column="0" Text="Bearer token" VerticalAlignment="Center" Margin="0,10,0,0"
-                                   Style="{StaticResource VisibleWhenBearerToken}" />
+                                   Style="{StaticResource VisibleWhenFoBearerToken}" />
                         <Grid Grid.Row="4" Grid.Column="1" Margin="0,10,0,0"
-                              Style="{StaticResource VisibleWhenBearerToken}">
-                            <PasswordBox x:Name="BearerTokenBox" />
+                              Style="{StaticResource VisibleWhenFoBearerToken}">
+                            <PasswordBox x:Name="FoBearerTokenBox" />
                         </Grid>
 
                         <TextBlock Grid.Row="5" Grid.Column="0" Text="Retrieve token" VerticalAlignment="Center" Margin="0,10,0,0"
-                                   Style="{StaticResource VisibleWhenBearerToken}" />
+                                   Style="{StaticResource VisibleWhenFoBearerToken}" />
                         <Grid Grid.Row="5" Grid.Column="1" Margin="0,10,0,0"
-                              Style="{StaticResource VisibleWhenBearerToken}">
-                            <Button Content="Get bearer token"
+                              Style="{StaticResource VisibleWhenFoBearerToken}">
+                            <Button Content="Get FO bearer token"
                                     HorizontalAlignment="Left"
-                                    MinWidth="150"
-                                    Command="{Binding AcquireBearerTokenCommand}" />
+                                    MinWidth="170"
+                                    Command="{Binding AcquireFoBearerTokenCommand}" />
                         </Grid>
 
-                        <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding StoredCredentialStatus}" Foreground="{DynamicResource Fo.SubtleTextBrush}" FontSize="11" Margin="0,5,0,0"
-                                   Style="{StaticResource VisibleWhenBearerToken}" />
+                        <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding FoStoredCredentialStatus}" Foreground="{DynamicResource Fo.SubtleTextBrush}" FontSize="11" Margin="0,5,0,0"
+                                   Style="{StaticResource VisibleWhenFoBearerToken}" />
 
                         <TextBlock Grid.Row="7" Grid.Column="0" Text="Cert thumbprint" VerticalAlignment="Center" Margin="0,10,0,0"
-                                   Style="{StaticResource VisibleWhenCertificate}" />
+                                   Style="{StaticResource VisibleWhenFoCertificate}" />
                         <Grid Grid.Row="7" Grid.Column="1" Margin="0,10,0,0"
-                              Style="{StaticResource VisibleWhenCertificate}">
-                            <TextBox Text="{Binding Selected.Principal.CertThumbprint, UpdateSourceTrigger=PropertyChanged}" />
+                              Style="{StaticResource VisibleWhenFoCertificate}">
+                            <TextBox Text="{Binding Selected.FoPrincipal.CertThumbprint, UpdateSourceTrigger=PropertyChanged}" />
                         </Grid>
                     </Grid>
                 </GroupBox>
 
-                <WrapPanel Margin="0,2,0,12">
+                <GroupBox Header="CE/Dataverse Environment" Margin="0,0,0,10">
+                    <Grid Margin="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="170" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Base URL" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="0" Grid.Column="1"
+                                 Text="{Binding Selected.DataverseEnvironment.BaseUrl, UpdateSourceTrigger=PropertyChanged}" />
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Tenant ID" VerticalAlignment="Center" Margin="0,10,0,0" />
+                        <TextBox Grid.Row="1" Grid.Column="1" Margin="0,10,0,0"
+                                 Text="{Binding Selected.DataverseEnvironment.TenantId, UpdateSourceTrigger=PropertyChanged}" />
+                    </Grid>
+                </GroupBox>
+
+                <GroupBox Header="CE/Dataverse Authentication">
+                    <Grid Margin="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="170" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Client ID" VerticalAlignment="Center" />
+                        <TextBox Grid.Row="0" Grid.Column="1"
+                                 Text="{Binding Selected.DataversePrincipal.ClientId, UpdateSourceTrigger=PropertyChanged}" />
+
+                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Auth mode" VerticalAlignment="Center" Margin="0,10,0,0" />
+                        <ComboBox x:Name="CeAuthModeComboBox" Grid.Row="1" Grid.Column="1" Margin="0,10,0,0" MinWidth="220"
+                                  ItemsSource="{Binding AuthModeValues}"
+                                  SelectedItem="{Binding Selected.DataversePrincipal.AuthMode, Mode=TwoWay}" />
+
+                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Client secret" VerticalAlignment="Center" Margin="0,10,0,0"
+                                   Style="{StaticResource VisibleWhenCeClientSecret}" />
+                        <Grid Grid.Row="2" Grid.Column="1" Margin="0,10,0,0"
+                              Style="{StaticResource VisibleWhenCeClientSecret}">
+                            <PasswordBox x:Name="CeClientSecretBox" />
+                        </Grid>
+
+                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding CeStoredCredentialStatus}" Foreground="{DynamicResource Fo.SubtleTextBrush}" FontSize="11" Margin="0,5,0,0"
+                                   Style="{StaticResource VisibleWhenCeClientSecret}" />
+
+                        <TextBlock Grid.Row="4" Grid.Column="0" Text="Bearer token" VerticalAlignment="Center" Margin="0,10,0,0"
+                                   Style="{StaticResource VisibleWhenCeBearerToken}" />
+                        <Grid Grid.Row="4" Grid.Column="1" Margin="0,10,0,0"
+                              Style="{StaticResource VisibleWhenCeBearerToken}">
+                            <PasswordBox x:Name="CeBearerTokenBox" />
+                        </Grid>
+
+                        <TextBlock Grid.Row="5" Grid.Column="0" Text="Retrieve token" VerticalAlignment="Center" Margin="0,10,0,0"
+                                   Style="{StaticResource VisibleWhenCeBearerToken}" />
+                        <Grid Grid.Row="5" Grid.Column="1" Margin="0,10,0,0"
+                              Style="{StaticResource VisibleWhenCeBearerToken}">
+                            <Button Content="Get CE bearer token"
+                                    HorizontalAlignment="Left"
+                                    MinWidth="170"
+                                    Command="{Binding AcquireCeBearerTokenCommand}" />
+                        </Grid>
+
+                        <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding CeStoredCredentialStatus}" Foreground="{DynamicResource Fo.SubtleTextBrush}" FontSize="11" Margin="0,5,0,0"
+                                   Style="{StaticResource VisibleWhenCeBearerToken}" />
+
+                        <TextBlock Grid.Row="7" Grid.Column="0" Text="Cert thumbprint" VerticalAlignment="Center" Margin="0,10,0,0"
+                                   Style="{StaticResource VisibleWhenCeCertificate}" />
+                        <Grid Grid.Row="7" Grid.Column="1" Margin="0,10,0,0"
+                              Style="{StaticResource VisibleWhenCeCertificate}">
+                            <TextBox Text="{Binding Selected.DataversePrincipal.CertThumbprint, UpdateSourceTrigger=PropertyChanged}" />
+                        </Grid>
+                    </Grid>
+                </GroupBox>
+
+                <WrapPanel Margin="0,8,0,12">
                     <Button Content="Refresh" Command="{Binding RefreshCommand}" MinWidth="98" Margin="0,0,8,0" />
                     <Button Content="Save" Command="{Binding SaveCommand}" MinWidth="98" Margin="0,0,8,0" />
                     <Button Content="Set active" Command="{Binding SetActiveCommand}" MinWidth="110" Margin="0,0,8,0" />
-                    <Button Content="Test connection" Command="{Binding TestConnectionCommand}" MinWidth="130" />
+                    <Button Content="Test FO connection" Command="{Binding TestFoConnectionCommand}" MinWidth="150" Margin="0,0,8,0" />
+                    <Button Content="Test CE connection" Command="{Binding TestCeConnectionCommand}" MinWidth="150" />
                 </WrapPanel>
 
                 <TextBlock Text="{Binding Status}" TextWrapping="Wrap" />

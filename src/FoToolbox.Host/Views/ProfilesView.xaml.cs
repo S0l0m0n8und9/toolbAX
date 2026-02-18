@@ -25,25 +25,43 @@ internal partial class ProfilesView : UserControl
         {
             if (e.PropertyName == nameof(ProfilesViewModel.Selected))
             {
-                ClientSecretBox.Password = string.Empty;
-                BearerTokenBox.Password = string.Empty;
+                FoClientSecretBox.Password = string.Empty;
+                FoBearerTokenBox.Password = string.Empty;
+                CeClientSecretBox.Password = string.Empty;
+                CeBearerTokenBox.Password = string.Empty;
             }
         };
 
-        AuthModeComboBox.SelectionChanged += (_, __) =>
+        FoAuthModeComboBox.SelectionChanged += (_, __) =>
         {
-            ClientSecretBox.Password = string.Empty;
-            BearerTokenBox.Password = string.Empty;
+            FoClientSecretBox.Password = string.Empty;
+            FoBearerTokenBox.Password = string.Empty;
         };
 
-        ClientSecretBox.PasswordChanged += (_, __) =>
+        CeAuthModeComboBox.SelectionChanged += (_, __) =>
         {
-            vm.PendingClientSecret = ClientSecretBox.Password;
+            CeClientSecretBox.Password = string.Empty;
+            CeBearerTokenBox.Password = string.Empty;
         };
 
-        BearerTokenBox.PasswordChanged += (_, __) =>
+        FoClientSecretBox.PasswordChanged += (_, __) =>
         {
-            vm.PendingBearerToken = BearerTokenBox.Password;
+            vm.PendingFoClientSecret = FoClientSecretBox.Password;
+        };
+
+        FoBearerTokenBox.PasswordChanged += (_, __) =>
+        {
+            vm.PendingFoBearerToken = FoBearerTokenBox.Password;
+        };
+
+        CeClientSecretBox.PasswordChanged += (_, __) =>
+        {
+            vm.PendingCeClientSecret = CeClientSecretBox.Password;
+        };
+
+        CeBearerTokenBox.PasswordChanged += (_, __) =>
+        {
+            vm.PendingCeBearerToken = CeBearerTokenBox.Password;
         };
     }
 }

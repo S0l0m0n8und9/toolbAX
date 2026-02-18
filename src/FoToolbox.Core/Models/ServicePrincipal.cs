@@ -6,4 +6,5 @@ public record ServicePrincipal(
     string ClientId,
     AuthMode AuthMode,
     string? SecretRef,
-    string? CertThumbprint);
+    string? CertThumbprint,
+    AuthTarget Target = AuthTarget.Fo);
