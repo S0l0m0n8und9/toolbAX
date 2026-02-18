@@ -63,6 +63,9 @@
       <Component Id="FoToolboxPluginODataPostBuilder" Guid="{B4E5D6B8-1A2F-4CCB-B0C8-2E47E72D1F6A}" Directory="PLUGINS">
         <File Id="ODataPostBuilder.dll" Source="$(var.SourceDir)\plugins\ODataPostBuilder.dll" />
       </Component>
+      <Component Id="FoToolboxPluginDualWriteMapBrowser" Guid="{62B15A6A-9C45-4BFC-9A9F-C8D6A0C2F1A7}" Directory="PLUGINS">
+        <File Id="DualWriteMapBrowser.dll" Source="$(var.SourceDir)\plugins\DualWriteMapBrowser.dll" />
+      </Component>
 
       <!-- Start menu shortcut -->
       <Component Id="FoToolboxStartMenuShortcut" Guid="{5B18C0A9-A5F2-4E8C-9F3E-798A80C511C3}" Directory="ProgramMenuFoToolbox">

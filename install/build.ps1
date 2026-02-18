@@ -164,6 +164,7 @@ dotnet build (Join-Path $repoRoot "plugins\\HelloPlugin\\HelloPlugin.csproj") -c
 dotnet build (Join-Path $repoRoot "plugins\\QueryBuilder\\QueryBuilder.csproj") -c $Configuration -p:Version=$msiVersion -p:AssemblyVersion=$assemblyVersion -p:FileVersion=$fileVersion | Out-Host
 dotnet build (Join-Path $repoRoot "plugins\\TableEntityBrowser\\TableEntityBrowser.csproj") -c $Configuration -p:Version=$msiVersion -p:AssemblyVersion=$assemblyVersion -p:FileVersion=$fileVersion | Out-Host
 dotnet build (Join-Path $repoRoot "plugins\\ODataPostBuilder\\ODataPostBuilder.csproj") -c $Configuration -p:Version=$msiVersion -p:AssemblyVersion=$assemblyVersion -p:FileVersion=$fileVersion | Out-Host
+dotnet build (Join-Path $repoRoot "plugins\\DualWriteMapBrowser\\DualWriteMapBrowser.csproj") -c $Configuration -p:Version=$msiVersion -p:AssemblyVersion=$assemblyVersion -p:FileVersion=$fileVersion | Out-Host
 
 Write-Host "`nCopying plugin binaries to SourceDir..."
 Copy-Item (Join-Path $repoRoot "plugins\\HelloPlugin\\bin\\$Configuration\\net8.0-windows\\HelloPlugin.dll") `
@@ -174,6 +175,8 @@ Copy-Item (Join-Path $repoRoot "plugins\\TableEntityBrowser\\bin\\$Configuration
     -Destination (Join-Path $pluginsOut "TableEntityBrowser.dll") -Force
 Copy-Item (Join-Path $repoRoot "plugins\\ODataPostBuilder\\bin\\$Configuration\\net8.0-windows\\ODataPostBuilder.dll") `
     -Destination (Join-Path $pluginsOut "ODataPostBuilder.dll") -Force
+Copy-Item (Join-Path $repoRoot "plugins\\DualWriteMapBrowser\\bin\\$Configuration\\net8.0-windows\\DualWriteMapBrowser.dll") `
+    -Destination (Join-Path $pluginsOut "DualWriteMapBrowser.dll") -Force
 
 function Build-Msi {
     param(
