@@ -24,40 +24,89 @@
                 BorderBrush="{DynamicResource Fo.BorderBrush}"
                 BorderThickness="1"
                 CornerRadius="6">
-            <DockPanel>
-                <WrapPanel DockPanel.Dock="Left">
-                    <Button Content="Load Dual-write Maps"
-                            Command="{Binding LoadMapsCommand}"
-                            Padding="10,4"
-                            MinWidth="150"
-                            IsEnabled="{Binding IsNotLoading}" />
-                    <Button Content="Clear"
-                            Command="{Binding ClearCommand}"
-                            Padding="10,4"
-                            MinWidth="90"
-                            Margin="6,0,0,0"
-                            IsEnabled="{Binding IsNotLoading}" />
-                </WrapPanel>
+            <StackPanel>
+                <DockPanel>
+                    <WrapPanel DockPanel.Dock="Left">
+                        <Button Content="Load Dual-write Maps"
+                                Command="{Binding LoadMapsCommand}"
+                                Padding="10,4"
+                                MinWidth="150"
+                                IsEnabled="{Binding IsNotLoading}" />
+                        <Button Content="Refresh Count Setup"
+                                Command="{Binding RefreshCountSetupCommand}"
+                                Padding="10,4"
+                                MinWidth="140"
+                                Margin="6,0,0,0"
+                                IsEnabled="{Binding IsNotLoading}" />
+                        <Button Content="Validate Counts"
+                                Command="{Binding ValidateCountsCommand}"
+                                Padding="10,4"
+                                MinWidth="120"
+                                Margin="6,0,0,0"
+                                IsEnabled="{Binding IsNotLoading}" />
+                        <CheckBox Content="Exact CE Count (slower)"
+                                  IsChecked="{Binding UseExactCeCount, Mode=TwoWay}"
+                                  VerticalAlignment="Center"
+                                  Margin="10,2,0,0" />
+                        <Button Content="Clear"
+                                Command="{Binding ClearCommand}"
+                                Padding="10,4"
+                                MinWidth="90"
+                                Margin="6,0,0,0"
+                                IsEnabled="{Binding IsNotLoading}" />
+                    </WrapPanel>
 
-                <StackPanel DockPanel.Dock="Right"
-                            Orientation="Horizontal"
-                            VerticalAlignment="Center">
-                    <TextBlock Text="Working..."
-                               Margin="0,0,8,0"
+                    <StackPanel DockPanel.Dock="Right"
+                                Orientation="Horizontal"
+                                VerticalAlignment="Center">
+                        <TextBlock Text="Working..."
+                                   Margin="0,0,8,0"
+                                   Foreground="{DynamicResource Fo.SubtleTextBrush}"
+                                   Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}" />
+                        <ProgressBar Width="140"
+                                     Height="10"
+                                     IsIndeterminate="True"
+                                     Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}" />
+                    </StackPanel>
+
+                    <TextBlock Text="{Binding DataverseEndpoint}"
+                               Margin="12,0,0,0"
+                               VerticalAlignment="Center"
+                               TextTrimming="CharacterEllipsis"
+                               Foreground="{DynamicResource Fo.SubtleTextBrush}" />
+                </DockPanel>
+
+                <WrapPanel Margin="0,10,0,0">
+                    <CheckBox Content="Filter by solution"
+                              IsChecked="{Binding FilterBySolution, Mode=TwoWay}"
+                              VerticalAlignment="Center" />
+                    <TextBlock Text="Publisher"
+                               Margin="10,2,0,0"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource Fo.SubtleTextBrush}" />
+                    <ComboBox ItemsSource="{Binding Publishers}"
+                              SelectedItem="{Binding SelectedPublisher, Mode=TwoWay}"
+                              DisplayMemberPath="DisplayName"
+                              Width="240"
+                              Margin="6,0,0,0"
+                              IsEnabled="{Binding FilterBySolution}" />
+                    <Button Content="Load Solutions"
+                            Command="{Binding LoadSolutionsCommand}"
+                            Padding="10,4"
+                            MinWidth="110"
+                            Margin="10,0,0,0" />
+                    <ComboBox ItemsSource="{Binding SolutionsView}"
+                              SelectedItem="{Binding SelectedSolution, Mode=TwoWay}"
+                              DisplayMemberPath="DisplayName"
+                              Width="420"
+                              Margin="10,0,0,0"
+                              IsEnabled="{Binding FilterBySolution}" />
+                    <TextBlock Text="{Binding SolutionSummary}"
+                               Margin="10,2,0,0"
                                Foreground="{DynamicResource Fo.SubtleTextBrush}"
-                               Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}" />
-                    <ProgressBar Width="140"
-                                 Height="10"
-                                 IsIndeterminate="True"
-                                 Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}" />
-                </StackPanel>
-
-                <TextBlock Text="{Binding DataverseEndpoint}"
-                           Margin="12,0,0,0"
-                           VerticalAlignment="Center"
-                           TextTrimming="CharacterEllipsis"
-                           Foreground="{DynamicResource Fo.SubtleTextBrush}" />
-            </DockPanel>
+                               VerticalAlignment="Center" />
+                </WrapPanel>
+            </StackPanel>
         </Border>
 
         <Grid Grid.Row="1" Margin="8">
@@ -92,7 +141,7 @@
                               CanUserAddRows="False"
                               CanUserDeleteRows="False"
                               CanUserResizeColumns="True"
-                              IsReadOnly="True"
+                              IsReadOnly="False"
                               HeadersVisibility="Column"
                               GridLinesVisibility="Horizontal"
                               RowHeaderWidth="0"
@@ -101,12 +150,13 @@
                               EnableRowVirtualization="True"
                               EnableColumnVirtualization="True">
                         <DataGrid.Columns>
-                            <DataGridTextColumn Header="Display Name" Binding="{Binding DisplayName, Mode=OneWay}" Width="250" MinWidth="180" />
-                            <DataGridTextColumn Header="Name" Binding="{Binding Name, Mode=OneWay}" Width="240" MinWidth="170" />
-                            <DataGridTextColumn Header="Version" Binding="{Binding Version, Mode=OneWay}" Width="90" MinWidth="80" />
-                            <DataGridTextColumn Header="State" Binding="{Binding State, Mode=OneWay}" Width="90" MinWidth="80" />
-                            <DataGridTextColumn Header="Status" Binding="{Binding Status, Mode=OneWay}" Width="90" MinWidth="80" />
-                            <DataGridTextColumn Header="Modified" Binding="{Binding ModifiedOnDisplay, Mode=OneWay}" Width="170" MinWidth="140" />
+                            <DataGridCheckBoxColumn Header="Sel" Binding="{Binding IsSelected, Mode=TwoWay}" Width="50" />
+                            <DataGridTextColumn Header="Display Name" Binding="{Binding DisplayName, Mode=OneWay}" IsReadOnly="True" Width="250" MinWidth="180" />
+                            <DataGridTextColumn Header="Name" Binding="{Binding Name, Mode=OneWay}" IsReadOnly="True" Width="240" MinWidth="170" />
+                            <DataGridTextColumn Header="Version" Binding="{Binding Version, Mode=OneWay}" IsReadOnly="True" Width="90" MinWidth="80" />
+                            <DataGridTextColumn Header="State" Binding="{Binding State, Mode=OneWay}" IsReadOnly="True" Width="90" MinWidth="80" />
+                            <DataGridTextColumn Header="Status" Binding="{Binding Status, Mode=OneWay}" IsReadOnly="True" Width="90" MinWidth="80" />
+                            <DataGridTextColumn Header="Modified" Binding="{Binding ModifiedOnDisplay, Mode=OneWay}" IsReadOnly="True" Width="170" MinWidth="140" />
                         </DataGrid.Columns>
                     </DataGrid>
 
@@ -149,6 +199,7 @@
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
 
                             <TextBlock Grid.Row="0" Grid.Column="0" Text="Display Name" FontWeight="SemiBold" />
@@ -165,6 +216,8 @@
                             <TextBlock Grid.Row="5" Grid.Column="1" Text="{Binding SelectedRecord.CreatedOnDisplay}" Margin="0,4,0,0" />
                             <TextBlock Grid.Row="6" Grid.Column="0" Text="Modified" FontWeight="SemiBold" Margin="0,4,0,0" />
                             <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding SelectedRecord.ModifiedOnDisplay}" Margin="0,4,0,0" />
+                            <TextBlock Grid.Row="7" Grid.Column="0" Text="Solution ID" FontWeight="SemiBold" Margin="0,4,0,0" />
+                            <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding SelectedRecord.SolutionId}" TextWrapping="Wrap" Margin="0,4,0,0" />
                         </Grid>
 
                         <TextBlock Text="msdyn_mapping"
@@ -307,6 +360,102 @@
                                 <DataGridTextColumn Header="Key" Binding="{Binding Key, Mode=OneWay}" Width="250" MinWidth="170" />
                                 <DataGridTextColumn Header="Type" Binding="{Binding Type, Mode=OneWay}" Width="90" MinWidth="80" />
                                 <DataGridTextColumn Header="Value" Binding="{Binding Value, Mode=OneWay}" Width="*" MinWidth="260" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <TextBlock Text="Count Validation"
+                                   Margin="0,12,0,4"
+                                   FontWeight="SemiBold" />
+                        <TextBlock Text="Count Setup (select included legs and optional FO entity overrides)"
+                                   Margin="0,0,0,4"
+                                   Foreground="{DynamicResource Fo.SubtleTextBrush}" />
+                        <DataGrid ItemsSource="{Binding CountLegConfigs}"
+                                  SelectedItem="{Binding SelectedCountLegConfig, Mode=TwoWay}"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="False"
+                                  CanUserDeleteRows="False"
+                                  CanUserResizeColumns="True"
+                                  IsReadOnly="False"
+                                  HeadersVisibility="Column"
+                                  GridLinesVisibility="Horizontal"
+                                  RowHeaderWidth="0"
+                                  MinHeight="180"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                  EnableRowVirtualization="True"
+                                  EnableColumnVirtualization="True">
+                            <DataGrid.Columns>
+                                <DataGridCheckBoxColumn Header="Incl" Binding="{Binding Include, Mode=TwoWay}" Width="50" />
+                                <DataGridTextColumn Header="Map" Binding="{Binding MapDisplayName, Mode=OneWay}" IsReadOnly="True" Width="220" MinWidth="160" />
+                                <DataGridTextColumn Header="Leg" Binding="{Binding LegId, Mode=OneWay}" IsReadOnly="True" Width="60" MinWidth="50" />
+                                <DataGridTextColumn Header="Source Schema" Binding="{Binding SourceSchema, Mode=OneWay}" IsReadOnly="True" Width="160" MinWidth="130" />
+                                <DataGridTextColumn Header="Source Distinct" Binding="{Binding SourceSchemaDistinctName, Mode=OneWay}" IsReadOnly="True" Width="160" MinWidth="130" />
+                                <DataGridTextColumn Header="FO Resolved" Binding="{Binding FoEntityResolved, Mode=OneWay}" IsReadOnly="True" Width="180" MinWidth="140" />
+                                <DataGridTemplateColumn Header="FO Override" Width="180" MinWidth="140">
+                                    <DataGridTemplateColumn.CellTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding FoEntityEffective}" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellTemplate>
+                                    <DataGridTemplateColumn.CellEditingTemplate>
+                                        <DataTemplate>
+                                            <ComboBox ItemsSource="{Binding DataContext.FoEntities, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                                      SelectedValue="{Binding FoEntityOverride, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                                      SelectedValuePath="Value"
+                                                      DisplayMemberPath="DisplayName" />
+                                        </DataTemplate>
+                                    </DataGridTemplateColumn.CellEditingTemplate>
+                                </DataGridTemplateColumn>
+                                <DataGridTextColumn Header="CE Entity" Binding="{Binding CeEntity, Mode=OneWay}" IsReadOnly="True" Width="160" MinWidth="120" />
+                                <DataGridTextColumn Header="FO Filter (Converted)" Binding="{Binding FoFilter, Mode=OneWay}" IsReadOnly="True" Width="320" MinWidth="220" />
+                                <DataGridTextColumn Header="CE Filter (Reversed)" Binding="{Binding CeFilter, Mode=OneWay}" IsReadOnly="True" Width="320" MinWidth="220" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <TextBlock Text="FO Count Request Preview"
+                                   Margin="0,8,0,2"
+                                   FontWeight="SemiBold" />
+                        <TextBox Text="{Binding FoCountPreviewUrl, Mode=OneWay}"
+                                 IsReadOnly="True"
+                                 MinHeight="52"
+                                 TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto" />
+
+                        <TextBlock Text="CE Count Request Preview"
+                                   Margin="0,8,0,2"
+                                   FontWeight="SemiBold" />
+                        <TextBox Text="{Binding CeCountPreviewUrl, Mode=OneWay}"
+                                 IsReadOnly="True"
+                                 MinHeight="52"
+                                 TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto" />
+
+                        <TextBlock Text="{Binding CountSummary}"
+                                   Margin="0,8,0,4"
+                                   Foreground="{DynamicResource Fo.SubtleTextBrush}" />
+                        <DataGrid ItemsSource="{Binding CountResults}"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="False"
+                                  CanUserDeleteRows="False"
+                                  CanUserResizeColumns="True"
+                                  IsReadOnly="True"
+                                  HeadersVisibility="Column"
+                                  GridLinesVisibility="Horizontal"
+                                  RowHeaderWidth="0"
+                                  MinHeight="180"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                  EnableRowVirtualization="True"
+                                  EnableColumnVirtualization="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Map" Binding="{Binding MapDisplayName, Mode=OneWay}" Width="220" MinWidth="160" />
+                                <DataGridTextColumn Header="Leg" Binding="{Binding LegId, Mode=OneWay}" Width="60" MinWidth="50" />
+                                <DataGridTextColumn Header="FO Entity" Binding="{Binding FoEntity, Mode=OneWay}" Width="140" MinWidth="120" />
+                                <DataGridTextColumn Header="FO Count" Binding="{Binding FoCount, Mode=OneWay}" Width="90" MinWidth="80" />
+                                <DataGridTextColumn Header="CE Entity" Binding="{Binding CeEntity, Mode=OneWay}" Width="140" MinWidth="120" />
+                                <DataGridTextColumn Header="CE Count" Binding="{Binding CeCount, Mode=OneWay}" Width="90" MinWidth="80" />
+                                <DataGridCheckBoxColumn Header="Match" Binding="{Binding CountsMatch, Mode=OneWay}" Width="70" />
+                                <DataGridTextColumn Header="Status" Binding="{Binding Status, Mode=OneWay}" Width="320" MinWidth="220" />
+                                <DataGridTextColumn Header="FO Filter" Binding="{Binding FoFilter, Mode=OneWay}" Width="320" MinWidth="220" />
+                                <DataGridTextColumn Header="CE Filter" Binding="{Binding CeFilter, Mode=OneWay}" Width="320" MinWidth="220" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </StackPanel>
