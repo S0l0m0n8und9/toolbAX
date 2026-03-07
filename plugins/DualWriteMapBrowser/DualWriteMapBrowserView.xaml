@@ -44,6 +44,18 @@
                                 MinWidth="120"
                                 Margin="6,0,0,0"
                                 IsEnabled="{Binding IsNotLoading}" />
+                        <Button Content="Prepare Testify"
+                                Command="{Binding PrepareTestifyCommand}"
+                                Padding="10,4"
+                                MinWidth="120"
+                                Margin="6,0,0,0"
+                                IsEnabled="{Binding IsNotLoading}" />
+                        <Button Content="Run Testify"
+                                Command="{Binding RunTestifyCommand}"
+                                Padding="10,4"
+                                MinWidth="100"
+                                Margin="6,0,0,0"
+                                IsEnabled="{Binding IsNotLoading}" />
                         <CheckBox Content="Exact CE Count (slower)"
                                   IsChecked="{Binding UseExactCeCount, Mode=TwoWay}"
                                   VerticalAlignment="Center"
@@ -456,6 +468,93 @@
                                 <DataGridTextColumn Header="Status" Binding="{Binding Status, Mode=OneWay}" Width="320" MinWidth="220" />
                                 <DataGridTextColumn Header="FO Filter" Binding="{Binding FoFilter, Mode=OneWay}" Width="320" MinWidth="220" />
                                 <DataGridTextColumn Header="CE Filter" Binding="{Binding CeFilter, Mode=OneWay}" Width="320" MinWidth="220" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <TextBlock Text="Testify Validation"
+                                   Margin="0,12,0,4"
+                                   FontWeight="SemiBold" />
+                        <TextBlock Text="{Binding TestifySummary}"
+                                   Margin="0,0,0,4"
+                                   Foreground="{DynamicResource Fo.SubtleTextBrush}" />
+
+                        <TextBlock Text="Preflight"
+                                   Margin="0,4,0,4"
+                                   FontWeight="SemiBold" />
+                        <DataGrid ItemsSource="{Binding TestifyPreflightRows}"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="False"
+                                  CanUserDeleteRows="False"
+                                  CanUserResizeColumns="True"
+                                  IsReadOnly="True"
+                                  HeadersVisibility="Column"
+                                  GridLinesVisibility="Horizontal"
+                                  RowHeaderWidth="0"
+                                  MinHeight="140"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                  EnableRowVirtualization="True"
+                                  EnableColumnVirtualization="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Map" Binding="{Binding MapDisplayName, Mode=OneWay}" Width="220" MinWidth="160" />
+                                <DataGridTextColumn Header="Map Id" Binding="{Binding MapId, Mode=OneWay}" Width="190" MinWidth="140" />
+                                <DataGridTextColumn Header="FO Entity" Binding="{Binding FoEntity, Mode=OneWay}" Width="160" MinWidth="120" />
+                                <DataGridTextColumn Header="Enum Fields" Binding="{Binding EnumFields, Mode=OneWay}" Width="90" MinWidth="80" />
+                                <DataGridTextColumn Header="Planned PATCH" Binding="{Binding PlannedUpdates, Mode=OneWay}" Width="110" MinWidth="90" />
+                                <DataGridCheckBoxColumn Header="Ready" Binding="{Binding IsReady, Mode=OneWay}" Width="70" />
+                                <DataGridTextColumn Header="Status" Binding="{Binding Status, Mode=OneWay}" Width="110" MinWidth="90" />
+                                <DataGridTextColumn Header="Blocking Issue" Binding="{Binding BlockingIssue, Mode=OneWay}" Width="*" MinWidth="260" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <TextBlock Text="Execution Results"
+                                   Margin="0,8,0,4"
+                                   FontWeight="SemiBold" />
+                        <DataGrid ItemsSource="{Binding TestifyResultRows}"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="False"
+                                  CanUserDeleteRows="False"
+                                  CanUserResizeColumns="True"
+                                  IsReadOnly="True"
+                                  HeadersVisibility="Column"
+                                  GridLinesVisibility="Horizontal"
+                                  RowHeaderWidth="0"
+                                  MinHeight="120"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                  EnableRowVirtualization="True"
+                                  EnableColumnVirtualization="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Map" Binding="{Binding MapDisplayName, Mode=OneWay}" Width="220" MinWidth="160" />
+                                <DataGridCheckBoxColumn Header="Valid" Binding="{Binding Valid, Mode=OneWay}" Width="60" />
+                                <DataGridCheckBoxColumn Header="Created" Binding="{Binding CreateSucceeded, Mode=OneWay}" Width="70" />
+                                <DataGridTextColumn Header="Patches Planned" Binding="{Binding PatchesPlanned, Mode=OneWay}" Width="100" MinWidth="90" />
+                                <DataGridTextColumn Header="Patches OK" Binding="{Binding PatchesSucceeded, Mode=OneWay}" Width="90" MinWidth="80" />
+                                <DataGridCheckBoxColumn Header="CE OK" Binding="{Binding CeVerificationSucceeded, Mode=OneWay}" Width="70" />
+                                <DataGridTextColumn Header="Status" Binding="{Binding Status, Mode=OneWay}" Width="*" MinWidth="260" />
+                            </DataGrid.Columns>
+                        </DataGrid>
+
+                        <TextBlock Text="Execution Log"
+                                   Margin="0,8,0,4"
+                                   FontWeight="SemiBold" />
+                        <DataGrid ItemsSource="{Binding TestifyLogRows}"
+                                  AutoGenerateColumns="False"
+                                  CanUserAddRows="False"
+                                  CanUserDeleteRows="False"
+                                  CanUserResizeColumns="True"
+                                  IsReadOnly="True"
+                                  HeadersVisibility="Column"
+                                  GridLinesVisibility="Horizontal"
+                                  RowHeaderWidth="0"
+                                  MinHeight="140"
+                                  ScrollViewer.HorizontalScrollBarVisibility="Auto"
+                                  EnableRowVirtualization="True"
+                                  EnableColumnVirtualization="True">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Time" Binding="{Binding TimestampDisplay, Mode=OneWay}" Width="170" MinWidth="140" />
+                                <DataGridTextColumn Header="Map" Binding="{Binding MapDisplayName, Mode=OneWay}" Width="200" MinWidth="150" />
+                                <DataGridTextColumn Header="Phase" Binding="{Binding Phase, Mode=OneWay}" Width="110" MinWidth="90" />
+                                <DataGridTextColumn Header="Status" Binding="{Binding Status, Mode=OneWay}" Width="90" MinWidth="80" />
+                                <DataGridTextColumn Header="Detail" Binding="{Binding Detail, Mode=OneWay}" Width="*" MinWidth="260" />
                             </DataGrid.Columns>
                         </DataGrid>
                     </StackPanel>

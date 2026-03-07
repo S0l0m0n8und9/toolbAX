@@ -22,7 +22,7 @@ using System.Windows.Input;
 
 namespace DualWriteMapBrowserPlugin;
 
-public sealed class DualWriteMapBrowserViewModel : INotifyPropertyChanged
+public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChanged
 {
     private const int DualWriteMapComponentType = 500;
     private static readonly string SelectColumns = string.Join(",",
@@ -79,6 +79,7 @@ public sealed class DualWriteMapBrowserViewModel : INotifyPropertyChanged
     {
         _ctx = ctx;
         _dataverse = ctx as IPluginContextDataverse;
+        _write = ctx as IPluginContextWrite;
         DataverseEndpoint = HasDataverseConnection
             ? ResourceUrlNormalizer.BuildDataverseApiBaseUrl(_dataverse!.CurrentDataverseEnv!.BaseUrl)
             : "Dataverse profile not configured. Open Profiles and set CE/Dataverse values.";
@@ -87,6 +88,9 @@ public sealed class DualWriteMapBrowserViewModel : INotifyPropertyChanged
         _foEntitiesReadOnly = new ReadOnlyObservableCollection<FoEntityOption>(_foEntities);
         _countLegConfigsReadOnly = new ReadOnlyObservableCollection<CountLegConfigRow>(_countLegConfigs);
         _countResultsReadOnly = new ReadOnlyObservableCollection<CountValidationRow>(_countResults);
+        _testifyPreflightRowsReadOnly = new ReadOnlyObservableCollection<TestifyPreflightRow>(_testifyPreflightRows);
+        _testifyLogRowsReadOnly = new ReadOnlyObservableCollection<TestifyExecutionLogRow>(_testifyLogRows);
+        _testifyResultRowsReadOnly = new ReadOnlyObservableCollection<TestifyResultRow>(_testifyResultRows);
 
         SolutionsView = CollectionViewSource.GetDefaultView(_solutions);
         SolutionsView.Filter = SolutionFilter;
@@ -104,6 +108,8 @@ public sealed class DualWriteMapBrowserViewModel : INotifyPropertyChanged
         LoadSolutionsCommand = new AsyncRelayCommand(LoadSolutionsAsync, onError);
         RefreshCountSetupCommand = new AsyncRelayCommand(RefreshCountSetupAsync, onError);
         ValidateCountsCommand = new AsyncRelayCommand(ValidateCountsAsync, onError);
+        PrepareTestifyCommand = new AsyncRelayCommand(PrepareTestifyAsync, onError);
+        RunTestifyCommand = new AsyncRelayCommand(RunTestifyAsync, onError);
         ClearCommand = new RelayCommand(_ => ClearRecords());
 
         if (!HasDataverseConnection)
@@ -189,7 +195,7 @@ public sealed class DualWriteMapBrowserViewModel : INotifyPropertyChanged
         }
     }
 
-    public bool IsBusy => IsLoading || IsLoadingSolutions || IsCounting;
+    public bool IsBusy => IsLoading || IsLoadingSolutions || IsCounting || IsPreparingTestify || IsRunningTestify;
 
     public bool FilterBySolution
     {
@@ -1916,6 +1922,7 @@ public sealed class DualWriteMapBrowserViewModel : INotifyPropertyChanged
         UpdateRecordSummary();
         ClearCountSetup();
         _countResults.Clear();
+        ClearTestifyState();
         CountSummary = "No count run yet.";
         StatusMessage = "Cleared.";
     }
@@ -1986,7 +1993,9 @@ public sealed class DualWriteMapBrowserViewModel : INotifyPropertyChanged
             mappingLegRows: BuildMappingLegRows(mappingRoot),
             mappingFieldRows: BuildMappingFieldRows(mappingRoot),
             mappingValueTransformRows: BuildMappingValueTransformRows(mappingRoot),
-            propertiesRows: BuildPropertiesRows(propertiesRoot, propertiesRaw));
+            propertiesRows: BuildPropertiesRows(propertiesRoot, propertiesRaw),
+            mappingRaw: mappingRaw,
+            propertiesRaw: propertiesRaw);
     }
 
     private static string? GetValueAsString(JsonElement element, string propertyName)
@@ -2482,7 +2491,9 @@ public sealed class DualWriteMapRecord
         IReadOnlyList<MappingLegRow> mappingLegRows,
         IReadOnlyList<MappingFieldRow> mappingFieldRows,
         IReadOnlyList<MappingValueTransformRow> mappingValueTransformRows,
-        IReadOnlyList<PropertyTableRow> propertiesRows)
+        IReadOnlyList<PropertyTableRow> propertiesRows,
+        string? mappingRaw,
+        string? propertiesRaw)
     {
         Id = id;
         SolutionId = solutionId;
@@ -2500,6 +2511,8 @@ public sealed class DualWriteMapRecord
         MappingFieldRows = mappingFieldRows;
         MappingValueTransformRows = mappingValueTransformRows;
         PropertiesRows = propertiesRows;
+        MappingRaw = mappingRaw;
+        PropertiesRaw = propertiesRaw;
     }
 
     public string Id { get; }
@@ -2518,6 +2531,8 @@ public sealed class DualWriteMapRecord
     public IReadOnlyList<MappingFieldRow> MappingFieldRows { get; }
     public IReadOnlyList<MappingValueTransformRow> MappingValueTransformRows { get; }
     public IReadOnlyList<PropertyTableRow> PropertiesRows { get; }
+    public string? MappingRaw { get; }
+    public string? PropertiesRaw { get; }
     public bool IsSelected { get; set; }
     public string CreatedOnDisplay => FormatDate(CreatedOn);
     public string ModifiedOnDisplay => FormatDate(ModifiedOn);
