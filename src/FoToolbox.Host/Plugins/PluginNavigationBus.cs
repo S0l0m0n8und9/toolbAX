@@ -11,7 +11,7 @@ namespace FoToolbox.Host.Plugins;
 /// resolved. The host should subscribe to <see cref="PluginActivationRequested"/> to
 /// bring the target tab into focus.
 /// </summary>
-internal sealed class PluginNavigationBus : IPluginContextNavigation
+public sealed class PluginNavigationBus : IPluginContextNavigation
 {
     private IReadOnlyList<LoadedPlugin>? _plugins;
 
