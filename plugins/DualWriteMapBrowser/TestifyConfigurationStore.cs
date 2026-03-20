@@ -156,6 +156,12 @@ internal sealed class TestifyConfigurationStore
         }
 
         cfg.PreferredCreateValuesByCompany = byCompany;
+
+        if (cfg.CePollTimeoutMinutes <= 0)
+        {
+            cfg.CePollTimeoutMinutes = 5;
+        }
+
         return cfg;
     }
 }
@@ -173,4 +179,27 @@ public sealed class TestifyMapConfiguration
     public HashSet<string> OmitCreateFields { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, string> PreferredCreateValues { get; set; } = new(StringComparer.OrdinalIgnoreCase);
     public Dictionary<string, Dictionary<string, string>> PreferredCreateValuesByCompany { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// How long to wait for a CE record count delta before timing out. Defaults to 5 minutes.
+    /// </summary>
+    public int CePollTimeoutMinutes { get; set; } = 5;
+
+    /// <summary>
+    /// When true, incomplete enum value-map coverage is treated as a warning rather than a blocking
+    /// issue. Patch steps are generated only for the enum values that are mapped.
+    /// </summary>
+    public bool AllowPartialEnumCoverage { get; set; } = false;
+
+    /// <summary>
+    /// The run token (e.g. "TESTIFY20240101120000") from the last successful CREATE.
+    /// Used to detect whether the test record still exists and can be reused.
+    /// </summary>
+    public string? LastRunToken { get; set; }
+
+    /// <summary>
+    /// The OData instance URL (e.g. ".../MyEntitys(key='value')") of the record created
+    /// during the last Testify run. Null if no record has been created or if the record was cleaned up.
+    /// </summary>
+    public string? LastEntityInstanceUrl { get; set; }
 }

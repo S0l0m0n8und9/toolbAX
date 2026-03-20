@@ -3,8 +3,12 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Input;
 
-namespace ODataPostBuilderPlugin;
+namespace FoToolbox.SDK.Commands;
 
+/// <summary>
+/// An <see cref="ICommand"/> that wraps an async delegate, routing exceptions to an optional error handler.
+/// The command's own <see cref="CancellationTokenSource"/> is passed to the delegate on each execution.
+/// </summary>
 public sealed class AsyncRelayCommand : ICommand
 {
     private readonly Func<CancellationToken, Task> _execute;
@@ -30,19 +34,18 @@ public sealed class AsyncRelayCommand : ICommand
         catch (Exception ex)
         {
             if (_onError is not null)
-            {
                 _onError(ex);
-            }
             else
-            {
                 System.Diagnostics.Debug.WriteLine(ex);
-            }
         }
     }
 
     public Task ExecuteAsync(CancellationToken cancellationToken = default) => _execute(cancellationToken);
 }
 
+/// <summary>
+/// An <see cref="ICommand"/> that wraps a synchronous delegate.
+/// </summary>
 public sealed class RelayCommand : ICommand
 {
     private readonly Action<object?> _execute;
@@ -60,4 +63,3 @@ public sealed class RelayCommand : ICommand
 
     public void Execute(object? parameter) => _execute(parameter);
 }
-
