@@ -25,6 +25,7 @@
         <Setter Property="Padding" Value="{DynamicResource Fo.Padding.Control}" />
         <Setter Property="MinHeight" Value="32" />
         <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="{x:Type Button}">
@@ -47,6 +48,10 @@
                         <Trigger Property="IsPressed" Value="True">
                             <Setter TargetName="Bd" Property="Background" Value="{DynamicResource Fo.ControlPressedBrush}" />
                             <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Fo.AccentPressedBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Fo.AccentBrush}" />
+                            <Setter TargetName="Bd" Property="BorderThickness" Value="2" />
                         </Trigger>
                         <Trigger Property="IsEnabled" Value="False">
                             <Setter Property="Opacity" Value="0.55" />
@@ -96,11 +101,37 @@
 
     <Style TargetType="{x:Type PasswordBox}">
         <Setter Property="Foreground" Value="{DynamicResource Fo.TextBrush}" />
+        <Setter Property="CaretBrush" Value="{DynamicResource Fo.TextBrush}" />
         <Setter Property="Background" Value="{DynamicResource Fo.SurfaceBrush}" />
         <Setter Property="BorderBrush" Value="{DynamicResource Fo.BorderBrush}" />
         <Setter Property="BorderThickness" Value="{DynamicResource Fo.BorderThickness.Control}" />
         <Setter Property="Padding" Value="9,5" />
         <Setter Property="MinHeight" Value="32" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type PasswordBox}">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="{DynamicResource Fo.CornerRadius.Control}"
+                            SnapsToDevicePixels="True">
+                        <ScrollViewer x:Name="PART_ContentHost"
+                                      Margin="{TemplateBinding Padding}"
+                                      Focusable="False" />
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsKeyboardFocused" Value="True">
+                            <Setter TargetName="Bd" Property="BorderBrush" Value="{DynamicResource Fo.AccentBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsEnabled" Value="False">
+                            <Setter Property="Opacity" Value="0.65" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style TargetType="{x:Type ComboBox}">
@@ -242,7 +273,6 @@
         <Setter Property="Background" Value="{DynamicResource Fo.SurfaceBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="Padding" Value="6" />
-        <Setter Property="Margin" Value="0,0,0,10" />
     </Style>
 
     <Style TargetType="{x:Type TabControl}">
@@ -315,6 +345,7 @@
         <Setter Property="RowBackground" Value="{DynamicResource Fo.SurfaceBrush}" />
         <Setter Property="HorizontalGridLinesBrush" Value="{DynamicResource Fo.BorderBrush}" />
         <Setter Property="VerticalGridLinesBrush" Value="{DynamicResource Fo.BorderBrush}" />
+        <Setter Property="RowHeaderWidth" Value="0" />
     </Style>
 
     <Style TargetType="{x:Type DataGridColumnHeader}">
@@ -371,6 +402,196 @@
             <Trigger Property="IsSelected" Value="True">
                 <Setter Property="Background" Value="{DynamicResource Fo.SelectionBrush}" />
                 <Setter Property="Foreground" Value="{DynamicResource Fo.TextBrush}" />
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style TargetType="{x:Type ProgressBar}">
+        <Setter Property="Foreground" Value="{DynamicResource Fo.AccentBrush}" />
+        <Setter Property="Background" Value="{DynamicResource Fo.SurfaceAltBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Fo.BorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ProgressBar}">
+                    <Border x:Name="Bd"
+                            Background="{TemplateBinding Background}"
+                            BorderBrush="{TemplateBinding BorderBrush}"
+                            BorderThickness="{TemplateBinding BorderThickness}"
+                            CornerRadius="4"
+                            SnapsToDevicePixels="True">
+                        <Grid ClipToBounds="True">
+                            <Rectangle x:Name="PART_Track" />
+                            <Decorator x:Name="PART_Indicator" HorizontalAlignment="Left">
+                                <Rectangle x:Name="Indicator"
+                                           Fill="{TemplateBinding Foreground}"
+                                           RadiusX="4" RadiusY="4" />
+                            </Decorator>
+                            <Rectangle x:Name="Animation"
+                                       Fill="{DynamicResource Fo.AccentHoverBrush}"
+                                       Opacity="0"
+                                       Width="60"
+                                       RadiusX="4" RadiusY="4">
+                                <Rectangle.RenderTransform>
+                                    <TranslateTransform x:Name="AnimationTranslate" X="-100" />
+                                </Rectangle.RenderTransform>
+                            </Rectangle>
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsIndeterminate" Value="True">
+                            <Setter TargetName="PART_Indicator" Property="Visibility" Value="Collapsed" />
+                            <Setter TargetName="Animation" Property="Opacity" Value="1" />
+                            <Trigger.EnterActions>
+                                <BeginStoryboard>
+                                    <Storyboard RepeatBehavior="Forever">
+                                        <DoubleAnimation Storyboard.TargetName="AnimationTranslate"
+                                                         Storyboard.TargetProperty="X"
+                                                         From="-100" To="400"
+                                                         Duration="0:0:1.5" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="Fo.ScrollBar.RepeatButtonTransparent" TargetType="{x:Type RepeatButton}">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Focusable" Value="False" />
+        <Setter Property="IsTabStop" Value="False" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type RepeatButton}">
+                    <Border Background="{TemplateBinding Background}" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="Fo.ScrollBar.ThumbStyle" TargetType="{x:Type Thumb}">
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type Thumb}">
+                    <Border x:Name="ThumbBd"
+                            Background="{DynamicResource Fo.BorderBrush}"
+                            CornerRadius="4"
+                            Margin="2" />
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="ThumbBd" Property="Background" Value="{DynamicResource Fo.SubtleTextBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsDragging" Value="True">
+                            <Setter TargetName="ThumbBd" Property="Background" Value="{DynamicResource Fo.AccentBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="{x:Type ScrollBar}">
+        <Setter Property="Background" Value="{DynamicResource Fo.SurfaceAltBrush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Width" Value="10" />
+        <Setter Property="MinWidth" Value="10" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ScrollBar}">
+                    <Grid x:Name="Bg" SnapsToDevicePixels="True">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" MaxHeight="0" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" MaxHeight="0" />
+                        </Grid.RowDefinitions>
+                        <Border Grid.Row="0" Grid.RowSpan="3"
+                                Background="{TemplateBinding Background}" />
+                        <RepeatButton x:Name="PART_LineUpButton" Grid.Row="0"
+                                      Command="{x:Static ScrollBar.LineUpCommand}"
+                                      Style="{StaticResource Fo.ScrollBar.RepeatButtonTransparent}" />
+                        <Track x:Name="PART_Track" Grid.Row="1" IsDirectionReversed="True">
+                            <Track.DecreaseRepeatButton>
+                                <RepeatButton Command="{x:Static ScrollBar.PageUpCommand}"
+                                              Style="{StaticResource Fo.ScrollBar.RepeatButtonTransparent}" />
+                            </Track.DecreaseRepeatButton>
+                            <Track.IncreaseRepeatButton>
+                                <RepeatButton Command="{x:Static ScrollBar.PageDownCommand}"
+                                              Style="{StaticResource Fo.ScrollBar.RepeatButtonTransparent}" />
+                            </Track.IncreaseRepeatButton>
+                            <Track.Thumb>
+                                <Thumb Style="{StaticResource Fo.ScrollBar.ThumbStyle}" />
+                            </Track.Thumb>
+                        </Track>
+                        <RepeatButton x:Name="PART_LineDownButton" Grid.Row="2"
+                                      Command="{x:Static ScrollBar.LineDownCommand}"
+                                      Style="{StaticResource Fo.ScrollBar.RepeatButtonTransparent}" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <Trigger Property="Orientation" Value="Horizontal">
+                <Setter Property="Height" Value="10" />
+                <Setter Property="MinHeight" Value="10" />
+                <Setter Property="Width" Value="Auto" />
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="{x:Type ScrollBar}">
+                            <Grid x:Name="Bg" SnapsToDevicePixels="True">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto" MaxWidth="0" />
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" MaxWidth="0" />
+                                </Grid.ColumnDefinitions>
+                                <Border Grid.Column="0" Grid.ColumnSpan="3"
+                                        Background="{TemplateBinding Background}" />
+                                <RepeatButton x:Name="PART_LineLeftButton" Grid.Column="0"
+                                              Command="{x:Static ScrollBar.LineLeftCommand}"
+                                              Style="{StaticResource Fo.ScrollBar.RepeatButtonTransparent}" />
+                                <Track x:Name="PART_Track" Grid.Column="1" IsDirectionReversed="False">
+                                    <Track.DecreaseRepeatButton>
+                                        <RepeatButton Command="{x:Static ScrollBar.PageLeftCommand}"
+                                                      Style="{StaticResource Fo.ScrollBar.RepeatButtonTransparent}" />
+                                    </Track.DecreaseRepeatButton>
+                                    <Track.IncreaseRepeatButton>
+                                        <RepeatButton Command="{x:Static ScrollBar.PageRightCommand}"
+                                                      Style="{StaticResource Fo.ScrollBar.RepeatButtonTransparent}" />
+                                    </Track.IncreaseRepeatButton>
+                                    <Track.Thumb>
+                                        <Thumb Style="{StaticResource Fo.ScrollBar.ThumbStyle}" />
+                                    </Track.Thumb>
+                                </Track>
+                                <RepeatButton x:Name="PART_LineRightButton" Grid.Column="2"
+                                              Command="{x:Static ScrollBar.LineRightCommand}"
+                                              Style="{StaticResource Fo.ScrollBar.RepeatButtonTransparent}" />
+                            </Grid>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Trigger>
+        </Style.Triggers>
+    </Style>
+
+    <Style TargetType="{x:Type TreeView}">
+        <Setter Property="Background" Value="{DynamicResource Fo.SurfaceBrush}" />
+        <Setter Property="Foreground" Value="{DynamicResource Fo.TextBrush}" />
+        <Setter Property="BorderBrush" Value="{DynamicResource Fo.BorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+    </Style>
+
+    <Style TargetType="{x:Type TreeViewItem}">
+        <Setter Property="Foreground" Value="{DynamicResource Fo.TextBrush}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Padding" Value="4,2" />
+        <Style.Triggers>
+            <Trigger Property="IsMouseOver" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Fo.ControlHoverBrush}" />
+            </Trigger>
+            <Trigger Property="IsSelected" Value="True">
+                <Setter Property="Background" Value="{DynamicResource Fo.SelectionBrush}" />
             </Trigger>
         </Style.Triggers>
     </Style>
