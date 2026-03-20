@@ -246,7 +246,7 @@
                                     </DataTemplate>
                                 </TreeView.Resources>
                             </TreeView>
-                            <TextBlock Text="{Binding ValidationWarning}" Foreground="OrangeRed" Margin="0,4,0,0" />
+                            <TextBlock Text="{Binding ValidationWarning}" Foreground="{DynamicResource Fo.WarningBrush}" Margin="0,4,0,0" />
 
                             <TextBlock Text="Builder Preview" FontWeight="Bold" Margin="0,12,0,0" />
                             <TextBox Text="{Binding FilterBuilderPreview}" IsReadOnly="True" TextWrapping="Wrap" Height="60" VerticalScrollBarVisibility="Auto" />
@@ -296,7 +296,7 @@
                                       StaysOpenOnEdit="True"
                                       IsTextSearchEnabled="True" />
                             <TextBlock Text="{Binding ExpandSummary}" FontSize="10" Foreground="{DynamicResource Fo.SubtleTextBrush}" Margin="0,4,0,0" />
-                            <TextBlock Text="{Binding ExpandWarning}" Foreground="OrangeRed" />
+                            <TextBlock Text="{Binding ExpandWarning}" Foreground="{DynamicResource Fo.WarningBrush}" />
                             <TextBlock Text="Navigation hints" FontWeight="Bold" Margin="0,12,0,0" />
                             <ItemsControl ItemsSource="{Binding NavigationHints}">
                                 <ItemsControl.ItemTemplate>

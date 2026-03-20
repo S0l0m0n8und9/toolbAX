@@ -9,7 +9,11 @@
 
     <!-- Typography -->
     <FontFamily x:Key="Fo.FontFamily">Segoe UI</FontFamily>
+    <sys:Double x:Key="Fo.FontSize.Caption">10</sys:Double>
+    <sys:Double x:Key="Fo.FontSize.Small">11</sys:Double>
     <sys:Double x:Key="Fo.FontSize.Body">12</sys:Double>
+    <sys:Double x:Key="Fo.FontSize.SubHeading">14</sys:Double>
+    <sys:Double x:Key="Fo.FontSize.Heading">15</sys:Double>
 
     <!-- Base colors -->
     <Color x:Key="Fo.Color.WindowBackground">#FF161C24</Color>
@@ -28,6 +32,11 @@
     <Color x:Key="Fo.Color.ControlPressed">#FF3A4D65</Color>
     <Color x:Key="Fo.Color.Selection">#4D5AA6FF</Color>
 
+    <!-- Semantic state colors -->
+    <Color x:Key="Fo.Color.Warning">#FFFF8C00</Color>
+    <Color x:Key="Fo.Color.Error">#FFFC5C5C</Color>
+    <Color x:Key="Fo.Color.Success">#FF4BB543</Color>
+
     <!-- Brushes -->
     <SolidColorBrush x:Key="Fo.WindowBackgroundBrush" Color="{StaticResource Fo.Color.WindowBackground}" />
     <SolidColorBrush x:Key="Fo.SurfaceBrush" Color="{StaticResource Fo.Color.Surface}" />
@@ -43,6 +52,9 @@
     <SolidColorBrush x:Key="Fo.AccentPressedBrush" Color="{StaticResource Fo.Color.AccentPressed}" />
     <SolidColorBrush x:Key="Fo.ControlHoverBrush" Color="{StaticResource Fo.Color.ControlHover}" />
     <SolidColorBrush x:Key="Fo.ControlPressedBrush" Color="{StaticResource Fo.Color.ControlPressed}" />
+    <SolidColorBrush x:Key="Fo.WarningBrush" Color="{StaticResource Fo.Color.Warning}" />
+    <SolidColorBrush x:Key="Fo.ErrorBrush"   Color="{StaticResource Fo.Color.Error}" />
+    <SolidColorBrush x:Key="Fo.SuccessBrush" Color="{StaticResource Fo.Color.Success}" />
 
     <!-- Keep default WPF templates readable under dark theme. -->
     <SolidColorBrush x:Key="{x:Static sw:SystemColors.WindowBrushKey}" Color="{StaticResource Fo.Color.Surface}" />
