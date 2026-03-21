@@ -197,6 +197,13 @@ public sealed partial class ODataPostBuilderViewModel
             Status = _ctxWrite is null
                 ? "Loaded entities. Warning: host did not provide OData.Write capability."
                 : "Loaded entities. Select one to scaffold a payload.";
+
+            if (_pendingNavigationEntity is not null)
+            {
+                var pending = _pendingNavigationEntity;
+                _pendingNavigationEntity = null;
+                ApplyEntityNavigation(pending);
+            }
         }
         catch (Exception ex)
         {
@@ -207,6 +214,35 @@ public sealed partial class ODataPostBuilderViewModel
         finally
         {
             IsBusy = false;
+        }
+    }
+
+    /// <summary>
+    /// Requests that the view model select the specified entity by name.
+    /// If entities have not yet been loaded, triggers a load and selects on completion.
+    /// </summary>
+    public void RequestEntity(string entityName)
+    {
+        if (string.IsNullOrWhiteSpace(entityName)) return;
+
+        if (_entities.Count > 0)
+        {
+            ApplyEntityNavigation(entityName);
+        }
+        else
+        {
+            _pendingNavigationEntity = entityName;
+            LoadEntitiesCommand.ExecuteAsync(CancellationToken.None);
+        }
+    }
+
+    private void ApplyEntityNavigation(string entityName)
+    {
+        var match = _entities.FirstOrDefault(e =>
+            string.Equals(e.Name, entityName, StringComparison.OrdinalIgnoreCase));
+        if (match is not null)
+        {
+            SelectedEntityItem = match;
         }
     }
 

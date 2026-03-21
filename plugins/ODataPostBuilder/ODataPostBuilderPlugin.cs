@@ -1,12 +1,14 @@
 using FoToolbox.SDK.Plugins;
 using Microsoft.Extensions.Logging;
+using System.Collections.Generic;
 using System.Windows.Controls;
 
 namespace ODataPostBuilderPlugin;
 
-public sealed class ODataPostBuilderPlugin : IFoToolPlugin
+public sealed class ODataPostBuilderPlugin : IFoToolPlugin, IFoToolPluginNavigation
 {
     private IPluginContext? _ctx;
+    private ODataPostBuilderViewModel? _viewModel;
 
     public string Id => "fo.odatapostbuilder";
     public Version Version => new(0, 1, 0, 0);
@@ -29,6 +31,16 @@ public sealed class ODataPostBuilderPlugin : IFoToolPlugin
     public UserControl CreateTool()
     {
         if (_ctx is null) throw new InvalidOperationException("Not initialized");
-        return new ODataPostBuilderView(new ODataPostBuilderViewModel(_ctx));
+        _viewModel = new ODataPostBuilderViewModel(_ctx);
+        return new ODataPostBuilderView(_viewModel);
+    }
+
+    public void OnNavigateTo(IReadOnlyDictionary<string, string> parameters)
+    {
+        if (_viewModel is null) return;
+        if (parameters.TryGetValue("entity", out var entityName) && !string.IsNullOrWhiteSpace(entityName))
+        {
+            _viewModel.RequestEntity(entityName);
+        }
     }
 }

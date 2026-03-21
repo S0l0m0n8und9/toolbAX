@@ -119,6 +119,20 @@ public partial class MainWindow : Window
                 trust);
             var plugins = await manager.DiscoverAsync();
             _vm.LoadPlugins(plugins, _profilesView);
+
+            // Wire cross-plugin tab activation: when a plugin calls TryNavigateTo the bus fires
+            // this event so the host can bring the right tab to focus.
+            manager.NavigationBus.PluginActivationRequested += loaded =>
+            {
+                Dispatcher.InvokeAsync(() =>
+                {
+                    var entry = _vm.Plugins.FirstOrDefault(p => p.Loaded == loaded);
+                    if (entry is not null)
+                    {
+                        _vm.Selected = entry;
+                    }
+                });
+            };
         }
         catch (Exception ex)
         {

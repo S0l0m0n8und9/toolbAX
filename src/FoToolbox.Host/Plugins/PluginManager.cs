@@ -31,6 +31,14 @@ public sealed class PluginManager
     private readonly PluginTrustOptions _trustOptions;
     private readonly DataverseEnvironment? _dataverseEnv;
     private readonly HttpClient? _dataverseHttp;
+    private readonly PluginNavigationBus _navBus = new();
+
+    /// <summary>
+    /// The shared navigation bus. The host UI should subscribe to
+    /// <see cref="PluginNavigationBus.PluginActivationRequested"/> after <see cref="DiscoverAsync"/>
+    /// to bring the target plugin tab into focus when navigation is requested.
+    /// </summary>
+    public PluginNavigationBus NavigationBus => _navBus;
 
     public PluginManager(
         string pluginRoot,
@@ -103,6 +111,7 @@ public sealed class PluginManager
             }
         }
 
+        _navBus.SetPlugins(results);
         return results;
     }
 
@@ -128,8 +137,8 @@ public sealed class PluginManager
                      ?? throw new InvalidOperationException($"Could not create instance of {pluginType.FullName}.");
 
         IPluginContext ctx = RequiresWrite(manifest)
-            ? new PluginContextWrite(_env, _odata, _odataWrite, _catalog, _logger, _dataverseEnv, _dataverseHttp)
-            : new PluginContext(_env, _odata, _catalog, _logger, _dataverseEnv, _dataverseHttp);
+            ? new PluginContextWrite(_env, _odata, _odataWrite, _catalog, _logger, _dataverseEnv, _dataverseHttp, _navBus)
+            : new PluginContext(_env, _odata, _catalog, _logger, _dataverseEnv, _dataverseHttp, _navBus);
         await plugin.InitializeAsync(ctx);
         var control = plugin.CreateTool();
 

@@ -3,6 +3,7 @@ using FoToolbox.Core.OData;
 using FoToolbox.Core.Export;
 using FoToolbox.Core.Profiles;
 using FoToolbox.SDK.Collections;
+using FoToolbox.SDK.Commands;
 using FoToolbox.SDK.Plugins;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
@@ -20,7 +21,6 @@ using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Data;
-using System.Windows.Input;
 
 namespace QueryBuilderPlugin;
 
@@ -78,6 +78,7 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
     private CancellationTokenSource? _fieldSearchCts;
     private CancellationTokenSource? _selectedEntityDetailsCts;
     private bool _suppressFieldSelectionRebuild;
+    private string? _pendingNavigationEntity;
 
     // Useful for tests and for callers that want to await details loading.
     public Task SelectedEntityDetailsTask { get; private set; } = Task.CompletedTask;
@@ -488,6 +489,13 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
             EntityLoadStatus = $"Loaded {_entities.Count} entities in {(DateTime.UtcNow - started).TotalSeconds:F1}s.";
             Status = "Pick an entity, then choose fields and filters.";
             RefreshFilterEnumProviders();
+
+            if (_pendingNavigationEntity is not null)
+            {
+                var pending = _pendingNavigationEntity;
+                _pendingNavigationEntity = null;
+                ApplyEntityNavigation(pending);
+            }
         }
         catch (Exception ex)
         {
@@ -497,6 +505,35 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         finally
         {
             IsLoadingEntities = false;
+        }
+    }
+
+    /// <summary>
+    /// Requests that the view model select the specified entity by name.
+    /// If entities have not yet been loaded, triggers a load and selects on completion.
+    /// </summary>
+    public void RequestEntity(string entityName)
+    {
+        if (string.IsNullOrWhiteSpace(entityName)) return;
+
+        if (_entities.Count > 0)
+        {
+            ApplyEntityNavigation(entityName);
+        }
+        else
+        {
+            _pendingNavigationEntity = entityName;
+            LoadEntitiesCommand.ExecuteAsync(CancellationToken.None);
+        }
+    }
+
+    private void ApplyEntityNavigation(string entityName)
+    {
+        var match = _entities.FirstOrDefault(e =>
+            string.Equals(e.Name, entityName, StringComparison.OrdinalIgnoreCase));
+        if (match is not null)
+        {
+            SelectedEntity = match.Name;
         }
     }
 
@@ -1889,61 +1926,6 @@ public sealed class QueryBuilderViewModel : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
 }
 
-public sealed class AsyncRelayCommand : ICommand
-{
-    private readonly Func<CancellationToken, Task> _execute;
-    private readonly Action<Exception>? _onError;
-    private readonly CancellationTokenSource _cts = new();
-
-    public AsyncRelayCommand(Func<CancellationToken, Task> execute, Action<Exception>? onError = null)
-    {
-        _execute = execute;
-        _onError = onError;
-    }
-
-    public event EventHandler? CanExecuteChanged { add { } remove { } }
-
-    public bool CanExecute(object? parameter) => true;
-
-    public async void Execute(object? parameter)
-    {
-        try
-        {
-            await _execute(_cts.Token);
-        }
-        catch (Exception ex)
-        {
-            if (_onError is not null)
-            {
-                _onError(ex);
-            }
-            else
-            {
-                System.Diagnostics.Debug.WriteLine(ex);
-            }
-        }
-    }
-
-    public Task ExecuteAsync(CancellationToken cancellationToken = default) => _execute(cancellationToken);
-}
-
-public sealed class RelayCommand : ICommand
-{
-    private readonly Action<object?> _execute;
-    private readonly Predicate<object?>? _canExecute;
-
-    public RelayCommand(Action<object?> execute, Predicate<object?>? canExecute = null)
-    {
-        _execute = execute;
-        _canExecute = canExecute;
-    }
-
-    public event EventHandler? CanExecuteChanged { add { } remove { } }
-
-    public bool CanExecute(object? parameter) => _canExecute?.Invoke(parameter) ?? true;
-
-    public void Execute(object? parameter) => _execute(parameter);
-}
 
 public sealed class SavedQueryItem
 {

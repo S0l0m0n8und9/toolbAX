@@ -1,6 +1,7 @@
 using FoToolbox.Core.Catalog;
 using FoToolbox.Core.OData;
 using FoToolbox.SDK.Collections;
+using FoToolbox.SDK.Commands;
 using FoToolbox.SDK.Plugins;
 using Microsoft.Extensions.Logging;
 using Microsoft.Win32;
@@ -16,8 +17,8 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
 using System.Windows.Data;
-using System.Windows.Input;
 
 namespace TableEntityBrowserPlugin;
 
@@ -55,6 +56,8 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
     private CancellationTokenSource? _tableSearchCts;
     private CancellationTokenSource? _entitySearchCts;
     private CancellationTokenSource? _selectedEntityDetailsCts;
+    private CancellationTokenSource? _entityCountCts;
+    private string? _suggestedEntityForTable;
 
     public TableEntityBrowserViewModel(IPluginContext ctx)
     {
@@ -81,6 +84,9 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
         RefreshSelectedEntityCommand = new AsyncRelayCommand(RefreshSelectedEntityAsync, onCommandError);
         RefreshAllCommand = new AsyncRelayCommand(RefreshAllAsync, onCommandError);
         OpenTableBrowserCommand = new RelayCommand(_ => OpenTableBrowser());
+        CopyEntityEndpointCommand = new RelayCommand(_ => CopyEntityEndpoint());
+        OpenInQueryBuilderCommand = new RelayCommand(_ => NavigateToPlugin("fo.querybuilder"));
+        SendToApiBuilderCommand = new RelayCommand(_ => NavigateToPlugin("fo.odatapostbuilder"));
         ImportTablesCommand = new AsyncRelayCommand(ImportTablesAsync, onCommandError);
         SaveImportTemplateCommand = new AsyncRelayCommand(SaveImportTemplateAsync, onCommandError);
         SaveTemplateCommand = new AsyncRelayCommand(SaveTableBrowserTemplateAsync, onCommandError);
@@ -229,9 +235,23 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
     public AsyncRelayCommand RefreshSelectedEntityCommand { get; }
     public AsyncRelayCommand RefreshAllCommand { get; }
     public RelayCommand OpenTableBrowserCommand { get; }
+    public RelayCommand CopyEntityEndpointCommand { get; }
+    /// <summary>Opens the selected entity in the Query Builder plugin, if available.</summary>
+    public RelayCommand OpenInQueryBuilderCommand { get; }
+    /// <summary>Sends the selected entity to the OData API Builder plugin, if available.</summary>
+    public RelayCommand SendToApiBuilderCommand { get; }
     public AsyncRelayCommand ImportTablesCommand { get; }
     public AsyncRelayCommand SaveImportTemplateCommand { get; }
     public AsyncRelayCommand SaveTemplateCommand { get; }
+
+    /// <summary>
+    /// The name of the entity that most closely matches the selected table, if one was found.
+    /// </summary>
+    public string? SuggestedEntityForTable
+    {
+        get => _suggestedEntityForTable;
+        private set { _suggestedEntityForTable = value; OnPropertyChanged(); }
+    }
 
     private async Task LoadTablesAsync(CancellationToken ct)
     {
@@ -466,13 +486,19 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
         {
             SelectedTableSummary = "No table selected.";
             SelectedTableBrowserUrl = null;
+            SuggestedEntityForTable = null;
             return;
         }
 
         var deprecated = SelectedTable.IsDeprecated ? "Deprecated" : "Active";
         var viewFlag = SelectedTable.IsView ? "View" : "Table";
         var config = string.IsNullOrWhiteSpace(SelectedTable.ConfigurationKey) ? "No config key" : $"Config: {SelectedTable.ConfigurationKey}";
-        SelectedTableSummary = $"{SelectedTable.Name} | {viewFlag} | {deprecated} | {config}";
+
+        var suggested = FindEntityForTable(SelectedTable.Name);
+        SuggestedEntityForTable = suggested;
+        var entityHint = suggested is not null ? $" | Likely entity: {suggested}" : string.Empty;
+
+        SelectedTableSummary = $"{SelectedTable.Name} | {viewFlag} | {deprecated} | {config}{entityHint}";
         SelectedTableBrowserUrl = _ctx.Catalog.BuildTableBrowserUrl(_ctx.CurrentEnv, SelectedTable.Name);
     }
 
@@ -480,6 +506,7 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
     {
         _entityFields.Clear();
         _navigation.Clear();
+        _entityCountCts?.Cancel();
         if (SelectedEntity is null)
         {
             SelectedEntitySummary = "No entity selected.";
@@ -487,8 +514,12 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
             return;
         }
 
-        SelectedEntitySummary = $"{SelectedEntity.Name} | {SelectedEntity.PropertyCount} fields, {SelectedEntity.NavigationCount} nav properties";
+        SelectedEntitySummary = $"{SelectedEntity.Name} | {SelectedEntity.PropertyCount} fields, {SelectedEntity.NavigationCount} nav properties | count: ...";
         SelectedEntityEndpoint = _ctx.Catalog.BuildODataEntityUrl(_ctx.CurrentEnv, SelectedEntity.Name);
+
+        var cts = new CancellationTokenSource();
+        _entityCountCts = cts;
+        _ = LoadEntityCountAsync(SelectedEntity.Name, cts.Token);
     }
 
     private void StartLoadSelectedEntityDetails()
@@ -500,6 +531,127 @@ public sealed class TableEntityBrowserViewModel : INotifyPropertyChanged
         var cts = new CancellationTokenSource();
         _selectedEntityDetailsCts = cts;
         _ = LoadSelectedEntityDetailsAsync(SelectedEntity.Name, CatalogRefreshMode.UseCacheIfAvailable, cts.Token);
+    }
+
+    private async Task LoadEntityCountAsync(string entityName, CancellationToken ct)
+    {
+        try
+        {
+            var spec = new QuerySpec(Entity: entityName, CrossCompany: true, Top: 0, Count: true);
+            var request = QueryBuilder.Build(_ctx.CurrentEnv.BaseUrl, spec);
+            long? count = null;
+            await foreach (var page in _ctx.OData.StreamAsync(request, ct).ConfigureAwait(false))
+            {
+                count = page.ODataCount;
+                break;
+            }
+
+            if (ct.IsCancellationRequested) return;
+            if (SelectedEntity is null || !string.Equals(SelectedEntity.Name, entityName, StringComparison.OrdinalIgnoreCase)) return;
+
+            var countText = count.HasValue ? $"~{count.Value:N0} records" : "count unavailable";
+            SelectedEntitySummary = $"{entityName} | {SelectedEntity.PropertyCount} fields, {SelectedEntity.NavigationCount} nav properties | {countText}";
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // ignore
+        }
+        catch (Exception ex)
+        {
+            _ctx.Logger.LogError(ex, "Entity count failed for {Entity}", entityName);
+            if (!ct.IsCancellationRequested && SelectedEntity?.Name == entityName)
+            {
+                SelectedEntitySummary = $"{entityName} | {SelectedEntity.PropertyCount} fields, {SelectedEntity.NavigationCount} nav properties | count unavailable";
+            }
+        }
+    }
+
+    private void CopyEntityEndpoint()
+    {
+        if (string.IsNullOrWhiteSpace(SelectedEntityEndpoint))
+        {
+            Status = "No entity selected.";
+            return;
+        }
+
+        Clipboard.SetText(SelectedEntityEndpoint);
+        Status = $"Copied: {SelectedEntityEndpoint}";
+    }
+
+    private void NavigateToPlugin(string targetPluginId)
+    {
+        if (SelectedEntity is null)
+        {
+            Status = "Select an entity first.";
+            return;
+        }
+
+        if (_ctx is not IPluginContextNavigation nav)
+        {
+            Status = "Cross-plugin navigation is not supported by this host.";
+            return;
+        }
+
+        var parameters = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["entity"] = SelectedEntity.Name
+        };
+
+        if (!nav.TryNavigateTo(targetPluginId, parameters))
+        {
+            Status = $"Plugin '{targetPluginId}' is not available or does not support navigation.";
+        }
+    }
+
+    private string? FindEntityForTable(string tableName)
+    {
+        if (_entities.Count == 0 || string.IsNullOrWhiteSpace(tableName))
+        {
+            return null;
+        }
+
+        // Normalize the table name: remove underscores, lowercase for comparison.
+        var normalizedTable = tableName.Replace("_", "").ToUpperInvariant();
+
+        string? bestMatch = null;
+        var bestScore = 0;
+
+        foreach (var entity in _entities)
+        {
+            var normalizedEntity = entity.Name.ToUpperInvariant();
+            int score;
+
+            if (string.Equals(normalizedEntity, normalizedTable, StringComparison.OrdinalIgnoreCase))
+            {
+                // Exact match after normalization — return immediately.
+                return entity.Name;
+            }
+            else if (normalizedEntity.StartsWith(normalizedTable, StringComparison.OrdinalIgnoreCase) ||
+                     normalizedTable.StartsWith(normalizedEntity, StringComparison.OrdinalIgnoreCase))
+            {
+                score = 80 + Math.Min(normalizedEntity.Length, normalizedTable.Length);
+            }
+            else if (normalizedEntity.Contains(normalizedTable, StringComparison.OrdinalIgnoreCase))
+            {
+                score = 50 + normalizedTable.Length;
+            }
+            else if (normalizedTable.Contains(normalizedEntity, StringComparison.OrdinalIgnoreCase))
+            {
+                score = 40 + normalizedEntity.Length;
+            }
+            else
+            {
+                continue;
+            }
+
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestMatch = entity.Name;
+            }
+        }
+
+        return bestMatch;
     }
 
     private async Task LoadSelectedEntityDetailsAsync(string entityName, CatalogRefreshMode mode, CancellationToken ct)
@@ -761,58 +913,3 @@ public sealed class EntityFieldItem
         : $"{(string.IsNullOrWhiteSpace(MinValue) ? "-" : MinValue)} .. {(string.IsNullOrWhiteSpace(MaxValue) ? "-" : MaxValue)}";
 }
 
-public sealed class AsyncRelayCommand : ICommand
-{
-    private readonly Func<CancellationToken, Task> _execute;
-    private readonly Action<Exception>? _onError;
-    private readonly CancellationTokenSource _cts = new();
-
-    public AsyncRelayCommand(Func<CancellationToken, Task> execute, Action<Exception>? onError = null)
-    {
-        _execute = execute;
-        _onError = onError;
-    }
-
-    public event EventHandler? CanExecuteChanged { add { } remove { } }
-
-    public bool CanExecute(object? parameter) => true;
-
-    public async void Execute(object? parameter)
-    {
-        try
-        {
-            await _execute(_cts.Token);
-        }
-        catch (Exception ex)
-        {
-            if (_onError is not null)
-            {
-                _onError(ex);
-            }
-            else
-            {
-                Debug.WriteLine(ex);
-            }
-        }
-    }
-
-    public Task ExecuteAsync(CancellationToken cancellationToken = default) => _execute(cancellationToken);
-}
-
-public sealed class RelayCommand : ICommand
-{
-    private readonly Action<object?> _execute;
-    private readonly Predicate<object?>? _canExecute;
-
-    public RelayCommand(Action<object?> execute, Predicate<object?>? canExecute = null)
-    {
-        _execute = execute;
-        _canExecute = canExecute;
-    }
-
-    public event EventHandler? CanExecuteChanged { add { } remove { } }
-
-    public bool CanExecute(object? parameter) => _canExecute?.Invoke(parameter) ?? true;
-
-    public void Execute(object? parameter) => _execute(parameter);
-}

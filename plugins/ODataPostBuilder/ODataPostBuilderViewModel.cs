@@ -1,6 +1,7 @@
 using FoToolbox.Core.OData;
 using FoToolbox.Core.Profiles;
 using FoToolbox.SDK.Collections;
+using FoToolbox.SDK.Commands;
 using FoToolbox.SDK.Plugins;
 using Microsoft.Extensions.Logging;
 using System;
@@ -60,6 +61,7 @@ public sealed partial class ODataPostBuilderViewModel : INotifyPropertyChanged
     private bool _confirmedThisSession;
     private CancellationTokenSource? _entitySearchCts;
     private CancellationTokenSource? _selectedEntityDetailsCts;
+    private string? _pendingNavigationEntity;
 
     public ODataPostBuilderViewModel(IPluginContext ctx)
     {

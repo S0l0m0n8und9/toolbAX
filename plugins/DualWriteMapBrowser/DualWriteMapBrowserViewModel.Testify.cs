@@ -1,5 +1,6 @@
 using FoToolbox.Core.Auth;
 using FoToolbox.Core.OData;
+using FoToolbox.SDK.Commands;
 using FoToolbox.SDK.Plugins;
 using Microsoft.Extensions.Logging;
 using System;
@@ -34,6 +35,7 @@ public sealed partial class DualWriteMapBrowserViewModel
 
     public AsyncRelayCommand PrepareTestifyCommand { get; }
     public AsyncRelayCommand RunTestifyCommand { get; }
+    public AsyncRelayCommand CleanupTestifyCommand { get; }
 
     public ReadOnlyObservableCollection<TestifyPreflightRow> TestifyPreflightRows => _testifyPreflightRowsReadOnly;
     public ReadOnlyObservableCollection<TestifyExecutionLogRow> TestifyLogRows => _testifyLogRowsReadOnly;
@@ -124,6 +126,9 @@ public sealed partial class DualWriteMapBrowserViewModel
                 var blockingIssue = plan.BlockingIssues.Count == 0
                     ? string.Empty
                     : string.Join(" ", plan.BlockingIssues);
+                var rowStatus = plan.CanRun
+                    ? (plan.Warnings.Count > 0 ? "Ready (with warnings)" : "Ready")
+                    : "Blocked";
                 var row = new TestifyPreflightRow(
                     mapDisplayName: plan.MapDisplayName,
                     mapId: plan.MapId,
@@ -131,7 +136,7 @@ public sealed partial class DualWriteMapBrowserViewModel
                     enumFields: plan.EnumFields.Count,
                     plannedUpdates: plan.PatchSteps.Count,
                     isReady: plan.CanRun,
-                    status: plan.CanRun ? "Ready" : "Blocked",
+                    status: rowStatus,
                     blockingIssue: blockingIssue);
                 _testifyPreflightRows.Add(row);
 
@@ -252,30 +257,73 @@ public sealed partial class DualWriteMapBrowserViewModel
 
                 try
                 {
-                    AddTestifyLog(plan.MapDisplayName, "Create", "Started", "Creating FO test record.");
-                    var baselines = await GetCeBaselinesAsync(plan, cancellationToken);
-
                     var runtimeCreateValues = new Dictionary<string, string>(plan.CreateValues, StringComparer.OrdinalIgnoreCase);
-                    var createResponse = await SendCreateWithRetryAsync(plan, runtimeCreateValues, plan.Configuration, cancellationToken);
-                    if (!IsSuccessfulStatusCode(createResponse.StatusCode))
+                    string entityInstanceUrl;
+
+                    // Idempotency: reuse the record from the last run if it still exists.
+                    var reusingExisting = false;
+                    if (!string.IsNullOrWhiteSpace(plan.Configuration.LastEntityInstanceUrl))
                     {
-                        throw new InvalidOperationException($"FO create failed: HTTP {createResponse.StatusCode}. {TrimForStatus(createResponse.Body ?? string.Empty)}");
+                        var existingUrl = plan.Configuration.LastEntityInstanceUrl!;
+                        var recordExists = await CheckFoRecordExistsAsync(existingUrl, cancellationToken);
+                        if (recordExists)
+                        {
+                            entityInstanceUrl = existingUrl;
+                            reusingExisting = true;
+                            createSucceeded = true;
+                            ceSucceeded = true;
+                            AddTestifyLog(plan.MapDisplayName, "Create", "Skipped", $"Reusing existing test record from last run: {existingUrl}");
+                        }
+                        else
+                        {
+                            AddTestifyLog(plan.MapDisplayName, "Create", "Info", "Previous test record no longer exists; creating fresh record.");
+                            plan.Configuration.LastEntityInstanceUrl = null;
+                            plan.Configuration.LastRunToken = null;
+                            await _testifyConfigStore.SaveAsync(plan.Configuration, cancellationToken);
+                        }
                     }
 
-                    MergeKeyValuesFromCreateResponse(plan.FoEntityDetails!, createResponse.Body, runtimeCreateValues);
-
-                    createSucceeded = true;
-                    AddTestifyLog(plan.MapDisplayName, "Create", "Succeeded", $"FO create returned HTTP {createResponse.StatusCode}.");
-
-                    await WaitForCeDeltaAsync(plan, baselines, cancellationToken, "after create");
-                    ceSucceeded = true;
-                    AddTestifyLog(plan.MapDisplayName, "CE Verify", "Succeeded", "CE baseline delta reached after create.");
-
-                    var collectionUrl = _ctx.Catalog.BuildODataEntityUrl(_ctx.CurrentEnv, plan.FoEntity);
-                    if (!TestifyRunner.TryBuildEntityInstanceUrl(collectionUrl, plan.FoEntityDetails!, runtimeCreateValues, out var entityInstanceUrl, out var keyError))
+                    if (!reusingExisting)
                     {
-                        throw new InvalidOperationException(keyError);
+                        AddTestifyLog(plan.MapDisplayName, "Create", "Started", "Creating FO test record.");
+                        var preCreateBaselines = await GetCeBaselinesAsync(plan, cancellationToken);
+
+                        var createResponse = await SendCreateWithRetryAsync(plan, runtimeCreateValues, plan.Configuration, cancellationToken);
+                        if (!IsSuccessfulStatusCode(createResponse.StatusCode))
+                        {
+                            throw new InvalidOperationException($"FO create failed: HTTP {createResponse.StatusCode}. {TrimForStatus(createResponse.Body ?? string.Empty)}");
+                        }
+
+                        MergeKeyValuesFromCreateResponse(plan.FoEntityDetails!, createResponse.Body, runtimeCreateValues);
+
+                        createSucceeded = true;
+                        AddTestifyLog(plan.MapDisplayName, "Create", "Succeeded", $"FO create returned HTTP {createResponse.StatusCode}.");
+
+                        await WaitForCeDeltaAsync(plan, preCreateBaselines, cancellationToken, "after create");
+                        ceSucceeded = true;
+                        AddTestifyLog(plan.MapDisplayName, "CE Verify", "Succeeded", "CE baseline delta reached after create.");
+
+                        var collectionUrl = _ctx.Catalog.BuildODataEntityUrl(_ctx.CurrentEnv, plan.FoEntity);
+                        if (!TestifyRunner.TryBuildEntityInstanceUrl(collectionUrl, plan.FoEntityDetails!, runtimeCreateValues, out entityInstanceUrl, out var keyError))
+                        {
+                            throw new InvalidOperationException(keyError);
+                        }
+
+                        // Persist the instance URL for idempotency on future runs.
+                        plan.Configuration.LastRunToken = runtimeCreateValues.TryGetValue("FOTBTestifyRunId", out var tok) ? tok
+                            : runtimeCreateValues.TryGetValue("Name", out tok) ? tok
+                            : runtimeCreateValues.TryGetValue("Description", out tok) ? tok
+                            : null;
+                        plan.Configuration.LastEntityInstanceUrl = entityInstanceUrl;
+                        await _testifyConfigStore.SaveAsync(plan.Configuration, cancellationToken);
                     }
+                    else
+                    {
+                        entityInstanceUrl = plan.Configuration.LastEntityInstanceUrl!;
+                    }
+
+                    // Get fresh baselines before patch steps (needed for both new and reused records).
+                    var baselines = await GetCeBaselinesAsync(plan, cancellationToken);
 
                     foreach (var step in plan.PatchSteps)
                     {
@@ -540,7 +588,10 @@ public sealed partial class DualWriteMapBrowserViewModel
 
                 if (missingMembers.Count > 0)
                 {
-                    blockingIssues.Add($"Enum coverage missing for field '{aggregate.Key}': {string.Join(", ", missingMembers)}.");
+                    if (configuration.AllowPartialEnumCoverage)
+                        warnings.Add($"Enum coverage partial for field '{aggregate.Key}': {string.Join(", ", missingMembers)} not mapped. Running with mapped values only.");
+                    else
+                        blockingIssues.Add($"Enum coverage missing for field '{aggregate.Key}': {string.Join(", ", missingMembers)}.");
                 }
             }
 
@@ -684,7 +735,8 @@ public sealed partial class DualWriteMapBrowserViewModel
     {
         var dataverseHttp = _dataverse!.DataverseHttp!;
         var apiBase = ResourceUrlNormalizer.BuildDataverseApiBaseUrl(_dataverse.CurrentDataverseEnv!.BaseUrl);
-        var deadline = DateTimeOffset.UtcNow.AddMinutes(5);
+        var timeoutMinutes = plan.Configuration.CePollTimeoutMinutes > 0 ? plan.Configuration.CePollTimeoutMinutes : 5;
+        var deadline = DateTimeOffset.UtcNow.AddMinutes(timeoutMinutes);
 
         while (DateTimeOffset.UtcNow <= deadline)
         {
@@ -716,7 +768,7 @@ public sealed partial class DualWriteMapBrowserViewModel
             await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
         }
 
-        throw new InvalidOperationException($"CE verification timed out ({phase}) after 5 minutes.");
+        throw new InvalidOperationException($"CE verification timed out ({phase}) after {timeoutMinutes} minute(s). Increase CePollTimeoutMinutes in Testify configuration if sync is slow.");
     }
 
     private async Task<ODataWriteResponse> SendCreateWithRetryAsync(
@@ -1559,6 +1611,189 @@ public sealed partial class DualWriteMapBrowserViewModel
     {
         var row = new TestifyExecutionLogRow(DateTimeOffset.UtcNow, mapDisplayName, phase, status, detail);
         _testifyLogRows.Add(row);
+    }
+
+    private async Task CleanupTestifyAsync(CancellationToken cancellationToken)
+    {
+        if (_write?.ODataWrite is null)
+        {
+            StatusMessage = "Testify cleanup requires OData.Write capability, but it is not available in this host context.";
+            return;
+        }
+
+        if (_testifyPlans.Count == 0)
+        {
+            await PrepareTestifyAsync(cancellationToken);
+            if (_testifyPlans.Count == 0)
+            {
+                StatusMessage = "No Testify plans available for cleanup. Run 'Prepare Testify' first.";
+                return;
+            }
+        }
+
+        // Collect cleanup targets: stored instance URLs + live query results.
+        var deleteUrls = new List<(string MapName, string Url)>();
+
+        foreach (var plan in _testifyPlans.Values.Where(p => p.FoEntityDetails is not null))
+        {
+            // Include stored URL from last run.
+            if (!string.IsNullOrWhiteSpace(plan.Configuration.LastEntityInstanceUrl))
+            {
+                deleteUrls.Add((plan.MapDisplayName, plan.Configuration.LastEntityInstanceUrl!));
+            }
+
+            // Live query: find records tagged with TESTIFY prefix.
+            var tagField = FindTagField(plan.FoEntityDetails!);
+            if (tagField is not null)
+            {
+                try
+                {
+                    var collectionUrl = _ctx.Catalog.BuildODataEntityUrl(_ctx.CurrentEnv, plan.FoEntity);
+                    var keyNames = plan.FoEntityDetails!.Properties
+                        .Where(p => p.IsKey)
+                        .Select(p => p.Name)
+                        .ToList();
+                    var selectFields = keyNames.Concat(new[] { tagField }).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                    var filterExpr = $"startswith({tagField},'TESTIFY-')";
+                    var queryUrl = $"{collectionUrl}?$filter={Uri.EscapeDataString(filterExpr)}&$select={string.Join(",", selectFields)}&$top=100&cross-company=true";
+
+                    await foreach (var page in _ctx.OData.StreamAsync(new QueryRequest(queryUrl), cancellationToken))
+                    {
+                        foreach (var row in page.Rows)
+                        {
+                            var stringRow = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                            foreach (var pair in row)
+                            {
+                                if (TryGetRowValueIgnoreCase(row, pair.Key, out var sv))
+                                {
+                                    stringRow[pair.Key] = sv;
+                                }
+                            }
+
+                            if (TestifyRunner.TryBuildEntityInstanceUrl(collectionUrl, plan.FoEntityDetails!, stringRow, out var instanceUrl, out _))
+                            {
+                                if (!deleteUrls.Any(d => string.Equals(d.Url, instanceUrl, StringComparison.OrdinalIgnoreCase)))
+                                {
+                                    deleteUrls.Add((plan.MapDisplayName, instanceUrl));
+                                }
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _ctx.Logger.LogWarning(ex, "Testify cleanup query failed for {Entity}", plan.FoEntity);
+                }
+            }
+        }
+
+        if (deleteUrls.Count == 0)
+        {
+            StatusMessage = "No Testify test records found to clean up.";
+            TestifySummary = "Cleanup: no records found.";
+            return;
+        }
+
+        var breakdown = string.Join(Environment.NewLine,
+            deleteUrls.GroupBy(d => d.MapName)
+                .Select(g => $"- {g.Key}: {g.Count()} record(s)"));
+
+        var confirmation = MessageBox.Show(
+            $"Delete {deleteUrls.Count} Testify test record(s)?\n\n{breakdown}\n\nThis will permanently delete FO records.",
+            "Confirm Testify Cleanup",
+            MessageBoxButton.YesNo,
+            MessageBoxImage.Warning);
+
+        if (confirmation != MessageBoxResult.Yes)
+        {
+            StatusMessage = "Testify cleanup cancelled.";
+            return;
+        }
+
+        var deleted = 0;
+        var failed = 0;
+        foreach (var (mapName, url) in deleteUrls)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var deleteResponse = await _write.ODataWrite.SendAsync(
+                    new ODataWriteRequest(HttpMethod.Delete, url),
+                    cancellationToken);
+
+                if (IsSuccessfulStatusCode(deleteResponse.StatusCode) || deleteResponse.StatusCode == 404)
+                {
+                    deleted++;
+                    AddTestifyLog(mapName, "Cleanup", "Deleted", $"DELETE {url} → HTTP {deleteResponse.StatusCode}.");
+                }
+                else
+                {
+                    failed++;
+                    AddTestifyLog(mapName, "Cleanup", "Failed", $"DELETE {url} → HTTP {deleteResponse.StatusCode}. {TrimForStatus(deleteResponse.Body ?? string.Empty)}");
+                }
+            }
+            catch (Exception ex)
+            {
+                failed++;
+                _ctx.Logger.LogError(ex, "Testify cleanup DELETE failed for {Url}", url);
+                AddTestifyLog(mapName, "Cleanup", "Error", $"DELETE {url}: {ex.Message}");
+            }
+        }
+
+        // Clear stored instance URLs from configuration for all cleaned-up plans.
+        foreach (var plan in _testifyPlans.Values)
+        {
+            if (!string.IsNullOrWhiteSpace(plan.Configuration.LastEntityInstanceUrl))
+            {
+                plan.Configuration.LastEntityInstanceUrl = null;
+                plan.Configuration.LastRunToken = null;
+                try { await _testifyConfigStore.SaveAsync(plan.Configuration, cancellationToken); }
+                catch (Exception ex) { _ctx.Logger.LogWarning(ex, "Failed to clear LastEntityInstanceUrl for map {MapId}", plan.MapId); }
+            }
+        }
+
+        TestifySummary = $"Cleanup complete. Deleted: {deleted}. Failed: {failed}.";
+        StatusMessage = $"Testify cleanup complete. Deleted {deleted} record(s).";
+    }
+
+    private async Task<bool> CheckFoRecordExistsAsync(string instanceUrl, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var _ in _ctx.OData.StreamAsync(new QueryRequest(instanceUrl), cancellationToken))
+            {
+                return true;
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch
+        {
+            // Any error (404, network issue) means we can't confirm existence.
+        }
+
+        return false;
+    }
+
+    private static string? FindTagField(ODataEntity entity)
+    {
+        var candidates = new[] { "FOTBTestifyRunId", "TestifyRunId", "Description", "Name" };
+        foreach (var candidate in candidates)
+        {
+            var property = entity.Properties.FirstOrDefault(p =>
+                string.Equals(p.Name, candidate, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(p.Type, "Edm.String", StringComparison.OrdinalIgnoreCase) &&
+                !p.IsKey);
+
+            if (property is not null)
+            {
+                return property.Name;
+            }
+        }
+
+        return null;
     }
 
     private void ClearTestifyState()
