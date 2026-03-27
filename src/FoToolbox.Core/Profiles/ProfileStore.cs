@@ -25,21 +25,48 @@ public sealed class ProfileStore
 
     public string ConnectionString => _connectionString;
 
+    /// <summary>Current schema version. Increment when adding a new migration.</summary>
+    internal const int LatestSchemaVersion = 1;
+
     public async Task EnsureCreatedAsync(CancellationToken cancellationToken = default)
     {
         await using var conn = new SqliteConnection(_connectionString);
         await conn.OpenAsync(cancellationToken);
 
-        var sql = @"
+        // The SchemaVersion table is always created unconditionally so we can track migrations.
+        await using (var bootstrap = conn.CreateCommand())
+        {
+            bootstrap.CommandText = "CREATE TABLE IF NOT EXISTS SchemaVersion(Version INTEGER NOT NULL)";
+            await bootstrap.ExecuteNonQueryAsync(cancellationToken);
+        }
+
+        var current = await GetSchemaVersionAsync(conn, cancellationToken);
+
+        // Run each migration that hasn't been applied yet, inside a transaction.
+        if (current < LatestSchemaVersion)
+        {
+            await using var tx = await conn.BeginTransactionAsync(cancellationToken);
+
+            if (current < 0) await MigrateV0Async(conn, cancellationToken);
+            if (current < 1) await MigrateV1Async(conn, cancellationToken);
+
+            await SetSchemaVersionAsync(conn, LatestSchemaVersion, cancellationToken);
+            await tx.CommitAsync(cancellationToken);
+        }
+    }
+
+    /// <summary>V0: Base schema - core tables.</summary>
+    private static async Task MigrateV0Async(SqliteConnection conn, CancellationToken cancellationToken)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
 PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS Environments(
   Id TEXT PRIMARY KEY,
   Name TEXT NOT NULL,
   BaseUrl TEXT NOT NULL,
   TenantId TEXT NOT NULL,
-  DefaultCompany TEXT NULL,
-  CeBaseUrl TEXT NULL,
-  CeTenantId TEXT NULL
+  DefaultCompany TEXT NULL
 );
 CREATE TABLE IF NOT EXISTS Settings(
   Key TEXT PRIMARY KEY,
@@ -51,8 +78,7 @@ CREATE TABLE IF NOT EXISTS ServicePrincipals(
   ClientId TEXT NOT NULL,
   AuthMode TEXT NOT NULL,
   SecretRef TEXT NULL,
-  CertThumbprint TEXT NULL,
-  Target TEXT NOT NULL DEFAULT 'Fo'
+  CertThumbprint TEXT NULL
 );
 CREATE TABLE IF NOT EXISTS SecretVault(
   Id TEXT PRIMARY KEY,
@@ -78,19 +104,20 @@ CREATE TABLE IF NOT EXISTS SavedApiRequest(
   CreatedUtc TEXT NOT NULL,
   UpdatedUtc TEXT NOT NULL
 );";
-
-        await using var cmd = conn.CreateCommand();
-        cmd.CommandText = sql;
         await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
 
+    /// <summary>V1: Add Dataverse columns, ServicePrincipal Target, dedup, and unique index.</summary>
+    private static async Task MigrateV1Async(SqliteConnection conn, CancellationToken cancellationToken)
+    {
         await EnsureColumnExistsAsync(conn, "Environments", "CeBaseUrl", "TEXT NULL", cancellationToken);
         await EnsureColumnExistsAsync(conn, "Environments", "CeTenantId", "TEXT NULL", cancellationToken);
         await EnsureColumnExistsAsync(conn, "ServicePrincipals", "Target", "TEXT NOT NULL DEFAULT 'Fo'", cancellationToken);
 
-        await using (var normalizeTargets = conn.CreateCommand())
+        await using (var normalize = conn.CreateCommand())
         {
-            normalizeTargets.CommandText = "UPDATE ServicePrincipals SET Target = 'Fo' WHERE Target IS NULL OR trim(Target) = ''";
-            await normalizeTargets.ExecuteNonQueryAsync(cancellationToken);
+            normalize.CommandText = "UPDATE ServicePrincipals SET Target = 'Fo' WHERE Target IS NULL OR trim(Target) = ''";
+            await normalize.ExecuteNonQueryAsync(cancellationToken);
         }
 
         await using (var dedupe = conn.CreateCommand())
@@ -105,11 +132,27 @@ WHERE rowid NOT IN (
             await dedupe.ExecuteNonQueryAsync(cancellationToken);
         }
 
-        await using (var ensureIndex = conn.CreateCommand())
+        await using (var idx = conn.CreateCommand())
         {
-            ensureIndex.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS UX_ServicePrincipals_EnvId_Target ON ServicePrincipals(EnvId, Target)";
-            await ensureIndex.ExecuteNonQueryAsync(cancellationToken);
+            idx.CommandText = "CREATE UNIQUE INDEX IF NOT EXISTS UX_ServicePrincipals_EnvId_Target ON ServicePrincipals(EnvId, Target)";
+            await idx.ExecuteNonQueryAsync(cancellationToken);
         }
+    }
+
+    private static async Task<int> GetSchemaVersionAsync(SqliteConnection conn, CancellationToken cancellationToken)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COALESCE(MAX(Version), -1) FROM SchemaVersion";
+        var result = await cmd.ExecuteScalarAsync(cancellationToken);
+        return result is long v ? (int)v : -1;
+    }
+
+    private static async Task SetSchemaVersionAsync(SqliteConnection conn, int version, CancellationToken cancellationToken)
+    {
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM SchemaVersion; INSERT INTO SchemaVersion(Version) VALUES($v)";
+        cmd.Parameters.AddWithValue("$v", version);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
     public async Task<string?> GetSettingAsync(string key, CancellationToken cancellationToken = default)
