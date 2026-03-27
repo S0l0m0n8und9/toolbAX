@@ -22,6 +22,7 @@ internal sealed class AppBootstrapper : IDisposable
 {
     private readonly string _profileDbPath;
     private readonly ILogger _logger;
+    private readonly SecretVaultService _vault;
     private HttpClient? _foHttpClient;
     private HttpClient? _dataverseHttpClient;
 
@@ -29,6 +30,9 @@ internal sealed class AppBootstrapper : IDisposable
     {
         _profileDbPath = profileDbPath;
         _logger = logger;
+
+        var store = new ProfileStore(profileDbPath);
+        _vault = new SecretVaultService(store.ConnectionString);
     }
 
     /// <summary>
@@ -89,14 +93,14 @@ internal sealed class AppBootstrapper : IDisposable
         return new CatalogService(httpClient, profileStore, catalogStore);
     }
 
-    private static HttpClient CreateAuthenticatedHttpClient(FoEnvironment env, ServicePrincipal sp)
+    private HttpClient CreateAuthenticatedHttpClient(FoEnvironment env, ServicePrincipal sp)
     {
-        return new HttpClient(new AuthenticatedHandler(env, sp));
+        return new HttpClient(new AuthenticatedHandler(env, sp, _vault));
     }
 
-    private static HttpClient CreateAuthenticatedHttpClient(string resourceBaseUrl, string tenantId, ServicePrincipal sp)
+    private HttpClient CreateAuthenticatedHttpClient(string resourceBaseUrl, string tenantId, ServicePrincipal sp)
     {
-        return new HttpClient(new AuthenticatedHandler(resourceBaseUrl, tenantId, sp));
+        return new HttpClient(new AuthenticatedHandler(resourceBaseUrl, tenantId, sp, _vault));
     }
 
     internal static string ResolvePluginRoot()

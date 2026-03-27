@@ -21,22 +21,19 @@ internal sealed class AuthenticatedHandler : DelegatingHandler
     private readonly AuthService _auth;
     private readonly SecretVaultService _vault;
 
-    public AuthenticatedHandler(FoEnvironment env, ServicePrincipal sp)
-        : this(ResourceUrlNormalizer.NormalizeFoBaseUrl(env.BaseUrl), env.TenantId, sp)
+    public AuthenticatedHandler(FoEnvironment env, ServicePrincipal sp, SecretVaultService vault)
+        : this(ResourceUrlNormalizer.NormalizeFoBaseUrl(env.BaseUrl), env.TenantId, sp, vault)
     {
     }
 
-    public AuthenticatedHandler(string resourceBaseUrl, string tenantId, ServicePrincipal sp)
+    public AuthenticatedHandler(string resourceBaseUrl, string tenantId, ServicePrincipal sp, SecretVaultService vault)
         : base(new HttpClientHandler())
     {
         _resourceBaseUrl = resourceBaseUrl;
         _tenantId = tenantId;
         _sp = sp;
+        _vault = vault;
         _auth = new AuthService(BuildTokenProvider());
-
-        var dbPath = ProfilePaths.ResolveProfileDbPath();
-        var store = new ProfileStore(dbPath);
-        _vault = new SecretVaultService(store.ConnectionString);
     }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
