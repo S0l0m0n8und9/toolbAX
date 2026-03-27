@@ -30,8 +30,7 @@ jobs:
         run: dotnet build .\FoToolbox.sln -c Release --no-restore
 
       - name: Test
-        run: dotnet test .\FoToolbox.sln -c Release --no-build
+        run: dotnet test .\FoToolbox.sln -c Release --no-build --collect:"XPlat Code Coverage"
 
-      - name: Vulnerable packages (non-fatal)
+      - name: Vulnerable packages
         run: dotnet list .\FoToolbox.sln package --vulnerable --include-transitive
-        continue-on-error: true
