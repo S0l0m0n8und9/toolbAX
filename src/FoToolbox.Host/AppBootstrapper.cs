@@ -10,6 +10,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net.Http;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace FoToolbox.Host;
@@ -39,18 +40,18 @@ internal sealed class AppBootstrapper : IDisposable
     /// Resolves (or seeds) the default profile from the database.
     /// Returns <c>null</c> when no profile could be determined.
     /// </summary>
-    public async Task<ProfileBundle?> ResolveProfileAsync()
+    public async Task<ProfileBundle?> ResolveProfileAsync(CancellationToken cancellationToken = default)
     {
         var store = new ProfileStore(_profileDbPath);
         var svc = new ProfileService(store);
-        await svc.EnsureCreatedAsync();
-        return await svc.GetDefaultBundleAsync();
+        await svc.EnsureCreatedAsync(cancellationToken);
+        return await svc.GetDefaultBundleAsync(cancellationToken);
     }
 
     /// <summary>
     /// Creates all services and discovers plugins for the given profile.
     /// </summary>
-    public async Task<BootstrapResult> ApplyProfileAsync(ProfileBundle bundle)
+    public async Task<BootstrapResult> ApplyProfileAsync(ProfileBundle bundle, CancellationToken cancellationToken = default)
     {
         _foHttpClient?.Dispose();
         _foHttpClient = CreateAuthenticatedHttpClient(bundle.FoEnvironment, bundle.FoPrincipal);
@@ -80,7 +81,7 @@ internal sealed class AppBootstrapper : IDisposable
             _dataverseHttpClient,
             trust);
 
-        var plugins = await manager.DiscoverAsync();
+        var plugins = await manager.DiscoverAsync(cancellationToken);
 
         return new BootstrapResult(plugins, manager.NavigationBus);
     }

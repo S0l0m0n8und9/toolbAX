@@ -7,6 +7,7 @@ using FoToolbox.Host.Views;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 
@@ -20,6 +21,7 @@ public partial class MainWindow : Window
     private readonly MainWindowViewModel _vm;
     private readonly ILogger _logger;
     private readonly AppBootstrapper _bootstrapper;
+    private readonly CancellationTokenSource _cts = new();
     private ProfilesView? _profilesView;
     private bool _loadedOnce;
 
@@ -58,7 +60,8 @@ public partial class MainWindow : Window
 
     private async Task LoadPluginsAsync()
     {
-        var bundle = await _bootstrapper.ResolveProfileAsync();
+        var ct = _cts.Token;
+        var bundle = await _bootstrapper.ResolveProfileAsync(ct);
 
         _profilesView ??= new ProfilesView(new ProfilesViewModel(
             ProfilePaths.ResolveProfileDbPath(), _logger, ApplyProfile));
@@ -85,7 +88,7 @@ public partial class MainWindow : Window
     {
         try
         {
-            var result = await _bootstrapper.ApplyProfileAsync(bundle);
+            var result = await _bootstrapper.ApplyProfileAsync(bundle, _cts.Token);
             _vm.LoadPlugins(result.Plugins, _profilesView);
 
             result.NavigationBus.PluginActivationRequested += loaded =>
@@ -109,6 +112,8 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _cts.Cancel();
+        _cts.Dispose();
         _bootstrapper.Dispose();
         base.OnClosed(e);
     }
