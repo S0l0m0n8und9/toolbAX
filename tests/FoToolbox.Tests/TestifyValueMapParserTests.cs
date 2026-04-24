@@ -3,6 +3,7 @@ using Xunit;
 
 namespace FoToolbox.Tests;
 
+[Trait("Category", "Testify")]
 public sealed class TestifyValueMapParserTests
 {
     [Fact]
