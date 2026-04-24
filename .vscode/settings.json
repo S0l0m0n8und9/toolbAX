@@ -1,3 +1,7 @@
 {
-    "sarif-viewer.connectToGithubCodeScanning": "off"
+    "sarif-viewer.connectToGithubCodeScanning": "off",
+    "chat.tools.terminal.autoApprove": {
+        ".\\build.ps1": true,
+        "wix": true
+    }
 }

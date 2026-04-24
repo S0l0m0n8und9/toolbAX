@@ -178,6 +178,13 @@ Copy-Item (Join-Path $repoRoot "plugins\\ODataPostBuilder\\bin\\$Configuration\\
 Copy-Item (Join-Path $repoRoot "plugins\\DualWriteMapBrowser\\bin\\$Configuration\\net8.0-windows\\DualWriteMapBrowser.dll") `
     -Destination (Join-Path $pluginsOut "DualWriteMapBrowser.dll") -Force
 
+$sqliteNativeSource = Join-Path $SourceDir "runtimes\\win-x64\\native\\e_sqlite3.dll"
+$sqliteNativeDestination = Join-Path $SourceDir "e_sqlite3.dll"
+if ((-not (Test-Path $sqliteNativeDestination)) -and (Test-Path $sqliteNativeSource)) {
+    Write-Host "Staging native SQLite dependency..."
+    Copy-Item $sqliteNativeSource -Destination $sqliteNativeDestination -Force
+}
+
 function Build-Msi {
     param(
         [string]$OutputPath,
@@ -219,6 +226,18 @@ if (-not (Test-Path $RuntimeExe)) {
     exit 0
 }
 
+$wixExtensionRoot = Join-Path $HOME ".wix\extensions"
+$balExtensionDll = Get-ChildItem (Join-Path $wixExtensionRoot "WixToolset.Bal.wixext") -Recurse -Filter "WixToolset.BootstrapperApplications.wixext.dll" -ErrorAction SilentlyContinue |
+    Sort-Object FullName -Descending |
+    Select-Object -First 1 -ExpandProperty FullName
+$utilExtensionDll = Get-ChildItem (Join-Path $wixExtensionRoot "WixToolset.Util.wixext") -Recurse -Filter "WixToolset.Util.wixext.dll" -ErrorAction SilentlyContinue |
+    Sort-Object FullName -Descending |
+    Select-Object -First 1 -ExpandProperty FullName
+
+if ([string]::IsNullOrWhiteSpace($balExtensionDll) -or [string]::IsNullOrWhiteSpace($utilExtensionDll)) {
+    throw "Required WiX bundle extensions were not found in $wixExtensionRoot. Install WixToolset.Bal.wixext and WixToolset.Util.wixext for WiX 6."
+}
+
 Write-Host "`nBuilding bundle..."
 $bundleArgs = @(
     (Join-Path $installDir "Bundle.wxs"),
@@ -235,8 +254,8 @@ if (-not [string]::IsNullOrWhiteSpace($LicenseUrl)) { $bundleArgs += @("-d", "Li
 
 $bundleArgs += @(
     "-o", $BundlePath,
-    "-ext", "WixToolset.BootstrapperApplications.wixext",
-    "-ext", "WixToolset.Util.wixext"
+    "-ext", $balExtensionDll,
+    "-ext", $utilExtensionDll
 )
 
 wix build @bundleArgs | Out-Host

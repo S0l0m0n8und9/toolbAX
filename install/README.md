@@ -63,7 +63,12 @@ Optional overrides for branding/codes (examples):
 ```
 
 1. Install the tool once: `dotnet tool install --global wix` (or update with `dotnet tool update --global wix`).
-2. Build the MSIs:
+2. Install the WiX 6 bundle extensions once if you want to build the bootstrapper:
+  ```powershell
+  wix extension add -g WixToolset.Bal.wixext/6.0.2
+  wix extension add -g WixToolset.Util.wixext/6.0.2
+  ```
+3. Build the MSIs:
    ```powershell
    cd install
    wix build .\FoToolbox.wxs .\FoToolboxFiles.wxs `
@@ -84,13 +89,13 @@ Optional overrides for branding/codes (examples):
     -d ProductCode=* `
     -o .\FoToolbox.Machine.msi
    ```
-3. Build the bootstrapper (bundle) after the MSIs exist:
+  4. Build the bootstrapper (bundle) after the MSIs exist:
    ```powershell
    wix build .\Bundle.wxs `
      -d FoToolboxUserMsiPath=FoToolbox.User.msi `
      -d FoToolboxMachineMsiPath=FoToolbox.Machine.msi `
      -o .\FoToolboxBundle.exe `
-     -ext WixToolset.BootstrapperApplications.wixext `
+     -ext WixToolset.Bal.wixext `
      -ext WixToolset.Util.wixext
    ```
 
@@ -103,7 +108,7 @@ wix build install/Bundle.wxs `
   -d FoToolboxMachineMsiPath=install/FoToolbox.Machine.msi `
   -d NetDesktopRuntimeExe=install/redist/windowsdesktop-runtime-8.0.22-win-x64.exe `
   -o install/FoToolboxBundle.exe `
-  -ext WixToolset.BootstrapperApplications.wixext `
+  -ext WixToolset.Bal.wixext `
   -ext WixToolset.Util.wixext
 ```
 

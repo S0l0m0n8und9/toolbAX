@@ -1,0 +1,113 @@
+{
+  "version": 2,
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Testify configuration settings panel",
+      "status": "todo",
+      "validation": "dotnet build .\\FoToolbox.sln -c Release",
+      "tier": "medium",
+      "acceptance": [
+        "Per-map settings (omitCreateFields, preferredCreateValues, cePollTimeoutMinutes, allowPartialEnumCoverage) are editable in a WPF panel inside DualWriteMapBrowser",
+        "Changes persist to TestifyConfigurationStore and reload correctly on next launch",
+        "Panel is reachable from the existing Testify toolbar without opening the JSON file"
+      ],
+      "context": [
+        "plugins/DualWriteMapBrowser/TestifyConfigurationStore.cs",
+        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs"
+      ]
+    },
+    {
+      "id": "T2",
+      "title": "Testify automatic rollback on failure",
+      "status": "todo",
+      "dependsOn": [
+        "T1"
+      ],
+      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "tier": "medium",
+      "acceptance": [
+        "If PATCH or CE-verification fails after a successful POST, the created record is deleted automatically",
+        "lastEntityInstanceUrl is cleared from TestifyConfigurationStore after rollback",
+        "Cleanup phase returns success (no error) when a cached URL references a record already deleted externally"
+      ],
+      "context": [
+        "plugins/DualWriteMapBrowser/TestifyRunner.cs",
+        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
+        "plugins/DualWriteMapBrowser/TestifyConfigurationStore.cs"
+      ]
+    },
+    {
+      "id": "T3",
+      "title": "Testify enum coverage gap reporting",
+      "status": "todo",
+      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "tier": "medium",
+      "acceptance": [
+        "Prepare phase output lists each unmapped enum member by field name and enum value",
+        "Result grid distinguishes 'Blocked: incomplete coverage' from 'Blocked: missing entity'",
+        "TestifyResultRow carries per-field coverage gap detail accessible to the UI"
+      ],
+      "context": [
+        "plugins/DualWriteMapBrowser/TestifyPlanner.cs",
+        "plugins/DualWriteMapBrowser/TestifyModels.cs",
+        "plugins/DualWriteMapBrowser/TestifyValueMapParser.cs"
+      ]
+    },
+    {
+      "id": "T4",
+      "title": "Testify integration test coverage",
+      "status": "todo",
+      "dependsOn": [
+        "T2",
+        "T3"
+      ],
+      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "tier": "medium",
+      "acceptance": [
+        "Idempotent rerun with a stale cached entity URL is covered and passes",
+        "Automatic rollback on mid-run failure is covered by at least one test",
+        "CE poll timeout expiry scenario is covered",
+        "All new tests pass under dotnet test with no parallelism failures"
+      ],
+      "context": [
+        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyTests.cs",
+        "tests/FoToolbox.Tests/FakeODataServer.cs"
+      ]
+    },
+    {
+      "id": "T5",
+      "title": "Auth silent-failure recovery and interactive fallback",
+      "status": "todo",
+      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Auth",
+      "tier": "medium",
+      "acceptance": [
+        "Silent token acquisition failure (invalid_grant, expired refresh) triggers an interactive re-auth prompt in the host UI",
+        "Plugin operations receive a clear re-authentication message rather than an unhandled HTTP 401",
+        "Per-environment TenantId is used for authority resolution, validated at profile save time"
+      ],
+      "context": [
+        "src/FoToolbox.Core/Auth/",
+        "src/FoToolbox.Host/ViewModels/MainWindowViewModel.cs"
+      ]
+    },
+    {
+      "id": "T6",
+      "title": "Installer GUID lock, code signing, and runtime bundle",
+      "status": "todo",
+      "notes": "Requires a code-signing certificate; signtool must be available on the build machine. GUID values must be generated once and committed — do not regenerate on each build.",
+      "validation": ".\\install\\build.ps1 -Configuration Release",
+      "tier": "complex",
+      "acceptance": [
+        "ProductCode, UpgradeCode, and Bundle GUID are hardcoded (non-generated) in WiX sources",
+        "install/build.ps1 calls signtool to sign MSI and Burn bundle outputs",
+        ".NET Desktop Runtime 8.0 installer is chained correctly in the Burn bundle and installs silently on a machine without the runtime"
+      ],
+      "context": [
+        "install/build.ps1",
+        "install/README.md"
+      ]
+    }
+  ],
+  "mutationCount": 1
+}

@@ -4,7 +4,7 @@
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d"
-        Title="FO Toolbox"
+        Title="toolBax"
         Width="1400"
         Height="900"
         MinWidth="1280"
@@ -14,48 +14,187 @@
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
     </Window.Resources>
+
     <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="*" />
-            <RowDefinition Height="Auto" />
+            <RowDefinition Height="32" />   <!-- 00 title bar  -->
+            <RowDefinition Height="*" />    <!-- 01 content    -->
+            <RowDefinition Height="Auto" /> <!-- 02 update bar -->
+            <RowDefinition Height="22" />   <!-- 03 status bar -->
         </Grid.RowDefinitions>
-        <Grid.ColumnDefinitions>
-            <ColumnDefinition Width="240" MinWidth="220" />
-            <ColumnDefinition Width="6" />
-            <ColumnDefinition Width="*" />
-        </Grid.ColumnDefinitions>
 
-        <Border Grid.Column="0" Grid.Row="0" Background="{DynamicResource Fo.SurfaceAltBrush}" Padding="10">
-            <StackPanel>
-                <TextBlock Text="Plugins" FontWeight="Bold" FontSize="15" Margin="0,0,0,10" />
-                <ListBox ItemsSource="{Binding Plugins}"
-                         SelectedItem="{Binding Selected, Mode=TwoWay}"
-                         DisplayMemberPath="Name"
-                         MinHeight="500"
-                         ScrollViewer.HorizontalScrollBarVisibility="Auto"
-                         ScrollViewer.VerticalScrollBarVisibility="Auto"
-                         BorderThickness="0" />
-            </StackPanel>
+        <!-- ── 00 · Title bar ──────────────────────────────────────────── -->
+        <Border Grid.Row="0"
+                Background="{DynamicResource Fo.Ink0Brush}"
+                BorderBrush="{DynamicResource Fo.HairBrush}"
+                BorderThickness="0,0,0,1">
+            <DockPanel Margin="12,0,8,0" LastChildFill="False">
+
+                <!-- Brand logo + wordmark -->
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left"
+                            VerticalAlignment="Center" Margin="0,0,20,0">
+                    <Border Width="20" Height="20"
+                            Background="{DynamicResource Fo.AccentBrush}"
+                            CornerRadius="2" VerticalAlignment="Center">
+                        <TextBlock Text="tX"
+                                   FontFamily="{DynamicResource Fo.FontFamily.Mono}"
+                                   FontWeight="Bold" FontSize="11"
+                                   Foreground="{DynamicResource Fo.Ink0Brush}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center" />
+                    </Border>
+                    <TextBlock VerticalAlignment="Center" Margin="8,0,0,0"
+                               FontFamily="{DynamicResource Fo.FontFamily.Mono}"
+                               FontSize="12">
+                        <Run Text="tool" Foreground="{DynamicResource Fo.TextBrush}" />
+                        <Run Text="B" Foreground="{DynamicResource Fo.AccentBrush}" />
+                        <Run Text="ax" Foreground="{DynamicResource Fo.TextBrush}" />
+                        <Run Text="  v2.0" Foreground="{DynamicResource Fo.DimTextBrush}" />
+                    </TextBlock>
+                </StackPanel>
+
+                <!-- Plugin count (right) -->
+                <TextBlock DockPanel.Dock="Right"
+                           Text="{Binding PluginCountDisplay}"
+                           VerticalAlignment="Center"
+                           FontFamily="{DynamicResource Fo.FontFamily.Mono}"
+                           FontSize="11"
+                           Foreground="{DynamicResource Fo.DimTextBrush}" />
+            </DockPanel>
         </Border>
 
-        <GridSplitter Grid.Column="1"
-                      Grid.Row="0"
-                      HorizontalAlignment="Stretch"
-                      VerticalAlignment="Stretch"
-                      Background="{DynamicResource Fo.BorderBrush}"
-                      ShowsPreview="True" />
+        <!-- ── 01 · Content area ───────────────────────────────────────── -->
+        <Grid Grid.Row="1">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="48" />  <!-- left rail -->
+                <ColumnDefinition Width="*" />   <!-- main area -->
+            </Grid.ColumnDefinitions>
 
-        <Border Grid.Column="2" Grid.Row="0" Padding="14" Background="{DynamicResource Fo.WindowBackgroundBrush}">
-            <ContentControl Content="{Binding ActiveControl}" />
-        </Border>
+            <!-- Left icon rail -->
+            <Border Grid.Column="0"
+                    Background="{DynamicResource Fo.Ink0Brush}"
+                    BorderBrush="{DynamicResource Fo.HairBrush}"
+                    BorderThickness="0,0,1,0">
+                <ListBox Style="{DynamicResource Fo.LeftRail.ListBox}"
+                         ItemsSource="{Binding Plugins}"
+                         SelectedItem="{Binding Selected, Mode=TwoWay}">
+                    <ListBox.ItemTemplate>
+                        <DataTemplate>
+                            <Viewbox Width="16" Height="16" Stretch="Uniform"
+                                     ToolTip="{Binding Name}">
+                                <Canvas Width="24" Height="24">
+                                    <Path Data="{Binding IconPath}"
+                                          Fill="Transparent"
+                                          StrokeThickness="1.5"
+                                          StrokeLineJoin="Round"
+                                          StrokeStartLineCap="Round"
+                                          StrokeEndLineCap="Round">
+                                        <Path.Style>
+                                            <Style TargetType="Path">
+                                                <Setter Property="Stroke"
+                                                        Value="{DynamicResource Fo.SubtleTextBrush}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Value="True"
+                                                                 Binding="{Binding IsSelected,
+                                                                     RelativeSource={RelativeSource
+                                                                         AncestorType=ListBoxItem}}">
+                                                        <Setter Property="Stroke"
+                                                                Value="{DynamicResource Fo.AccentBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </Path.Style>
+                                    </Path>
+                                </Canvas>
+                            </Viewbox>
+                        </DataTemplate>
+                    </ListBox.ItemTemplate>
+                </ListBox>
+            </Border>
 
-        <Border Grid.Column="0"
-                Grid.Row="1"
-                Grid.ColumnSpan="3"
-                Background="{DynamicResource Fo.SurfaceAltBrush}"
-                Padding="8"
-                BorderThickness="1"
-                BorderBrush="{DynamicResource Fo.BorderBrush}"
+            <!-- Main area: tab bar + plugin content -->
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="32" />  <!-- tab bar -->
+                    <RowDefinition Height="*" />   <!-- content -->
+                </Grid.RowDefinitions>
+
+                <!-- Tab bar -->
+                <Border Grid.Row="0"
+                        Background="{DynamicResource Fo.Ink0Brush}"
+                        BorderBrush="{DynamicResource Fo.HairBrush}"
+                        BorderThickness="0,0,0,1">
+                    <ListBox Style="{DynamicResource Fo.TabBar.ListBox}"
+                             ItemsSource="{Binding Plugins}"
+                             SelectedItem="{Binding Selected, Mode=TwoWay}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                                    <Viewbox Width="12" Height="12" Stretch="Uniform"
+                                             Margin="0,0,6,0">
+                                        <Canvas Width="24" Height="24">
+                                            <Path Data="{Binding IconPath}"
+                                                  Fill="Transparent"
+                                                  StrokeThickness="1.5"
+                                                  StrokeLineJoin="Round"
+                                                  StrokeStartLineCap="Round"
+                                                  StrokeEndLineCap="Round">
+                                                <Path.Style>
+                                                    <Style TargetType="Path">
+                                                        <Setter Property="Stroke"
+                                                                Value="{DynamicResource Fo.SubtleTextBrush}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Value="True"
+                                                                         Binding="{Binding IsSelected,
+                                                                             RelativeSource={RelativeSource
+                                                                                 AncestorType=ListBoxItem}}">
+                                                                <Setter Property="Stroke"
+                                                                        Value="{DynamicResource Fo.AccentBrush}" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </Path.Style>
+                                            </Path>
+                                        </Canvas>
+                                    </Viewbox>
+                                    <TextBlock Text="{Binding Name}"
+                                               FontSize="12"
+                                               VerticalAlignment="Center">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground"
+                                                        Value="{DynamicResource Fo.SubtleTextBrush}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Value="True"
+                                                                 Binding="{Binding IsSelected,
+                                                                     RelativeSource={RelativeSource
+                                                                         AncestorType=ListBoxItem}}">
+                                                        <Setter Property="Foreground"
+                                                                Value="{DynamicResource Fo.TextBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </StackPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </Border>
+
+                <!-- Plugin content -->
+                <ContentControl Grid.Row="1"
+                                Content="{Binding ActiveControl}"
+                                Background="{DynamicResource Fo.Ink1Brush}" />
+            </Grid>
+        </Grid>
+
+        <!-- ── 02 · Update bar (hidden unless update env-var is set) ───── -->
+        <Border Grid.Row="2"
+                Background="{DynamicResource Fo.Ink2Brush}"
+                Padding="10,6"
+                BorderThickness="0,1,0,0"
+                BorderBrush="{DynamicResource Fo.HairBrush}"
                 Visibility="{Binding ShowUpdaterUi, Converter={StaticResource BoolToVis}}">
             <DockPanel LastChildFill="True">
                 <WrapPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
@@ -63,7 +202,7 @@
                             Command="{Binding CheckUpdatesCommand}"
                             IsEnabled="{Binding CanCheckUpdates}"
                             Margin="0,0,6,0" />
-                    <Button Content="Apply staged update"
+                    <Button Content="Apply update"
                             Command="{Binding ApplyUpdateCommand}"
                             IsEnabled="{Binding HasStagedUpdate}"
                             Margin="0,0,6,0" />
@@ -71,8 +210,61 @@
                             Command="{Binding RollbackUpdateCommand}"
                             IsEnabled="{Binding HasRollbackUpdate}" />
                 </WrapPanel>
+                <TextBlock Text="{Binding UpdateStatus}"
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center"
+                           FontFamily="{DynamicResource Fo.FontFamily.Mono}"
+                           FontSize="11"
+                           Foreground="{DynamicResource Fo.SubtleTextBrush}" />
+            </DockPanel>
+        </Border>
 
-                <TextBlock Text="{Binding UpdateStatus}" TextWrapping="Wrap" VerticalAlignment="Center" />
+        <!-- ── 03 · Status bar ─────────────────────────────────────────── -->
+        <Border Grid.Row="3"
+                Background="{DynamicResource Fo.Ink0Brush}"
+                BorderBrush="{DynamicResource Fo.HairBrush}"
+                BorderThickness="0,1,0,0">
+            <DockPanel>
+                <!-- Active plugin (left) -->
+                <Border DockPanel.Dock="Left"
+                        BorderBrush="{DynamicResource Fo.HairBrush}"
+                        BorderThickness="0,0,1,0"
+                        Padding="10,0">
+                    <TextBlock Text="{Binding Selected.Name, FallbackValue=''}"
+                               VerticalAlignment="Center"
+                               FontFamily="{DynamicResource Fo.FontFamily.Mono}"
+                               FontSize="10.5"
+                               Foreground="{DynamicResource Fo.SubtleTextBrush}" />
+                </Border>
+
+                <!-- Update available (right, only shown when updater is configured) -->
+                <Border DockPanel.Dock="Right"
+                        BorderBrush="{DynamicResource Fo.HairBrush}"
+                        BorderThickness="1,0,0,0"
+                        Padding="10,0"
+                        Visibility="{Binding HasStagedUpdate, Converter={StaticResource BoolToVis}}">
+                    <TextBlock VerticalAlignment="Center"
+                               FontFamily="{DynamicResource Fo.FontFamily.Mono}"
+                               FontSize="10.5"
+                               Foreground="{DynamicResource Fo.AccentBrush}">
+                        <Run Text="&#x2605;" /><Run Text=" update staged" />
+                    </TextBlock>
+                </Border>
+
+                <!-- Update channel (right) -->
+                <Border DockPanel.Dock="Right"
+                        BorderBrush="{DynamicResource Fo.HairBrush}"
+                        BorderThickness="1,0,0,0"
+                        Padding="10,0"
+                        Visibility="{Binding ShowUpdaterUi, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="{Binding UpdateChannel, StringFormat='{}{0}'}"
+                               VerticalAlignment="Center"
+                               FontFamily="{DynamicResource Fo.FontFamily.Mono}"
+                               FontSize="10.5"
+                               Foreground="{DynamicResource Fo.DimTextBrush}" />
+                </Border>
+
+                <Grid />
             </DockPanel>
         </Border>
     </Grid>
