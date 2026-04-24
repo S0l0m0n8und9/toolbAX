@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "claims": [
+    {
+      "agentId": "default",
+      "taskId": "T1",
+      "claimedAt": "2026-04-24T18:00:55.317Z",
+      "provenanceId": "run-i001-cli-20260424T180055Z",
+      "status": "released",
+      "baseBranch": "main",
+      "featureBranch": "ralph/T1"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T1",
+      "claimedAt": "2026-04-24T18:06:50.930Z",
+      "provenanceId": "run-i002-cli-20260424T180650Z",
+      "status": "released",
+      "baseBranch": "ralph/T1",
+      "featureBranch": "ralph/T1"
+    },
+    {
+      "taskId": "T1",
+      "agentId": "default",
+      "provenanceId": "run-i003-cli-20260424T181249Z",
+      "claimedAt": "2026-04-24T18:12:49.954Z",
+      "status": "active",
+      "baseBranch": "ralph/T1",
+      "featureBranch": "ralph/T1"
+    }
+  ]
+}
