@@ -1,0 +1,3 @@
+{"timestamp":"2026-04-24T17:43:39.070Z","level":"INFO","message":"Command started.","commandId":"ralphCodex.openPrdWizard","workspaceTrusted":true}
+{"timestamp":"2026-04-24T17:43:39.075Z","level":"INFO","message":"Command completed.","commandId":"ralphCodex.openPrdWizard"}
+{"timestamp":"2026-04-24T17:58:17.605Z","level":"INFO","message":"PRD wizard wrote Ralph files.","filesWritten":["c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prd.md","c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\tasks.json"]}

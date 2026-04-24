@@ -595,4 +595,131 @@
             </Trigger>
         </Style.Triggers>
     </Style>
+
+    <!-- ── Left rail: 48px icon navigation strip ────────────────────────── -->
+    <Style x:Key="Fo.LeftRail.ListBox" TargetType="{x:Type ListBox}">
+        <Setter Property="Background" Value="{DynamicResource Fo.Ink0Brush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0,8,0,0" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Auto" />
+        <Setter Property="ItemContainerStyle" Value="{DynamicResource Fo.LeftRail.ListBoxItem}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ListBox}">
+                    <ScrollViewer Focusable="False" Padding="{TemplateBinding Padding}">
+                        <ItemsPresenter />
+                    </ScrollViewer>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="Fo.LeftRail.ListBoxItem" TargetType="{x:Type ListBoxItem}">
+        <Setter Property="Height" Value="36" />
+        <Setter Property="Width" Value="48" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="Margin" Value="0,1,0,0" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Foreground" Value="{DynamicResource Fo.SubtleTextBrush}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ListBoxItem}">
+                    <Grid>
+                        <Border x:Name="LeftAccent"
+                                Width="2" HorizontalAlignment="Left"
+                                Background="{DynamicResource Fo.AccentBrush}"
+                                Visibility="Collapsed" />
+                        <Border x:Name="Bg"
+                                Background="{TemplateBinding Background}"
+                                Margin="2,0,0,0">
+                            <ContentPresenter HorizontalAlignment="Center"
+                                              VerticalAlignment="Center" />
+                        </Border>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bg" Property="Background"
+                                    Value="{DynamicResource Fo.ControlHoverBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="LeftAccent" Property="Visibility" Value="Visible" />
+                            <Setter TargetName="Bg" Property="Background"
+                                    Value="{DynamicResource Fo.SelectionBrush}" />
+                            <Setter Property="Foreground" Value="{DynamicResource Fo.AccentBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- ── Tab bar: VSCode-style horizontal tabs ────────────────────────── -->
+    <Style x:Key="Fo.TabBar.ListBox" TargetType="{x:Type ListBox}">
+        <Setter Property="Background" Value="{DynamicResource Fo.Ink0Brush}" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Auto" />
+        <Setter Property="ScrollViewer.VerticalScrollBarVisibility" Value="Disabled" />
+        <Setter Property="ItemContainerStyle" Value="{DynamicResource Fo.TabBar.ListBoxItem}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ListBox}">
+                    <ScrollViewer Focusable="False" VerticalScrollBarVisibility="Disabled"
+                                  HorizontalScrollBarVisibility="Auto">
+                        <StackPanel Orientation="Horizontal" IsItemsHost="True" />
+                    </ScrollViewer>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style x:Key="Fo.TabBar.ListBoxItem" TargetType="{x:Type ListBoxItem}">
+        <Setter Property="Height" Value="32" />
+        <Setter Property="Padding" Value="12,0" />
+        <Setter Property="Margin" Value="0" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="Foreground" Value="{DynamicResource Fo.SubtleTextBrush}" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type ListBoxItem}">
+                    <Grid>
+                        <Border x:Name="TopAccent"
+                                Height="1" VerticalAlignment="Top"
+                                Background="{DynamicResource Fo.AccentBrush}"
+                                Visibility="Collapsed" />
+                        <Border x:Name="Bg"
+                                Background="{TemplateBinding Background}"
+                                BorderBrush="{DynamicResource Fo.HairBrush}"
+                                BorderThickness="0,0,1,0"
+                                Margin="0,1,0,0">
+                            <ContentPresenter VerticalAlignment="Center"
+                                              Margin="{TemplateBinding Padding}" />
+                        </Border>
+                    </Grid>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True">
+                            <Setter TargetName="Bg" Property="Background"
+                                    Value="{DynamicResource Fo.ControlHoverBrush}" />
+                            <Setter Property="Foreground" Value="{DynamicResource Fo.TextBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsSelected" Value="True">
+                            <Setter TargetName="TopAccent" Property="Visibility" Value="Visible" />
+                            <Setter TargetName="Bg" Property="Background"
+                                    Value="{DynamicResource Fo.Ink1Brush}" />
+                            <Setter Property="Foreground" Value="{DynamicResource Fo.TextBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 </ResourceDictionary>

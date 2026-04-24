@@ -19,11 +19,16 @@ internal sealed class PluginEntry
     public required string Name { get; init; }
     public required UserControl Control { get; init; }
     public LoadedPlugin? Loaded { get; init; }
+
+    // SVG path data (24×24 viewbox) displayed in the left rail and tab bar.
+    public string IconPath { get; init; } = string.Empty;
 }
 
 internal sealed class MainWindowViewModel : INotifyPropertyChanged
 {
     public ObservableCollection<PluginEntry> Plugins { get; } = new();
+
+    public string PluginCountDisplay => $"{Plugins.Count} plugins installed";
 
     // Updater UI should not be shown unless updates are explicitly configured.
     public bool ShowUpdaterUi { get; }
@@ -92,6 +97,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
 
     public MainWindowViewModel()
     {
+        Plugins.CollectionChanged += (_, _) => OnPropertyChanged(nameof(PluginCountDisplay));
         UpdateChannel = Environment.GetEnvironmentVariable("FOTOOLBOX_UPDATE_CHANNEL") ?? "stable";
         ManifestUrl = Environment.GetEnvironmentVariable("FOTOOLBOX_UPDATE_MANIFEST") ?? string.Empty;
         ShowUpdaterUi = !string.IsNullOrWhiteSpace(ManifestUrl);
@@ -110,7 +116,8 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
             Plugins.Add(new PluginEntry
             {
                 Name = "Profiles",
-                Control = profilesControl
+                Control = profilesControl,
+                IconPath = IconPathFor("Profiles"),
             });
         }
 
@@ -125,12 +132,23 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
             {
                 Name = plugin.Manifest.Name,
                 Control = plugin.ToolControl,
-                Loaded = plugin
+                Loaded = plugin,
+                IconPath = IconPathFor(plugin.Manifest.Name),
             });
         }
 
         Selected = Plugins.FirstOrDefault(p => p.Loaded is not null) ?? Plugins.FirstOrDefault();
     }
+
+    // SVG path data (24×24 viewbox) — approximate Lucide equivalents.
+    private static string IconPathFor(string name) =>
+        name.Contains("Profile",  StringComparison.OrdinalIgnoreCase) ? "M12 20s8-2.7 8-7V5l-8-3-8 3v8c0 4.3 8 7 8 7z" :
+        name.Contains("Query",    StringComparison.OrdinalIgnoreCase) ? "M12 2C7.6 2 4 3.3 4 5v14c0 1.7 3.6 3 8 3s8-1.3 8-3V5c0-1.7-3.6-3-8-3zM4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" :
+        name.Contains("Dual",     StringComparison.OrdinalIgnoreCase) ? "M3 6v14l6-3 6 3 6-3V3l-6 3-6-3-6 3zM9 3v14M15 6v14" :
+        name.Contains("Table",    StringComparison.OrdinalIgnoreCase) || name.Contains("Entity", StringComparison.OrdinalIgnoreCase) ||
+        name.Contains("Metadata", StringComparison.OrdinalIgnoreCase) ? "M4 4v16a2 2 0 0 1 2-2h14V2H6a2 2 0 0 0-2 2zM6 18h14" :
+        name.Contains("POST",     StringComparison.OrdinalIgnoreCase) ? "M4 7l5 5-5 5M12 17h8" :
+        "M9 2v6M15 2v6M7 8h10v4a5 5 0 0 1-10 0zM12 17v5";
 
     private static bool IsHiddenPlugin(LoadedPlugin plugin)
     {
