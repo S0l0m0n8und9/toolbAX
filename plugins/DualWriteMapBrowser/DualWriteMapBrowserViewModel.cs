@@ -76,8 +76,14 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
     private CountLegConfigRow? _selectedCountLegConfig;
 
     public DualWriteMapBrowserViewModel(IPluginContext ctx)
+        : this(ctx, new TestifyConfigurationStore())
+    {
+    }
+
+    internal DualWriteMapBrowserViewModel(IPluginContext ctx, TestifyConfigurationStore testifyConfigStore)
     {
         _ctx = ctx;
+        _testifyConfigStore = testifyConfigStore ?? throw new ArgumentNullException(nameof(testifyConfigStore));
         _dataverse = ctx as IPluginContextDataverse;
         _write = ctx as IPluginContextWrite;
         DataverseEndpoint = HasDataverseConnection
@@ -111,6 +117,7 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
         PrepareTestifyCommand = new AsyncRelayCommand(PrepareTestifyAsync, onError);
         RunTestifyCommand = new AsyncRelayCommand(RunTestifyAsync, onError);
         CleanupTestifyCommand = new AsyncRelayCommand(CleanupTestifyAsync, onError);
+        InitializeTestifySettingsCommands(onError);
         ClearCommand = new RelayCommand(_ => ClearRecords());
 
         if (!HasDataverseConnection)
@@ -196,7 +203,7 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
         }
     }
 
-    public bool IsBusy => IsLoading || IsLoadingSolutions || IsCounting || IsPreparingTestify || IsRunningTestify;
+    public bool IsBusy => IsLoading || IsLoadingSolutions || IsCounting || IsPreparingTestify || IsRunningTestify || IsLoadingTestifySettings || IsSavingTestifySettings;
 
     public bool FilterBySolution
     {
@@ -260,6 +267,7 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
 
             _selectedRecord = value;
             OnPropertyChanged();
+            OnSelectedRecordChanged();
         }
     }
 

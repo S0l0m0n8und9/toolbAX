@@ -27,7 +27,7 @@ public sealed partial class DualWriteMapBrowserViewModel
     private readonly ReadOnlyObservableCollection<TestifyExecutionLogRow> _testifyLogRowsReadOnly;
     private readonly ReadOnlyObservableCollection<TestifyResultRow> _testifyResultRowsReadOnly;
     private readonly Dictionary<string, TestifyMapPlan> _testifyPlans = new(StringComparer.OrdinalIgnoreCase);
-    private readonly TestifyConfigurationStore _testifyConfigStore = new();
+    private readonly TestifyConfigurationStore _testifyConfigStore;
 
     private bool _isPreparingTestify;
     private bool _isRunningTestify;

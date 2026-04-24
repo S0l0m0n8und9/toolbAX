@@ -56,6 +56,12 @@
                                 MinWidth="100"
                                 Margin="6,0,0,0"
                                 IsEnabled="{Binding IsNotLoading}" />
+                        <Button Content="Testify Settings"
+                                Command="{Binding OpenTestifySettingsCommand}"
+                                Padding="10,4"
+                                MinWidth="120"
+                                Margin="6,0,0,0"
+                                IsEnabled="{Binding IsNotLoading}" />
                         <CheckBox Content="Exact CE Count (slower)"
                                   IsChecked="{Binding UseExactCeCount, Mode=TwoWay}"
                                   VerticalAlignment="Center"
@@ -231,6 +237,59 @@
                             <TextBlock Grid.Row="7" Grid.Column="0" Text="Solution ID" FontWeight="SemiBold" Margin="0,4,0,0" />
                             <TextBlock Grid.Row="7" Grid.Column="1" Text="{Binding SelectedRecord.SolutionId}" TextWrapping="Wrap" Margin="0,4,0,0" />
                         </Grid>
+
+                        <Expander Header="Testify Map Settings"
+                                  Margin="0,12,0,0"
+                                  IsExpanded="{Binding IsTestifySettingsVisible, Mode=TwoWay}">
+                            <StackPanel Margin="0,8,0,0">
+                                <TextBlock Text="Edit the Testify settings for the selected map without opening the JSON file."
+                                           TextWrapping="Wrap"
+                                           Foreground="{DynamicResource Fo.SubtleTextBrush}" />
+                                <TextBlock Text="Omit Create Fields"
+                                           Margin="0,10,0,2"
+                                           FontWeight="SemiBold" />
+                                <TextBlock Text="One field name per line."
+                                           Foreground="{DynamicResource Fo.SubtleTextBrush}" />
+                                <TextBox Text="{Binding TestifyOmitCreateFieldsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         MinHeight="72"
+                                         AcceptsReturn="True"
+                                         VerticalScrollBarVisibility="Auto"
+                                         TextWrapping="Wrap" />
+
+                                <TextBlock Text="Preferred Create Values"
+                                           Margin="0,10,0,2"
+                                           FontWeight="SemiBold" />
+                                <TextBlock Text="Use one `Field=Value` entry per line."
+                                           Foreground="{DynamicResource Fo.SubtleTextBrush}" />
+                                <TextBox Text="{Binding TestifyPreferredCreateValuesText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         MinHeight="96"
+                                         AcceptsReturn="True"
+                                         VerticalScrollBarVisibility="Auto"
+                                         TextWrapping="Wrap" />
+
+                                <TextBlock Text="CE Poll Timeout (minutes)"
+                                           Margin="0,10,0,2"
+                                           FontWeight="SemiBold" />
+                                <TextBox Text="{Binding TestifyCePollTimeoutMinutesText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                                         Width="120" />
+
+                                <CheckBox Content="Allow partial enum coverage"
+                                          IsChecked="{Binding TestifyAllowPartialEnumCoverage, Mode=TwoWay}"
+                                          Margin="0,10,0,0" />
+
+                                <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
+                                    <Button Content="Save Testify Settings"
+                                            Command="{Binding SaveTestifySettingsCommand}"
+                                            Padding="10,4"
+                                            MinWidth="160"
+                                            IsEnabled="{Binding IsNotLoading}" />
+                                    <TextBlock Text="Loading..."
+                                               Margin="10,4,0,0"
+                                               Foreground="{DynamicResource Fo.SubtleTextBrush}"
+                                               Visibility="{Binding IsLoadingTestifySettings, Converter={StaticResource BoolToVisibility}}" />
+                                </StackPanel>
+                            </StackPanel>
+                        </Expander>
 
                         <TextBlock Text="msdyn_mapping"
                                    Margin="0,12,0,4"

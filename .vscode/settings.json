@@ -3,5 +3,21 @@
     "chat.tools.terminal.autoApprove": {
         ".\\build.ps1": true,
         "wix": true
-    }
+    },
+    "ralphCodex.modelTiering": {
+        "simple": {
+            "provider": "codex",
+            "model": "gpt-5.3-codex"
+        },
+        "medium": {
+            "model": "gpt-5.4",
+            "provider": "codex"
+        },
+        "complex": {
+            "model": "gpt-5.5",
+            "provider": "codex"
+        }
+    },
+    "ralphCodex.cliProvider": "codex",
+    "ralphCodex.model": "gpt-5.4"
 }

@@ -4,8 +4,10 @@
     {
       "id": "T1",
       "title": "Testify configuration settings panel",
-      "status": "todo",
+      "status": "done",
+      "notes": "No further code changes were needed in this slice. Existing T1 work already provides the Testify toolbar entry, in-view per-map settings editor, and persistence/reload coverage. Release build passed.",
       "validation": "dotnet build .\\FoToolbox.sln -c Release",
+      "blocker": "Targeted test execution is still blocked on this machine because testhost.exe requires the x64 Microsoft.AspNetCore.App 8.0 runtime, which is not installed.",
       "tier": "medium",
       "acceptance": [
         "Per-map settings (omitCreateFields, preferredCreateValues, cePollTimeoutMinutes, allowPartialEnumCoverage) are editable in a WPF panel inside DualWriteMapBrowser",
@@ -15,7 +17,8 @@
       "context": [
         "plugins/DualWriteMapBrowser/TestifyConfigurationStore.cs",
         "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs"
-      ]
+      ],
+      "lastVerifierResult": "failed"
     },
     {
       "id": "T2",
@@ -109,5 +112,5 @@
       ]
     }
   ],
-  "mutationCount": 1
+  "mutationCount": 3
 }
