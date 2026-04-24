@@ -254,6 +254,7 @@ public sealed partial class DualWriteMapBrowserViewModel
                 var ceSucceeded = false;
                 var valid = false;
                 var status = "Unknown error.";
+                var createdThisRun = false;
 
                 try
                 {
@@ -271,7 +272,6 @@ public sealed partial class DualWriteMapBrowserViewModel
                             entityInstanceUrl = existingUrl;
                             reusingExisting = true;
                             createSucceeded = true;
-                            ceSucceeded = true;
                             AddTestifyLog(plan.MapDisplayName, "Create", "Skipped", $"Reusing existing test record from last run: {existingUrl}");
                         }
                         else
@@ -297,11 +297,8 @@ public sealed partial class DualWriteMapBrowserViewModel
                         MergeKeyValuesFromCreateResponse(plan.FoEntityDetails!, createResponse.Body, runtimeCreateValues);
 
                         createSucceeded = true;
+                        createdThisRun = true;
                         AddTestifyLog(plan.MapDisplayName, "Create", "Succeeded", $"FO create returned HTTP {createResponse.StatusCode}.");
-
-                        await WaitForCeDeltaAsync(plan, preCreateBaselines, cancellationToken, "after create");
-                        ceSucceeded = true;
-                        AddTestifyLog(plan.MapDisplayName, "CE Verify", "Succeeded", "CE baseline delta reached after create.");
 
                         var collectionUrl = _ctx.Catalog.BuildODataEntityUrl(_ctx.CurrentEnv, plan.FoEntity);
                         if (!TestifyRunner.TryBuildEntityInstanceUrl(collectionUrl, plan.FoEntityDetails!, runtimeCreateValues, out entityInstanceUrl, out var keyError))
@@ -309,13 +306,16 @@ public sealed partial class DualWriteMapBrowserViewModel
                             throw new InvalidOperationException(keyError);
                         }
 
-                        // Persist the instance URL for idempotency on future runs.
+                        // Persist the instance URL immediately so downstream rollback can clear stale idempotency metadata.
                         plan.Configuration.LastRunToken = runtimeCreateValues.TryGetValue("FOTBTestifyRunId", out var tok) ? tok
                             : runtimeCreateValues.TryGetValue("Name", out tok) ? tok
                             : runtimeCreateValues.TryGetValue("Description", out tok) ? tok
                             : null;
                         plan.Configuration.LastEntityInstanceUrl = entityInstanceUrl;
                         await _testifyConfigStore.SaveAsync(plan.Configuration, cancellationToken);
+
+                        await WaitForCeDeltaAsync(plan, preCreateBaselines, cancellationToken, "after create");
+                        AddTestifyLog(plan.MapDisplayName, "CE Verify", "Succeeded", "CE baseline delta reached after create.");
                     }
                     else
                     {
@@ -356,13 +356,20 @@ public sealed partial class DualWriteMapBrowserViewModel
                         AddTestifyLog(plan.MapDisplayName, "CE Verify", "Succeeded", $"CE baseline delta reached after patch {step.StepNumber}.");
                     }
 
+                    ceSucceeded = DidCeVerificationSucceedForCompletedRun(createSucceeded, patchesSucceeded, plan.PatchSteps.Count);
                     valid = true;
                     status = "Valid map.";
                     AddTestifyLog(plan.MapDisplayName, "Result", "Valid", status);
                 }
                 catch (Exception ex)
                 {
-                    status = ex.Message;
+                    status = await FinalizeTestifyFailureAsync(
+                        plan.MapDisplayName,
+                        plan.MapId,
+                        plan.Configuration,
+                        createdThisRun,
+                        ex.Message,
+                        cancellationToken);
                     AddTestifyLog(plan.MapDisplayName, "Result", "Failed", status);
                     _ctx.Logger.LogError(ex, "Testify failed for map {MapId} ({MapDisplayName})", plan.MapId, plan.MapDisplayName);
                 }
@@ -1602,7 +1609,11 @@ public sealed partial class DualWriteMapBrowserViewModel
         return true;
     }
 
+    internal static bool DidCeVerificationSucceedForCompletedRun(bool createSucceeded, int patchesSucceeded, int patchesPlanned) =>
+        createSucceeded && patchesSucceeded == patchesPlanned;
+
     private static bool IsSuccessfulStatusCode(int statusCode) => statusCode >= 200 && statusCode <= 299;
+    private static bool IsDeleteSuccessfulStatusCode(int statusCode) => IsSuccessfulStatusCode(statusCode) || statusCode == 404;
 
     private static string BuildLegFieldKey(string legId, string field) =>
         $"{legId}|{TestifyPlanner.NormalizeKey(field)}";
@@ -1611,6 +1622,75 @@ public sealed partial class DualWriteMapBrowserViewModel
     {
         var row = new TestifyExecutionLogRow(DateTimeOffset.UtcNow, mapDisplayName, phase, status, detail);
         _testifyLogRows.Add(row);
+    }
+
+    internal async Task<string> FinalizeTestifyFailureAsync(
+        string mapDisplayName,
+        string mapId,
+        TestifyMapConfiguration configuration,
+        bool createdThisRun,
+        string failureStatus,
+        CancellationToken cancellationToken)
+    {
+        if (!createdThisRun || string.IsNullOrWhiteSpace(configuration.LastEntityInstanceUrl))
+        {
+            return failureStatus;
+        }
+
+        var rollbackSucceeded = await TryDeleteTestifyRecordAsync(
+            mapDisplayName,
+            mapId,
+            configuration,
+            configuration.LastEntityInstanceUrl,
+            "Rollback",
+            cancellationToken);
+
+        return rollbackSucceeded
+            ? $"{failureStatus} Created record rolled back."
+            : $"{failureStatus} Rollback failed; manual cleanup may be required.";
+    }
+
+    internal async Task<bool> TryDeleteTestifyRecordAsync(
+        string mapDisplayName,
+        string mapId,
+        TestifyMapConfiguration? configurationToClear,
+        string entityInstanceUrl,
+        string phase,
+        CancellationToken cancellationToken)
+    {
+        if (_write?.ODataWrite is null || string.IsNullOrWhiteSpace(entityInstanceUrl))
+        {
+            return false;
+        }
+
+        try
+        {
+            var deleteResponse = await _write.ODataWrite.SendAsync(
+                new ODataWriteRequest(HttpMethod.Delete, entityInstanceUrl),
+                cancellationToken);
+
+            if (!IsDeleteSuccessfulStatusCode(deleteResponse.StatusCode))
+            {
+                AddTestifyLog(mapDisplayName, phase, "Failed", $"DELETE {entityInstanceUrl} → HTTP {deleteResponse.StatusCode}. {TrimForStatus(deleteResponse.Body ?? string.Empty)}");
+                return false;
+            }
+
+            AddTestifyLog(mapDisplayName, phase, "Succeeded", $"DELETE {entityInstanceUrl} → HTTP {deleteResponse.StatusCode}.");
+            if (configurationToClear is not null)
+            {
+                configurationToClear.LastEntityInstanceUrl = null;
+                configurationToClear.LastRunToken = null;
+                await _testifyConfigStore.SaveAsync(configurationToClear, cancellationToken);
+            }
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            _ctx.Logger.LogError(ex, "Testify {Phase} DELETE failed for map {MapId} at {Url}", phase, mapId, entityInstanceUrl);
+            AddTestifyLog(mapDisplayName, phase, "Error", $"DELETE {entityInstanceUrl}: {ex.Message}");
+            return false;
+        }
     }
 
     private async Task CleanupTestifyAsync(CancellationToken cancellationToken)
@@ -1715,40 +1795,23 @@ public sealed partial class DualWriteMapBrowserViewModel
         foreach (var (mapName, url) in deleteUrls)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            try
+            var matchingPlan = _testifyPlans.Values.FirstOrDefault(plan =>
+                string.Equals(plan.MapDisplayName, mapName, StringComparison.OrdinalIgnoreCase) &&
+                string.Equals(plan.Configuration.LastEntityInstanceUrl, url, StringComparison.OrdinalIgnoreCase));
+            var deleteSucceeded = await TryDeleteTestifyRecordAsync(
+                mapName,
+                matchingPlan?.MapId ?? string.Empty,
+                matchingPlan?.Configuration,
+                url,
+                "Cleanup",
+                cancellationToken);
+            if (deleteSucceeded)
             {
-                var deleteResponse = await _write.ODataWrite.SendAsync(
-                    new ODataWriteRequest(HttpMethod.Delete, url),
-                    cancellationToken);
-
-                if (IsSuccessfulStatusCode(deleteResponse.StatusCode) || deleteResponse.StatusCode == 404)
-                {
-                    deleted++;
-                    AddTestifyLog(mapName, "Cleanup", "Deleted", $"DELETE {url} → HTTP {deleteResponse.StatusCode}.");
-                }
-                else
-                {
-                    failed++;
-                    AddTestifyLog(mapName, "Cleanup", "Failed", $"DELETE {url} → HTTP {deleteResponse.StatusCode}. {TrimForStatus(deleteResponse.Body ?? string.Empty)}");
-                }
+                deleted++;
             }
-            catch (Exception ex)
+            else
             {
                 failed++;
-                _ctx.Logger.LogError(ex, "Testify cleanup DELETE failed for {Url}", url);
-                AddTestifyLog(mapName, "Cleanup", "Error", $"DELETE {url}: {ex.Message}");
-            }
-        }
-
-        // Clear stored instance URLs from configuration for all cleaned-up plans.
-        foreach (var plan in _testifyPlans.Values)
-        {
-            if (!string.IsNullOrWhiteSpace(plan.Configuration.LastEntityInstanceUrl))
-            {
-                plan.Configuration.LastEntityInstanceUrl = null;
-                plan.Configuration.LastRunToken = null;
-                try { await _testifyConfigStore.SaveAsync(plan.Configuration, cancellationToken); }
-                catch (Exception ex) { _ctx.Logger.LogWarning(ex, "Failed to clear LastEntityInstanceUrl for map {MapId}", plan.MapId); }
             }
         }
 

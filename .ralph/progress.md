@@ -4,3 +4,7 @@
 - Use this file for durable progress notes between fresh Codex runs.
 - Added a testable TestifyConfigurationStore injection seam for DualWriteMapBrowserViewModel, removed ConfigureAwait(false) from the WPF Testify settings load/save path, and added a regression test covering per-map settings load, map switching, save, and reload across a fresh view-model instance. Release solution build passed.
 - No further code changes were needed in this slice. Existing T1 work already provides the Testify toolbar entry, in-view per-map settings editor, and persistence/reload coverage. Release build passed.
+- Tagged all Testify-focused test classes with Category=Testify so the canonical validator now targets the rollback/configuration coverage already added in the working tree. Release build passed.
+- Tightened Testify CE-success reporting so mid-run patch/CE failures are no longer reported as CE success after an initial create verify, and added targeted regression tests for the completed-run result logic. Built successfully on top of the existing rollback helper work already in the tree.
+- Extracted FinalizeTestifyFailureAsync so rollback remains limited to records created in the current run, and added regression tests covering fresh-record rollback state clearing plus reused-record rollback skipping. Focused test project build passes.
+- No additional code changes were needed in this slice. Verified the existing rollback implementation and regression coverage already in the working tree; canonical Testify validation passed with 26/26 tests.

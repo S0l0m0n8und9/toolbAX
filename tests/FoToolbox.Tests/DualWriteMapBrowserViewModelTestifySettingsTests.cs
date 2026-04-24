@@ -8,6 +8,7 @@ using System.IO;
 
 namespace FoToolbox.Tests;
 
+[Trait("Category", "Testify")]
 public sealed class DualWriteMapBrowserViewModelTestifySettingsTests
 {
     [Fact]

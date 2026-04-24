@@ -1,23 +1,23 @@
 {
   "version": 2,
   "objectivePreview": "toolbAX is a Windows desktop application for Microsoft Dynamics 365 Finance & Operations (F&O) administrators and developers, inspired by XrmToolBox. It provide",
-  "nextIteration": 4,
+  "nextIteration": 9,
   "lastPromptKind": "continue-progress",
-  "lastPromptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-002.prompt.md",
+  "lastPromptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-007.prompt.md",
   "lastRun": {
     "agentId": "default",
-    "provenanceId": "run-i002-cli-20260424T180650Z",
-    "iteration": 2,
+    "provenanceId": "run-i007-cli-20260424T183604Z",
+    "iteration": 7,
     "mode": "loop",
     "promptKind": "continue-progress",
-    "startedAt": "2026-04-24T18:06:50.539Z",
-    "finishedAt": "2026-04-24T18:12:49.478Z",
+    "startedAt": "2026-04-24T18:36:03.858Z",
+    "finishedAt": "2026-04-24T18:40:48.168Z",
     "status": "succeeded",
     "exitCode": 0,
-    "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-002.prompt.md",
-    "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-002.transcript.md",
-    "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-002.last-message.md",
-    "summary": "Selected T1: Testify configuration settings panel | Execution: succeeded | Verification: passed | Outcome: partial_progress | Backlog remaining: 6"
+    "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-007.prompt.md",
+    "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-007.transcript.md",
+    "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-007.last-message.md",
+    "summary": "Selected T2: Testify automatic rollback on failure | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 5"
   },
   "runHistory": [
     {
@@ -49,21 +49,96 @@
       "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-002.transcript.md",
       "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-002.last-message.md",
       "summary": "Selected T1: Testify configuration settings panel | Execution: succeeded | Verification: passed | Outcome: partial_progress | Backlog remaining: 6"
+    },
+    {
+      "agentId": "default",
+      "provenanceId": "run-i003-cli-20260424T181249Z",
+      "iteration": 3,
+      "mode": "loop",
+      "promptKind": "continue-progress",
+      "startedAt": "2026-04-24T18:12:49.553Z",
+      "finishedAt": "2026-04-24T18:15:09.195Z",
+      "status": "succeeded",
+      "exitCode": 0,
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-003.prompt.md",
+      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-003.transcript.md",
+      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-003.last-message.md",
+      "summary": "Selected T1: Testify configuration settings panel | Execution: succeeded | Verification: failed | Outcome: complete | Backlog remaining: 5"
+    },
+    {
+      "agentId": "default",
+      "provenanceId": "run-i004-cli-20260424T181632Z",
+      "iteration": 4,
+      "mode": "loop",
+      "promptKind": "fix-failure",
+      "startedAt": "2026-04-24T18:16:32.049Z",
+      "finishedAt": "2026-04-24T18:26:18.089Z",
+      "status": "succeeded",
+      "exitCode": 0,
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-004.prompt.md",
+      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-004.transcript.md",
+      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-004.last-message.md",
+      "summary": "Selected T2: Testify automatic rollback on failure | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 5"
+    },
+    {
+      "agentId": "default",
+      "provenanceId": "run-i005-cli-20260424T182618Z",
+      "iteration": 5,
+      "mode": "loop",
+      "promptKind": "continue-progress",
+      "startedAt": "2026-04-24T18:26:18.205Z",
+      "finishedAt": "2026-04-24T18:31:40.957Z",
+      "status": "succeeded",
+      "exitCode": 0,
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-005.prompt.md",
+      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-005.transcript.md",
+      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-005.last-message.md",
+      "summary": "Selected T2: Testify automatic rollback on failure | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 5"
+    },
+    {
+      "agentId": "default",
+      "provenanceId": "run-i006-cli-20260424T183141Z",
+      "iteration": 6,
+      "mode": "loop",
+      "promptKind": "continue-progress",
+      "startedAt": "2026-04-24T18:31:41.062Z",
+      "finishedAt": "2026-04-24T18:36:03.746Z",
+      "status": "succeeded",
+      "exitCode": 0,
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-006.prompt.md",
+      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-006.transcript.md",
+      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-006.last-message.md",
+      "summary": "Selected T2: Testify automatic rollback on failure | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 5"
+    },
+    {
+      "agentId": "default",
+      "provenanceId": "run-i007-cli-20260424T183604Z",
+      "iteration": 7,
+      "mode": "loop",
+      "promptKind": "continue-progress",
+      "startedAt": "2026-04-24T18:36:03.858Z",
+      "finishedAt": "2026-04-24T18:40:48.168Z",
+      "status": "succeeded",
+      "exitCode": 0,
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-007.prompt.md",
+      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-007.transcript.md",
+      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-007.last-message.md",
+      "summary": "Selected T2: Testify automatic rollback on failure | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 5"
     }
   ],
   "lastIteration": {
     "schemaVersion": 1,
     "agentId": "default",
-    "provenanceId": "run-i002-cli-20260424T180650Z",
-    "iteration": 2,
-    "selectedTaskId": "T1",
-    "selectedTaskTitle": "Testify configuration settings panel",
+    "provenanceId": "run-i007-cli-20260424T183604Z",
+    "iteration": 7,
+    "selectedTaskId": "T2",
+    "selectedTaskTitle": "Testify automatic rollback on failure",
     "promptKind": "continue-progress",
-    "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-002.prompt.md",
-    "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-002",
+    "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-007.prompt.md",
+    "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007",
     "adapterUsed": "cliExec",
     "executionIntegrity": {
-      "provenanceId": "run-i002-cli-20260424T180650Z",
+      "provenanceId": "run-i007-cli-20260424T183604Z",
       "promptTarget": "cliExec",
       "rootPolicy": {
         "workspaceRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
@@ -76,135 +151,159 @@
       },
       "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.0.0\\prompt-templates\\continue-progress.md",
       "reasoningEffort": "medium",
-      "taskValidationHint": "dotnet build .\\FoToolbox.sln -c Release",
-      "effectiveValidationCommand": "dotnet build .\\FoToolbox.sln -c Release",
+      "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "effectiveValidationCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
       "normalizedValidationCommandFrom": null,
-      "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-002\\execution-plan.json",
-      "executionPlanHash": "sha256:e1f03ebf3d3bdc107c833cae27c4f11446c6568ea2f89c7e6b7f421147424827",
-      "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-002\\prompt.md",
-      "promptHash": "sha256:73a58e9be26255a0d5b2ee9bfdf0911ae967bb19bda6bdf9e0b0069a8b20a022",
-      "promptByteLength": 8978,
-      "executionPayloadHash": "sha256:73a58e9be26255a0d5b2ee9bfdf0911ae967bb19bda6bdf9e0b0069a8b20a022",
+      "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\execution-plan.json",
+      "executionPlanHash": "sha256:6e4b1036513a886f5332f0d412fbde9836f20d8549b8c760c66e4e139f6b88e9",
+      "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\prompt.md",
+      "promptHash": "sha256:69b4b646e7da94d121e5512203d2d1d2179eaa1f750498266b2e87786b0420e0",
+      "promptByteLength": 9236,
+      "executionPayloadHash": "sha256:69b4b646e7da94d121e5512203d2d1d2179eaa1f750498266b2e87786b0420e0",
       "executionPayloadMatched": true,
       "mismatchReason": null,
-      "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-002\\cli-invocation.json"
+      "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\cli-invocation.json"
     },
     "executionStatus": "succeeded",
-    "verificationStatus": "passed",
+    "verificationStatus": "failed",
     "completionClassification": "partial_progress",
     "followUpAction": "continue_same_task",
-    "startedAt": "2026-04-24T18:06:50.539Z",
-    "finishedAt": "2026-04-24T18:12:49.478Z",
+    "startedAt": "2026-04-24T18:36:03.858Z",
+    "finishedAt": "2026-04-24T18:40:48.168Z",
     "phaseTimestamps": {
-      "inspectStartedAt": "2026-04-24T18:06:50.539Z",
-      "inspectFinishedAt": "2026-04-24T18:06:50.817Z",
-      "taskSelectedAt": "2026-04-24T18:06:50.817Z",
-      "promptGeneratedAt": "2026-04-24T18:06:51.135Z",
-      "executionStartedAt": "2026-04-24T18:06:51.997Z",
-      "executionFinishedAt": "2026-04-24T18:12:41.504Z",
-      "resultCollectedAt": "2026-04-24T18:12:41.506Z",
-      "verificationFinishedAt": "2026-04-24T18:12:49.478Z",
-      "classifiedAt": "2026-04-24T18:12:49.478Z",
-      "persistedAt": "2026-04-24T18:12:49.478Z"
+      "inspectStartedAt": "2026-04-24T18:36:03.858Z",
+      "inspectFinishedAt": "2026-04-24T18:36:04.157Z",
+      "taskSelectedAt": "2026-04-24T18:36:04.157Z",
+      "promptGeneratedAt": "2026-04-24T18:36:04.959Z",
+      "executionStartedAt": "2026-04-24T18:36:07.167Z",
+      "executionFinishedAt": "2026-04-24T18:40:34.688Z",
+      "resultCollectedAt": "2026-04-24T18:40:34.690Z",
+      "verificationFinishedAt": "2026-04-24T18:40:48.167Z",
+      "classifiedAt": "2026-04-24T18:40:48.167Z",
+      "persistedAt": "2026-04-24T18:40:48.168Z"
     },
-    "summary": "Selected T1: Testify configuration settings panel | Execution: succeeded | Verification: passed | Outcome: partial_progress | Backlog remaining: 6",
+    "summary": "Selected T2: Testify automatic rollback on failure | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 5",
     "warnings": [],
-    "errors": [],
+    "errors": [
+      "Validation command exited with 1."
+    ],
     "execution": {
       "exitCode": 0,
-      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-002.transcript.md",
-      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-002.last-message.md",
-      "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-002\\stdout.log",
-      "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-002\\stderr.log"
+      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-007.transcript.md",
+      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-007.last-message.md",
+      "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\stdout.log",
+      "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\stderr.log"
     },
     "verification": {
-      "taskValidationHint": "dotnet build .\\FoToolbox.sln -c Release",
-      "effectiveValidationCommand": "dotnet build .\\FoToolbox.sln -c Release",
+      "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "effectiveValidationCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
       "normalizedValidationCommandFrom": null,
-      "primaryCommand": "dotnet build .\\FoToolbox.sln -c Release",
-      "validationFailureSignature": null,
+      "primaryCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "validationFailureSignature": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify::exit:1::Testhost process for source(s) 'c:\\Users\\ben.jones\\Repos\\toolbAX\\tests\\FoToolbox.Tests\\bin\\Release\\net8.0-windows\\FoToolbox.Tests.dll' exited with error: You must install or update .NET to run this application. | App: c:\\Users\\ben.jones\\Rep",
       "verifiers": [
         {
           "verifier": "validationCommand",
-          "status": "passed",
-          "summary": "Validation command passed: dotnet build .\\FoToolbox.sln -c Release",
+          "status": "failed",
+          "summary": "Validation command failed with exit code 1: dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
           "warnings": [],
-          "errors": [],
-          "command": "dotnet build .\\FoToolbox.sln -c Release",
-          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-002\\validation-command.json",
-          "failureSignature": null,
+          "errors": [
+            "Validation command exited with 1."
+          ],
+          "command": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\validation-command.json",
+          "failureSignature": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify::exit:1::Testhost process for source(s) 'c:\\Users\\ben.jones\\Repos\\toolbAX\\tests\\FoToolbox.Tests\\bin\\Release\\net8.0-windows\\FoToolbox.Tests.dll' exited with error: You must install or update .NET to run this application. | App: c:\\Users\\ben.jones\\Rep",
           "metadata": {
-            "exitCode": 0,
-            "taskValidationHint": "dotnet build .\\FoToolbox.sln -c Release",
+            "exitCode": 1,
+            "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
             "normalizedValidationCommandFrom": null,
-            "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-002\\validation-command.stdout.log",
-            "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-002\\validation-command.stderr.log"
+            "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\validation-command.stdout.log",
+            "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\validation-command.stderr.log"
           }
         },
         {
           "verifier": "gitDiff",
           "status": "passed",
-          "summary": "Detected 2 relevant changed file(s) out of 4 total changes.",
+          "summary": "Detected 1 relevant changed file(s) out of 11 total changes.",
           "warnings": [],
           "errors": [],
-          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-002\\git-diff.json",
+          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\git-diff.json",
           "failureSignature": null,
           "metadata": {
             "changedFiles": [
-              ".ralph/runs/continue-progress-002.last-message.md",
-              ".ralph/runs/continue-progress-002.transcript.md",
-              "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
-              "tests/FoToolbox.Tests/DualWriteMapBrowserViewModelTestifySettingsTests.cs"
+              ".ralph/.gitignore",
+              ".ralph/prompts/continue-progress-005.prompt.md",
+              ".ralph/prompts/continue-progress-006.prompt.md",
+              ".ralph/prompts/continue-progress-007.prompt.md",
+              ".ralph/prompts/fix-failure-004.prompt.md",
+              ".ralph/runs/continue-progress-005.last-message.md",
+              ".ralph/runs/continue-progress-005.transcript.md",
+              ".ralph/runs/continue-progress-006.last-message.md",
+              ".ralph/runs/continue-progress-006.transcript.md",
+              ".ralph/runs/fix-failure-004.last-message.md",
+              ".ralph/runs/fix-failure-004.transcript.md"
             ],
             "relevantChangedFiles": [
-              "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
-              "tests/FoToolbox.Tests/DualWriteMapBrowserViewModelTestifySettingsTests.cs"
+              ".ralph/.gitignore"
             ]
           }
         },
         {
           "verifier": "taskState",
           "status": "passed",
-          "summary": "Durable Ralph task/progress files changed for T1.",
+          "summary": "Durable Ralph task/progress files changed for T2.",
           "warnings": [],
           "errors": [],
-          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-002\\task-state.json",
+          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\task-state.json",
           "failureSignature": null
         }
       ]
     },
     "backlog": {
-      "remainingTaskCount": 6,
+      "remainingTaskCount": 5,
       "actionableTaskAvailable": true
     },
     "diffSummary": {
       "available": true,
       "gitAvailable": true,
-      "summary": "Detected 2 relevant changed file(s) out of 4 total changes.",
-      "changedFileCount": 4,
-      "relevantChangedFileCount": 2,
+      "summary": "Detected 1 relevant changed file(s) out of 11 total changes.",
+      "changedFileCount": 11,
+      "relevantChangedFileCount": 1,
       "changedFiles": [
-        ".ralph/runs/continue-progress-002.last-message.md",
-        ".ralph/runs/continue-progress-002.transcript.md",
-        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
-        "tests/FoToolbox.Tests/DualWriteMapBrowserViewModelTestifySettingsTests.cs"
+        ".ralph/.gitignore",
+        ".ralph/prompts/continue-progress-005.prompt.md",
+        ".ralph/prompts/continue-progress-006.prompt.md",
+        ".ralph/prompts/continue-progress-007.prompt.md",
+        ".ralph/prompts/fix-failure-004.prompt.md",
+        ".ralph/runs/continue-progress-005.last-message.md",
+        ".ralph/runs/continue-progress-005.transcript.md",
+        ".ralph/runs/continue-progress-006.last-message.md",
+        ".ralph/runs/continue-progress-006.transcript.md",
+        ".ralph/runs/fix-failure-004.last-message.md",
+        ".ralph/runs/fix-failure-004.transcript.md"
       ],
       "relevantChangedFiles": [
-        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
-        "tests/FoToolbox.Tests/DualWriteMapBrowserViewModelTestifySettingsTests.cs"
+        ".ralph/.gitignore"
       ],
       "statusTransitions": [
-        ".ralph/runs/continue-progress-002.last-message.md: clean -> ??",
-        ".ralph/runs/continue-progress-002.transcript.md: clean -> ??",
-        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs: clean -> M",
-        "tests/FoToolbox.Tests/DualWriteMapBrowserViewModelTestifySettingsTests.cs: clean -> ??"
+        ".ralph/.gitignore: clean -> ??",
+        ".ralph/prompts/continue-progress-005.prompt.md: ?? -> clean",
+        ".ralph/prompts/continue-progress-006.prompt.md: ?? -> clean",
+        ".ralph/prompts/continue-progress-007.prompt.md: ?? -> clean",
+        ".ralph/prompts/fix-failure-004.prompt.md: ?? -> clean",
+        ".ralph/runs/continue-progress-005.last-message.md: ?? -> clean",
+        ".ralph/runs/continue-progress-005.transcript.md: ?? -> clean",
+        ".ralph/runs/continue-progress-006.last-message.md: ?? -> clean",
+        ".ralph/runs/continue-progress-006.transcript.md: ?? -> clean",
+        ".ralph/runs/fix-failure-004.last-message.md: ?? -> clean",
+        ".ralph/runs/fix-failure-004.transcript.md: ?? -> clean"
       ],
-      "suggestedCheckpointRef": "ralph/iter-iteration-002",
-      "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-002\\git-status-before.txt",
-      "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-002\\git-status-after.txt"
+      "suggestedCheckpointRef": "ralph/iter-iteration-007",
+      "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\git-status-before.txt",
+      "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\git-status-after.txt"
     },
     "noProgressSignals": [
-      "same_task_selected_repeatedly"
+      "same_task_selected_repeatedly",
+      "same_validation_failure_signature"
     ],
     "remediation": null,
     "completionReportStatus": "applied",
@@ -558,7 +657,864 @@
       "completionReportStatus": "applied",
       "reconciliationWarnings": [],
       "stopReason": null
+    },
+    {
+      "schemaVersion": 1,
+      "agentId": "default",
+      "provenanceId": "run-i003-cli-20260424T181249Z",
+      "iteration": 3,
+      "selectedTaskId": "T1",
+      "selectedTaskTitle": "Testify configuration settings panel",
+      "promptKind": "continue-progress",
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-003.prompt.md",
+      "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-003",
+      "adapterUsed": "cliExec",
+      "executionIntegrity": {
+        "provenanceId": "run-i003-cli-20260424T181249Z",
+        "promptTarget": "cliExec",
+        "rootPolicy": {
+          "workspaceRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "inspectionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "executionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "verificationRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "selectionStrategy": "workspaceRoot",
+          "selectionSummary": "Using the workspace root because it already exposes shallow repo markers.",
+          "policySummary": "Inspect, execute, and verify at the workspace root while storing Ralph artifacts under .ralph there."
+        },
+        "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.0.0\\prompt-templates\\continue-progress.md",
+        "reasoningEffort": "medium",
+        "taskValidationHint": "dotnet build .\\FoToolbox.sln -c Release",
+        "effectiveValidationCommand": "dotnet build .\\FoToolbox.sln -c Release",
+        "normalizedValidationCommandFrom": null,
+        "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-003\\execution-plan.json",
+        "executionPlanHash": "sha256:6ed3427540466e0544e447211e1e0751b806297137cd3f5ebec5315c5269a56e",
+        "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-003\\prompt.md",
+        "promptHash": "sha256:1a0b5ba499af8eaf6c51c9149cf5d98c50c4fde0858e5a98bf115a6f2cf0a31b",
+        "promptByteLength": 9408,
+        "executionPayloadHash": "sha256:1a0b5ba499af8eaf6c51c9149cf5d98c50c4fde0858e5a98bf115a6f2cf0a31b",
+        "executionPayloadMatched": true,
+        "mismatchReason": null,
+        "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-003\\cli-invocation.json"
+      },
+      "executionStatus": "succeeded",
+      "verificationStatus": "failed",
+      "completionClassification": "complete",
+      "followUpAction": "continue_next_task",
+      "startedAt": "2026-04-24T18:12:49.553Z",
+      "finishedAt": "2026-04-24T18:15:09.195Z",
+      "phaseTimestamps": {
+        "inspectStartedAt": "2026-04-24T18:12:49.553Z",
+        "inspectFinishedAt": "2026-04-24T18:12:49.848Z",
+        "taskSelectedAt": "2026-04-24T18:12:49.848Z",
+        "promptGeneratedAt": "2026-04-24T18:12:50.154Z",
+        "executionStartedAt": "2026-04-24T18:12:50.616Z",
+        "executionFinishedAt": "2026-04-24T18:15:01.993Z",
+        "resultCollectedAt": "2026-04-24T18:15:01.995Z",
+        "verificationFinishedAt": "2026-04-24T18:15:09.195Z",
+        "classifiedAt": "2026-04-24T18:15:09.195Z",
+        "persistedAt": "2026-04-24T18:15:09.195Z"
+      },
+      "summary": "Selected T1: Testify configuration settings panel | Execution: succeeded | Verification: failed | Outcome: complete | Backlog remaining: 5",
+      "warnings": [
+        "SCM commit-on-done succeeded: ralph(T1): Testify configuration settings panel",
+        "SCM branch-per-task merged ralph/T1 into ralph/T1.",
+        "Completed task without reporting validationRan; configured validation command was 'dotnet build .\\FoToolbox.sln -c Release'.",
+        "No relevant workspace changes were detected."
+      ],
+      "errors": [],
+      "execution": {
+        "exitCode": 0,
+        "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-003.transcript.md",
+        "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-003.last-message.md",
+        "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-003\\stdout.log",
+        "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-003\\stderr.log"
+      },
+      "verification": {
+        "taskValidationHint": "dotnet build .\\FoToolbox.sln -c Release",
+        "effectiveValidationCommand": "dotnet build .\\FoToolbox.sln -c Release",
+        "normalizedValidationCommandFrom": null,
+        "primaryCommand": "dotnet build .\\FoToolbox.sln -c Release",
+        "validationFailureSignature": null,
+        "verifiers": [
+          {
+            "verifier": "validationCommand",
+            "status": "passed",
+            "summary": "Validation command passed: dotnet build .\\FoToolbox.sln -c Release",
+            "warnings": [],
+            "errors": [],
+            "command": "dotnet build .\\FoToolbox.sln -c Release",
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-003\\validation-command.json",
+            "failureSignature": null,
+            "metadata": {
+              "exitCode": 0,
+              "taskValidationHint": "dotnet build .\\FoToolbox.sln -c Release",
+              "normalizedValidationCommandFrom": null,
+              "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-003\\validation-command.stdout.log",
+              "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-003\\validation-command.stderr.log"
+            }
+          },
+          {
+            "verifier": "gitDiff",
+            "status": "failed",
+            "summary": "Detected 2 change(s), but none outside Ralph-managed files.",
+            "warnings": [
+              "No relevant workspace changes were detected."
+            ],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-003\\git-diff.json",
+            "failureSignature": null,
+            "metadata": {
+              "changedFiles": [
+                ".ralph/runs/continue-progress-003.last-message.md",
+                ".ralph/runs/continue-progress-003.transcript.md"
+              ],
+              "relevantChangedFiles": []
+            }
+          },
+          {
+            "verifier": "taskState",
+            "status": "passed",
+            "summary": "Selected task T1 is marked done.",
+            "warnings": [],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-003\\task-state.json",
+            "failureSignature": null
+          }
+        ]
+      },
+      "backlog": {
+        "remainingTaskCount": 5,
+        "actionableTaskAvailable": true
+      },
+      "diffSummary": {
+        "available": true,
+        "gitAvailable": true,
+        "summary": "Detected 2 change(s), but none outside Ralph-managed files.",
+        "changedFileCount": 2,
+        "relevantChangedFileCount": 0,
+        "changedFiles": [
+          ".ralph/runs/continue-progress-003.last-message.md",
+          ".ralph/runs/continue-progress-003.transcript.md"
+        ],
+        "relevantChangedFiles": [],
+        "statusTransitions": [
+          ".ralph/runs/continue-progress-003.last-message.md: clean -> ??",
+          ".ralph/runs/continue-progress-003.transcript.md: clean -> ??"
+        ],
+        "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-003\\git-status-before.txt",
+        "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-003\\git-status-after.txt"
+      },
+      "noProgressSignals": [
+        "same_task_selected_repeatedly",
+        "no_relevant_file_changes"
+      ],
+      "remediation": null,
+      "completionReportStatus": "applied",
+      "reconciliationWarnings": [
+        "Completed task without reporting validationRan; configured validation command was 'dotnet build .\\FoToolbox.sln -c Release'."
+      ],
+      "stopReason": null
+    },
+    {
+      "schemaVersion": 1,
+      "agentId": "default",
+      "provenanceId": "run-i004-cli-20260424T181632Z",
+      "iteration": 4,
+      "selectedTaskId": "T2",
+      "selectedTaskTitle": "Testify automatic rollback on failure",
+      "promptKind": "fix-failure",
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-004.prompt.md",
+      "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-004",
+      "adapterUsed": "cliExec",
+      "executionIntegrity": {
+        "provenanceId": "run-i004-cli-20260424T181632Z",
+        "promptTarget": "cliExec",
+        "rootPolicy": {
+          "workspaceRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "inspectionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "executionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "verificationRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "selectionStrategy": "workspaceRoot",
+          "selectionSummary": "Using the workspace root because it already exposes shallow repo markers.",
+          "policySummary": "Inspect, execute, and verify at the workspace root while storing Ralph artifacts under .ralph there."
+        },
+        "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.0.0\\prompt-templates\\fix-failure.md",
+        "reasoningEffort": "medium",
+        "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "effectiveValidationCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "normalizedValidationCommandFrom": null,
+        "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-004\\execution-plan.json",
+        "executionPlanHash": "sha256:b5d355d30fc2880984ff6295c8a838097b50f371b2c846395a7622a7e1504c65",
+        "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-004\\prompt.md",
+        "promptHash": "sha256:16f21a090cfecc54175f0f1ee73ca04f1bf55d65cd4c8318a54944a119ae01a6",
+        "promptByteLength": 9875,
+        "executionPayloadHash": "sha256:16f21a090cfecc54175f0f1ee73ca04f1bf55d65cd4c8318a54944a119ae01a6",
+        "executionPayloadMatched": true,
+        "mismatchReason": null,
+        "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-004\\cli-invocation.json"
+      },
+      "executionStatus": "succeeded",
+      "verificationStatus": "failed",
+      "completionClassification": "partial_progress",
+      "followUpAction": "continue_same_task",
+      "startedAt": "2026-04-24T18:16:32.049Z",
+      "finishedAt": "2026-04-24T18:26:18.089Z",
+      "phaseTimestamps": {
+        "inspectStartedAt": "2026-04-24T18:16:32.049Z",
+        "inspectFinishedAt": "2026-04-24T18:16:32.347Z",
+        "taskSelectedAt": "2026-04-24T18:16:32.347Z",
+        "promptGeneratedAt": "2026-04-24T18:16:32.965Z",
+        "executionStartedAt": "2026-04-24T18:16:35.213Z",
+        "executionFinishedAt": "2026-04-24T18:25:40.253Z",
+        "resultCollectedAt": "2026-04-24T18:25:40.259Z",
+        "verificationFinishedAt": "2026-04-24T18:26:18.089Z",
+        "classifiedAt": "2026-04-24T18:26:18.089Z",
+        "persistedAt": "2026-04-24T18:26:18.090Z"
+      },
+      "summary": "Selected T2: Testify automatic rollback on failure | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 5",
+      "warnings": [
+        "Completion report requestedStatus must be one of done, blocked, or in_progress.",
+        "Task and progress files were unchanged during the iteration."
+      ],
+      "errors": [
+        "Validation command exited with 1."
+      ],
+      "execution": {
+        "exitCode": 0,
+        "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-004.transcript.md",
+        "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-004.last-message.md",
+        "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-004\\stdout.log",
+        "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-004\\stderr.log"
+      },
+      "verification": {
+        "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "effectiveValidationCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "normalizedValidationCommandFrom": null,
+        "primaryCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "validationFailureSignature": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify::exit:1::Testhost process for source(s) 'c:\\Users\\ben.jones\\Repos\\toolbAX\\tests\\FoToolbox.Tests\\bin\\Release\\net8.0-windows\\FoToolbox.Tests.dll' exited with error: You must install or update .NET to run this application. | App: c:\\Users\\ben.jones\\Rep",
+        "verifiers": [
+          {
+            "verifier": "validationCommand",
+            "status": "failed",
+            "summary": "Validation command failed with exit code 1: dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+            "warnings": [],
+            "errors": [
+              "Validation command exited with 1."
+            ],
+            "command": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-004\\validation-command.json",
+            "failureSignature": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify::exit:1::Testhost process for source(s) 'c:\\Users\\ben.jones\\Repos\\toolbAX\\tests\\FoToolbox.Tests\\bin\\Release\\net8.0-windows\\FoToolbox.Tests.dll' exited with error: You must install or update .NET to run this application. | App: c:\\Users\\ben.jones\\Rep",
+            "metadata": {
+              "exitCode": 1,
+              "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+              "normalizedValidationCommandFrom": null,
+              "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-004\\validation-command.stdout.log",
+              "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-004\\validation-command.stderr.log"
+            }
+          },
+          {
+            "verifier": "gitDiff",
+            "status": "passed",
+            "summary": "Detected 2 relevant changed file(s) out of 4 total changes.",
+            "warnings": [],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-004\\git-diff.json",
+            "failureSignature": null,
+            "metadata": {
+              "changedFiles": [
+                ".ralph/runs/fix-failure-004.last-message.md",
+                ".ralph/runs/fix-failure-004.transcript.md",
+                "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
+                "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyRollbackTests.cs"
+              ],
+              "relevantChangedFiles": [
+                "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
+                "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyRollbackTests.cs"
+              ]
+            }
+          },
+          {
+            "verifier": "taskState",
+            "status": "skipped",
+            "summary": "No task-state progress was detected.",
+            "warnings": [
+              "Task and progress files were unchanged during the iteration."
+            ],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-004\\task-state.json",
+            "failureSignature": null
+          }
+        ]
+      },
+      "backlog": {
+        "remainingTaskCount": 5,
+        "actionableTaskAvailable": true
+      },
+      "diffSummary": {
+        "available": true,
+        "gitAvailable": true,
+        "summary": "Detected 2 relevant changed file(s) out of 4 total changes.",
+        "changedFileCount": 4,
+        "relevantChangedFileCount": 2,
+        "changedFiles": [
+          ".ralph/runs/fix-failure-004.last-message.md",
+          ".ralph/runs/fix-failure-004.transcript.md",
+          "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
+          "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyRollbackTests.cs"
+        ],
+        "relevantChangedFiles": [
+          "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
+          "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyRollbackTests.cs"
+        ],
+        "statusTransitions": [
+          ".ralph/runs/fix-failure-004.last-message.md: clean -> ??",
+          ".ralph/runs/fix-failure-004.transcript.md: clean -> ??",
+          "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs: clean -> M",
+          "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyRollbackTests.cs: clean -> ??"
+        ],
+        "suggestedCheckpointRef": "ralph/iter-iteration-004",
+        "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-004\\git-status-before.txt",
+        "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-004\\git-status-after.txt"
+      },
+      "noProgressSignals": [
+        "task_and_progress_state_unchanged"
+      ],
+      "remediation": null,
+      "completionReportStatus": "invalid",
+      "reconciliationWarnings": [
+        "Completion report requestedStatus must be one of done, blocked, or in_progress."
+      ],
+      "stopReason": null
+    },
+    {
+      "schemaVersion": 1,
+      "agentId": "default",
+      "provenanceId": "run-i005-cli-20260424T182618Z",
+      "iteration": 5,
+      "selectedTaskId": "T2",
+      "selectedTaskTitle": "Testify automatic rollback on failure",
+      "promptKind": "continue-progress",
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-005.prompt.md",
+      "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-005",
+      "adapterUsed": "cliExec",
+      "executionIntegrity": {
+        "provenanceId": "run-i005-cli-20260424T182618Z",
+        "promptTarget": "cliExec",
+        "rootPolicy": {
+          "workspaceRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "inspectionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "executionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "verificationRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "selectionStrategy": "workspaceRoot",
+          "selectionSummary": "Using the workspace root because it already exposes shallow repo markers.",
+          "policySummary": "Inspect, execute, and verify at the workspace root while storing Ralph artifacts under .ralph there."
+        },
+        "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.0.0\\prompt-templates\\continue-progress.md",
+        "reasoningEffort": "medium",
+        "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "effectiveValidationCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "normalizedValidationCommandFrom": null,
+        "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-005\\execution-plan.json",
+        "executionPlanHash": "sha256:908d5dfb96c8de481eb5246744b17e6dc6b86ae38dcad47c781cc11249b8b9fc",
+        "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-005\\prompt.md",
+        "promptHash": "sha256:8a57d01d5a9b3e220decdfc5e749390ca1ae7511d567b60d36e09acf4c805942",
+        "promptByteLength": 9392,
+        "executionPayloadHash": "sha256:8a57d01d5a9b3e220decdfc5e749390ca1ae7511d567b60d36e09acf4c805942",
+        "executionPayloadMatched": true,
+        "mismatchReason": null,
+        "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-005\\cli-invocation.json"
+      },
+      "executionStatus": "succeeded",
+      "verificationStatus": "failed",
+      "completionClassification": "partial_progress",
+      "followUpAction": "continue_same_task",
+      "startedAt": "2026-04-24T18:26:18.205Z",
+      "finishedAt": "2026-04-24T18:31:40.957Z",
+      "phaseTimestamps": {
+        "inspectStartedAt": "2026-04-24T18:26:18.205Z",
+        "inspectFinishedAt": "2026-04-24T18:26:18.595Z",
+        "taskSelectedAt": "2026-04-24T18:26:18.595Z",
+        "promptGeneratedAt": "2026-04-24T18:26:19.016Z",
+        "executionStartedAt": "2026-04-24T18:26:20.050Z",
+        "executionFinishedAt": "2026-04-24T18:31:26.181Z",
+        "resultCollectedAt": "2026-04-24T18:31:26.183Z",
+        "verificationFinishedAt": "2026-04-24T18:31:40.957Z",
+        "classifiedAt": "2026-04-24T18:31:40.957Z",
+        "persistedAt": "2026-04-24T18:31:40.957Z"
+      },
+      "summary": "Selected T2: Testify automatic rollback on failure | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 5",
+      "warnings": [],
+      "errors": [
+        "Validation command exited with 1."
+      ],
+      "execution": {
+        "exitCode": 0,
+        "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-005.transcript.md",
+        "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-005.last-message.md",
+        "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-005\\stdout.log",
+        "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-005\\stderr.log"
+      },
+      "verification": {
+        "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "effectiveValidationCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "normalizedValidationCommandFrom": null,
+        "primaryCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "validationFailureSignature": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify::exit:1::Testhost process for source(s) 'c:\\Users\\ben.jones\\Repos\\toolbAX\\tests\\FoToolbox.Tests\\bin\\Release\\net8.0-windows\\FoToolbox.Tests.dll' exited with error: You must install or update .NET to run this application. | App: c:\\Users\\ben.jones\\Rep",
+        "verifiers": [
+          {
+            "verifier": "validationCommand",
+            "status": "failed",
+            "summary": "Validation command failed with exit code 1: dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+            "warnings": [],
+            "errors": [
+              "Validation command exited with 1."
+            ],
+            "command": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-005\\validation-command.json",
+            "failureSignature": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify::exit:1::Testhost process for source(s) 'c:\\Users\\ben.jones\\Repos\\toolbAX\\tests\\FoToolbox.Tests\\bin\\Release\\net8.0-windows\\FoToolbox.Tests.dll' exited with error: You must install or update .NET to run this application. | App: c:\\Users\\ben.jones\\Rep",
+            "metadata": {
+              "exitCode": 1,
+              "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+              "normalizedValidationCommandFrom": null,
+              "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-005\\validation-command.stdout.log",
+              "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-005\\validation-command.stderr.log"
+            }
+          },
+          {
+            "verifier": "gitDiff",
+            "status": "passed",
+            "summary": "Detected 6 relevant changed file(s) out of 8 total changes.",
+            "warnings": [],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-005\\git-diff.json",
+            "failureSignature": null,
+            "metadata": {
+              "changedFiles": [
+                ".ralph/runs/continue-progress-005.last-message.md",
+                ".ralph/runs/continue-progress-005.transcript.md",
+                "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyTests.cs",
+                "tests/FoToolbox.Tests/DualWriteMapBrowserViewModelTestifySettingsTests.cs",
+                "tests/FoToolbox.Tests/TestifyConfigurationStoreTests.cs",
+                "tests/FoToolbox.Tests/TestifyPayloadBuilderTests.cs",
+                "tests/FoToolbox.Tests/TestifyPlannerTests.cs",
+                "tests/FoToolbox.Tests/TestifyValueMapParserTests.cs"
+              ],
+              "relevantChangedFiles": [
+                "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyTests.cs",
+                "tests/FoToolbox.Tests/DualWriteMapBrowserViewModelTestifySettingsTests.cs",
+                "tests/FoToolbox.Tests/TestifyConfigurationStoreTests.cs",
+                "tests/FoToolbox.Tests/TestifyPayloadBuilderTests.cs",
+                "tests/FoToolbox.Tests/TestifyPlannerTests.cs",
+                "tests/FoToolbox.Tests/TestifyValueMapParserTests.cs"
+              ]
+            }
+          },
+          {
+            "verifier": "taskState",
+            "status": "passed",
+            "summary": "Durable Ralph task/progress files changed for T2.",
+            "warnings": [],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-005\\task-state.json",
+            "failureSignature": null
+          }
+        ]
+      },
+      "backlog": {
+        "remainingTaskCount": 5,
+        "actionableTaskAvailable": true
+      },
+      "diffSummary": {
+        "available": true,
+        "gitAvailable": true,
+        "summary": "Detected 6 relevant changed file(s) out of 8 total changes.",
+        "changedFileCount": 8,
+        "relevantChangedFileCount": 6,
+        "changedFiles": [
+          ".ralph/runs/continue-progress-005.last-message.md",
+          ".ralph/runs/continue-progress-005.transcript.md",
+          "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyTests.cs",
+          "tests/FoToolbox.Tests/DualWriteMapBrowserViewModelTestifySettingsTests.cs",
+          "tests/FoToolbox.Tests/TestifyConfigurationStoreTests.cs",
+          "tests/FoToolbox.Tests/TestifyPayloadBuilderTests.cs",
+          "tests/FoToolbox.Tests/TestifyPlannerTests.cs",
+          "tests/FoToolbox.Tests/TestifyValueMapParserTests.cs"
+        ],
+        "relevantChangedFiles": [
+          "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyTests.cs",
+          "tests/FoToolbox.Tests/DualWriteMapBrowserViewModelTestifySettingsTests.cs",
+          "tests/FoToolbox.Tests/TestifyConfigurationStoreTests.cs",
+          "tests/FoToolbox.Tests/TestifyPayloadBuilderTests.cs",
+          "tests/FoToolbox.Tests/TestifyPlannerTests.cs",
+          "tests/FoToolbox.Tests/TestifyValueMapParserTests.cs"
+        ],
+        "statusTransitions": [
+          ".ralph/runs/continue-progress-005.last-message.md: clean -> ??",
+          ".ralph/runs/continue-progress-005.transcript.md: clean -> ??",
+          "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyTests.cs: clean -> M",
+          "tests/FoToolbox.Tests/DualWriteMapBrowserViewModelTestifySettingsTests.cs: clean -> M",
+          "tests/FoToolbox.Tests/TestifyConfigurationStoreTests.cs: clean -> M",
+          "tests/FoToolbox.Tests/TestifyPayloadBuilderTests.cs: clean -> M",
+          "tests/FoToolbox.Tests/TestifyPlannerTests.cs: clean -> M",
+          "tests/FoToolbox.Tests/TestifyValueMapParserTests.cs: clean -> M"
+        ],
+        "suggestedCheckpointRef": "ralph/iter-iteration-005",
+        "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-005\\git-status-before.txt",
+        "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-005\\git-status-after.txt"
+      },
+      "noProgressSignals": [
+        "same_task_selected_repeatedly",
+        "same_validation_failure_signature"
+      ],
+      "remediation": null,
+      "completionReportStatus": "applied",
+      "reconciliationWarnings": [],
+      "stopReason": null
+    },
+    {
+      "schemaVersion": 1,
+      "agentId": "default",
+      "provenanceId": "run-i006-cli-20260424T183141Z",
+      "iteration": 6,
+      "selectedTaskId": "T2",
+      "selectedTaskTitle": "Testify automatic rollback on failure",
+      "promptKind": "continue-progress",
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-006.prompt.md",
+      "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-006",
+      "adapterUsed": "cliExec",
+      "executionIntegrity": {
+        "provenanceId": "run-i006-cli-20260424T183141Z",
+        "promptTarget": "cliExec",
+        "rootPolicy": {
+          "workspaceRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "inspectionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "executionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "verificationRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "selectionStrategy": "workspaceRoot",
+          "selectionSummary": "Using the workspace root because it already exposes shallow repo markers.",
+          "policySummary": "Inspect, execute, and verify at the workspace root while storing Ralph artifacts under .ralph there."
+        },
+        "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.0.0\\prompt-templates\\continue-progress.md",
+        "reasoningEffort": "medium",
+        "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "effectiveValidationCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "normalizedValidationCommandFrom": null,
+        "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-006\\execution-plan.json",
+        "executionPlanHash": "sha256:5a9752b68bb7d1b2cbddd2fa6ff9a9e2a62366d024a72d5e7f72d6bf0404ff3b",
+        "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-006\\prompt.md",
+        "promptHash": "sha256:2e3991d865bee5d9eeec5cef8ed7ef4405ecfe2570208d83f3c96f701b30ea7b",
+        "promptByteLength": 9141,
+        "executionPayloadHash": "sha256:2e3991d865bee5d9eeec5cef8ed7ef4405ecfe2570208d83f3c96f701b30ea7b",
+        "executionPayloadMatched": true,
+        "mismatchReason": null,
+        "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-006\\cli-invocation.json"
+      },
+      "executionStatus": "succeeded",
+      "verificationStatus": "failed",
+      "completionClassification": "partial_progress",
+      "followUpAction": "continue_same_task",
+      "startedAt": "2026-04-24T18:31:41.062Z",
+      "finishedAt": "2026-04-24T18:36:03.746Z",
+      "phaseTimestamps": {
+        "inspectStartedAt": "2026-04-24T18:31:41.062Z",
+        "inspectFinishedAt": "2026-04-24T18:31:41.382Z",
+        "taskSelectedAt": "2026-04-24T18:31:41.382Z",
+        "promptGeneratedAt": "2026-04-24T18:31:42.096Z",
+        "executionStartedAt": "2026-04-24T18:31:43.126Z",
+        "executionFinishedAt": "2026-04-24T18:35:45.395Z",
+        "resultCollectedAt": "2026-04-24T18:35:45.396Z",
+        "verificationFinishedAt": "2026-04-24T18:36:03.746Z",
+        "classifiedAt": "2026-04-24T18:36:03.746Z",
+        "persistedAt": "2026-04-24T18:36:03.746Z"
+      },
+      "summary": "Selected T2: Testify automatic rollback on failure | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 5",
+      "warnings": [],
+      "errors": [
+        "Validation command exited with 1."
+      ],
+      "execution": {
+        "exitCode": 0,
+        "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-006.transcript.md",
+        "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-006.last-message.md",
+        "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-006\\stdout.log",
+        "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-006\\stderr.log"
+      },
+      "verification": {
+        "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "effectiveValidationCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "normalizedValidationCommandFrom": null,
+        "primaryCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "validationFailureSignature": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify::exit:1::Testhost process for source(s) 'c:\\Users\\ben.jones\\Repos\\toolbAX\\tests\\FoToolbox.Tests\\bin\\Release\\net8.0-windows\\FoToolbox.Tests.dll' exited with error: You must install or update .NET to run this application. | App: c:\\Users\\ben.jones\\Rep",
+        "verifiers": [
+          {
+            "verifier": "validationCommand",
+            "status": "failed",
+            "summary": "Validation command failed with exit code 1: dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+            "warnings": [],
+            "errors": [
+              "Validation command exited with 1."
+            ],
+            "command": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-006\\validation-command.json",
+            "failureSignature": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify::exit:1::Testhost process for source(s) 'c:\\Users\\ben.jones\\Repos\\toolbAX\\tests\\FoToolbox.Tests\\bin\\Release\\net8.0-windows\\FoToolbox.Tests.dll' exited with error: You must install or update .NET to run this application. | App: c:\\Users\\ben.jones\\Rep",
+            "metadata": {
+              "exitCode": 1,
+              "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+              "normalizedValidationCommandFrom": null,
+              "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-006\\validation-command.stdout.log",
+              "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-006\\validation-command.stderr.log"
+            }
+          },
+          {
+            "verifier": "gitDiff",
+            "status": "passed",
+            "summary": "Detected 1 relevant changed file(s) out of 3 total changes.",
+            "warnings": [],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-006\\git-diff.json",
+            "failureSignature": null,
+            "metadata": {
+              "changedFiles": [
+                ".ralph/runs/continue-progress-006.last-message.md",
+                ".ralph/runs/continue-progress-006.transcript.md",
+                "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
+              ],
+              "relevantChangedFiles": [
+                "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
+              ]
+            }
+          },
+          {
+            "verifier": "taskState",
+            "status": "passed",
+            "summary": "Durable Ralph task/progress files changed for T2.",
+            "warnings": [],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-006\\task-state.json",
+            "failureSignature": null
+          }
+        ]
+      },
+      "backlog": {
+        "remainingTaskCount": 5,
+        "actionableTaskAvailable": true
+      },
+      "diffSummary": {
+        "available": true,
+        "gitAvailable": true,
+        "summary": "Detected 1 relevant changed file(s) out of 3 total changes.",
+        "changedFileCount": 3,
+        "relevantChangedFileCount": 1,
+        "changedFiles": [
+          ".ralph/runs/continue-progress-006.last-message.md",
+          ".ralph/runs/continue-progress-006.transcript.md",
+          "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
+        ],
+        "relevantChangedFiles": [
+          "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
+        ],
+        "statusTransitions": [
+          ".ralph/runs/continue-progress-006.last-message.md: clean -> ??",
+          ".ralph/runs/continue-progress-006.transcript.md: clean -> ??",
+          "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs: clean -> ??"
+        ],
+        "suggestedCheckpointRef": "ralph/iter-iteration-006",
+        "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-006\\git-status-before.txt",
+        "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-006\\git-status-after.txt"
+      },
+      "noProgressSignals": [
+        "same_task_selected_repeatedly",
+        "same_validation_failure_signature"
+      ],
+      "remediation": null,
+      "completionReportStatus": "applied",
+      "reconciliationWarnings": [],
+      "stopReason": null
+    },
+    {
+      "schemaVersion": 1,
+      "agentId": "default",
+      "provenanceId": "run-i007-cli-20260424T183604Z",
+      "iteration": 7,
+      "selectedTaskId": "T2",
+      "selectedTaskTitle": "Testify automatic rollback on failure",
+      "promptKind": "continue-progress",
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-007.prompt.md",
+      "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007",
+      "adapterUsed": "cliExec",
+      "executionIntegrity": {
+        "provenanceId": "run-i007-cli-20260424T183604Z",
+        "promptTarget": "cliExec",
+        "rootPolicy": {
+          "workspaceRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "inspectionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "executionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "verificationRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "selectionStrategy": "workspaceRoot",
+          "selectionSummary": "Using the workspace root because it already exposes shallow repo markers.",
+          "policySummary": "Inspect, execute, and verify at the workspace root while storing Ralph artifacts under .ralph there."
+        },
+        "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.0.0\\prompt-templates\\continue-progress.md",
+        "reasoningEffort": "medium",
+        "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "effectiveValidationCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "normalizedValidationCommandFrom": null,
+        "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\execution-plan.json",
+        "executionPlanHash": "sha256:6e4b1036513a886f5332f0d412fbde9836f20d8549b8c760c66e4e139f6b88e9",
+        "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\prompt.md",
+        "promptHash": "sha256:69b4b646e7da94d121e5512203d2d1d2179eaa1f750498266b2e87786b0420e0",
+        "promptByteLength": 9236,
+        "executionPayloadHash": "sha256:69b4b646e7da94d121e5512203d2d1d2179eaa1f750498266b2e87786b0420e0",
+        "executionPayloadMatched": true,
+        "mismatchReason": null,
+        "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\cli-invocation.json"
+      },
+      "executionStatus": "succeeded",
+      "verificationStatus": "failed",
+      "completionClassification": "partial_progress",
+      "followUpAction": "continue_same_task",
+      "startedAt": "2026-04-24T18:36:03.858Z",
+      "finishedAt": "2026-04-24T18:40:48.168Z",
+      "phaseTimestamps": {
+        "inspectStartedAt": "2026-04-24T18:36:03.858Z",
+        "inspectFinishedAt": "2026-04-24T18:36:04.157Z",
+        "taskSelectedAt": "2026-04-24T18:36:04.157Z",
+        "promptGeneratedAt": "2026-04-24T18:36:04.959Z",
+        "executionStartedAt": "2026-04-24T18:36:07.167Z",
+        "executionFinishedAt": "2026-04-24T18:40:34.688Z",
+        "resultCollectedAt": "2026-04-24T18:40:34.690Z",
+        "verificationFinishedAt": "2026-04-24T18:40:48.167Z",
+        "classifiedAt": "2026-04-24T18:40:48.167Z",
+        "persistedAt": "2026-04-24T18:40:48.168Z"
+      },
+      "summary": "Selected T2: Testify automatic rollback on failure | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 5",
+      "warnings": [],
+      "errors": [
+        "Validation command exited with 1."
+      ],
+      "execution": {
+        "exitCode": 0,
+        "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-007.transcript.md",
+        "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-007.last-message.md",
+        "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\stdout.log",
+        "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\stderr.log"
+      },
+      "verification": {
+        "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "effectiveValidationCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "normalizedValidationCommandFrom": null,
+        "primaryCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+        "validationFailureSignature": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify::exit:1::Testhost process for source(s) 'c:\\Users\\ben.jones\\Repos\\toolbAX\\tests\\FoToolbox.Tests\\bin\\Release\\net8.0-windows\\FoToolbox.Tests.dll' exited with error: You must install or update .NET to run this application. | App: c:\\Users\\ben.jones\\Rep",
+        "verifiers": [
+          {
+            "verifier": "validationCommand",
+            "status": "failed",
+            "summary": "Validation command failed with exit code 1: dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+            "warnings": [],
+            "errors": [
+              "Validation command exited with 1."
+            ],
+            "command": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\validation-command.json",
+            "failureSignature": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify::exit:1::Testhost process for source(s) 'c:\\Users\\ben.jones\\Repos\\toolbAX\\tests\\FoToolbox.Tests\\bin\\Release\\net8.0-windows\\FoToolbox.Tests.dll' exited with error: You must install or update .NET to run this application. | App: c:\\Users\\ben.jones\\Rep",
+            "metadata": {
+              "exitCode": 1,
+              "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+              "normalizedValidationCommandFrom": null,
+              "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\validation-command.stdout.log",
+              "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\validation-command.stderr.log"
+            }
+          },
+          {
+            "verifier": "gitDiff",
+            "status": "passed",
+            "summary": "Detected 1 relevant changed file(s) out of 11 total changes.",
+            "warnings": [],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\git-diff.json",
+            "failureSignature": null,
+            "metadata": {
+              "changedFiles": [
+                ".ralph/.gitignore",
+                ".ralph/prompts/continue-progress-005.prompt.md",
+                ".ralph/prompts/continue-progress-006.prompt.md",
+                ".ralph/prompts/continue-progress-007.prompt.md",
+                ".ralph/prompts/fix-failure-004.prompt.md",
+                ".ralph/runs/continue-progress-005.last-message.md",
+                ".ralph/runs/continue-progress-005.transcript.md",
+                ".ralph/runs/continue-progress-006.last-message.md",
+                ".ralph/runs/continue-progress-006.transcript.md",
+                ".ralph/runs/fix-failure-004.last-message.md",
+                ".ralph/runs/fix-failure-004.transcript.md"
+              ],
+              "relevantChangedFiles": [
+                ".ralph/.gitignore"
+              ]
+            }
+          },
+          {
+            "verifier": "taskState",
+            "status": "passed",
+            "summary": "Durable Ralph task/progress files changed for T2.",
+            "warnings": [],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\task-state.json",
+            "failureSignature": null
+          }
+        ]
+      },
+      "backlog": {
+        "remainingTaskCount": 5,
+        "actionableTaskAvailable": true
+      },
+      "diffSummary": {
+        "available": true,
+        "gitAvailable": true,
+        "summary": "Detected 1 relevant changed file(s) out of 11 total changes.",
+        "changedFileCount": 11,
+        "relevantChangedFileCount": 1,
+        "changedFiles": [
+          ".ralph/.gitignore",
+          ".ralph/prompts/continue-progress-005.prompt.md",
+          ".ralph/prompts/continue-progress-006.prompt.md",
+          ".ralph/prompts/continue-progress-007.prompt.md",
+          ".ralph/prompts/fix-failure-004.prompt.md",
+          ".ralph/runs/continue-progress-005.last-message.md",
+          ".ralph/runs/continue-progress-005.transcript.md",
+          ".ralph/runs/continue-progress-006.last-message.md",
+          ".ralph/runs/continue-progress-006.transcript.md",
+          ".ralph/runs/fix-failure-004.last-message.md",
+          ".ralph/runs/fix-failure-004.transcript.md"
+        ],
+        "relevantChangedFiles": [
+          ".ralph/.gitignore"
+        ],
+        "statusTransitions": [
+          ".ralph/.gitignore: clean -> ??",
+          ".ralph/prompts/continue-progress-005.prompt.md: ?? -> clean",
+          ".ralph/prompts/continue-progress-006.prompt.md: ?? -> clean",
+          ".ralph/prompts/continue-progress-007.prompt.md: ?? -> clean",
+          ".ralph/prompts/fix-failure-004.prompt.md: ?? -> clean",
+          ".ralph/runs/continue-progress-005.last-message.md: ?? -> clean",
+          ".ralph/runs/continue-progress-005.transcript.md: ?? -> clean",
+          ".ralph/runs/continue-progress-006.last-message.md: ?? -> clean",
+          ".ralph/runs/continue-progress-006.transcript.md: ?? -> clean",
+          ".ralph/runs/fix-failure-004.last-message.md: ?? -> clean",
+          ".ralph/runs/fix-failure-004.transcript.md: ?? -> clean"
+        ],
+        "suggestedCheckpointRef": "ralph/iter-iteration-007",
+        "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\git-status-before.txt",
+        "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-007\\git-status-after.txt"
+      },
+      "noProgressSignals": [
+        "same_task_selected_repeatedly",
+        "same_validation_failure_signature"
+      ],
+      "remediation": null,
+      "completionReportStatus": "applied",
+      "reconciliationWarnings": [],
+      "stopReason": null
     }
   ],
-  "updatedAt": "2026-04-24T18:12:49.850Z"
+  "updatedAt": "2026-04-24T18:40:48.577Z"
 }
