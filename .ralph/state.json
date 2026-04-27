@@ -1,7 +1,7 @@
 {
   "version": 2,
   "objectivePreview": "toolbAX is a Windows desktop application for Microsoft Dynamics 365 Finance & Operations (F&O) administrators and developers, inspired by XrmToolBox. It provide",
-  "nextIteration": 36,
+  "nextIteration": 37,
   "lastPromptKind": "iteration",
   "lastPromptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\iteration-035.prompt.md",
   "lastRun": {
@@ -370,11 +370,11 @@
       "inspectFinishedAt": "2026-04-27T03:31:41.152Z",
       "taskSelectedAt": "2026-04-27T03:31:41.152Z",
       "promptGeneratedAt": "2026-04-27T03:31:41.275Z",
+      "executionStartedAt": "2026-04-27T03:31:41.555Z",
+      "executionFinishedAt": "2026-04-27T03:34:33.488Z",
       "resultCollectedAt": "2026-04-27T03:34:33.490Z",
       "verificationFinishedAt": "2026-04-27T03:39:33.713Z",
       "classifiedAt": "2026-04-27T03:39:33.714Z",
-      "executionStartedAt": "2026-04-27T03:31:41.555Z",
-      "executionFinishedAt": "2026-04-27T03:34:33.488Z",
       "persistedAt": "2026-04-27T03:40:03.906Z"
     },
     "summary": "Selected T6: Installer GUID lock, code signing, and runtime bundle | Execution: succeeded | Verification: failed | Outcome: blocked | Backlog remaining: 1",
@@ -429,6 +429,7 @@
           ],
           "errors": [],
           "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-035\\git-diff.json",
+          "failureSignature": null,
           "metadata": {
             "changedFiles": [],
             "relevantChangedFiles": []
@@ -442,7 +443,8 @@
           "errors": [
             "A signing certificate thumbprint or PFX was not provided in this environment, so .\\install\\build.ps1 -Configuration Release cannot complete packaging."
           ],
-          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-035\\task-state.json"
+          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-035\\task-state.json",
+          "failureSignature": null
         }
       ]
     },
@@ -468,9 +470,7 @@
     "remediation": null,
     "completionReportStatus": "applied",
     "reconciliationWarnings": [],
-    "stopReason": "no_actionable_task",
-    "selectedModel": "gpt-5.4",
-    "effectiveTier": "default"
+    "stopReason": "no_actionable_task"
   },
   "iterationHistory": [
     {
@@ -5143,11 +5143,11 @@
         "inspectFinishedAt": "2026-04-27T03:31:41.152Z",
         "taskSelectedAt": "2026-04-27T03:31:41.152Z",
         "promptGeneratedAt": "2026-04-27T03:31:41.275Z",
+        "executionStartedAt": "2026-04-27T03:31:41.555Z",
+        "executionFinishedAt": "2026-04-27T03:34:33.488Z",
         "resultCollectedAt": "2026-04-27T03:34:33.490Z",
         "verificationFinishedAt": "2026-04-27T03:39:33.713Z",
         "classifiedAt": "2026-04-27T03:39:33.714Z",
-        "executionStartedAt": "2026-04-27T03:31:41.555Z",
-        "executionFinishedAt": "2026-04-27T03:34:33.488Z",
         "persistedAt": "2026-04-27T03:40:03.906Z"
       },
       "summary": "Selected T6: Installer GUID lock, code signing, and runtime bundle | Execution: succeeded | Verification: failed | Outcome: blocked | Backlog remaining: 1",
@@ -5202,6 +5202,7 @@
             ],
             "errors": [],
             "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-035\\git-diff.json",
+            "failureSignature": null,
             "metadata": {
               "changedFiles": [],
               "relevantChangedFiles": []
@@ -5215,7 +5216,8 @@
             "errors": [
               "A signing certificate thumbprint or PFX was not provided in this environment, so .\\install\\build.ps1 -Configuration Release cannot complete packaging."
             ],
-            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-035\\task-state.json"
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-035\\task-state.json",
+            "failureSignature": null
           }
         ]
       },
@@ -5241,10 +5243,8 @@
       "remediation": null,
       "completionReportStatus": "applied",
       "reconciliationWarnings": [],
-      "stopReason": "no_actionable_task",
-      "selectedModel": "gpt-5.4",
-      "effectiveTier": "default"
+      "stopReason": "no_actionable_task"
     }
   ],
-  "updatedAt": "2026-04-27T03:40:03.929Z"
+  "updatedAt": "2026-04-27T08:53:47.372Z"
 }

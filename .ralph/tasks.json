@@ -122,7 +122,117 @@
         "install/README.md"
       ],
       "lastVerifierResult": "failed"
+    },
+    {
+      "id": "T7",
+      "title": "Locate dual-write map export touchpoints",
+      "status": "done",
+      "notes": "Documented the dual-write map load path in LoadMapsAsync/BuildMapsUrl and recorded that export should hang off the existing toolbar after records are loaded, with a new SaveFileDialog-based boundary because the repo has no existing save-file picker abstraction.",
+      "validation": "dotnet build FoToolbox.sln",
+      "acceptance": [
+        "The code path that loads dual-write maps is identified.",
+        "The command, UI, or service layer where export can be added is documented in code comments or task notes.",
+        "The target save-location mechanism already used by the app is identified or a new one is scoped."
+      ],
+      "constraints": [
+        "Do not change map data models yet.",
+        "Do not implement export logic in this task."
+      ],
+      "context": [
+        "src",
+        "tests"
+      ],
+      "lastVerifierResult": "passed"
+    },
+    {
+      "id": "T8",
+      "title": "Implement markdown serialization for one dual-write map",
+      "status": "todo",
+      "notes": "Separating serialization from selection and file I/O keeps the feature testable and reusable.",
+      "validation": "dotnet test FoToolbox.sln",
+      "tier": "medium",
+      "acceptance": [
+        "A dedicated exporter produces a .md document for a single dual-write map.",
+        "The markdown includes all currently available mapping information exposed by the source model.",
+        "Missing optional fields are rendered predictably without throwing exceptions."
+      ],
+      "constraints": [
+        "Limit scope to formatting one map into markdown.",
+        "Do not add multi-select or file save UI in this task."
+      ],
+      "context": [
+        "src",
+        "tests"
+      ]
+    },
+    {
+      "id": "T9",
+      "title": "Add multi-map export workflow",
+      "status": "todo",
+      "dependsOn": [
+        "T8"
+      ],
+      "validation": "dotnet test FoToolbox.sln",
+      "tier": "medium",
+      "acceptance": [
+        "Users can select multiple dual-write maps in one action.",
+        "The export workflow generates one .md file per selected map.",
+        "The feature leaves existing single-map behaviors unchanged unless explicitly extended."
+      ],
+      "constraints": [
+        "Reuse existing selection patterns where available.",
+        "Do not bundle files into archives unless the codebase already does so."
+      ],
+      "context": [
+        "src"
+      ]
+    },
+    {
+      "id": "T10",
+      "title": "Add user-chosen save destination handling",
+      "status": "todo",
+      "dependsOn": [
+        "T9"
+      ],
+      "validation": "dotnet build FoToolbox.sln",
+      "tier": "medium",
+      "acceptance": [
+        "The export flow prompts for a destination chosen by the user.",
+        "Generated .md files are written to the selected location with safe file names.",
+        "Errors for invalid or unwritable destinations are surfaced in the app's existing error pattern."
+      ],
+      "constraints": [
+        "Do not introduce silent fallback paths.",
+        "Do not overwrite files without following existing app conventions."
+      ],
+      "context": [
+        "src"
+      ]
+    },
+    {
+      "id": "T11",
+      "title": "Cover markdown export with focused tests",
+      "status": "todo",
+      "dependsOn": [
+        "T8",
+        "T9",
+        "T10"
+      ],
+      "validation": "dotnet test FoToolbox.sln",
+      "tier": "medium",
+      "acceptance": [
+        "Tests verify markdown output contains all expected mapping fields.",
+        "Tests verify multiple selected maps produce multiple files or file-write requests.",
+        "Tests cover at least one failure path for destination or file creation."
+      ],
+      "constraints": [
+        "Add only targeted tests for the new export feature.",
+        "Do not refactor unrelated test infrastructure."
+      ],
+      "context": [
+        "tests"
+      ]
     }
   ],
-  "mutationCount": 13
+  "mutationCount": 15
 }

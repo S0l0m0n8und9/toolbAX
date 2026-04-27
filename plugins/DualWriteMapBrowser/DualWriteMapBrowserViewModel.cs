@@ -416,6 +416,10 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
         UpdateRecordSummary();
         StatusMessage = "Loading dual-write map records...";
 
+        // T7 discovery note: this command is the current UI entry point for map loading
+        // (see DualWriteMapBrowserView.xaml -> LoadMapsCommand). A future export action can
+        // be added alongside the existing toolbar buttons and reuse SelectedRecord/_records
+        // after this loader has populated the in-memory map models for markdown or JSON output.
         var dataverseHttp = _dataverse!.DataverseHttp!;
         var apiBase = ResourceUrlNormalizer.BuildDataverseApiBaseUrl(_dataverse.CurrentDataverseEnv!.BaseUrl);
         HashSet<Guid>? componentMapIds = null;
@@ -2401,6 +2405,11 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
             "$orderby=modifiedon%20desc"
         };
 
+        // T7 discovery note: LoadMapsAsync reads dual-write map records from the
+        // msdyn_dualwriteentitymaps Dataverse endpoint using the selected columns above.
+        // There is no existing save-file picker abstraction in this repo today, so export
+        // should add a small SaveFileDialog-based boundary at the plugin view/view-model edge
+        // next to the existing toolbar commands instead of changing the map models now.
         return $"{apiBase}/msdyn_dualwriteentitymaps?{string.Join("&", queryParts)}";
     }
 
