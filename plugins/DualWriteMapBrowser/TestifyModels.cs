@@ -144,7 +144,7 @@ public sealed class TestifyEnumFieldPlan
     public string ParseError { get; }
     public bool HasCoverageGap => MissingMembers.Count > 0;
     public string CoverageGapDetail => HasCoverageGap
-        ? $"Unmapped enum members for field '{FieldName}': {string.Join(", ", MissingMembers.Select(value => $"'{value}'"))}."
+        ? $"Unmapped enum members for field '{FieldName}': {string.Join(", ", MissingMembers.OrderBy(value => value, StringComparer.OrdinalIgnoreCase).Select(value => $"'{value}'"))}."
         : string.Empty;
 }
 

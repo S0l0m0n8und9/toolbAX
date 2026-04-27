@@ -11,12 +11,25 @@
   <?ifndef InstallScope?>
     <?define InstallScope="perUserOrMachine" ?>
   <?endif?>
-  <!-- Stable GUIDs (update with org-approved values for release) -->
   <?ifndef ProductCode?>
     <?define ProductCode="{F057FFFE-9295-4B8D-A60F-41CB15E1ABB6}" ?>
   <?endif?>
+  <?ifndef ProductCodeUser?>
+    <?define ProductCodeUser="{F057FFFE-9295-4B8D-A60F-41CB15E1ABB6}" ?>
+  <?endif?>
+  <?ifndef ProductCodeMachine?>
+    <?define ProductCodeMachine="{6F8A8A0D-7791-4B24-8A2F-D4E8E93FE4AA}" ?>
+  <?endif?>
   <?ifndef UpgradeCode?>
     <?define UpgradeCode="{5E38A1ED-8CDD-4069-81F2-04C4DF076C11}" ?>
+  <?endif?>
+
+  <?if $(var.InstallScope) = perMachine ?>
+    <?undef ProductCode?>
+    <?define ProductCode="$(var.ProductCodeMachine)" ?>
+  <?else?>
+    <?undef ProductCode?>
+    <?define ProductCode="$(var.ProductCodeUser)" ?>
   <?endif?>
 
   <Package Name="$(var.ProductName)" Language="1033" Version="$(var.Version)" Manufacturer="$(var.Manufacturer)" UpgradeCode="$(var.UpgradeCode)" Scope="$(var.InstallScope)" ProductCode="$(var.ProductCode)">

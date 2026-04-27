@@ -6,12 +6,12 @@ Current state
 -------------
 - Installer UI now offers a per-user vs per-machine choice on the **Options** page.
 - WiX defaults (if you build directly with `wix build` without overrides) are `ProductName=FOtoolbox`, `Manufacturer=BenJones`, `Version=1.0.0`, `BundleVersion=1.0.0.0`, and `LicenseUrl=https://opensource.org/licenses/MIT`.
-- `install/build.ps1` defaults are upgrade-friendly for dev: it auto-generates a monotonically-increasing version when `-Version` is not provided, and uses `ProductCode=*` (auto-generated GUID) unless you override it.
+- `install/build.ps1` defaults are release-stable for installer identity: it auto-generates a monotonically-increasing version when `-Version` is not provided, but now uses hardcoded per-user/per-machine ProductCode values plus fixed UpgradeCode and Bundle identifiers unless you explicitly override them.
 - Components include host binaries and bundled plugins under `%LOCALAPPDATA%\FoToolbox\bin\` (per-user) or `%ProgramFiles%\FoToolbox\bin\` (per-machine).
 - `profile.db` is created on first run under `%LOCALAPPDATA%\FoToolbox\profile.db` and is preserved on uninstall/upgrade (not packaged into the MSI).
 - Profiles can be managed in-app via the built-in **Profiles** tool; client secrets are stored via DPAPI in `profile.db` (`SecretVault`).
 - Start menu shortcut (Program Menu\FOtoolbox\FOtoolbox) launches `%LOCALAPPDATA%\FoToolbox\bin\FoToolbox.Host.exe`.
-- Burn bootstrapper (`Bundle.wxs`) chains .NET Desktop Runtime 8.0 (registry-detected) then either `FoToolbox.User.msi` or `FoToolbox.Machine.msi` based on the install-scope checkbox.
+- Burn bootstrapper (`Bundle.wxs`) chains .NET Desktop Runtime 8.0 (registry-detected) with silent install arguments, then either `FoToolbox.User.msi` or `FoToolbox.Machine.msi` based on the install-scope checkbox.
 - Runtime bootstrapper uses variables:
   - `NetDesktopRuntimeVersion` (default `8.0.22`)
   - `NetDesktopRuntimeExe` (path to the runtime installer, default `redist/windowsdesktop-runtime-8.0.22-win-x64.exe` when building from `install/`)
@@ -22,9 +22,9 @@ Current state
 
 Still required from humans
 --------------------------
-- Provide the actual .NET Desktop Runtime installer file at `NetDesktopRuntimeExe` (or override the path) before building the bundle.
-- Confirm/lock ProductCode, UpgradeCode, Bundle UpgradeCode, and Manufacturer/ProductName values for release.
-- Supply code-signing certificate/thumbprint; sign MSI/CABs/bundle during build.
+- Provide the actual .NET Desktop Runtime installer file at `NetDesktopRuntimeExe` (or override the path) before building the bundle; `install/build.ps1` now fails if it is missing.
+- Confirm the locked ProductCode, UpgradeCode, Bundle UpgradeCode, Bundle Id, and Manufacturer/ProductName values still match your release identity before shipping.
+- Supply code-signing certificate/thumbprint so `install/build.ps1` can sign MSI and bundle outputs with `signtool` during build; the script now fails fast if signing inputs or `signtool.exe` are missing.
 - Decide if you want to lock scope (build only one MSI and skip the scope checkbox).
 - Wire MSI build/publish pipeline with the WiX CLI (`wix` v6) using the variables above; verify file paths under `FoToolboxFiles.wxs` match your publish layout.
 - Channel strategy: if stable/beta MSIs are needed in parallel, adjust `ProductName`/UpgradeCode pairs accordingly.
@@ -58,8 +58,25 @@ Optional overrides for branding/codes (examples):
   -ProductCodeMachine "{GUID-HERE}" `
   -UpgradeCode "{GUID-HERE}" `
   -BundleUpgradeCode "{GUID-HERE}" `
+  -BundleId "{GUID-HERE}" `
   -BundleVersion "1.0.0.0" `
   -LicenseUrl "https://example.com/license"
+```
+
+Optional signing inputs:
+```powershell
+.\build.ps1 `
+  -SignCertificateThumbprint "ABCDEF1234567890ABCDEF1234567890ABCDEF12"
+```
+
+`install/build.ps1 -Configuration Release` now requires one of these signing inputs and a resolvable `signtool.exe`; it fails before packaging if either prerequisite is absent.
+
+or
+
+```powershell
+.\build.ps1 `
+  -SignCertificateFile "C:\certs\footoolbox.pfx" `
+  -SignCertificatePassword "<secret>"
 ```
 
 1. Install the tool once: `dotnet tool install --global wix` (or update with `dotnet tool update --global wix`).
@@ -160,13 +177,13 @@ Versioning note
 - MSI `Version` must be three-part (e.g., `1.0.0`).
 - Bundle `BundleVersion` can be four-part (e.g., `1.0.0.0`).
 - `install/build.ps1` will trim a four-part `-Version` to three-part for MSI and reuse the original as `BundleVersion` if none is provided.
-- To upgrade in-place (no uninstall), keep `UpgradeCode` stable, increase MSI `Version`, and change `ProductCode` (use `ProductCode=*` to auto-generate).
+- To upgrade in-place (no uninstall), keep `UpgradeCode` stable and increase MSI `Version`. This repo now locks installer GUIDs in source for deterministic release packaging.
 
 ## Packaging notes
 
-- Generate and lock ProductCode/UpgradeCode GUIDs before shipping. Bundle UpgradeCode is currently a placeholder; change once and keep it stable.
+- ProductCode values, UpgradeCode, Bundle Id, and Bundle UpgradeCode are locked in source for deterministic packaging; only override them intentionally for a new product line.
 - `profile.db` is created at runtime under `%LOCALAPPDATA%\FoToolbox\bin\profile.db` and is not managed by MSI, so it survives upgrades and uninstall.
 - Burn bundle installs .NET Desktop Runtime 8.0 if the registry check under `HKLM\SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App` reports a lower version.
 - Sign MSI/CABs/bundle with your org's cert; document thumbprint and timestamp URLs.
-- Define `SourceDir` at build time to point at your publish output; adjust File Source paths in `FoToolboxFiles.wxs` if layout changes. Replace placeholder GUIDs before release.
+- Define `SourceDir` at build time to point at your publish output; adjust File Source paths in `FoToolboxFiles.wxs` if layout changes.
 - Start menu shortcut is created under Program Menu\FoToolbox and removed on uninstall. Update the description/name if branding changes.

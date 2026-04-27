@@ -49,7 +49,7 @@ public sealed class TestifyPlannerTests
                 Assert.Equal("Status: Canceled, Closed", gap.Detail);
             });
         Assert.Equal("Status: Canceled, Closed", plan.CoverageGapFieldDetail);
-        Assert.Equal("Unmapped enum members for field 'Status': 'Closed', 'Canceled'.", plan.EnumFields["Status"].CoverageGapDetail);
+        Assert.Equal("Unmapped enum members for field 'Status': 'Canceled', 'Closed'.", plan.EnumFields["Status"].CoverageGapDetail);
     }
 
     [Fact]
