@@ -188,6 +188,10 @@ function Test-SigningRequested {
 }
 
 function Assert-SigningConfiguration {
+    if ($Configuration -ne "Release") {
+        return
+    }
+
     if (-not (Test-SigningRequested)) {
         throw "Signing is required for release installer outputs. Pass -SignCertificateThumbprint or -SignCertificateFile before running install/build.ps1 -Configuration Release."
     }
@@ -264,10 +268,15 @@ $pluginsOut = Join-Path $SourceDir "plugins"
 New-Item -ItemType Directory -Force -Path $pluginsOut | Out-Null
 
 Write-Host "`nBuilding plugins..."
+dotnet clean (Join-Path $repoRoot "plugins\\HelloPlugin\\HelloPlugin.csproj") -c $Configuration | Out-Host
 dotnet build (Join-Path $repoRoot "plugins\\HelloPlugin\\HelloPlugin.csproj") -c $Configuration -p:Version=$msiVersion -p:AssemblyVersion=$assemblyVersion -p:FileVersion=$fileVersion | Out-Host
+dotnet clean (Join-Path $repoRoot "plugins\\QueryBuilder\\QueryBuilder.csproj") -c $Configuration | Out-Host
 dotnet build (Join-Path $repoRoot "plugins\\QueryBuilder\\QueryBuilder.csproj") -c $Configuration -p:Version=$msiVersion -p:AssemblyVersion=$assemblyVersion -p:FileVersion=$fileVersion | Out-Host
+dotnet clean (Join-Path $repoRoot "plugins\\TableEntityBrowser\\TableEntityBrowser.csproj") -c $Configuration | Out-Host
 dotnet build (Join-Path $repoRoot "plugins\\TableEntityBrowser\\TableEntityBrowser.csproj") -c $Configuration -p:Version=$msiVersion -p:AssemblyVersion=$assemblyVersion -p:FileVersion=$fileVersion | Out-Host
+dotnet clean (Join-Path $repoRoot "plugins\\ODataPostBuilder\\ODataPostBuilder.csproj") -c $Configuration | Out-Host
 dotnet build (Join-Path $repoRoot "plugins\\ODataPostBuilder\\ODataPostBuilder.csproj") -c $Configuration -p:Version=$msiVersion -p:AssemblyVersion=$assemblyVersion -p:FileVersion=$fileVersion | Out-Host
+dotnet clean (Join-Path $repoRoot "plugins\\DualWriteMapBrowser\\DualWriteMapBrowser.csproj") -c $Configuration | Out-Host
 dotnet build (Join-Path $repoRoot "plugins\\DualWriteMapBrowser\\DualWriteMapBrowser.csproj") -c $Configuration -p:Version=$msiVersion -p:AssemblyVersion=$assemblyVersion -p:FileVersion=$fileVersion | Out-Host
 
 Write-Host "`nCopying plugin binaries to SourceDir..."

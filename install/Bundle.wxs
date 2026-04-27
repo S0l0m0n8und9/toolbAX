@@ -35,7 +35,7 @@
 
   <Bundle Id="$(var.BundleId)" Name="$(var.BundleName)" Version="$(var.BundleVersion)" Manufacturer="$(var.BundleManufacturer)" UpgradeCode="$(var.BundleUpgradeCode)">
     <Variable Name="InstallPerMachine" Type="numeric" Value="0" />
-    <BootstrapperApplication SourceFile="WixStandardBootstrapperApplication">
+    <BootstrapperApplication>
       <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense"
                                               ThemeFile="theme\HyperlinkTheme.xml"
                                               LocalizationFile="theme\HyperlinkTheme.wxl"
