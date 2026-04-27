@@ -5,10 +5,13 @@
     "T1",
     "T2",
     "T5",
-    "T3"
+    "T3",
+    "T4"
   ],
   "touchedFiles": [
     ".ralph/.gitignore",
+    ".ralph/agents/default.json",
+    ".ralph/progress.md",
     ".ralph/prompts/continue-progress-005.prompt.md",
     ".ralph/prompts/continue-progress-006.prompt.md",
     ".ralph/prompts/continue-progress-007.prompt.md",
@@ -43,6 +46,7 @@
     "src/FoToolbox.Host/ViewModels/ProfilesViewModel.cs",
     "tests/FoToolbox.Tests/AuthReauthCoordinatorTests.cs",
     "tests/FoToolbox.Tests/AuthServiceTests.cs",
+    "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs",
     "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs",
     "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyRollbackTests.cs",
     "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyTests.cs",

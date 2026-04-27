@@ -96,47 +96,6 @@ public sealed class DualWriteMapBrowserTestifyRollbackTests
     }
 
     [Fact]
-    public async Task FinalizeTestifyFailureAsync_RollsBackFreshRecordAndClearsPersistedState()
-    {
-        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-rollback.json");
-
-        try
-        {
-            var store = new TestifyConfigurationStore(path);
-            var config = await store.GetOrCreateAsync("env-1", "map-a", CancellationToken.None);
-            var instanceUrl = "https://contoso.operations.dynamics.com/data/CustomersV3(AccountNumber='CUST-0001',dataAreaId='USMF')?cross-company=true";
-            config.LastRunToken = "TESTIFY-123";
-            config.LastEntityInstanceUrl = instanceUrl;
-            await store.SaveAsync(config, CancellationToken.None);
-
-            var deleteClient = new RecordingODataWriteClient(new ODataWriteResponse(204, null, new Dictionary<string, string>()));
-            var viewModel = new DualWriteMapBrowserViewModel(new FakeWriteContext(deleteClient), store);
-
-            var status = await viewModel.FinalizeTestifyFailureAsync(
-                "Map A",
-                "map-a",
-                config,
-                createdThisRun: true,
-                "PATCH step 1 failed.",
-                CancellationToken.None);
-
-            Assert.Equal("PATCH step 1 failed. Created record rolled back.", status);
-            Assert.Single(deleteClient.Requests);
-
-            var reloaded = await store.GetOrCreateAsync("env-1", "map-a", CancellationToken.None);
-            Assert.Null(reloaded.LastEntityInstanceUrl);
-            Assert.Null(reloaded.LastRunToken);
-        }
-        finally
-        {
-            if (File.Exists(path))
-            {
-                File.Delete(path);
-            }
-        }
-    }
-
-    [Fact]
     public async Task FinalizeTestifyFailureAsync_SkipsRollbackForReusedRecord()
     {
         var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-rollback.json");

@@ -11,3 +11,5 @@
 - Validated the existing auth silent-failure recovery implementation already present in the working tree. Interactive re-auth fallback, plugin-friendly re-auth messaging, and per-environment tenant handling all map to the selected task and pass both targeted auth and full solution tests.
 - Installer build now enforces signing inputs and fails fast on the real missing prerequisite instead of producing unsigned artifacts. Existing WiX changes already lock installer GUIDs and bundle the .NET Desktop Runtime.
 - Normalized Testify enum coverage gap prepare/detail output to sort missing enum members consistently and updated targeted Testify assertions to match the deterministic format.
+- Aligned install/README.md with the already-landed installer changes: documented the locked ProductCode values and clarified that release builds require signing inputs. Release validation now deterministically fails fast on missing signing configuration instead of creating unsigned artifacts.
+- Confirmed T4 acceptance criteria are covered by the existing Testify integration/rollback tests, removed one duplicate rollback test, and reran the canonical Testify validator successfully.
