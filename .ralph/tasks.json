@@ -147,8 +147,8 @@
     {
       "id": "T8",
       "title": "Implement markdown serialization for one dual-write map",
-      "status": "todo",
-      "notes": "Separating serialization from selection and file I/O keeps the feature testable and reusable.",
+      "status": "done",
+      "notes": "Completed the single-map markdown serializer so it now emits every mapping/property surface exposed by DualWriteMapRecord, including flattened mapping rows and raw JSON sections, with focused tests covering normal and missing-field cases.",
       "validation": "dotnet test FoToolbox.sln",
       "tier": "medium",
       "acceptance": [
@@ -163,7 +163,8 @@
       "context": [
         "src",
         "tests"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T9",
@@ -234,5 +235,5 @@
       ]
     }
   ],
-  "mutationCount": 15
+  "mutationCount": 16
 }

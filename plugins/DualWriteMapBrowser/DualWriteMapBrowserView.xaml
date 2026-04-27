@@ -44,6 +44,12 @@
                                 MinWidth="120"
                                 Margin="6,0,0,0"
                                 IsEnabled="{Binding IsNotLoading}" />
+                        <Button Content="Export Markdown"
+                                Command="{Binding ExportSelectedMarkdownCommand}"
+                                Padding="10,4"
+                                MinWidth="130"
+                                Margin="6,0,0,0"
+                                IsEnabled="{Binding IsNotLoading}" />
                         <Button Content="Prepare Testify"
                                 Command="{Binding PrepareTestifyCommand}"
                                 Padding="10,4"
