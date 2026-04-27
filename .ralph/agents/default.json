@@ -4,7 +4,8 @@
   "completedTaskIds": [
     "T1",
     "T2",
-    "T5"
+    "T5",
+    "T3"
   ],
   "touchedFiles": [
     ".ralph/.gitignore",
@@ -25,11 +26,16 @@
     ".ralph/runs/fix-failure-004.last-message.md",
     ".ralph/runs/fix-failure-004.transcript.md",
     ".ralph/tasks.json",
+    "install/build.ps1",
+    "install/Bundle.wxs",
+    "install/FoToolbox.wxs",
+    "install/README.md",
     "plugins/DualWriteMapBrowser/AssemblyInfo.cs",
     "plugins/DualWriteMapBrowser/DualWriteMapBrowserView.xaml",
     "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.cs",
     "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
     "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.TestifySettings.cs",
+    "plugins/DualWriteMapBrowser/TestifyModels.cs",
     "plugins/DualWriteMapBrowser/TestifySettingsTextSerializer.cs",
     "src/FoToolbox.Core/Auth/AuthRecoveryException.cs",
     "src/FoToolbox.Core/Auth/AuthService.cs",
@@ -44,9 +50,11 @@
     "tests/FoToolbox.Tests/MainWindowAuthRecoveryTests.cs",
     "tests/FoToolbox.Tests/ProfilesViewModelAuthValidationTests.cs",
     "tests/FoToolbox.Tests/TestifyConfigurationStoreTests.cs",
+    "tests/FoToolbox.Tests/TestifyModelsTests.cs",
     "tests/FoToolbox.Tests/TestifyPayloadBuilderTests.cs",
     "tests/FoToolbox.Tests/TestifyPlannerTests.cs",
     "tests/FoToolbox.Tests/TestifyValueMapParserTests.cs",
+    "tests/FoToolbox.Tests/TestResults/2f9f9e90-acf6-4f60-a077-d6e52b5a6c3a/coverage.cobertura.xml",
     "tests/FoToolbox.Tests/TestResults/f4db302f-0976-45a0-adcf-67836074ef70/coverage.cobertura.xml"
   ]
 }

@@ -20,7 +20,15 @@ param(
     [string]$BundleVersion = "",
     [string]$BundleManufacturer = "",
     [string]$BundleUpgradeCode = "",
-    [string]$LicenseUrl = ""
+    [string]$BundleId = "",
+    [string]$LicenseUrl = "",
+    [string]$SignToolPath = "",
+    [string]$SignCertificateThumbprint = "",
+    [string]$SignCertificateFile = "",
+    [string]$SignCertificatePassword = "",
+    [string]$SignTimestampUrl = "http://timestamp.digicert.com",
+    [string]$SignFileDigest = "sha256",
+    [string]$SignTimestampDigest = "sha256"
 )
 
 Set-StrictMode -Version Latest
@@ -63,6 +71,11 @@ function New-DevVersion {
 
 $installDir = Split-Path -Parent $PSCommandPath
 $repoRoot = Resolve-Path (Join-Path $installDir "..") | Select-Object -ExpandProperty Path
+$defaultProductCodeUser = "{F057FFFE-9295-4B8D-A60F-41CB15E1ABB6}"
+$defaultProductCodeMachine = "{6F8A8A0D-7791-4B24-8A2F-D4E8E93FE4AA}"
+$defaultUpgradeCode = "{5E38A1ED-8CDD-4069-81F2-04C4DF076C11}"
+$defaultBundleUpgradeCode = "{ED449692-157D-46FC-A96D-AFB178DF60F1}"
+$defaultBundleId = "BenJones.FOtoolbox.Bundle"
 
 if ([string]::IsNullOrWhiteSpace($SourceDir)) {
     $SourceDir = Join-Path $repoRoot "artifacts\\FoToolbox"
@@ -84,11 +97,19 @@ if ([string]::IsNullOrWhiteSpace($RuntimeExe)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($ProductCodeUser)) {
-    # Default to auto-generated ProductCode so each build can upgrade in-place (no uninstall needed).
-    $ProductCodeUser = if (-not [string]::IsNullOrWhiteSpace($ProductCode)) { $ProductCode } else { "*" }
+    $ProductCodeUser = if (-not [string]::IsNullOrWhiteSpace($ProductCode)) { $ProductCode } else { $defaultProductCodeUser }
 }
 if ([string]::IsNullOrWhiteSpace($ProductCodeMachine)) {
-    $ProductCodeMachine = "*"
+    $ProductCodeMachine = $defaultProductCodeMachine
+}
+if ([string]::IsNullOrWhiteSpace($UpgradeCode)) {
+    $UpgradeCode = $defaultUpgradeCode
+}
+if ([string]::IsNullOrWhiteSpace($BundleUpgradeCode)) {
+    $BundleUpgradeCode = $defaultBundleUpgradeCode
+}
+if ([string]::IsNullOrWhiteSpace($BundleId)) {
+    $BundleId = $defaultBundleId
 }
 
 # If no version was supplied, generate one that satisfies MSI rules and changes every few seconds.
@@ -137,7 +158,88 @@ if (-not [string]::IsNullOrWhiteSpace($BundleName)) { Write-Host "BundleName: $B
 if (-not [string]::IsNullOrWhiteSpace($BundleVersion)) { Write-Host "BundleVersion: $BundleVersion" }
 if (-not [string]::IsNullOrWhiteSpace($BundleManufacturer)) { Write-Host "BundleManufacturer: $BundleManufacturer" }
 if (-not [string]::IsNullOrWhiteSpace($BundleUpgradeCode)) { Write-Host "BundleUpgradeCode: $BundleUpgradeCode" }
+if (-not [string]::IsNullOrWhiteSpace($BundleId)) { Write-Host "BundleId: $BundleId" }
 if (-not [string]::IsNullOrWhiteSpace($LicenseUrl)) { Write-Host "LicenseUrl: $LicenseUrl" }
+
+function Get-SignToolPath {
+    param([string]$ExplicitPath)
+
+    if (-not [string]::IsNullOrWhiteSpace($ExplicitPath)) {
+        return $ExplicitPath
+    }
+
+    $command = Get-Command signtool.exe -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+
+    $kitsRoot = Join-Path ${env:ProgramFiles(x86)} "Windows Kits\10\bin"
+    if (-not (Test-Path $kitsRoot)) {
+        return $null
+    }
+
+    return Get-ChildItem $kitsRoot -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+        Sort-Object FullName -Descending |
+        Select-Object -First 1 -ExpandProperty FullName
+}
+
+function Test-SigningRequested {
+    return -not [string]::IsNullOrWhiteSpace($SignCertificateThumbprint) -or -not [string]::IsNullOrWhiteSpace($SignCertificateFile)
+}
+
+function Assert-SigningConfiguration {
+    if (-not (Test-SigningRequested)) {
+        throw "Signing is required for release installer outputs. Pass -SignCertificateThumbprint or -SignCertificateFile before running install/build.ps1 -Configuration Release."
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace($SignCertificateFile) -and -not (Test-Path $SignCertificateFile)) {
+        throw "Signing certificate file was not found at $SignCertificateFile."
+    }
+
+    $signTool = Get-SignToolPath -ExplicitPath $SignToolPath
+    if ([string]::IsNullOrWhiteSpace($signTool)) {
+        throw "signtool.exe was not found. Install the Windows SDK or pass -SignToolPath before running install/build.ps1 -Configuration Release."
+    }
+}
+
+function Sign-Output {
+    param(
+        [string]$FilePath,
+        [string]$Description
+    )
+
+    if (-not (Test-SigningRequested)) {
+        Write-Host "Skipping signing for $Description; no signing certificate was configured."
+        return
+    }
+
+    $signTool = Get-SignToolPath -ExplicitPath $SignToolPath
+
+    $signArgs = @(
+        "sign",
+        "/fd", $SignFileDigest,
+        "/td", $SignTimestampDigest,
+        "/tr", $SignTimestampUrl,
+        "/d", $Description
+    )
+
+    if (-not [string]::IsNullOrWhiteSpace($SignCertificateFile)) {
+        $signArgs += @("/f", $SignCertificateFile)
+        if (-not [string]::IsNullOrWhiteSpace($SignCertificatePassword)) {
+            $signArgs += @("/p", $SignCertificatePassword)
+        }
+    } else {
+        $signArgs += @("/sha1", $SignCertificateThumbprint)
+    }
+
+    $signArgs += $FilePath
+
+    Write-Host "Signing $Description..."
+    & $signTool @signArgs | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "signtool failed for $FilePath with exit code $LASTEXITCODE."
+    }
+}
 
 if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
     throw "dotnet is required but was not found on PATH."
@@ -145,6 +247,8 @@ if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
 if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
     throw "wix is required but was not found on PATH. Install with: dotnet tool install --global wix"
 }
+
+Assert-SigningConfiguration
 
 New-Item -ItemType Directory -Force -Path $SourceDir | Out-Null
 
@@ -205,10 +309,12 @@ function Build-Msi {
         "-d", "StartMenuRegistryRoot=$StartMenuRegistryRoot",
         "-d", "ProductCode=$ProductCodeValue"
     )
-    if (-not [string]::IsNullOrWhiteSpace($ProductName)) { $wixArgs += @("-d", "ProductName=$ProductName") }
+if (-not [string]::IsNullOrWhiteSpace($ProductName)) { $wixArgs += @("-d", "ProductName=$ProductName") }
     if (-not [string]::IsNullOrWhiteSpace($Manufacturer)) { $wixArgs += @("-d", "Manufacturer=$Manufacturer") }
     if (-not [string]::IsNullOrWhiteSpace($msiVersion)) { $wixArgs += @("-d", "Version=$msiVersion") }
     if (-not [string]::IsNullOrWhiteSpace($UpgradeCode)) { $wixArgs += @("-d", "UpgradeCode=$UpgradeCode") }
+    if (-not [string]::IsNullOrWhiteSpace($ProductCodeUser)) { $wixArgs += @("-d", "ProductCodeUser=$ProductCodeUser") }
+    if (-not [string]::IsNullOrWhiteSpace($ProductCodeMachine)) { $wixArgs += @("-d", "ProductCodeMachine=$ProductCodeMachine") }
 
     $wixArgs += @("-o", $OutputPath)
     wix build @wixArgs | Out-Host
@@ -216,14 +322,14 @@ function Build-Msi {
 
 Write-Host "`nBuilding user MSI..."
 Build-Msi -OutputPath $UserMsiPath -Scope "perUser" -ProductCodeValue $ProductCodeUser -InstallRoot "LocalAppDataFolder" -StartMenuRoot "ProgramMenuFolder" -StartMenuRegistryRoot "HKCU"
+Sign-Output -FilePath $UserMsiPath -Description "FOtoolbox user installer"
 
 Write-Host "`nBuilding machine MSI..."
 Build-Msi -OutputPath $MachineMsiPath -Scope "perMachine" -ProductCodeValue $ProductCodeMachine -InstallRoot "ProgramFiles64Folder" -StartMenuRoot "ProgramMenuFolder" -StartMenuRegistryRoot "HKLM"
+Sign-Output -FilePath $MachineMsiPath -Description "FOtoolbox machine installer"
 
 if (-not (Test-Path $RuntimeExe)) {
-    Write-Warning "Runtime installer not found at $RuntimeExe. Skipping bundle build."
-    Write-Host "Download the .NET Desktop Runtime and place it at that path, or pass -RuntimeExe to this script."
-    exit 0
+    throw "Runtime installer not found at $RuntimeExe. Download the .NET Desktop Runtime and place it at that path, or pass -RuntimeExe to this script."
 }
 
 $wixExtensionRoot = Join-Path $HOME ".wix\extensions"
@@ -250,6 +356,7 @@ if (-not [string]::IsNullOrWhiteSpace($BundleName)) { $bundleArgs += @("-d", "Bu
 if (-not [string]::IsNullOrWhiteSpace($BundleVersion)) { $bundleArgs += @("-d", "BundleVersion=$BundleVersion") }
 if (-not [string]::IsNullOrWhiteSpace($BundleManufacturer)) { $bundleArgs += @("-d", "BundleManufacturer=$BundleManufacturer") }
 if (-not [string]::IsNullOrWhiteSpace($BundleUpgradeCode)) { $bundleArgs += @("-d", "BundleUpgradeCode=$BundleUpgradeCode") }
+if (-not [string]::IsNullOrWhiteSpace($BundleId)) { $bundleArgs += @("-d", "BundleId=$BundleId") }
 if (-not [string]::IsNullOrWhiteSpace($LicenseUrl)) { $bundleArgs += @("-d", "LicenseUrl=$LicenseUrl") }
 
 $bundleArgs += @(
@@ -259,5 +366,6 @@ $bundleArgs += @(
 )
 
 wix build @bundleArgs | Out-Host
+Sign-Output -FilePath $BundlePath -Description "FOtoolbox bootstrapper bundle"
 
 Write-Host "`nDone."

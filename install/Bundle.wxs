@@ -26,13 +26,16 @@
   <?ifndef BundleUpgradeCode?>
     <?define BundleUpgradeCode="{ED449692-157D-46FC-A96D-AFB178DF60F1}" ?>
   <?endif?>
+  <?ifndef BundleId?>
+    <?define BundleId="BenJones.FOtoolbox.Bundle" ?>
+  <?endif?>
   <?ifndef LicenseUrl?>
     <?define LicenseUrl="https://opensource.org/licenses/MIT" ?>
   <?endif?>
 
-  <Bundle Name="$(var.BundleName)" Version="$(var.BundleVersion)" Manufacturer="$(var.BundleManufacturer)" UpgradeCode="$(var.BundleUpgradeCode)">
+  <Bundle Id="$(var.BundleId)" Name="$(var.BundleName)" Version="$(var.BundleVersion)" Manufacturer="$(var.BundleManufacturer)" UpgradeCode="$(var.BundleUpgradeCode)">
     <Variable Name="InstallPerMachine" Type="numeric" Value="0" />
-    <BootstrapperApplication>
+    <BootstrapperApplication SourceFile="WixStandardBootstrapperApplication">
       <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense"
                                               ThemeFile="theme\HyperlinkTheme.xml"
                                               LocalizationFile="theme\HyperlinkTheme.wxl"
@@ -59,7 +62,8 @@
       <ExePackage Id="NetDesktopRuntime80x64"
                   SourceFile="$(var.NetDesktopRuntimeExe)"
                   DownloadUrl="$(var.NetDesktopRuntimeUrl)"
-                  Compressed="no"
+                  Compressed="yes"
+                  Cache="keep"
                   PerMachine="yes"
                   Vital="yes"
                   DetectCondition="NetDesktopRuntime80Version AND NetDesktopRuntime80Version &gt;= v$(var.NetDesktopRuntimeVersion)"

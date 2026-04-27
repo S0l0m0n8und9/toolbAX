@@ -109,7 +109,7 @@ public sealed class TestifyModelsTests
             plannedUpdates: 0,
             isReady: false,
             status: "Blocked: incomplete coverage",
-            blockingIssue: "Unmapped enum members for field 'Status': 'Closed', 'Canceled'.",
+            blockingIssue: "Unmapped enum members for field 'Status': 'Canceled', 'Closed'.",
             coverageGaps: new[]
             {
                 new TestifyEnumCoverageGap("Status", "Closed"),
@@ -235,7 +235,7 @@ public sealed class TestifyModelsTests
             parseError: string.Empty);
 
         Assert.True(plan.HasCoverageGap);
-        Assert.Equal("Unmapped enum members for field 'Status': 'Closed', 'Canceled'.", plan.CoverageGapDetail);
+        Assert.Equal("Unmapped enum members for field 'Status': 'Canceled', 'Closed'.", plan.CoverageGapDetail);
     }
 
     [Fact]

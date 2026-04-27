@@ -9,3 +9,5 @@
 - Extracted FinalizeTestifyFailureAsync so rollback remains limited to records created in the current run, and added regression tests covering fresh-record rollback state clearing plus reused-record rollback skipping. Focused test project build passes.
 - No additional code changes were needed in this slice. Verified the existing rollback implementation and regression coverage already in the working tree; canonical Testify validation passed with 26/26 tests.
 - Validated the existing auth silent-failure recovery implementation already present in the working tree. Interactive re-auth fallback, plugin-friendly re-auth messaging, and per-environment tenant handling all map to the selected task and pass both targeted auth and full solution tests.
+- Installer build now enforces signing inputs and fails fast on the real missing prerequisite instead of producing unsigned artifacts. Existing WiX changes already lock installer GUIDs and bundle the .NET Desktop Runtime.
+- Normalized Testify enum coverage gap prepare/detail output to sort missing enum members consistently and updated targeted Testify assertions to match the deterministic format.
