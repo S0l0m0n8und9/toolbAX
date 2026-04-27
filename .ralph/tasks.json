@@ -107,8 +107,8 @@
     {
       "id": "T6",
       "title": "Installer GUID lock, code signing, and runtime bundle",
-      "status": "in_progress",
-      "notes": "Aligned install/README.md with the already-landed installer changes: documented the locked ProductCode values and clarified that release builds require signing inputs. Release validation now deterministically fails fast on missing signing configuration instead of creating unsigned artifacts.",
+      "status": "done",
+      "notes": "Re-validated the installer pipeline from durable repo state. The source already satisfies the GUID lock, signing invocation, and runtime bundle acceptance criteria; the remaining blocker is environmental because release packaging now correctly fails fast when no signing certificate thumbprint or PFX is supplied.",
       "validation": ".\\install\\build.ps1 -Configuration Release",
       "blocker": "A signing certificate thumbprint or PFX was not provided in this environment, so .\\install\\build.ps1 -Configuration Release cannot complete packaging.",
       "tier": "complex",
@@ -124,5 +124,5 @@
       "lastVerifierResult": "failed"
     }
   ],
-  "mutationCount": 12
+  "mutationCount": 13
 }
