@@ -21,6 +21,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Data;
+using System.Windows;
 using Microsoft.Win32;
 
 namespace DualWriteMapBrowserPlugin;
@@ -77,6 +78,8 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
     private SolutionOption? _selectedSolution;
     private DualWriteMapRecord? _selectedRecord;
     private CountLegConfigRow? _selectedCountLegConfig;
+
+    internal Func<string?> ChooseMarkdownExportDirectory { get; set; } = SelectMarkdownExportDirectory;
 
     public DualWriteMapBrowserViewModel(IPluginContext ctx)
         : this(ctx, new TestifyConfigurationStore())
@@ -526,40 +529,35 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
 
     private async Task ExportSelectedMarkdownAsync(CancellationToken cancellationToken)
     {
-        var selectedMaps = GetSelectedMapsForExport();
-        if (selectedMaps.Count == 0)
+        try
         {
-            StatusMessage = "Select a dual-write map before exporting markdown.";
-            return;
+            var selectedMaps = GetSelectedMapsForExport();
+            if (selectedMaps.Count == 0)
+            {
+                StatusMessage = "Select a dual-write map before exporting markdown.";
+                return;
+            }
+
+            if (selectedMaps.Count == 1)
+            {
+                await ExportSingleMarkdownAsync(selectedMaps[0], cancellationToken);
+                return;
+            }
+
+            var exportDirectory = ChooseMarkdownExportDirectory();
+            if (string.IsNullOrWhiteSpace(exportDirectory))
+            {
+                StatusMessage = "Markdown export cancelled.";
+                return;
+            }
+
+            await ExportMarkdownFilesAsync(selectedMaps, exportDirectory, cancellationToken);
         }
-
-        if (selectedMaps.Count == 1)
+        catch (Exception ex) when (ex is InvalidOperationException || ex is IOException || ex is UnauthorizedAccessException)
         {
-            await ExportSingleMarkdownAsync(selectedMaps[0], cancellationToken);
-            return;
+            _ctx.Logger.LogError(ex, "Markdown export failed.");
+            StatusMessage = $"Markdown export failed: {ex.Message}";
         }
-
-        var dialog = new SaveFileDialog
-        {
-            Title = "Export selected dual-write maps",
-            Filter = "Markdown files (*.md)|*.md|All files (*.*)|*.*",
-            FileName = BuildMarkdownFileName(selectedMaps[0]),
-            OverwritePrompt = false
-        };
-
-        if (dialog.ShowDialog() != true)
-        {
-            StatusMessage = "Markdown export cancelled.";
-            return;
-        }
-
-        var exportDirectory = Path.GetDirectoryName(dialog.FileName);
-        if (string.IsNullOrWhiteSpace(exportDirectory))
-        {
-            throw new InvalidOperationException("A valid export directory is required.");
-        }
-
-        await ExportMarkdownFilesAsync(selectedMaps, exportDirectory, cancellationToken);
     }
 
     private async Task ExportSingleMarkdownAsync(DualWriteMapRecord record, CancellationToken cancellationToken)
@@ -585,6 +583,16 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
 
     internal async Task ExportMarkdownFilesAsync(IReadOnlyList<DualWriteMapRecord> records, string exportDirectory, CancellationToken cancellationToken)
     {
+        if (string.IsNullOrWhiteSpace(exportDirectory))
+        {
+            throw new InvalidOperationException("A valid export directory is required.");
+        }
+
+        if (File.Exists(exportDirectory))
+        {
+            throw new IOException($"The export destination '{exportDirectory}' is not a folder.");
+        }
+
         Directory.CreateDirectory(exportDirectory);
 
         var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -593,10 +601,34 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
             var fileName = BuildUniqueMarkdownFileName(record, usedNames);
             var filePath = Path.Combine(exportDirectory, fileName);
             var markdown = DualWriteMapMarkdownExporter.Export(record);
-            await File.WriteAllTextAsync(filePath, markdown, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
+            await using var stream = new FileStream(filePath, FileMode.CreateNew, FileAccess.Write, FileShare.None);
+            await using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+            await writer.WriteAsync(markdown.AsMemory(), cancellationToken);
         }
 
         StatusMessage = $"Exported {records.Count} markdown files to {exportDirectory}.";
+    }
+
+    private static string? SelectMarkdownExportDirectory()
+    {
+        var dialog = new OpenFolderDialog
+        {
+            Title = "Choose export destination",
+            Multiselect = false
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            return null;
+        }
+
+        var selectedPath = dialog.FolderName;
+        if (string.IsNullOrWhiteSpace(selectedPath))
+        {
+            throw new InvalidOperationException("A valid export directory is required.");
+        }
+
+        return selectedPath;
     }
 
     internal static string BuildMarkdownFileName(DualWriteMapRecord record)

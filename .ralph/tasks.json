@@ -194,11 +194,13 @@
     {
       "id": "T10",
       "title": "Add user-chosen save destination handling",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T9"
       ],
+      "notes": "Updated dual-write multi-map export to prompt with a real folder picker, write markdown files only into the user-selected destination, reject invalid folder targets, and avoid silent overwrites by creating files with CreateNew semantics. Added focused workflow coverage for missing destinations, invalid folder targets, existing generated filenames, and surfaced export errors.",
       "validation": "dotnet build FoToolbox.sln",
+      "blocker": "Focused test rerun was blocked by shared-workspace file locks in unrelated project outputs during `dotnet test`, although `dotnet build FoToolbox.sln` completed successfully after the change.",
       "tier": "medium",
       "acceptance": [
         "The export flow prompts for a destination chosen by the user.",
@@ -211,7 +213,8 @@
       ],
       "context": [
         "src"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T11",
@@ -236,7 +239,156 @@
       "context": [
         "tests"
       ]
+    },
+    {
+      "id": "T12",
+      "title": "Add deterministic CE record correlation",
+      "status": "todo",
+      "notes": "Replace count-only CE success checks with identity-based verification using the FO test tag or another deterministic correlation key.",
+      "validation": "dotnet test",
+      "priority": "high",
+      "acceptance": [
+        "Testify queries CE by a deterministic correlation key for each exercised map leg",
+        "Create verification fails if the correlated CE row is missing, duplicated, or unrelated to the FO test record",
+        "Update verification reuses the same correlated CE row instead of accepting any CE count delta"
+      ],
+      "constraints": [
+        "Do not redesign overall Testify planning flow",
+        "Limit scope to correlation, duplicate detection, and row identity checks on the CE side"
+      ],
+      "context": [
+        "src",
+        "DualWriteMapBrowserViewModel.Testify.cs",
+        "WaitForCeDeltaAsync",
+        "CleanupTestifyAsync"
+      ]
+    },
+    {
+      "id": "T13",
+      "title": "Implement CE field reconciliation assertions",
+      "status": "todo",
+      "dependsOn": [
+        "T12"
+      ],
+      "notes": "Read back the correlated CE row and compare mapped values against FO source values and transform output, including enums, lookups, null semantics, dates, numerics, and booleans where supported by the map.",
+      "validation": "dotnet test",
+      "priority": "high",
+      "acceptance": [
+        "Testify reads CE column values for the correlated row after create and patch operations",
+        "Result rows show pass or fail per verified mapped field instead of count-only success",
+        "Enum or option-set outcomes are validated against expected CE target values",
+        "Date, numeric, boolean, and null handling are asserted when those mapped fields are in scope"
+      ],
+      "constraints": [
+        "Only verify fields discoverable from the selected map metadata",
+        "Do not add reverse-direction sync coverage in this task"
+      ],
+      "context": [
+        "src",
+        "DualWriteMapBrowserViewModel.Testify.cs",
+        "TestifyResultRows",
+        "TestifyPlanner"
+      ]
+    },
+    {
+      "id": "T14",
+      "title": "Add FO persisted-value readback checks",
+      "status": "todo",
+      "notes": "After FO create and FO patch, GET the FO record and verify persisted values rather than accepting HTTP success alone.",
+      "validation": "dotnet test",
+      "priority": "high",
+      "tier": "medium",
+      "acceptance": [
+        "FO create path performs a readback of the created record",
+        "FO patch path performs a readback confirming the intended field transition persisted",
+        "Failures distinguish transport success from persistence mismatch"
+      ],
+      "constraints": [
+        "Keep verification focused on fields Testify explicitly wrote or depends on for mapping",
+        "Do not expand into bulk or resilience scenarios"
+      ],
+      "context": [
+        "src",
+        "DualWriteMapBrowserViewModel.Testify.cs"
+      ]
+    },
+    {
+      "id": "T15",
+      "title": "Validate CE cleanup outcomes",
+      "status": "todo",
+      "dependsOn": [
+        "T12"
+      ],
+      "notes": "Track CE artifacts created during Testify and verify cleanup behavior such as delete, deactivate, unlink, or expected retained state per map behavior.",
+      "validation": "dotnet test",
+      "tier": "medium",
+      "acceptance": [
+        "Testify records the correlated CE row identifiers it created or touched",
+        "Cleanup validates the expected post-cleanup CE state for each tracked artifact",
+        "Result output reports CE cleanup success or residual artifacts explicitly"
+      ],
+      "constraints": [
+        "Do not attempt generic environment-wide CE cleanup",
+        "Only validate artifacts created or correlated during the current Testify run"
+      ],
+      "context": [
+        "src",
+        "CleanupTestifyAsync",
+        "TestifyLogRows",
+        "TestifyResultRows"
+      ]
+    },
+    {
+      "id": "T16",
+      "title": "Add dual-write readiness preflight checks",
+      "status": "todo",
+      "notes": "Extend preflight to validate dual-write operational readiness, target schema usability, and unsupported map shape classification before running Testify.",
+      "validation": "dotnet test",
+      "tier": "medium",
+      "acceptance": [
+        "Preflight reports dual-write health indicators required for deterministic test execution",
+        "CE schema validation confirms target entity and required columns are queryable before verification runs",
+        "Unsupported map shapes are classified with explicit reasons instead of falling through to weak execution"
+      ],
+      "constraints": [
+        "Keep checks read-only",
+        "Do not implement outage simulation, backlog draining, or resilience testing in this task"
+      ],
+      "context": [
+        "src",
+        "TestifyPreflightRows",
+        "TestifyPlanner"
+      ]
+    },
+    {
+      "id": "T17",
+      "title": "Persist machine-readable Testify reports",
+      "status": "todo",
+      "dependsOn": [
+        "T12",
+        "T13",
+        "T14",
+        "T15",
+        "T16"
+      ],
+      "notes": "Export preflight findings, verification outcomes, mismatches, CE correlation details, and latency measurements to a durable report artifact.",
+      "validation": "dotnet test",
+      "acceptance": [
+        "A Testify run produces a machine-readable report file with per-map and per-step outcomes",
+        "The report includes FO readback results, CE reconciliation results, cleanup results, and measured sync latency",
+        "Export location and file naming are deterministic enough for automated collection"
+      ],
+      "constraints": [
+        "Do not build a new reporting service",
+        "Use an artifact shape that can be generated from existing in-memory results with minimal UI changes"
+      ],
+      "context": [
+        "src",
+        "TestifyPreflightRows",
+        "TestifyLogRows",
+        "TestifyResultRows"
+      ]
     }
   ],
-  "mutationCount": 17
+  "mutationCount": 19
 }
