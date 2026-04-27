@@ -169,11 +169,13 @@
     {
       "id": "T9",
       "title": "Add multi-map export workflow",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T8"
       ],
+      "notes": "Multi-map markdown export is implemented and covered by focused workflow tests. Checked maps export as separate .md files with unique filenames; single-map export behavior still uses the original single-file flow when only one map is selected.",
       "validation": "dotnet test FoToolbox.sln",
+      "blocker": "Requested solution-wide validation still fails because src\\FoToolbox.Host has a pre-existing/generated WPF build issue (missing App.g.cs, MainWindow.g.cs, and Views\\ProfilesView.g.cs in obj\\Debug\\net8.0-windows).",
       "tier": "medium",
       "acceptance": [
         "Users can select multiple dual-write maps in one action.",
@@ -186,7 +188,8 @@
       ],
       "context": [
         "src"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T10",
@@ -235,5 +238,5 @@
       ]
     }
   ],
-  "mutationCount": 16
+  "mutationCount": 17
 }
