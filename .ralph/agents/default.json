@@ -2,7 +2,9 @@
   "agentId": "default",
   "firstSeenAt": "2026-04-24T18:00:54.876Z",
   "completedTaskIds": [
-    "T1"
+    "T1",
+    "T2",
+    "T5"
   ],
   "touchedFiles": [
     ".ralph/.gitignore",
@@ -22,19 +24,29 @@
     ".ralph/runs/continue-progress-006.transcript.md",
     ".ralph/runs/fix-failure-004.last-message.md",
     ".ralph/runs/fix-failure-004.transcript.md",
+    ".ralph/tasks.json",
     "plugins/DualWriteMapBrowser/AssemblyInfo.cs",
     "plugins/DualWriteMapBrowser/DualWriteMapBrowserView.xaml",
     "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.cs",
     "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
     "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.TestifySettings.cs",
     "plugins/DualWriteMapBrowser/TestifySettingsTextSerializer.cs",
+    "src/FoToolbox.Core/Auth/AuthRecoveryException.cs",
+    "src/FoToolbox.Core/Auth/AuthService.cs",
+    "src/FoToolbox.Host/AuthenticatedHandler.cs",
+    "src/FoToolbox.Host/ViewModels/ProfilesViewModel.cs",
+    "tests/FoToolbox.Tests/AuthReauthCoordinatorTests.cs",
+    "tests/FoToolbox.Tests/AuthServiceTests.cs",
     "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs",
     "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyRollbackTests.cs",
     "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyTests.cs",
     "tests/FoToolbox.Tests/DualWriteMapBrowserViewModelTestifySettingsTests.cs",
+    "tests/FoToolbox.Tests/MainWindowAuthRecoveryTests.cs",
+    "tests/FoToolbox.Tests/ProfilesViewModelAuthValidationTests.cs",
     "tests/FoToolbox.Tests/TestifyConfigurationStoreTests.cs",
     "tests/FoToolbox.Tests/TestifyPayloadBuilderTests.cs",
     "tests/FoToolbox.Tests/TestifyPlannerTests.cs",
-    "tests/FoToolbox.Tests/TestifyValueMapParserTests.cs"
+    "tests/FoToolbox.Tests/TestifyValueMapParserTests.cs",
+    "tests/FoToolbox.Tests/TestResults/f4db302f-0976-45a0-adcf-67836074ef70/coverage.cobertura.xml"
   ]
 }

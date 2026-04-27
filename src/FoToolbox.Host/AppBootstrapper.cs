@@ -24,6 +24,7 @@ internal sealed class AppBootstrapper : IDisposable
     private readonly string _profileDbPath;
     private readonly ILogger _logger;
     private readonly SecretVaultService _vault;
+    private readonly AuthReauthCoordinator _reauthCoordinator;
     private HttpClient? _foHttpClient;
     private HttpClient? _dataverseHttpClient;
 
@@ -34,7 +35,10 @@ internal sealed class AppBootstrapper : IDisposable
 
         var store = new ProfileStore(profileDbPath);
         _vault = new SecretVaultService(store.ConnectionString);
+        _reauthCoordinator = new AuthReauthCoordinator();
     }
+
+    public AuthReauthCoordinator ReauthCoordinator => _reauthCoordinator;
 
     /// <summary>
     /// Resolves (or seeds) the default profile from the database.
@@ -96,12 +100,12 @@ internal sealed class AppBootstrapper : IDisposable
 
     private HttpClient CreateAuthenticatedHttpClient(FoEnvironment env, ServicePrincipal sp)
     {
-        return new HttpClient(new AuthenticatedHandler(env, sp, _vault));
+        return new HttpClient(new AuthenticatedHandler(env, sp, _vault, _reauthCoordinator));
     }
 
     private HttpClient CreateAuthenticatedHttpClient(string resourceBaseUrl, string tenantId, ServicePrincipal sp)
     {
-        return new HttpClient(new AuthenticatedHandler(resourceBaseUrl, tenantId, sp, _vault));
+        return new HttpClient(new AuthenticatedHandler(resourceBaseUrl, tenantId, sp, _vault, _reauthCoordinator));
     }
 
     internal static string ResolvePluginRoot()

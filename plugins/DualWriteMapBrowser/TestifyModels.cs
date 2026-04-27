@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace DualWriteMapBrowserPlugin;
 
@@ -18,6 +19,7 @@ public sealed class TestifyMapPlan
         IReadOnlyDictionary<string, TestifyEnumFieldPlan> enumFields,
         IReadOnlyList<TestifyPatchStep> patchSteps,
         IReadOnlyList<string> warnings,
+        IReadOnlyList<TestifyEnumCoverageGap> coverageGaps,
         IReadOnlyList<string> blockingIssues)
     {
         MapId = mapId;
@@ -32,6 +34,7 @@ public sealed class TestifyMapPlan
         EnumFields = enumFields;
         PatchSteps = patchSteps;
         Warnings = warnings;
+        CoverageGaps = coverageGaps;
         BlockingIssues = blockingIssues;
     }
 
@@ -47,8 +50,52 @@ public sealed class TestifyMapPlan
     public IReadOnlyDictionary<string, TestifyEnumFieldPlan> EnumFields { get; }
     public IReadOnlyList<TestifyPatchStep> PatchSteps { get; }
     public IReadOnlyList<string> Warnings { get; }
+    public IReadOnlyList<TestifyEnumCoverageGap> CoverageGaps { get; }
+    public IReadOnlyList<TestifyFieldCoverageGap> CoverageGapsByField => CoverageGaps
+        .GroupBy(gap => gap.FieldName, StringComparer.OrdinalIgnoreCase)
+        .OrderBy(group => group.First().FieldName, StringComparer.OrdinalIgnoreCase)
+        .Select(group => new TestifyFieldCoverageGap(
+            group.First().FieldName,
+            group.Select(gap => gap.EnumValue)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                .ToArray()))
+        .ToArray();
+    public string CoverageGapFieldDetail => CoverageGapsByField.Count == 0
+        ? string.Empty
+        : string.Join("; ", CoverageGapsByField.Select(gap => gap.Detail));
     public IReadOnlyList<string> BlockingIssues { get; }
-    public bool CanRun => BlockingIssues.Count == 0 && FoEntityDetails is not null && !string.IsNullOrWhiteSpace(CreatePayloadJson);
+    public bool CanRun =>
+        BlockingIssues.Count == 0 &&
+        FoEntityDetails is not null &&
+        !string.IsNullOrWhiteSpace(CreatePayloadJson) &&
+        (CoverageGaps.Count == 0 || Configuration.AllowPartialEnumCoverage);
+}
+
+public sealed class TestifyEnumCoverageGap
+{
+    public TestifyEnumCoverageGap(string fieldName, string enumValue)
+    {
+        FieldName = fieldName;
+        EnumValue = enumValue;
+    }
+
+    public string FieldName { get; }
+    public string EnumValue { get; }
+    public string Detail => $"{FieldName}={EnumValue}";
+}
+
+public sealed class TestifyFieldCoverageGap
+{
+    public TestifyFieldCoverageGap(string fieldName, IReadOnlyList<string> enumValues)
+    {
+        FieldName = fieldName;
+        EnumValues = enumValues;
+    }
+
+    public string FieldName { get; }
+    public IReadOnlyList<string> EnumValues { get; }
+    public string Detail => $"{FieldName}: {string.Join(", ", EnumValues)}";
 }
 
 public sealed class TestifyLegPlan
@@ -95,6 +142,10 @@ public sealed class TestifyEnumFieldPlan
     public string? FixedValue { get; }
     public bool ParseFailed { get; }
     public string ParseError { get; }
+    public bool HasCoverageGap => MissingMembers.Count > 0;
+    public string CoverageGapDetail => HasCoverageGap
+        ? $"Unmapped enum members for field '{FieldName}': {string.Join(", ", MissingMembers.Select(value => $"'{value}'"))}."
+        : string.Empty;
 }
 
 public sealed class TestifyPatchStep
@@ -119,7 +170,8 @@ public sealed class TestifyPreflightRow
         int plannedUpdates,
         bool isReady,
         string status,
-        string blockingIssue)
+        string blockingIssue,
+        IReadOnlyList<TestifyEnumCoverageGap> coverageGaps)
     {
         MapDisplayName = mapDisplayName;
         MapId = mapId;
@@ -129,6 +181,7 @@ public sealed class TestifyPreflightRow
         IsReady = isReady;
         Status = status;
         BlockingIssue = blockingIssue;
+        CoverageGaps = coverageGaps;
     }
 
     public string MapDisplayName { get; }
@@ -139,6 +192,23 @@ public sealed class TestifyPreflightRow
     public bool IsReady { get; }
     public string Status { get; }
     public string BlockingIssue { get; }
+    public IReadOnlyList<TestifyEnumCoverageGap> CoverageGaps { get; }
+    public IReadOnlyList<TestifyFieldCoverageGap> CoverageGapsByField => CoverageGaps
+        .GroupBy(g => g.FieldName, StringComparer.OrdinalIgnoreCase)
+        .OrderBy(group => group.First().FieldName, StringComparer.OrdinalIgnoreCase)
+        .Select(group => new TestifyFieldCoverageGap(
+            group.First().FieldName,
+            group.Select(g => g.EnumValue)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                .ToArray()))
+        .ToArray();
+    public string CoverageGapDetail => CoverageGaps.Count == 0
+        ? string.Empty
+        : string.Join("; ", CoverageGaps.Select(g => g.Detail));
+    public string CoverageGapFieldDetail => CoverageGapsByField.Count == 0
+        ? string.Empty
+        : string.Join("; ", CoverageGapsByField.Select(g => g.Detail));
 }
 
 public sealed class TestifyExecutionLogRow
@@ -170,7 +240,8 @@ public sealed class TestifyResultRow
         int patchesPlanned,
         int patchesSucceeded,
         bool ceVerificationSucceeded,
-        string status)
+        string status,
+        IReadOnlyList<TestifyEnumCoverageGap> coverageGaps)
     {
         MapDisplayName = mapDisplayName;
         MapId = mapId;
@@ -180,6 +251,7 @@ public sealed class TestifyResultRow
         PatchesSucceeded = patchesSucceeded;
         CeVerificationSucceeded = ceVerificationSucceeded;
         Status = status;
+        CoverageGaps = coverageGaps;
     }
 
     public string MapDisplayName { get; }
@@ -190,4 +262,21 @@ public sealed class TestifyResultRow
     public int PatchesSucceeded { get; }
     public bool CeVerificationSucceeded { get; }
     public string Status { get; }
+    public IReadOnlyList<TestifyEnumCoverageGap> CoverageGaps { get; }
+    public IReadOnlyList<TestifyFieldCoverageGap> CoverageGapsByField => CoverageGaps
+        .GroupBy(g => g.FieldName, StringComparer.OrdinalIgnoreCase)
+        .OrderBy(group => group.First().FieldName, StringComparer.OrdinalIgnoreCase)
+        .Select(group => new TestifyFieldCoverageGap(
+            group.First().FieldName,
+            group.Select(g => g.EnumValue)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .OrderBy(value => value, StringComparer.OrdinalIgnoreCase)
+                .ToArray()))
+        .ToArray();
+    public string CoverageGapDetail => CoverageGaps.Count == 0
+        ? string.Empty
+        : string.Join("; ", CoverageGaps.Select(g => g.Detail));
+    public string CoverageGapFieldDetail => CoverageGapsByField.Count == 0
+        ? string.Empty
+        : string.Join("; ", CoverageGapsByField.Select(g => g.Detail));
 }

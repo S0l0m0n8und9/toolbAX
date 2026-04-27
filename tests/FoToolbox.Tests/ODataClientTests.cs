@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Linq;
 using Xunit;
 
 namespace FoToolbox.Tests;
@@ -42,6 +43,31 @@ public class ODataClientTests
         Assert.Equal("ctx", pages[0].ODataContext);
         Assert.NotNull(pages[0].ResponseHeaders);
         Assert.True(pages[0].ResponseHeaders!.ContainsKey("Content-Type"));
+    }
+
+    [Trait("Category", "Auth")]
+    [Fact]
+    public async Task StreamAsync_Unauthorized_Returns_Clear_Reauth_Message()
+    {
+        var handler = new SequenceHandler(new[]
+        {
+            new HttpResponseMessage(HttpStatusCode.Unauthorized)
+            {
+                Content = new StringContent("{\"error\":\"unauthorized\"}", Encoding.UTF8, "application/json")
+            }
+        });
+        var client = new HttpClient(handler);
+        var odata = new HttpODataClient(client);
+
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await foreach (var _ in odata.StreamAsync(new QueryRequest("https://first"), CancellationToken.None))
+            {
+            }
+        });
+
+        Assert.Contains("Authentication needs to be refreshed", failure.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Re-authenticate in Profiles", failure.Message, StringComparison.OrdinalIgnoreCase);
     }
 
     private sealed class SequenceHandler : HttpMessageHandler

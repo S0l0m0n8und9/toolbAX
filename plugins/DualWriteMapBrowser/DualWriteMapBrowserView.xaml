@@ -561,7 +561,8 @@
                                 <DataGridTextColumn Header="Planned PATCH" Binding="{Binding PlannedUpdates, Mode=OneWay}" Width="110" MinWidth="90" />
                                 <DataGridCheckBoxColumn Header="Ready" Binding="{Binding IsReady, Mode=OneWay}" Width="70" />
                                 <DataGridTextColumn Header="Status" Binding="{Binding Status, Mode=OneWay}" Width="110" MinWidth="90" />
-                                <DataGridTextColumn Header="Blocking Issue" Binding="{Binding BlockingIssue, Mode=OneWay}" Width="*" MinWidth="260" />
+                                <DataGridTextColumn Header="Blocking Issue" Binding="{Binding BlockingIssue, Mode=OneWay}" Width="2*" MinWidth="260" />
+                                <DataGridTextColumn Header="Coverage Gaps" Binding="{Binding CoverageGapFieldDetail, Mode=OneWay}" Width="*" MinWidth="220" />
                             </DataGrid.Columns>
                         </DataGrid>
 
@@ -588,7 +589,8 @@
                                 <DataGridTextColumn Header="Patches Planned" Binding="{Binding PatchesPlanned, Mode=OneWay}" Width="100" MinWidth="90" />
                                 <DataGridTextColumn Header="Patches OK" Binding="{Binding PatchesSucceeded, Mode=OneWay}" Width="90" MinWidth="80" />
                                 <DataGridCheckBoxColumn Header="CE OK" Binding="{Binding CeVerificationSucceeded, Mode=OneWay}" Width="70" />
-                                <DataGridTextColumn Header="Status" Binding="{Binding Status, Mode=OneWay}" Width="*" MinWidth="260" />
+                                <DataGridTextColumn Header="Status" Binding="{Binding Status, Mode=OneWay}" Width="260" MinWidth="220" />
+                                <DataGridTextColumn Header="Coverage Gaps" Binding="{Binding CoverageGapFieldDetail, Mode=OneWay}" Width="*" MinWidth="220" />
                             </DataGrid.Columns>
                         </DataGrid>
 

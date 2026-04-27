@@ -1,3 +1,4 @@
+using FoToolbox.Core.Auth;
 using FoToolbox.Core.OData;
 using System;
 using System.Collections.Generic;
@@ -31,61 +32,107 @@ public sealed class HttpODataClient : IODataClient
             msg.Headers.Accept.Clear();
             msg.Headers.Accept.Add(JsonAccept);
 
-            using var response = await _httpClient.SendAsync(msg, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            response.EnsureSuccessStatusCode();
-
-            var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            foreach (var header in response.Headers)
+            HttpResponseMessage response;
+            try
             {
-                headers[header.Key] = string.Join(", ", header.Value);
+                response = await _httpClient.SendAsync(msg, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             }
-            foreach (var header in response.Content.Headers)
+            catch (AuthRecoveryException)
             {
-                headers[header.Key] = string.Join(", ", header.Value);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                throw BuildPluginFriendlyException(ex);
             }
 
-            await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-            using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-            var root = doc.RootElement;
-
-            var rows = new List<IReadOnlyDictionary<string, object?>>();
-            if (root.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.Array)
+            using (response)
             {
-                foreach (var element in value.EnumerateArray())
+                if (!response.IsSuccessStatusCode)
                 {
-                    var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
-                    foreach (var prop in element.EnumerateObject())
+                    var body = response.Content is null
+                        ? null
+                        : await response.Content.ReadAsStringAsync(cancellationToken);
+                    throw BuildPluginFriendlyException(response, body);
+                }
+
+                var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var header in response.Headers)
+                {
+                    headers[header.Key] = string.Join(", ", header.Value);
+                }
+                foreach (var header in response.Content.Headers)
+                {
+                    headers[header.Key] = string.Join(", ", header.Value);
+                }
+
+                await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+                var root = doc.RootElement;
+
+                var rows = new List<IReadOnlyDictionary<string, object?>>();
+                if (root.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.Array)
+                {
+                    foreach (var element in value.EnumerateArray())
                     {
-                        dict[prop.Name] = JsonElementToObject(prop.Value);
+                        var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var prop in element.EnumerateObject())
+                        {
+                            dict[prop.Name] = JsonElementToObject(prop.Value);
+                        }
+                        rows.Add(dict);
                     }
-                    rows.Add(dict);
                 }
-            }
 
-            long? odataCount = null;
-            if (root.TryGetProperty("@odata.count", out var countEl))
-            {
-                if (countEl.ValueKind == JsonValueKind.Number && countEl.TryGetInt64(out var c))
+                long? odataCount = null;
+                if (root.TryGetProperty("@odata.count", out var countEl))
                 {
-                    odataCount = c;
+                    if (countEl.ValueKind == JsonValueKind.Number && countEl.TryGetInt64(out var c))
+                    {
+                        odataCount = c;
+                    }
+                    else if (countEl.ValueKind == JsonValueKind.String && long.TryParse(countEl.GetString(), out var cs))
+                    {
+                        odataCount = cs;
+                    }
                 }
-                else if (countEl.ValueKind == JsonValueKind.String && long.TryParse(countEl.GetString(), out var cs))
+
+                string? odataContext = null;
+                if (root.TryGetProperty("@odata.context", out var ctxEl) && ctxEl.ValueKind == JsonValueKind.String)
                 {
-                    odataCount = cs;
+                    odataContext = ctxEl.GetString();
                 }
+
+                root.TryGetProperty("@odata.nextLink", out var nlElement);
+                next = nlElement.ValueKind == JsonValueKind.String ? nlElement.GetString() : null;
+
+                yield return new ODataPage(rows, next, odataCount, headers, odataContext);
             }
-
-            string? odataContext = null;
-            if (root.TryGetProperty("@odata.context", out var ctxEl) && ctxEl.ValueKind == JsonValueKind.String)
-            {
-                odataContext = ctxEl.GetString();
-            }
-
-            root.TryGetProperty("@odata.nextLink", out var nlElement);
-            next = nlElement.ValueKind == JsonValueKind.String ? nlElement.GetString() : null;
-
-            yield return new ODataPage(rows, next, odataCount, headers, odataContext);
         }
+    }
+
+    private static Exception BuildPluginFriendlyException(Exception exception)
+    {
+        return exception is AuthRecoveryException
+            ? exception
+            : new InvalidOperationException(
+                "Authentication needs to be refreshed before the plugin can continue. Re-authenticate in Profiles and retry the operation.",
+                exception);
+    }
+
+    private static Exception BuildPluginFriendlyException(HttpResponseMessage response, string? body)
+    {
+        if (response.StatusCode == System.Net.HttpStatusCode.Unauthorized)
+        {
+            return new InvalidOperationException(
+                "Authentication needs to be refreshed before the plugin can continue. Re-authenticate in Profiles and retry the operation.");
+        }
+
+        var detail = string.IsNullOrWhiteSpace(body) ? response.ReasonPhrase : body;
+        return new HttpRequestException(
+            $"OData request failed with {(int)response.StatusCode} {response.ReasonPhrase}. {detail}".Trim(),
+            null,
+            response.StatusCode);
     }
 
     private static object? JsonElementToObject(JsonElement el) => el.ValueKind switch
