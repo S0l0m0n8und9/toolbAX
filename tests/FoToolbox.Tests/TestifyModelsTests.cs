@@ -222,6 +222,29 @@ public sealed class TestifyModelsTests
     }
 
     [Fact]
+    public void TestifyResultRow_ExposesFieldAssertionDetailForUiBinding()
+    {
+        var row = new TestifyResultRow(
+            mapDisplayName: "Customers",
+            mapId: "map-1",
+            valid: true,
+            createSucceeded: true,
+            patchesPlanned: 1,
+            patchesSucceeded: 1,
+            ceVerificationSucceeded: true,
+            status: "Valid map.",
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+            fieldAssertions: new[]
+            {
+                new TestifyFieldAssertionResult("leg-1", "Name", "name", "after create", true, "TESTIFY-001", "TESTIFY-001", "after create: Name->name PASS expected='TESTIFY-001' actual='TESTIFY-001'"),
+                new TestifyFieldAssertionResult("leg-1", "IsActive", "statecode", "after patch 1", false, "true", "false", "after patch 1: IsActive->statecode FAIL expected='true' actual='false'")
+            });
+
+        Assert.Equal("after create: Name->name PASS expected='TESTIFY-001' actual='TESTIFY-001'; after patch 1: IsActive->statecode FAIL expected='true' actual='false'", row.FieldAssertionDetail);
+        Assert.Equal(2, row.FieldAssertions.Count);
+    }
+
+    [Fact]
     public void TestifyEnumFieldPlan_FormatsEachMissingMemberForPrepareOutput()
     {
         var plan = new TestifyEnumFieldPlan(

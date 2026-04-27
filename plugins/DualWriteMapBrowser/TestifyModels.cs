@@ -21,6 +21,41 @@ public sealed class TestifyMapPlan
         IReadOnlyList<string> warnings,
         IReadOnlyList<TestifyEnumCoverageGap> coverageGaps,
         IReadOnlyList<string> blockingIssues)
+        : this(
+            mapId,
+            mapDisplayName,
+            foEntity,
+            foEntityDetails,
+            configuration,
+            foFilter,
+            ceLegs,
+            createValues,
+            createPayloadJson,
+            enumFields,
+            Array.Empty<TestifyFieldAssertionPlan>(),
+            patchSteps,
+            warnings,
+            coverageGaps,
+            blockingIssues)
+    {
+    }
+
+    public TestifyMapPlan(
+        string mapId,
+        string mapDisplayName,
+        string foEntity,
+        FoToolbox.Core.OData.ODataEntity? foEntityDetails,
+        TestifyMapConfiguration configuration,
+        string foFilter,
+        IReadOnlyList<TestifyLegPlan> ceLegs,
+        IReadOnlyDictionary<string, string> createValues,
+        string createPayloadJson,
+        IReadOnlyDictionary<string, TestifyEnumFieldPlan> enumFields,
+        IReadOnlyList<TestifyFieldAssertionPlan>? fieldAssertions,
+        IReadOnlyList<TestifyPatchStep> patchSteps,
+        IReadOnlyList<string> warnings,
+        IReadOnlyList<TestifyEnumCoverageGap> coverageGaps,
+        IReadOnlyList<string> blockingIssues)
     {
         MapId = mapId;
         MapDisplayName = mapDisplayName;
@@ -32,6 +67,7 @@ public sealed class TestifyMapPlan
         CreateValues = createValues;
         CreatePayloadJson = createPayloadJson;
         EnumFields = enumFields;
+        FieldAssertions = fieldAssertions ?? Array.Empty<TestifyFieldAssertionPlan>();
         PatchSteps = patchSteps;
         Warnings = warnings;
         CoverageGaps = coverageGaps;
@@ -48,6 +84,7 @@ public sealed class TestifyMapPlan
     public IReadOnlyDictionary<string, string> CreateValues { get; }
     public string CreatePayloadJson { get; }
     public IReadOnlyDictionary<string, TestifyEnumFieldPlan> EnumFields { get; }
+    public IReadOnlyList<TestifyFieldAssertionPlan> FieldAssertions { get; }
     public IReadOnlyList<TestifyPatchStep> PatchSteps { get; }
     public IReadOnlyList<string> Warnings { get; }
     public IReadOnlyList<TestifyEnumCoverageGap> CoverageGaps { get; }
@@ -70,6 +107,68 @@ public sealed class TestifyMapPlan
         FoEntityDetails is not null &&
         !string.IsNullOrWhiteSpace(CreatePayloadJson) &&
         (CoverageGaps.Count == 0 || Configuration.AllowPartialEnumCoverage);
+}
+
+public sealed class TestifyFieldAssertionPlan
+{
+    public TestifyFieldAssertionPlan(
+        string legId,
+        string foField,
+        string ceField,
+        string foType,
+        string? ceFieldType,
+        bool hasValueMap,
+        IReadOnlyDictionary<string, string> mappedTargetValues)
+    {
+        LegId = legId;
+        FoField = foField;
+        CeField = ceField;
+        FoType = foType;
+        CeFieldType = ceFieldType;
+        HasValueMap = hasValueMap;
+        MappedTargetValues = mappedTargetValues;
+    }
+
+    public string LegId { get; }
+    public string FoField { get; }
+    public string CeField { get; }
+    public string FoType { get; }
+    public string? CeFieldType { get; }
+    public bool HasValueMap { get; }
+    public IReadOnlyDictionary<string, string> MappedTargetValues { get; }
+}
+
+public sealed class TestifyFieldAssertionResult
+{
+    public TestifyFieldAssertionResult(
+        string legId,
+        string foField,
+        string ceField,
+        string phase,
+        bool passed,
+        string expectedValue,
+        string actualValue,
+        string detail)
+    {
+        LegId = legId;
+        FoField = foField;
+        CeField = ceField;
+        Phase = phase;
+        Passed = passed;
+        ExpectedValue = expectedValue;
+        ActualValue = actualValue;
+        Detail = detail;
+    }
+
+    public string LegId { get; }
+    public string FoField { get; }
+    public string CeField { get; }
+    public string Phase { get; }
+    public bool Passed { get; }
+    public string ExpectedValue { get; }
+    public string ActualValue { get; }
+    public string Detail { get; }
+    public string FieldKey => $"{LegId}:{FoField}->{CeField}@{Phase}";
 }
 
 public sealed class TestifyEnumCoverageGap
@@ -100,16 +199,60 @@ public sealed class TestifyFieldCoverageGap
 
 public sealed class TestifyLegPlan
 {
-    public TestifyLegPlan(string legId, string ceEntity, string ceFilter)
+    public TestifyLegPlan(
+        string legId,
+        string ceEntity,
+        string ceFilter,
+        string ceCorrelationFilter,
+        string foCorrelationField,
+        string ceCorrelationField,
+        string? correlatedRowIdField = null)
     {
         LegId = legId;
         CeEntity = ceEntity;
         CeFilter = ceFilter;
+        CeCorrelationFilter = ceCorrelationFilter;
+        FoCorrelationField = foCorrelationField;
+        CeCorrelationField = ceCorrelationField;
+        CorrelatedRowIdField = correlatedRowIdField;
     }
 
     public string LegId { get; }
     public string CeEntity { get; }
     public string CeFilter { get; }
+    public string CeCorrelationFilter { get; }
+    public string FoCorrelationField { get; }
+    public string CeCorrelationField { get; }
+    public string? CorrelatedRowIdField { get; }
+}
+
+public sealed class TestifyCorrelatedCeRow
+{
+    public TestifyCorrelatedCeRow(
+        string legId,
+        string entityName,
+        string rowId,
+        string deterministicKey,
+        string correlationValue,
+        string foCorrelationField,
+        string ceCorrelationField)
+    {
+        LegId = legId;
+        EntityName = entityName;
+        RowId = rowId;
+        DeterministicKey = deterministicKey;
+        CorrelationValue = correlationValue;
+        FoCorrelationField = foCorrelationField;
+        CeCorrelationField = ceCorrelationField;
+    }
+
+    public string LegId { get; }
+    public string EntityName { get; }
+    public string RowId { get; }
+    public string DeterministicKey { get; }
+    public string CorrelationValue { get; }
+    public string FoCorrelationField { get; }
+    public string CeCorrelationField { get; }
 }
 
 public sealed class TestifyEnumFieldPlan
@@ -241,7 +384,8 @@ public sealed class TestifyResultRow
         int patchesSucceeded,
         bool ceVerificationSucceeded,
         string status,
-        IReadOnlyList<TestifyEnumCoverageGap> coverageGaps)
+        IReadOnlyList<TestifyEnumCoverageGap> coverageGaps,
+        IReadOnlyList<TestifyFieldAssertionResult>? fieldAssertions = null)
     {
         MapDisplayName = mapDisplayName;
         MapId = mapId;
@@ -252,6 +396,7 @@ public sealed class TestifyResultRow
         CeVerificationSucceeded = ceVerificationSucceeded;
         Status = status;
         CoverageGaps = coverageGaps;
+        FieldAssertions = fieldAssertions ?? Array.Empty<TestifyFieldAssertionResult>();
     }
 
     public string MapDisplayName { get; }
@@ -263,6 +408,7 @@ public sealed class TestifyResultRow
     public bool CeVerificationSucceeded { get; }
     public string Status { get; }
     public IReadOnlyList<TestifyEnumCoverageGap> CoverageGaps { get; }
+    public IReadOnlyList<TestifyFieldAssertionResult> FieldAssertions { get; }
     public IReadOnlyList<TestifyFieldCoverageGap> CoverageGapsByField => CoverageGaps
         .GroupBy(g => g.FieldName, StringComparer.OrdinalIgnoreCase)
         .OrderBy(group => group.First().FieldName, StringComparer.OrdinalIgnoreCase)
@@ -279,4 +425,7 @@ public sealed class TestifyResultRow
     public string CoverageGapFieldDetail => CoverageGapsByField.Count == 0
         ? string.Empty
         : string.Join("; ", CoverageGapsByField.Select(g => g.Detail));
+    public string FieldAssertionDetail => FieldAssertions.Count == 0
+        ? string.Empty
+        : string.Join("; ", FieldAssertions.Select(assertion => assertion.Detail));
 }

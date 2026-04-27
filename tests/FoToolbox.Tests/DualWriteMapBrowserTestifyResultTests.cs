@@ -118,7 +118,8 @@ public sealed class DualWriteMapBrowserTestifyResultTests
         var succeeded = DualWriteMapBrowserViewModel.DidCeVerificationSucceedForCompletedRun(
             createSucceeded: true,
             patchesSucceeded: 0,
-            patchesPlanned: 0);
+            patchesPlanned: 0,
+            correlatedCeVerificationSucceeded: true);
 
         Assert.True(succeeded);
     }
@@ -129,7 +130,8 @@ public sealed class DualWriteMapBrowserTestifyResultTests
         var succeeded = DualWriteMapBrowserViewModel.DidCeVerificationSucceedForCompletedRun(
             createSucceeded: true,
             patchesSucceeded: 3,
-            patchesPlanned: 3);
+            patchesPlanned: 3,
+            correlatedCeVerificationSucceeded: true);
 
         Assert.True(succeeded);
     }
@@ -140,9 +142,60 @@ public sealed class DualWriteMapBrowserTestifyResultTests
         var succeeded = DualWriteMapBrowserViewModel.DidCeVerificationSucceedForCompletedRun(
             createSucceeded: true,
             patchesSucceeded: 1,
-            patchesPlanned: 2);
+            patchesPlanned: 2,
+            correlatedCeVerificationSucceeded: true);
 
         Assert.False(succeeded);
+    }
+
+    [Fact]
+    public void DidCeVerificationSucceedForCompletedRun_ReturnsFalse_WhenCorrelationCheckDidNotSucceed()
+    {
+        var succeeded = DualWriteMapBrowserViewModel.DidCeVerificationSucceedForCompletedRun(
+            createSucceeded: true,
+            patchesSucceeded: 2,
+            patchesPlanned: 2,
+            correlatedCeVerificationSucceeded: false);
+
+        Assert.False(succeeded);
+    }
+
+    [Fact]
+    public void TestifyResultRow_PreservesFailedCeVerification_ForCompletedPatchRun()
+    {
+        var row = new TestifyResultRow(
+            mapDisplayName: "Customers",
+            mapId: "map-1",
+            valid: true,
+            createSucceeded: true,
+            patchesPlanned: 2,
+            patchesSucceeded: 2,
+            ceVerificationSucceeded: false,
+            status: "Failed: CE correlation drift",
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>());
+
+        Assert.False(row.CeVerificationSucceeded);
+        Assert.Equal("Failed: CE correlation drift", row.Status);
+    }
+
+    [Fact]
+    public void BuildCorrelationFilter_AddsCorrelationClause_WhenNoExistingFilterExists()
+    {
+        var filter = typeof(DualWriteMapBrowserViewModel)
+            .GetMethod("BuildCorrelationFilter", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .Invoke(null, new object[] { string.Empty, "name", "TESTIFY-001" });
+
+        Assert.Equal("name eq 'TESTIFY-001'", filter);
+    }
+
+    [Fact]
+    public void BuildCorrelationFilter_PreservesExistingFilter_AndEscapesSingleQuotes()
+    {
+        var filter = typeof(DualWriteMapBrowserViewModel)
+            .GetMethod("BuildCorrelationFilter", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .Invoke(null, new object[] { "statecode eq 0", "name", "O'Brien" });
+
+        Assert.Equal("(statecode eq 0) and (name eq 'O''Brien')", filter);
     }
 
     [Fact]

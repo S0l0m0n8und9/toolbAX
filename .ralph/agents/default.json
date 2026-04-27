@@ -10,11 +10,13 @@
     "T7",
     "T8",
     "T9",
-    "T10"
+    "T10",
+    "T12"
   ],
   "touchedFiles": [
     ".ralph/.gitignore",
     ".ralph/agents/default.json",
+    ".ralph/claims.json.lock",
     ".ralph/progress.md",
     ".ralph/prompts/continue-progress-005.prompt.md",
     ".ralph/prompts/continue-progress-006.prompt.md",
@@ -42,6 +44,7 @@
     "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.cs",
     "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
     "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.TestifySettings.cs",
+    "plugins/DualWriteMapBrowser/TestifyConfigurationStore.cs",
     "plugins/DualWriteMapBrowser/TestifyModels.cs",
     "plugins/DualWriteMapBrowser/TestifySettingsTextSerializer.cs",
     "src/FoToolbox.Core/Auth/AuthRecoveryException.cs",

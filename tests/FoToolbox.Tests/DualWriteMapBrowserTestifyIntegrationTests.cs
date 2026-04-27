@@ -4,6 +4,7 @@ using FoToolbox.Core.Models;
 using FoToolbox.Core.OData;
 using FoToolbox.SDK.Plugins;
 using Microsoft.Extensions.Logging.Abstractions;
+using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -19,7 +20,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
     {
         var viewModel = new DualWriteMapBrowserViewModel(
             new FakeIntegrationContext(new ThrowingODataClient(new HttpRequestException("404 stale cached URL"))),
-            new TestifyConfigurationStore(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-integration.json")));
+            new TestifyConfigurationStore(CreateTempTestifyStorePath()));
 
         var exists = await viewModel.CheckFoRecordExistsAsync(
             "https://contoso.operations.dynamics.com/data/CustomersV3(AccountNumber='CUST-404',dataAreaId='USMF')?cross-company=true",
@@ -31,7 +32,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
     [Fact]
     public async Task FinalizeTestifyFailureAsync_RollsBackMidRunFailure_AndClearsPersistedState()
     {
-        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-integration.json");
+        var path = CreateTempTestifyStorePath();
 
         try
         {
@@ -72,7 +73,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
     }
 
     [Fact]
-    public async Task WaitForCeDeltaAsync_ThrowsTimeout_WhenCeCountsDoNotAdvance()
+    public async Task WaitForCorrelatedCeRowsAsync_ThrowsTimeout_WhenCeRowDoesNotAppear()
     {
         var originalDelay = DualWriteMapBrowserViewModel.TestifyDelayAsync;
         var originalUtcNow = DualWriteMapBrowserViewModel.TestifyUtcNow;
@@ -82,13 +83,13 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
 
         try
         {
-            using var dataverseHttp = new HttpClient(new StaticJsonHttpMessageHandler("{\"value\":[]}"))
+            using var dataverseHttp = new HttpClient(new SequenceJsonHttpMessageHandler("{\"value\":[]}"))
             {
                 BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
             };
             var writeClient = new SequenceODataWriteClient();
             var context = new FakeIntegrationDataverseWriteContext(writeClient, dataverseHttp);
-            var storePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-integration.json");
+            var storePath = CreateTempTestifyStorePath();
             var store = new TestifyConfigurationStore(storePath);
             var viewModel = new DualWriteMapBrowserViewModel(context, store);
             var config = await store.GetOrCreateAsync("env-1", "map-timeout", CancellationToken.None);
@@ -101,8 +102,8 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
                 foEntityDetails: null,
                 configuration: config,
                 foFilter: string.Empty,
-                ceLegs: new[] { new TestifyLegPlan("leg-1", "accounts", "$filter=name eq 'Timeout'") },
-                createValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                ceLegs: new[] { new TestifyLegPlan("leg-1", "accounts", "", "", "Name", "name") },
+                createValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Name"] = "Timeout" },
                 createPayloadJson: "{}",
                 enumFields: new Dictionary<string, TestifyEnumFieldPlan>(StringComparer.OrdinalIgnoreCase),
                 patchSteps: Array.Empty<TestifyPatchStep>(),
@@ -111,9 +112,10 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
                 blockingIssues: Array.Empty<string>());
 
             var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                viewModel.WaitForCeDeltaAsync(
+                viewModel.WaitForCorrelatedCeRowsAsync(
                     plan,
-                    new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase) { ["leg-1"] = 0 },
+                    plan.CreateValues,
+                    correlatedRows: null,
                     CancellationToken.None,
                     "after patch 1"));
 
@@ -124,6 +126,415 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
             DualWriteMapBrowserViewModel.TestifyDelayAsync = originalDelay;
             DualWriteMapBrowserViewModel.TestifyUtcNow = originalUtcNow;
         }
+    }
+
+    [Fact]
+    public async Task WaitForCorrelatedCeRowsAsync_Throws_WhenDuplicateRowsMatchCorrelation()
+    {
+        using var dataverseHttp = new HttpClient(new SequenceJsonHttpMessageHandler(
+            "{\"value\":[{\"accountid\":\"row-1\",\"name\":\"TESTIFY-001\"},{\"accountid\":\"row-2\",\"name\":\"TESTIFY-001\"}]}"))
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+
+        var viewModel = CreateCorrelationViewModel(dataverseHttp, out var config);
+        config.CePollTimeoutMinutes = 1;
+        var plan = CreateCorrelationPlan(config, "TESTIFY-001");
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            viewModel.WaitForCorrelatedCeRowsAsync(plan, plan.CreateValues, correlatedRows: null, CancellationToken.None, "after create"));
+
+        Assert.Equal("CE verification failed for leg 'leg-1': expected one correlated row for name='TESTIFY-001' but found 2.", ex.Message);
+    }
+
+    [Fact]
+    public async Task WaitForCorrelatedCeRowsAsync_Throws_WhenDuplicateRowsAppearOnLaterDataversePage()
+    {
+        var originalDelay = DualWriteMapBrowserViewModel.TestifyDelayAsync;
+        DualWriteMapBrowserViewModel.TestifyDelayAsync = static (_, _) => Task.CompletedTask;
+
+        try
+        {
+        var handler = new SequenceJsonHttpMessageHandler(
+            "{\"value\":[{\"accountid\":\"row-1\",\"name\":\"TESTIFY-001\"}],\"@odata.nextLink\":\"https://contoso.crm.dynamics.com/api/data/v9.2/accounts?$skiptoken=page2\"}",
+            "{\"value\":[{\"accountid\":\"row-2\",\"name\":\"TESTIFY-001\"}]}" );
+        using var dataverseHttp = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+
+        var viewModel = CreateCorrelationViewModel(dataverseHttp, out var config);
+        var plan = CreateCorrelationPlan(config, "TESTIFY-001");
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            viewModel.WaitForCorrelatedCeRowsAsync(plan, plan.CreateValues, correlatedRows: null, CancellationToken.None, "after create"));
+
+        Assert.Equal("CE verification failed for leg 'leg-1': expected one correlated row for name='TESTIFY-001' but found 2.", ex.Message);
+        Assert.Collection(
+            handler.RequestUris,
+            uri => Assert.Equal(
+                "https://contoso.crm.dynamics.com/api/data/v9.2/accounts?$filter=name%20eq%20%27TESTIFY-001%27&$select=name%2Caccountsid",
+                uri.AbsoluteUri),
+            uri => Assert.Equal(
+                "https://contoso.crm.dynamics.com/api/data/v9.2/accounts?$skiptoken=page2",
+                uri.AbsoluteUri));
+        }
+        finally
+        {
+            DualWriteMapBrowserViewModel.TestifyDelayAsync = originalDelay;
+        }
+    }
+
+    [Fact]
+    public async Task WaitForCorrelatedCeRowsAsync_Throws_WhenReturnedRowIsUnrelatedToFoRecord()
+    {
+        using var dataverseHttp = new HttpClient(new SequenceJsonHttpMessageHandler(
+            "{\"value\":[{\"accountid\":\"row-1\",\"name\":\"TESTIFY-OTHER\"}]}"))
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+
+        var viewModel = CreateCorrelationViewModel(dataverseHttp, out var config);
+        var plan = CreateCorrelationPlan(config, "TESTIFY-001");
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            viewModel.WaitForCorrelatedCeRowsAsync(plan, plan.CreateValues, correlatedRows: null, CancellationToken.None, "after create"));
+
+        Assert.Equal("CE verification failed for leg 'leg-1': correlated row did not match FO value 'TESTIFY-001'.", ex.Message);
+    }
+
+    [Fact]
+    public async Task WaitForCorrelatedCeRowsAsync_Throws_WhenUpdateFindsDifferentRow()
+    {
+        using var dataverseHttp = new HttpClient(new SequenceJsonHttpMessageHandler(
+            "{\"value\":[{\"accountid\":\"row-2\",\"name\":\"TESTIFY-001\"}]}"))
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+
+        var viewModel = CreateCorrelationViewModel(dataverseHttp, out var config);
+        var plan = CreateCorrelationPlan(config, "TESTIFY-001");
+        var existing = new Dictionary<string, TestifyCorrelatedCeRow>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["leg-1"] = new TestifyCorrelatedCeRow("leg-1", "accounts", "row-1", "leg-1|accounts|Name|name|TESTIFY-001", "TESTIFY-001", "Name", "name")
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            viewModel.WaitForCorrelatedCeRowsAsync(plan, plan.CreateValues, existing, CancellationToken.None, "after patch 1"));
+
+        Assert.Equal("CE verification failed for leg 'leg-1': expected CE row 'row-1' but found 'row-2'.", ex.Message);
+    }
+
+    [Fact]
+    public async Task WaitForCorrelatedCeRowsAsync_ReturnsSameRow_WhenCorrelationMatchesExistingRecord()
+    {
+        var handler = new SequenceJsonHttpMessageHandler(
+            "{\"value\":[{\"accountid\":\"row-1\",\"name\":\"TESTIFY-001\"}]}");
+        using var dataverseHttp = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+
+        var viewModel = CreateCorrelationViewModel(dataverseHttp, out var config);
+        var plan = CreateCorrelationPlan(config, "TESTIFY-001");
+        var existing = new Dictionary<string, TestifyCorrelatedCeRow>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["leg-1"] = new TestifyCorrelatedCeRow("leg-1", "accounts", "row-1", "leg-1|accounts|Name|name|TESTIFY-001", "TESTIFY-001", "Name", "name")
+        };
+
+        var rows = await viewModel.WaitForCorrelatedCeRowsAsync(plan, plan.CreateValues, existing, CancellationToken.None, "after patch 1");
+
+        Assert.Equal("row-1", rows["leg-1"].RowId);
+        Assert.Equal("leg-1|accounts|Name|name|TESTIFY-001", rows["leg-1"].DeterministicKey);
+        Assert.Equal("TESTIFY-001", rows["leg-1"].CorrelationValue);
+        Assert.Equal("Name", rows["leg-1"].FoCorrelationField);
+        Assert.Equal("name", rows["leg-1"].CeCorrelationField);
+        Assert.Single(handler.RequestUris);
+        Assert.Equal(
+            "https://contoso.crm.dynamics.com/api/data/v9.2/accounts?$filter=name%20eq%20%27TESTIFY-001%27&$select=name%2Caccountsid",
+            handler.RequestUris[0].AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task WaitForCorrelatedCeRowsAsync_ReusesExplicitStableRowIdField_WhenCorrelationMatchesExistingRecord()
+    {
+        var handler = new SequenceJsonHttpMessageHandler(
+            "{\"value\":[{\"accountnumber\":\"ACC-001\",\"tbx_externalid\":\"stable-row-1\"}]}");
+        using var dataverseHttp = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+
+        var viewModel = CreateCorrelationViewModel(dataverseHttp, out var config);
+        var plan = new TestifyMapPlan(
+            mapId: "map-timeout",
+            mapDisplayName: "Timeout Map",
+            foEntity: "CustomersV3",
+            foEntityDetails: null,
+            configuration: config,
+            foFilter: string.Empty,
+            ceLegs: new[] { new TestifyLegPlan("leg-1", "accounts", "", "", "AccountNumber", "accountnumber", "tbx_externalid") },
+            createValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["AccountNumber"] = "ACC-001" },
+            createPayloadJson: "{}",
+            enumFields: new Dictionary<string, TestifyEnumFieldPlan>(StringComparer.OrdinalIgnoreCase),
+            patchSteps: Array.Empty<TestifyPatchStep>(),
+            warnings: Array.Empty<string>(),
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+            blockingIssues: Array.Empty<string>());
+        var existing = new Dictionary<string, TestifyCorrelatedCeRow>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["leg-1"] = new TestifyCorrelatedCeRow("leg-1", "accounts", "stable-row-1", "leg-1|accounts|AccountNumber|accountnumber|ACC-001", "ACC-001", "AccountNumber", "accountnumber")
+        };
+
+        var rows = await viewModel.WaitForCorrelatedCeRowsAsync(plan, plan.CreateValues, existing, CancellationToken.None, "after patch 1");
+
+        Assert.Equal("stable-row-1", rows["leg-1"].RowId);
+        Assert.Equal("leg-1|accounts|AccountNumber|accountnumber|ACC-001", rows["leg-1"].DeterministicKey);
+        Assert.Equal("ACC-001", rows["leg-1"].CorrelationValue);
+        Assert.Equal("AccountNumber", rows["leg-1"].FoCorrelationField);
+        Assert.Equal("accountnumber", rows["leg-1"].CeCorrelationField);
+        Assert.Single(handler.RequestUris);
+        Assert.Equal(
+            "https://contoso.crm.dynamics.com/api/data/v9.2/accounts?$filter=accountnumber%20eq%20%27ACC-001%27&$select=accountnumber%2Ctbx_externalid%2Caccountsid",
+            handler.RequestUris[0].AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task WaitForCorrelatedCeRowsAsync_Throws_WhenExplicitStableRowIdFieldIsMissing()
+    {
+        var handler = new SequenceJsonHttpMessageHandler(
+            "{\"value\":[{\"accountid\":\"account-row-1\",\"accountnumber\":\"ACC-001\"}]}");
+        using var dataverseHttp = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+
+        var viewModel = CreateCorrelationViewModel(dataverseHttp, out var config);
+        var plan = new TestifyMapPlan(
+            mapId: "map-timeout",
+            mapDisplayName: "Timeout Map",
+            foEntity: "CustomersV3",
+            foEntityDetails: null,
+            configuration: config,
+            foFilter: string.Empty,
+            ceLegs: new[] { new TestifyLegPlan("leg-1", "accounts", "", "", "AccountNumber", "accountnumber", "tbx_externalid") },
+            createValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["AccountNumber"] = "ACC-001" },
+            createPayloadJson: "{}",
+            enumFields: new Dictionary<string, TestifyEnumFieldPlan>(StringComparer.OrdinalIgnoreCase),
+            patchSteps: Array.Empty<TestifyPatchStep>(),
+            warnings: Array.Empty<string>(),
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+            blockingIssues: Array.Empty<string>());
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            viewModel.WaitForCorrelatedCeRowsAsync(plan, plan.CreateValues, correlatedRows: null, CancellationToken.None, "after create"));
+
+        Assert.Equal("CE verification failed for leg 'leg-1': correlated row did not expose a stable CE id.", ex.Message);
+        Assert.Single(handler.RequestUris);
+        Assert.Equal(
+            "https://contoso.crm.dynamics.com/api/data/v9.2/accounts?$filter=accountnumber%20eq%20%27ACC-001%27&$select=accountnumber%2Ctbx_externalid%2Caccountsid",
+            handler.RequestUris[0].AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task WaitForCorrelatedCeRowsAsync_Throws_WhenConventionalCeRowIdIsMissing()
+    {
+        var handler = new SequenceJsonHttpMessageHandler(
+            "{\"value\":[{\"accountnumber\":\"ACC-001\",\"ownerid\":\"owner-row-9\"}]}");
+        using var dataverseHttp = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+
+        var viewModel = CreateCorrelationViewModel(dataverseHttp, out var config);
+        var plan = new TestifyMapPlan(
+            mapId: "map-timeout",
+            mapDisplayName: "Timeout Map",
+            foEntity: "CustomersV3",
+            foEntityDetails: null,
+            configuration: config,
+            foFilter: string.Empty,
+            ceLegs: new[] { new TestifyLegPlan("leg-1", "accounts", "", "", "AccountNumber", "accountnumber") },
+            createValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["AccountNumber"] = "ACC-001" },
+            createPayloadJson: "{}",
+            enumFields: new Dictionary<string, TestifyEnumFieldPlan>(StringComparer.OrdinalIgnoreCase),
+            patchSteps: Array.Empty<TestifyPatchStep>(),
+            warnings: Array.Empty<string>(),
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+            blockingIssues: Array.Empty<string>());
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            viewModel.WaitForCorrelatedCeRowsAsync(plan, plan.CreateValues, correlatedRows: null, CancellationToken.None, "after create"));
+
+        Assert.Equal("CE verification failed for leg 'leg-1': correlated row did not expose a stable CE id.", ex.Message);
+        Assert.Single(handler.RequestUris);
+        Assert.Equal(
+            "https://contoso.crm.dynamics.com/api/data/v9.2/accounts?$filter=accountnumber%20eq%20%27ACC-001%27&$select=accountnumber%2Caccountsid",
+            handler.RequestUris[0].AbsoluteUri);
+    }
+
+    [Fact]
+    public async Task WaitForCorrelatedCeRowsAsync_ReturnsStableRows_ForEachCorrelatedLeg()
+    {
+        var handler = new SequenceJsonHttpMessageHandler(
+            "{\"value\":[{\"accountid\":\"account-row-1\",\"name\":\"TESTIFY-001\"}]}",
+            "{\"value\":[{\"contactid\":\"contact-row-1\",\"emailaddress1\":\"testify@example.com\"}]}");
+        using var dataverseHttp = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+
+        var viewModel = CreateCorrelationViewModel(dataverseHttp, out var config);
+        var plan = new TestifyMapPlan(
+            mapId: "map-timeout",
+            mapDisplayName: "Timeout Map",
+            foEntity: "CustomersV3",
+            foEntityDetails: null,
+            configuration: config,
+            foFilter: string.Empty,
+            ceLegs: new[]
+            {
+                new TestifyLegPlan("leg-1", "accounts", string.Empty, string.Empty, "Name", "name"),
+                new TestifyLegPlan("leg-2", "contacts", string.Empty, string.Empty, "Email", "emailaddress1")
+            },
+            createValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Name"] = "TESTIFY-001",
+                ["Email"] = "testify@example.com"
+            },
+            createPayloadJson: "{}",
+            enumFields: new Dictionary<string, TestifyEnumFieldPlan>(StringComparer.OrdinalIgnoreCase),
+            patchSteps: Array.Empty<TestifyPatchStep>(),
+            warnings: Array.Empty<string>(),
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+            blockingIssues: Array.Empty<string>());
+
+        var rows = await viewModel.WaitForCorrelatedCeRowsAsync(plan, plan.CreateValues, correlatedRows: null, CancellationToken.None, "after create");
+
+        Assert.Collection(
+            rows.OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase),
+            pair =>
+            {
+                Assert.Equal("leg-1", pair.Key);
+                Assert.Equal("account-row-1", pair.Value.RowId);
+                Assert.Equal("leg-1|accounts|Name|name|TESTIFY-001", pair.Value.DeterministicKey);
+                Assert.Equal("TESTIFY-001", pair.Value.CorrelationValue);
+                Assert.Equal("Name", pair.Value.FoCorrelationField);
+                Assert.Equal("name", pair.Value.CeCorrelationField);
+            },
+            pair =>
+            {
+                Assert.Equal("leg-2", pair.Key);
+                Assert.Equal("contact-row-1", pair.Value.RowId);
+                Assert.Equal("leg-2|contacts|Email|emailaddress1|testify@example.com", pair.Value.DeterministicKey);
+                Assert.Equal("testify@example.com", pair.Value.CorrelationValue);
+                Assert.Equal("Email", pair.Value.FoCorrelationField);
+                Assert.Equal("emailaddress1", pair.Value.CeCorrelationField);
+            });
+
+        Assert.Collection(
+            handler.RequestUris,
+            uri => Assert.Equal(
+                "https://contoso.crm.dynamics.com/api/data/v9.2/accounts?$filter=name%20eq%20%27TESTIFY-001%27&$select=name%2Caccountsid",
+                uri.AbsoluteUri),
+            uri => Assert.Equal(
+                "https://contoso.crm.dynamics.com/api/data/v9.2/contacts?$filter=emailaddress1%20eq%20%27testify%40example.com%27&$select=emailaddress1%2Ccontactsid",
+                uri.AbsoluteUri));
+    }
+
+    [Fact]
+    public async Task WaitForCorrelatedCeRowsAsync_Throws_WhenFoCorrelationValueChangesForExistingCeRow()
+    {
+        using var dataverseHttp = new HttpClient(new SequenceJsonHttpMessageHandler(
+            "{\"value\":[{\"accountid\":\"row-1\",\"name\":\"TESTIFY-UPDATED\"}]}"))
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+
+        var viewModel = CreateCorrelationViewModel(dataverseHttp, out var config);
+        var plan = CreateCorrelationPlan(config, "TESTIFY-UPDATED");
+        var existing = new Dictionary<string, TestifyCorrelatedCeRow>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["leg-1"] = new TestifyCorrelatedCeRow("leg-1", "accounts", "row-1", "leg-1|accounts|Name|name|TESTIFY-001", "TESTIFY-001", "Name", "name")
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            viewModel.WaitForCorrelatedCeRowsAsync(plan, plan.CreateValues, existing, CancellationToken.None, "after patch 1"));
+
+        Assert.Equal("CE verification failed for leg 'leg-1': expected correlation value 'TESTIFY-001' but FO field 'Name' resolved to 'TESTIFY-UPDATED'.", ex.Message);
+    }
+
+    [Fact]
+    public async Task WaitForCorrelatedCeRowsAsync_Throws_WhenDeterministicKeyChangesForExistingRow()
+    {
+        using var dataverseHttp = new HttpClient(new SequenceJsonHttpMessageHandler(
+            "{\"value\":[{\"accountid\":\"row-1\",\"name\":\"TESTIFY-001\"}]}"))
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+
+        var viewModel = CreateCorrelationViewModel(dataverseHttp, out var config);
+        var plan = new TestifyMapPlan(
+            mapId: "map-timeout",
+            mapDisplayName: "Timeout Map",
+            foEntity: "CustomersV3",
+            foEntityDetails: null,
+            configuration: config,
+            foFilter: string.Empty,
+            ceLegs: new[] { new TestifyLegPlan("leg-1", "accounts", "", "", "Description", "name") },
+            createValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Description"] = "TESTIFY-001" },
+            createPayloadJson: "{}",
+            enumFields: new Dictionary<string, TestifyEnumFieldPlan>(StringComparer.OrdinalIgnoreCase),
+            patchSteps: Array.Empty<TestifyPatchStep>(),
+            warnings: Array.Empty<string>(),
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+            blockingIssues: Array.Empty<string>());
+        var existing = new Dictionary<string, TestifyCorrelatedCeRow>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["leg-1"] = new TestifyCorrelatedCeRow("leg-1", "accounts", "row-1", "leg-1|accounts|Name|name|TESTIFY-001", "TESTIFY-001", "Name", "name")
+        };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            viewModel.WaitForCorrelatedCeRowsAsync(plan, plan.CreateValues, existing, CancellationToken.None, "after patch 1"));
+
+        Assert.Equal("CE verification failed for leg 'leg-1': expected deterministic key 'leg-1|accounts|Name|name|TESTIFY-001' but resolved 'leg-1|accounts|Description|name|TESTIFY-001'.", ex.Message);
+    }
+
+    private static DualWriteMapBrowserViewModel CreateCorrelationViewModel(HttpClient dataverseHttp, out TestifyMapConfiguration config)
+    {
+        var writeClient = new SequenceODataWriteClient();
+        var context = new FakeIntegrationDataverseWriteContext(writeClient, dataverseHttp);
+        var storePath = CreateTempTestifyStorePath();
+        var store = new TestifyConfigurationStore(storePath);
+        var viewModel = new DualWriteMapBrowserViewModel(context, store);
+        config = store.GetOrCreateAsync("env-1", "map-timeout", CancellationToken.None).GetAwaiter().GetResult();
+        return viewModel;
+    }
+
+    private static string CreateTempTestifyStorePath()
+    {
+        var directory = Path.Combine(Path.GetTempPath(), "toolbAX-tests", Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(directory);
+        return Path.Combine(directory, "testify-integration.json");
+    }
+
+    private static TestifyMapPlan CreateCorrelationPlan(TestifyMapConfiguration config, string name)
+    {
+        return new TestifyMapPlan(
+            mapId: "map-timeout",
+            mapDisplayName: "Timeout Map",
+            foEntity: "CustomersV3",
+            foEntityDetails: null,
+            configuration: config,
+            foFilter: string.Empty,
+            ceLegs: new[] { new TestifyLegPlan("leg-1", "accounts", "", "", "Name", "name") },
+            createValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Name"] = name },
+            createPayloadJson: "{}",
+            enumFields: new Dictionary<string, TestifyEnumFieldPlan>(StringComparer.OrdinalIgnoreCase),
+            patchSteps: Array.Empty<TestifyPatchStep>(),
+            warnings: Array.Empty<string>(),
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+            blockingIssues: Array.Empty<string>());
     }
 
     private class FakeIntegrationContext : IPluginContext
@@ -213,20 +624,28 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
         }
     }
 
-    private sealed class StaticJsonHttpMessageHandler : HttpMessageHandler
+    private sealed class SequenceJsonHttpMessageHandler : HttpMessageHandler
     {
-        private readonly string _json;
+        private readonly Queue<string> _responses;
 
-        public StaticJsonHttpMessageHandler(string json)
+        public SequenceJsonHttpMessageHandler(params string[] json)
         {
-            _json = json;
+            _responses = new Queue<string>(json);
         }
+
+        public List<Uri> RequestUris { get; } = new();
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            if (request.RequestUri is not null)
+            {
+                RequestUris.Add(request.RequestUri);
+            }
+
+            var json = _responses.Count > 0 ? _responses.Dequeue() : "{\"value\":[]}";
             var response = new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent(_json, Encoding.UTF8, "application/json")
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
             };
             return Task.FromResult(response);
         }

@@ -181,7 +181,7 @@ public sealed class TestifyMapConfiguration
     public Dictionary<string, Dictionary<string, string>> PreferredCreateValuesByCompany { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// How long to wait for a CE record count delta before timing out. Defaults to 5 minutes.
+    /// How long to wait for a deterministically correlated CE row before timing out. Defaults to 5 minutes.
     /// </summary>
     public int CePollTimeoutMinutes { get; set; } = 5;
 
