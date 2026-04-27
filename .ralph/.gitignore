@@ -1,7 +1,8 @@
-prompts/
-runs/
-logs/
-agents/
+prompts
+runs
+logs
+agents
+handoff
 state.json
 claims.json
 .env
