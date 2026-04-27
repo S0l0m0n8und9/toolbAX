@@ -2,6 +2,7 @@ using FoToolbox.Core.Auth;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.Profiles;
 using System;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,40 +16,71 @@ namespace FoToolbox.Host;
 /// </summary>
 internal sealed class AuthenticatedHandler : DelegatingHandler
 {
+    private readonly AuthReauthCoordinator? _reauthCoordinator;
     private readonly string _resourceBaseUrl;
     private readonly string _tenantId;
     private readonly ServicePrincipal _sp;
     private readonly AuthService _auth;
     private readonly SecretVaultService _vault;
+    private readonly string _serviceName;
 
-    public AuthenticatedHandler(FoEnvironment env, ServicePrincipal sp, SecretVaultService vault)
-        : this(ResourceUrlNormalizer.NormalizeFoBaseUrl(env.BaseUrl), env.TenantId, sp, vault)
+    public AuthenticatedHandler(FoEnvironment env, ServicePrincipal sp, SecretVaultService vault, AuthReauthCoordinator? reauthCoordinator = null)
+        : this(ResourceUrlNormalizer.NormalizeFoBaseUrl(env.BaseUrl), env.TenantId, sp, vault, reauthCoordinator)
     {
     }
 
-    public AuthenticatedHandler(string resourceBaseUrl, string tenantId, ServicePrincipal sp, SecretVaultService vault)
+    public AuthenticatedHandler(string resourceBaseUrl, string tenantId, ServicePrincipal sp, SecretVaultService vault, AuthReauthCoordinator? reauthCoordinator = null)
         : base(new HttpClientHandler())
     {
         _resourceBaseUrl = resourceBaseUrl;
         _tenantId = tenantId;
         _sp = sp;
         _vault = vault;
-        _auth = new AuthService(BuildTokenProvider());
+        _reauthCoordinator = reauthCoordinator;
+        _serviceName = sp.Target == AuthTarget.Dataverse ? "Dataverse" : "Finance and Operations";
+        _auth = new AuthService(BuildTokenProvider(), _serviceName, NotifyInteractiveFallback);
     }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        var token = _sp.AuthMode == AuthMode.BearerToken
-            ? await ResolveBearerTokenAsync(_sp, cancellationToken)
-            : await _auth.AcquireTokenAsync(_resourceBaseUrl, _tenantId, _sp, cancellationToken);
+        string token;
+        try
+        {
+            token = _sp.AuthMode == AuthMode.BearerToken
+                ? await ResolveBearerTokenAsync(_sp, cancellationToken)
+                : await _auth.AcquireTokenAsync(_resourceBaseUrl, _tenantId, _sp, cancellationToken);
+        }
+        catch (Exception ex) when (TryCreateRecoveryException(ex, out var recovery))
+        {
+            _reauthCoordinator?.Notify(recovery!);
+            throw recovery!;
+        }
+
         request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token);
-        return await base.SendAsync(request, cancellationToken);
+        var response = await base.SendAsync(request, cancellationToken);
+        if (response.StatusCode == HttpStatusCode.Unauthorized)
+        {
+            response.Dispose();
+            var recovery = new AuthRecoveryException(
+                _serviceName,
+                $"{_serviceName} needs you to sign in again. The host will switch to Profiles so you can complete interactive re-authentication for this environment, then save and re-apply the profile.",
+                requiresInteractiveReauth: true);
+            _reauthCoordinator?.Notify(recovery);
+            throw recovery;
+        }
+
+        return response;
     }
 
     private ITokenProvider BuildTokenProvider()
     {
         var authorityBase = "https://login.microsoftonline.com";
         return new MsalTokenProvider(authorityBase, ResolveCredentialAsync);
+    }
+
+    private void NotifyInteractiveFallback(AuthRecoveryException recovery)
+    {
+        _reauthCoordinator?.Notify(recovery);
     }
 
     private async Task<ClientCredential> ResolveCredentialAsync(ServicePrincipal sp, CancellationToken cancellationToken)
@@ -100,6 +132,30 @@ internal sealed class AuthenticatedHandler : DelegatingHandler
         }
 
         throw new InvalidOperationException("No bearer token configured for this profile. Paste a token in Profiles and Save, or set FOTB_BEARER_TOKEN.");
+    }
+
+    private bool TryCreateRecoveryException(Exception exception, out AuthRecoveryException? recovery)
+    {
+        if (exception is AuthRecoveryException authRecovery)
+        {
+            recovery = authRecovery;
+            return true;
+        }
+
+        if (_sp.AuthMode == AuthMode.BearerToken &&
+            exception is InvalidOperationException invalidOperation &&
+            invalidOperation.Message.Contains("expired", StringComparison.OrdinalIgnoreCase))
+        {
+            recovery = new AuthRecoveryException(
+                _serviceName,
+                $"{_serviceName} bearer token has expired. The host will switch to Profiles so you can acquire a fresh token for this environment, then save and re-apply the profile.",
+                requiresInteractiveReauth: true,
+                exception);
+            return true;
+        }
+
+        recovery = null;
+        return false;
     }
 
     private static string NormalizeBearerToken(string token)

@@ -123,12 +123,10 @@ public sealed partial class DualWriteMapBrowserViewModel
                 var plan = await BuildTestifyMapPlanAsync(map, cancellationToken);
                 _testifyPlans[map.Id] = plan;
 
-                var blockingIssue = plan.BlockingIssues.Count == 0
-                    ? string.Empty
-                    : string.Join(" ", plan.BlockingIssues);
+                var blockingIssue = FormatBlockingIssue(plan);
                 var rowStatus = plan.CanRun
                     ? (plan.Warnings.Count > 0 ? "Ready (with warnings)" : "Ready")
-                    : "Blocked";
+                    : GetBlockedStatus(plan);
                 var row = new TestifyPreflightRow(
                     mapDisplayName: plan.MapDisplayName,
                     mapId: plan.MapId,
@@ -137,7 +135,8 @@ public sealed partial class DualWriteMapBrowserViewModel
                     plannedUpdates: plan.PatchSteps.Count,
                     isReady: plan.CanRun,
                     status: rowStatus,
-                    blockingIssue: blockingIssue);
+                    blockingIssue: blockingIssue,
+                    coverageGaps: plan.CoverageGaps);
                 _testifyPreflightRows.Add(row);
 
                 if (plan.CanRun)
@@ -233,9 +232,7 @@ public sealed partial class DualWriteMapBrowserViewModel
 
                 if (!plan.CanRun)
                 {
-                    var blockedStatus = plan.BlockingIssues.Count == 0
-                        ? "Map blocked during preflight."
-                        : string.Join(" ", plan.BlockingIssues);
+                    var blockedStatus = FormatBlockingIssue(plan);
                     AddTestifyLog(plan.MapDisplayName, "Preflight", "Blocked", blockedStatus);
                     _testifyResultRows.Add(new TestifyResultRow(
                         plan.MapDisplayName,
@@ -245,7 +242,8 @@ public sealed partial class DualWriteMapBrowserViewModel
                         patchesPlanned: plan.PatchSteps.Count,
                         patchesSucceeded: 0,
                         ceVerificationSucceeded: false,
-                        status: blockedStatus));
+                        status: GetBlockedStatus(plan),
+                        coverageGaps: plan.CoverageGaps));
                     continue;
                 }
 
@@ -382,7 +380,8 @@ public sealed partial class DualWriteMapBrowserViewModel
                     plan.PatchSteps.Count,
                     patchesSucceeded,
                     ceSucceeded,
-                    status));
+                    status,
+                    plan.CoverageGaps));
             }
 
             var validCount = _testifyResultRows.Count(r => r.Valid);
@@ -407,6 +406,7 @@ public sealed partial class DualWriteMapBrowserViewModel
     {
         var warnings = new List<string>();
         var blockingIssues = new List<string>();
+        var coverageGaps = new List<TestifyEnumCoverageGap>();
         var configuration = await _testifyConfigStore.GetOrCreateAsync(_ctx.CurrentEnv.Id, map.Id, cancellationToken);
 
         var axToCrmLegs = map.MappingLegRows
@@ -464,7 +464,7 @@ public sealed partial class DualWriteMapBrowserViewModel
             foEntityDetails = await GetFoEntityDetailsCachedAsync(foEntity, cancellationToken);
             if (foEntityDetails is null)
             {
-                blockingIssues.Add($"FO metadata details not found for entity '{foEntity}'.");
+                blockingIssues.Add($"FO entity '{foEntity}' was not found in metadata.");
             }
         }
 
@@ -595,10 +595,11 @@ public sealed partial class DualWriteMapBrowserViewModel
 
                 if (missingMembers.Count > 0)
                 {
+                    coverageGaps.AddRange(missingMembers.Select(member => new TestifyEnumCoverageGap(aggregate.Key, member)));
                     if (configuration.AllowPartialEnumCoverage)
                         warnings.Add($"Enum coverage partial for field '{aggregate.Key}': {string.Join(", ", missingMembers)} not mapped. Running with mapped values only.");
                     else
-                        blockingIssues.Add($"Enum coverage missing for field '{aggregate.Key}': {string.Join(", ", missingMembers)}.");
+                        blockingIssues.Add($"Enum coverage missing for field '{aggregate.Key}'.");
                 }
             }
 
@@ -705,7 +706,53 @@ public sealed partial class DualWriteMapBrowserViewModel
             enumFields: enumFieldPlans,
             patchSteps: patchSteps,
             warnings: warnings,
+            coverageGaps: coverageGaps,
             blockingIssues: blockingIssues);
+    }
+
+    private static string GetBlockedStatus(TestifyMapPlan plan)
+    {
+        if (plan.FoEntityDetails is null)
+        {
+            return "Blocked: missing entity";
+        }
+
+        if (plan.CoverageGaps.Count > 0 && !plan.Configuration.AllowPartialEnumCoverage)
+        {
+            return "Blocked: incomplete coverage";
+        }
+
+        return "Blocked";
+    }
+
+    private static string FormatBlockingIssue(TestifyMapPlan plan)
+    {
+        var issues = new List<string>();
+        if (plan.BlockingIssues.Count > 0)
+        {
+            issues.AddRange(plan.BlockingIssues);
+        }
+
+        if (plan.CoverageGaps.Count > 0)
+        {
+            issues.AddRange(FormatCoverageGapIssues(plan));
+        }
+
+        return issues.Count == 0 ? "Map blocked during preflight." : string.Join(" ", issues);
+    }
+
+    private static IEnumerable<string> FormatCoverageGapIssues(TestifyMapPlan plan)
+    {
+        if (plan.EnumFields.Count > 0)
+        {
+            return plan.EnumFields.Values
+                .Where(field => field.HasCoverageGap)
+                .OrderBy(field => field.FieldName, StringComparer.OrdinalIgnoreCase)
+                .Select(field => field.CoverageGapDetail);
+        }
+
+        return plan.CoverageGapsByField.Select(gap =>
+            $"Unmapped enum members for field '{gap.FieldName}': {string.Join(", ", gap.EnumValues.Select(value => $"'{value}'"))}.");
     }
 
     private async Task<Dictionary<string, long>> GetCeBaselinesAsync(TestifyMapPlan plan, CancellationToken cancellationToken)

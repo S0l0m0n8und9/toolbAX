@@ -4,6 +4,7 @@ using FoToolbox.Host.Diagnostics;
 using FoToolbox.Host.Plugins;
 using FoToolbox.Host.ViewModels;
 using FoToolbox.Host.Views;
+using FoToolbox.Core.Auth;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Linq;
@@ -25,6 +26,9 @@ public partial class MainWindow : Window
     private ProfilesView? _profilesView;
     private bool _loadedOnce;
 
+    internal Action<string, string, MessageBoxButton, MessageBoxImage> ShowMessageBox { get; set; } =
+        static (message, title, button, image) => MessageBox.Show(message, title, button, image);
+
     public MainWindow()
     {
         InitializeComponent();
@@ -34,6 +38,7 @@ public partial class MainWindow : Window
 
         var profileDbPath = ProfilePaths.ResolveProfileDbPath();
         _bootstrapper = new AppBootstrapper(profileDbPath, _logger);
+        _bootstrapper.ReauthCoordinator.ReauthRequired += OnReauthRequired;
 
         _vm = new MainWindowViewModel();
         DataContext = _vm;
@@ -103,6 +108,11 @@ public partial class MainWindow : Window
                 });
             };
         }
+        catch (AuthRecoveryException ex)
+        {
+            _logger.LogWarning(ex, "Authentication recovery required for profile {EnvId}", bundle.FoEnvironment.Id);
+            ShowReauthPrompt(ex);
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to apply profile {EnvId}", bundle.FoEnvironment.Id);
@@ -110,8 +120,40 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnReauthRequired(AuthRecoveryException exception)
+    {
+        Dispatcher.Invoke(() => ShowReauthPrompt(exception));
+    }
+
+    private void ShowReauthPrompt(AuthRecoveryException exception)
+    {
+        EnsureProfilesTabVisible();
+        if (exception.RequiresInteractiveReauth && _profilesView?.DataContext is ProfilesViewModel profilesViewModel)
+        {
+            _ = profilesViewModel.BeginInteractiveReauthAsync(exception.ServiceName);
+        }
+
+        ShowMessageBox(exception.ReauthMessage, exception.PromptTitle, MessageBoxButton.OK, MessageBoxImage.Warning);
+        _bootstrapper.ReauthCoordinator.Reset();
+    }
+
+    private void EnsureProfilesTabVisible()
+    {
+        if (_profilesView is null)
+        {
+            return;
+        }
+
+        var profilesEntry = _vm.Plugins.FirstOrDefault(p => string.Equals(p.Name, "Profiles", StringComparison.OrdinalIgnoreCase));
+        if (profilesEntry is not null)
+        {
+            _vm.Selected = profilesEntry;
+        }
+    }
+
     protected override void OnClosed(EventArgs e)
     {
+        _bootstrapper.ReauthCoordinator.ReauthRequired -= OnReauthRequired;
         _cts.Cancel();
         _cts.Dispose();
         _bootstrapper.Dispose();

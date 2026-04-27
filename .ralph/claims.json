@@ -65,13 +65,181 @@
       "featureBranch": "ralph/T2"
     },
     {
-      "taskId": "T2",
       "agentId": "default",
-      "provenanceId": "run-i008-cli-20260424T184048Z",
+      "taskId": "T2",
       "claimedAt": "2026-04-24T18:40:48.684Z",
-      "status": "active",
+      "provenanceId": "run-i008-cli-20260424T184048Z",
+      "status": "released",
       "baseBranch": "ralph/T2",
       "featureBranch": "ralph/T2"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T3",
+      "claimedAt": "2026-04-25T10:05:01.699Z",
+      "provenanceId": "run-i009-cli-20260425T100501Z",
+      "status": "released",
+      "baseBranch": "ralph/T2",
+      "featureBranch": "ralph/T3"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T3",
+      "claimedAt": "2026-04-25T10:11:11.124Z",
+      "provenanceId": "run-i010-cli-20260425T101110Z",
+      "status": "released",
+      "baseBranch": "ralph/T3",
+      "featureBranch": "ralph/T3"
+    },
+    {
+      "agentId": "watchdog",
+      "taskId": "T3",
+      "claimedAt": "2026-04-25T10:14:38.845Z",
+      "provenanceId": "run-i011-cli-20260425T101438Z",
+      "status": "released",
+      "baseBranch": "ralph/T3",
+      "featureBranch": "ralph/T3"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T3",
+      "claimedAt": "2026-04-25T10:18:56.142Z",
+      "provenanceId": "run-i012-cli-20260425T101855Z",
+      "status": "released",
+      "baseBranch": "ralph/T3",
+      "featureBranch": "ralph/T3"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T5",
+      "claimedAt": "2026-04-25T10:19:31.084Z",
+      "provenanceId": "run-i013-cli-20260425T101930Z",
+      "status": "released",
+      "baseBranch": "ralph/T3",
+      "featureBranch": "ralph/T5"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T3",
+      "claimedAt": "2026-04-25T10:26:38.760Z",
+      "provenanceId": "run-i014-cli-20260425T102638Z",
+      "status": "released",
+      "baseBranch": "ralph/T5",
+      "featureBranch": "ralph/T3"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T3",
+      "claimedAt": "2026-04-25T10:31:10.672Z",
+      "provenanceId": "run-i015-cli-20260425T103110Z",
+      "status": "released",
+      "baseBranch": "ralph/T3",
+      "featureBranch": "ralph/T3"
+    },
+    {
+      "agentId": "watchdog",
+      "taskId": "T3",
+      "claimedAt": "2026-04-25T10:33:37.308Z",
+      "provenanceId": "run-i016-cli-20260425T103337Z",
+      "status": "released",
+      "baseBranch": "ralph/T3",
+      "featureBranch": "ralph/T3"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T3",
+      "claimedAt": "2026-04-25T18:33:46.789Z",
+      "provenanceId": "run-i017-cli-20260425T183346Z",
+      "status": "released",
+      "baseBranch": "ralph/T3",
+      "featureBranch": "ralph/T3"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T5",
+      "claimedAt": "2026-04-25T20:46:28.496Z",
+      "provenanceId": "run-i018-cli-20260425T204628Z",
+      "status": "released",
+      "baseBranch": "ralph/T3",
+      "featureBranch": "ralph/T5"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T5",
+      "claimedAt": "2026-04-25T20:51:10.884Z",
+      "provenanceId": "run-i019-cli-20260425T205110Z",
+      "status": "released",
+      "baseBranch": "ralph/T5",
+      "featureBranch": "ralph/T5"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T5",
+      "claimedAt": "2026-04-25T20:55:52.049Z",
+      "provenanceId": "run-i020-cli-20260425T205551Z",
+      "status": "released",
+      "baseBranch": "ralph/T5",
+      "featureBranch": "ralph/T5"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T5",
+      "claimedAt": "2026-04-25T21:00:34.639Z",
+      "provenanceId": "run-i021-cli-20260425T210034Z",
+      "status": "released",
+      "baseBranch": "ralph/T5",
+      "featureBranch": "ralph/T5"
+    },
+    {
+      "agentId": "watchdog",
+      "taskId": "T5",
+      "claimedAt": "2026-04-25T21:03:07.921Z",
+      "provenanceId": "run-i022-cli-20260425T210307Z",
+      "status": "released",
+      "baseBranch": "ralph/T5",
+      "featureBranch": "ralph/T5"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T5",
+      "claimedAt": "2026-04-26T09:35:28.773Z",
+      "provenanceId": "run-i023-cli-20260426T093528Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T5",
+      "claimedAt": "2026-04-26T09:39:23.138Z",
+      "provenanceId": "run-i024-cli-20260426T093923Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T5",
+      "claimedAt": "2026-04-26T09:42:54.097Z",
+      "provenanceId": "run-i025-cli-20260426T094254Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T5",
+      "claimedAt": "2026-04-26T09:48:33.619Z",
+      "provenanceId": "run-i026-cli-20260426T094833Z",
+      "status": "released"
+    },
+    {
+      "agentId": "watchdog",
+      "taskId": "T5",
+      "claimedAt": "2026-04-26T09:50:56.557Z",
+      "provenanceId": "run-i027-cli-20260426T095056Z",
+      "status": "released"
+    },
+    {
+      "taskId": "T5",
+      "agentId": "default",
+      "provenanceId": "run-i028-cli-20260427T023004Z",
+      "claimedAt": "2026-04-27T02:30:04.212Z",
+      "status": "active"
     }
   ]
 }

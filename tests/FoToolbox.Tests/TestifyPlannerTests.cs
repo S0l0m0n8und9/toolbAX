@@ -7,6 +7,86 @@ namespace FoToolbox.Tests;
 public sealed class TestifyPlannerTests
 {
     [Fact]
+    public void TestifyMapPlan_GroupsCoverageGapsByFieldForPrepareOutput()
+    {
+        var plan = new TestifyMapPlan(
+            mapId: "map-1",
+            mapDisplayName: "Customers",
+            foEntity: "CustomersV3",
+            foEntityDetails: null,
+            configuration: new TestifyMapConfiguration(),
+            foFilter: string.Empty,
+            ceLegs: Array.Empty<TestifyLegPlan>(),
+            createValues: new Dictionary<string, string>(),
+            createPayloadJson: string.Empty,
+            enumFields: new Dictionary<string, TestifyEnumFieldPlan>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Status"] = new TestifyEnumFieldPlan(
+                    fieldName: "Status",
+                    enumType: "Contoso.StatusEnum",
+                    enumMembers: new[] { "Open", "Canceled", "Closed" },
+                    transformKeys: new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Open" },
+                    missingMembers: new[] { "Closed", "Canceled" },
+                    fixedValue: null,
+                    parseFailed: false,
+                    parseError: string.Empty)
+            },
+            patchSteps: Array.Empty<TestifyPatchStep>(),
+            warnings: Array.Empty<string>(),
+            coverageGaps: new[]
+            {
+                new TestifyEnumCoverageGap("Status", "Closed"),
+                new TestifyEnumCoverageGap("Status", "Canceled")
+            },
+            blockingIssues: new[] { "Enum coverage missing for field 'Status'." });
+
+        Assert.Collection(
+            plan.CoverageGapsByField,
+            gap =>
+            {
+                Assert.Equal("Status", gap.FieldName);
+                Assert.Equal(new[] { "Canceled", "Closed" }, gap.EnumValues);
+                Assert.Equal("Status: Canceled, Closed", gap.Detail);
+            });
+        Assert.Equal("Status: Canceled, Closed", plan.CoverageGapFieldDetail);
+        Assert.Equal("Unmapped enum members for field 'Status': 'Closed', 'Canceled'.", plan.EnumFields["Status"].CoverageGapDetail);
+    }
+
+    [Fact]
+    public void TestifyResultRow_GroupsCoverageGapsByField()
+    {
+        var row = new TestifyResultRow(
+            mapDisplayName: "Customers",
+            mapId: "map-1",
+            valid: false,
+            createSucceeded: false,
+            patchesPlanned: 0,
+            patchesSucceeded: 0,
+            ceVerificationSucceeded: false,
+            status: "Blocked: incomplete coverage",
+            coverageGaps: new[]
+            {
+                new TestifyEnumCoverageGap("Status", "Closed"),
+                new TestifyEnumCoverageGap("Status", "Canceled"),
+                new TestifyEnumCoverageGap("Type", "Vendor")
+            });
+
+        Assert.Equal("Status: Canceled, Closed; Type: Vendor", row.CoverageGapFieldDetail);
+        Assert.Collection(
+            row.CoverageGapsByField,
+            gap =>
+            {
+                Assert.Equal("Status", gap.FieldName);
+                Assert.Equal(new[] { "Canceled", "Closed" }, gap.EnumValues);
+            },
+            gap =>
+            {
+                Assert.Equal("Type", gap.FieldName);
+                Assert.Equal(new[] { "Vendor" }, gap.EnumValues);
+            });
+    }
+
+    [Fact]
     public void BuildMinimalPatchSteps_UsesMaxCardinalityMinusOne()
     {
         var enumMembers = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
@@ -52,6 +132,41 @@ public sealed class TestifyPlannerTests
 
         Assert.Single(issues);
         Assert.Contains("preventing full enum coverage", issues[0]);
+    }
+
+    [Fact]
+    public void ValidateFixedEnumCoverage_DoesNotBlockSingleMemberField()
+    {
+        var enumMembers = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Status"] = new[] { "Open" }
+        };
+        var fixedValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Status"] = "Open"
+        };
+
+        var issues = TestifyPlanner.ValidateFixedEnumCoverage(enumMembers, fixedValues);
+
+        Assert.Empty(issues);
+    }
+
+    [Fact]
+    public void ValidateFixedEnumCoverage_BlocksInvalidPinnedValue()
+    {
+        var enumMembers = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Status"] = new[] { "Open", "Closed" }
+        };
+        var fixedValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["Status"] = "Pending"
+        };
+
+        var issues = TestifyPlanner.ValidateFixedEnumCoverage(enumMembers, fixedValues);
+
+        Assert.Single(issues);
+        Assert.Contains("is not valid for field 'Status'", issues[0]);
     }
 
     [Fact]

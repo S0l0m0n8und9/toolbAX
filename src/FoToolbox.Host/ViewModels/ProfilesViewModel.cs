@@ -287,7 +287,25 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             return false;
         }
 
+        if (!IsTenantIdValid(env.TenantId, out var foTenantValidationMessage))
+        {
+            Status = foTenantValidationMessage;
+            return false;
+        }
+
         var ceEnv = Selected.DataverseEnvironment.ToModel(env.Id);
+        if (!string.IsNullOrWhiteSpace(ceEnv.BaseUrl) && string.IsNullOrWhiteSpace(ceEnv.TenantId))
+        {
+            Status = "CE tenant ID is required when a Dataverse base URL is configured.";
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(ceEnv.TenantId) && !IsTenantIdValid(ceEnv.TenantId, out var ceTenantValidationMessage))
+        {
+            Status = ceTenantValidationMessage.Replace("Tenant ID", "CE tenant ID", StringComparison.Ordinal);
+            return false;
+        }
+
         var foSp = Selected.FoPrincipal.ToModel(env.Id, AuthTarget.Fo);
         var ceSp = Selected.DataversePrincipal.ToModel(env.Id, AuthTarget.Dataverse);
 
@@ -472,6 +490,32 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     private Task AcquireFoBearerTokenAsync() => AcquireBearerTokenAsync(AuthTarget.Fo);
 
     private Task AcquireCeBearerTokenAsync() => AcquireBearerTokenAsync(AuthTarget.Dataverse);
+
+    public Task BeginInteractiveReauthAsync(string serviceName)
+    {
+        if (Selected is null)
+        {
+            Status = "Select a profile before starting re-authentication.";
+            return Task.CompletedTask;
+        }
+
+        var target = string.Equals(serviceName, "Dataverse", StringComparison.OrdinalIgnoreCase)
+            ? AuthTarget.Dataverse
+            : AuthTarget.Fo;
+
+        var authMode = target == AuthTarget.Fo
+            ? Selected.FoPrincipal.AuthMode
+            : Selected.DataversePrincipal.AuthMode;
+
+        if (authMode != AuthMode.BearerToken)
+        {
+            var credentialLabel = authMode == AuthMode.ClientSecret ? "client secret" : "certificate settings";
+            Status = $"{serviceName} re-authentication requires updated {credentialLabel} for this profile. Save the credential change, then Set active to refresh plugins.";
+            return Task.CompletedTask;
+        }
+
+        return AcquireBearerTokenAsync(target);
+    }
 
     private async Task AcquireBearerTokenAsync(AuthTarget target)
     {
@@ -905,6 +949,25 @@ try {{
     {
         return !string.IsNullOrWhiteSpace(_activeEnvId) &&
                string.Equals(_activeEnvId, envId, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static bool IsTenantIdValid(string tenantId, out string validationMessage)
+    {
+        var trimmed = tenantId.Trim();
+        if (Guid.TryParse(trimmed, out _))
+        {
+            validationMessage = string.Empty;
+            return true;
+        }
+
+        if (trimmed.Contains('.') && Uri.CheckHostName(trimmed) == UriHostNameType.Dns)
+        {
+            validationMessage = string.Empty;
+            return true;
+        }
+
+        validationMessage = "Tenant ID must be a GUID or verified domain (for example, contoso.onmicrosoft.com).";
+        return false;
     }
 
     private static bool ConfirmRefreshOtherPlugins()

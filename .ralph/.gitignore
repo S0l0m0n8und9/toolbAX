@@ -4,3 +4,4 @@ logs/
 agents/
 state.json
 claims.json
+.env
