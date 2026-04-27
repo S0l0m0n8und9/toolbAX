@@ -19,6 +19,9 @@ namespace DualWriteMapBrowserPlugin;
 
 public sealed partial class DualWriteMapBrowserViewModel
 {
+    internal static Func<TimeSpan, CancellationToken, Task> TestifyDelayAsync { get; set; } = Task.Delay;
+    internal static Func<DateTimeOffset> TestifyUtcNow { get; set; } = static () => DateTimeOffset.UtcNow;
+
     private readonly IPluginContextWrite? _write;
     private readonly ObservableCollection<TestifyPreflightRow> _testifyPreflightRows = new();
     private readonly ObservableCollection<TestifyExecutionLogRow> _testifyLogRows = new();
@@ -781,7 +784,7 @@ public sealed partial class DualWriteMapBrowserViewModel
         return baselines;
     }
 
-    private async Task WaitForCeDeltaAsync(
+    internal async Task WaitForCeDeltaAsync(
         TestifyMapPlan plan,
         IReadOnlyDictionary<string, long> baselines,
         CancellationToken cancellationToken,
@@ -790,9 +793,9 @@ public sealed partial class DualWriteMapBrowserViewModel
         var dataverseHttp = _dataverse!.DataverseHttp!;
         var apiBase = ResourceUrlNormalizer.BuildDataverseApiBaseUrl(_dataverse.CurrentDataverseEnv!.BaseUrl);
         var timeoutMinutes = plan.Configuration.CePollTimeoutMinutes > 0 ? plan.Configuration.CePollTimeoutMinutes : 5;
-        var deadline = DateTimeOffset.UtcNow.AddMinutes(timeoutMinutes);
+        var deadline = TestifyUtcNow().AddMinutes(timeoutMinutes);
 
-        while (DateTimeOffset.UtcNow <= deadline)
+        while (TestifyUtcNow() <= deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -819,7 +822,7 @@ public sealed partial class DualWriteMapBrowserViewModel
                 return;
             }
 
-            await Task.Delay(TimeSpan.FromSeconds(5), cancellationToken);
+            await TestifyDelayAsync(TimeSpan.FromSeconds(5), cancellationToken);
         }
 
         throw new InvalidOperationException($"CE verification timed out ({phase}) after {timeoutMinutes} minute(s). Increase CePollTimeoutMinutes in Testify configuration if sync is slow.");
@@ -1866,7 +1869,7 @@ public sealed partial class DualWriteMapBrowserViewModel
         StatusMessage = $"Testify cleanup complete. Deleted {deleted} record(s).";
     }
 
-    private async Task<bool> CheckFoRecordExistsAsync(string instanceUrl, CancellationToken cancellationToken)
+    internal async Task<bool> CheckFoRecordExistsAsync(string instanceUrl, CancellationToken cancellationToken)
     {
         try
         {

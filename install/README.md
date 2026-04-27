@@ -58,10 +58,12 @@ Optional overrides for branding/codes (examples):
   -ProductCodeMachine "{GUID-HERE}" `
   -UpgradeCode "{GUID-HERE}" `
   -BundleUpgradeCode "{GUID-HERE}" `
-  -BundleId "{GUID-HERE}" `
+  -BundleId "YourOrg.FOtoolbox.Bundle" `
   -BundleVersion "1.0.0.0" `
   -LicenseUrl "https://example.com/license"
 ```
+
+Only override these identifiers when intentionally creating a new product line or update channel. The repository defaults are locked for deterministic upgrades.
 
 Optional signing inputs:
 ```powershell
@@ -94,8 +96,8 @@ or
      -d InstallRoot=LocalAppDataFolder `
      -d StartMenuRoot=ProgramMenuFolder `
      -d StartMenuRegistryRoot=HKCU `
-     -d ProductCode=* `
-     -o .\FoToolbox.User.msi
+      -d ProductCode={F057FFFE-9295-4B8D-A60F-41CB15E1ABB6} `
+      -o .\FoToolbox.User.msi
 
   wix build .\FoToolbox.wxs .\FoToolboxFiles.wxs `
     -d SourceDir=..\artifacts\FoToolbox `
@@ -103,9 +105,10 @@ or
     -d InstallRoot=ProgramFiles64Folder `
     -d StartMenuRoot=ProgramMenuFolder `
     -d StartMenuRegistryRoot=HKLM `
-    -d ProductCode=* `
+    -d ProductCode={6F8A8A0D-7791-4B24-8A2F-D4E8E93FE4AA} `
     -o .\FoToolbox.Machine.msi
    ```
+   You can omit `-d ProductCode=...` entirely if you want the defaults from `FoToolbox.wxs`; they are shown here explicitly to document the locked values used for releases.
   4. Build the bootstrapper (bundle) after the MSIs exist:
    ```powershell
    wix build .\Bundle.wxs `

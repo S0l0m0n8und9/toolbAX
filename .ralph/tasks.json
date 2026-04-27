@@ -66,11 +66,12 @@
     {
       "id": "T4",
       "title": "Testify integration test coverage",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T2",
         "T3"
       ],
+      "notes": "Confirmed T4 acceptance criteria are covered by the existing Testify integration/rollback tests, removed one duplicate rollback test, and reran the canonical Testify validator successfully.",
       "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
       "tier": "medium",
       "acceptance": [
@@ -82,7 +83,8 @@
       "context": [
         "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyTests.cs",
         "tests/FoToolbox.Tests/FakeODataServer.cs"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T5",
@@ -106,9 +108,9 @@
       "id": "T6",
       "title": "Installer GUID lock, code signing, and runtime bundle",
       "status": "in_progress",
-      "notes": "Installer build now enforces signing inputs and fails fast on the real missing prerequisite instead of producing unsigned artifacts. Existing WiX changes already lock installer GUIDs and bundle the .NET Desktop Runtime.",
+      "notes": "Aligned install/README.md with the already-landed installer changes: documented the locked ProductCode values and clarified that release builds require signing inputs. Release validation now deterministically fails fast on missing signing configuration instead of creating unsigned artifacts.",
       "validation": ".\\install\\build.ps1 -Configuration Release",
-      "blocker": "A code-signing certificate input is not configured in this environment, and signtool.exe is not currently available on PATH, so full release packaging cannot complete.",
+      "blocker": "A signing certificate thumbprint or PFX was not provided in this environment, so .\\install\\build.ps1 -Configuration Release cannot complete packaging.",
       "tier": "complex",
       "acceptance": [
         "ProductCode, UpgradeCode, and Bundle GUID are hardcoded (non-generated) in WiX sources",
@@ -119,8 +121,8 @@
         "install/build.ps1",
         "install/README.md"
       ],
-      "lastVerifierResult": "passed"
+      "lastVerifierResult": "failed"
     }
   ],
-  "mutationCount": 10
+  "mutationCount": 12
 }

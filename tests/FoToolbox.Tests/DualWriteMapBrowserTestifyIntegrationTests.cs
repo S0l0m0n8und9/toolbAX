@@ -1,0 +1,262 @@
+using DualWriteMapBrowserPlugin;
+using FoToolbox.Core.Catalog;
+using FoToolbox.Core.Models;
+using FoToolbox.Core.OData;
+using FoToolbox.SDK.Plugins;
+using Microsoft.Extensions.Logging.Abstractions;
+using System.IO;
+using System.Net;
+using System.Net.Http;
+using System.Text;
+
+namespace FoToolbox.Tests;
+
+[Trait("Category", "Testify")]
+public sealed class DualWriteMapBrowserTestifyIntegrationTests
+{
+    [Fact]
+    public async Task CheckFoRecordExistsAsync_ReturnsFalse_ForStaleCachedEntityUrl()
+    {
+        var viewModel = new DualWriteMapBrowserViewModel(
+            new FakeIntegrationContext(new ThrowingODataClient(new HttpRequestException("404 stale cached URL"))),
+            new TestifyConfigurationStore(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-integration.json")));
+
+        var exists = await viewModel.CheckFoRecordExistsAsync(
+            "https://contoso.operations.dynamics.com/data/CustomersV3(AccountNumber='CUST-404',dataAreaId='USMF')?cross-company=true",
+            CancellationToken.None);
+
+        Assert.False(exists);
+    }
+
+    [Fact]
+    public async Task FinalizeTestifyFailureAsync_RollsBackMidRunFailure_AndClearsPersistedState()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-integration.json");
+
+        try
+        {
+            var store = new TestifyConfigurationStore(path);
+            var config = await store.GetOrCreateAsync("env-1", "map-a", CancellationToken.None);
+            var instanceUrl = "https://contoso.operations.dynamics.com/data/CustomersV3(AccountNumber='CUST-0002',dataAreaId='USMF')?cross-company=true";
+            config.LastRunToken = "TESTIFY-ROLLBACK";
+            config.LastEntityInstanceUrl = instanceUrl;
+            await store.SaveAsync(config, CancellationToken.None);
+
+            var deleteClient = new SequenceODataWriteClient(new ODataWriteResponse(204, null, new Dictionary<string, string>()));
+            var viewModel = new DualWriteMapBrowserViewModel(new FakeIntegrationWriteContext(deleteClient), store);
+
+            var status = await viewModel.FinalizeTestifyFailureAsync(
+                "Map A",
+                "map-a",
+                config,
+                createdThisRun: true,
+                "CE verification timed out after patch 1.",
+                CancellationToken.None);
+
+            Assert.Equal("CE verification timed out after patch 1. Created record rolled back.", status);
+            Assert.Single(deleteClient.Requests);
+            Assert.Equal(HttpMethod.Delete, deleteClient.Requests[0].Method);
+            Assert.Equal(instanceUrl, deleteClient.Requests[0].Url);
+
+            var reloaded = await store.GetOrCreateAsync("env-1", "map-a", CancellationToken.None);
+            Assert.Null(reloaded.LastEntityInstanceUrl);
+            Assert.Null(reloaded.LastRunToken);
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task WaitForCeDeltaAsync_ThrowsTimeout_WhenCeCountsDoNotAdvance()
+    {
+        var originalDelay = DualWriteMapBrowserViewModel.TestifyDelayAsync;
+        var originalUtcNow = DualWriteMapBrowserViewModel.TestifyUtcNow;
+        var now = DateTimeOffset.UtcNow;
+        DualWriteMapBrowserViewModel.TestifyDelayAsync = static (_, _) => Task.CompletedTask;
+        DualWriteMapBrowserViewModel.TestifyUtcNow = () => now = now.AddMinutes(2);
+
+        try
+        {
+            using var dataverseHttp = new HttpClient(new StaticJsonHttpMessageHandler("{\"value\":[]}"))
+            {
+                BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+            };
+            var writeClient = new SequenceODataWriteClient();
+            var context = new FakeIntegrationDataverseWriteContext(writeClient, dataverseHttp);
+            var storePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-integration.json");
+            var store = new TestifyConfigurationStore(storePath);
+            var viewModel = new DualWriteMapBrowserViewModel(context, store);
+            var config = await store.GetOrCreateAsync("env-1", "map-timeout", CancellationToken.None);
+            config.CePollTimeoutMinutes = 1;
+
+            var plan = new TestifyMapPlan(
+                mapId: "map-timeout",
+                mapDisplayName: "Timeout Map",
+                foEntity: "CustomersV3",
+                foEntityDetails: null,
+                configuration: config,
+                foFilter: string.Empty,
+                ceLegs: new[] { new TestifyLegPlan("leg-1", "accounts", "$filter=name eq 'Timeout'") },
+                createValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                createPayloadJson: "{}",
+                enumFields: new Dictionary<string, TestifyEnumFieldPlan>(StringComparer.OrdinalIgnoreCase),
+                patchSteps: Array.Empty<TestifyPatchStep>(),
+                warnings: Array.Empty<string>(),
+                coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+                blockingIssues: Array.Empty<string>());
+
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                viewModel.WaitForCeDeltaAsync(
+                    plan,
+                    new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase) { ["leg-1"] = 0 },
+                    CancellationToken.None,
+                    "after patch 1"));
+
+            Assert.Equal("CE verification timed out (after patch 1) after 1 minute(s). Increase CePollTimeoutMinutes in Testify configuration if sync is slow.", ex.Message);
+        }
+        finally
+        {
+            DualWriteMapBrowserViewModel.TestifyDelayAsync = originalDelay;
+            DualWriteMapBrowserViewModel.TestifyUtcNow = originalUtcNow;
+        }
+    }
+
+    private class FakeIntegrationContext : IPluginContext
+    {
+        public FakeIntegrationContext(IODataClient oData)
+        {
+            CurrentEnv = new FoEnvironment("env-1", "Env 1", "https://contoso.operations.dynamics.com", "tenant", "USMF");
+            OData = oData;
+            Catalog = new FakeCatalogService();
+            Logger = NullLogger.Instance;
+        }
+
+        public FoEnvironment CurrentEnv { get; set; }
+        public IODataClient OData { get; }
+        public ICatalogService Catalog { get; }
+        public Microsoft.Extensions.Logging.ILogger Logger { get; }
+    }
+
+    private class FakeIntegrationWriteContext : FakeIntegrationContext, IPluginContextWrite
+    {
+        public FakeIntegrationWriteContext(IODataWriteClient writeClient)
+            : base(new EmptyODataClient())
+        {
+            ODataWrite = writeClient;
+        }
+
+        public IODataWriteClient ODataWrite { get; }
+    }
+
+    private sealed class FakeIntegrationDataverseWriteContext : FakeIntegrationWriteContext, IPluginContextDataverse
+    {
+        public FakeIntegrationDataverseWriteContext(IODataWriteClient writeClient, HttpClient dataverseHttp)
+            : base(writeClient)
+        {
+            DataverseHttp = dataverseHttp;
+            CurrentDataverseEnv = new DataverseEnvironment("dv-1", "https://contoso.crm.dynamics.com", "tenant");
+        }
+
+        public bool HasDataverseProfile => true;
+        public DataverseEnvironment? CurrentDataverseEnv { get; }
+        public HttpClient? DataverseHttp { get; }
+    }
+
+    private sealed class EmptyODataClient : IODataClient
+    {
+        public IAsyncEnumerable<ODataPage> StreamAsync(QueryRequest request, CancellationToken cancellationToken = default) =>
+            ODataClientExtensions.EmptyPages(cancellationToken);
+    }
+
+    private sealed class ThrowingODataClient : IODataClient
+    {
+        private readonly Exception _exception;
+
+        public ThrowingODataClient(Exception exception)
+        {
+            _exception = exception;
+        }
+
+        public async IAsyncEnumerable<ODataPage> StreamAsync(QueryRequest request, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            await Task.Yield();
+            throw _exception;
+#pragma warning disable CS0162
+            yield break;
+#pragma warning restore CS0162
+        }
+    }
+
+    private sealed class SequenceODataWriteClient : IODataWriteClient
+    {
+        private readonly Queue<ODataWriteResponse> _responses;
+
+        public SequenceODataWriteClient(params ODataWriteResponse[] responses)
+        {
+            _responses = new Queue<ODataWriteResponse>(responses);
+        }
+
+        public List<ODataWriteRequest> Requests { get; } = new();
+
+        public Task<ODataWriteResponse> SendAsync(ODataWriteRequest request, CancellationToken ct = default)
+        {
+            Requests.Add(request);
+            var response = _responses.Count > 0
+                ? _responses.Dequeue()
+                : new ODataWriteResponse(204, null, new Dictionary<string, string>());
+            return Task.FromResult(response);
+        }
+    }
+
+    private sealed class StaticJsonHttpMessageHandler : HttpMessageHandler
+    {
+        private readonly string _json;
+
+        public StaticJsonHttpMessageHandler(string json)
+        {
+            _json = json;
+        }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(_json, Encoding.UTF8, "application/json")
+            };
+            return Task.FromResult(response);
+        }
+    }
+
+    private sealed class FakeCatalogService : ICatalogService
+    {
+        public Task<TableCatalog> GetTablesAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default) =>
+            Task.FromResult(new TableCatalog("test", "Test", DateTime.UtcNow, Array.Empty<TableInfo>()));
+
+        public Task<ODataMetadata> GetODataMetadataAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default) =>
+            Task.FromResult(new ODataMetadata(Array.Empty<ODataEntity>(), Array.Empty<ODataEnumType>(), null));
+
+        public Task<CatalogSnapshot> GetSnapshotAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default) =>
+            Task.FromResult(new CatalogSnapshot(env.Id, env.BaseUrl, new TableCatalog("test", "Test", DateTime.UtcNow, Array.Empty<TableInfo>()), new ODataMetadata(Array.Empty<ODataEntity>(), Array.Empty<ODataEnumType>(), null), DateTime.UtcNow));
+
+        public Task RefreshAsync(FoEnvironment env, CatalogRefreshScope scope, CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task<TableCatalog> ImportTableCatalogAsync(FoEnvironment env, string json, CancellationToken ct = default) =>
+            Task.FromResult(new TableCatalog("import", "Import", DateTime.UtcNow, Array.Empty<TableInfo>()));
+
+        public Task<string> GetTableBrowserUrlTemplateAsync(CancellationToken ct = default) =>
+            Task.FromResult("{BaseUrl}/?mi=SysTableBrowser&table={TableName}");
+
+        public Task SetTableBrowserUrlTemplateAsync(string template, CancellationToken ct = default) => Task.CompletedTask;
+
+        public string BuildTableBrowserUrl(FoEnvironment env, string tableName) =>
+            $"{env.BaseUrl}/?mi=SysTableBrowser&table={tableName}";
+
+        public string BuildODataEntityUrl(FoEnvironment env, string entityName) =>
+            $"{env.BaseUrl}/data/{entityName}";
+    }
+}
