@@ -22,6 +22,8 @@ public sealed partial class DualWriteMapBrowserViewModel
 {
     internal static Func<TimeSpan, CancellationToken, Task> TestifyDelayAsync { get; set; } = Task.Delay;
     internal static Func<DateTimeOffset> TestifyUtcNow { get; set; } = static () => DateTimeOffset.UtcNow;
+    internal static Func<string, string, MessageBoxButton, MessageBoxImage, MessageBoxResult> TestifyMessageBox { get; set; } =
+        static (text, caption, button, image) => MessageBox.Show(text, caption, button, image);
 
     private readonly IPluginContextWrite? _write;
     private readonly ObservableCollection<TestifyPreflightRow> _testifyPreflightRows = new();
@@ -207,7 +209,7 @@ public sealed partial class DualWriteMapBrowserViewModel
             runnablePlans
                 .OrderBy(p => p.MapDisplayName, StringComparer.OrdinalIgnoreCase)
                 .Select(p => $"- {p.MapDisplayName}: {p.PatchSteps.Count} PATCH"));
-        var confirmation = MessageBox.Show(
+        var confirmation = TestifyMessageBox(
             $"Run Testify for {runnablePlans.Count} map(s)?\n\nPer-map PATCH totals:\n{perMapBreakdown}\n\nTotal planned PATCH updates: {totalUpdates}.\n\nThis will create and update FO records and validate CE visibility.",
             "Confirm Testify",
             MessageBoxButton.YesNo,
@@ -309,6 +311,14 @@ public sealed partial class DualWriteMapBrowserViewModel
                             throw new InvalidOperationException(keyError);
                         }
 
+                        await VerifyFoPersistedValuesAsync(
+                            plan,
+                            entityInstanceUrl,
+                            runtimeCreateValues,
+                            "after create",
+                            "create",
+                            cancellationToken);
+
                         // Persist the instance URL immediately so downstream rollback can clear stale idempotency metadata.
                         plan.Configuration.LastRunToken = runtimeCreateValues.TryGetValue("FOTBTestifyRunId", out var tok) ? tok
                             : runtimeCreateValues.TryGetValue("Name", out tok) ? tok
@@ -355,19 +365,42 @@ public sealed partial class DualWriteMapBrowserViewModel
                         patchesSucceeded++;
                         AddTestifyLog(plan.MapDisplayName, "Patch", "Succeeded", $"PATCH step {step.StepNumber} returned HTTP {patchResponse.StatusCode}.");
 
+                        foreach (var value in step.EnumValues)
+                        {
+                            runtimeCreateValues[value.Key] = value.Value;
+                        }
+
+                        await VerifyFoPersistedValuesAsync(
+                            plan,
+                            entityInstanceUrl,
+                            step.EnumValues,
+                            $"after patch {step.StepNumber}",
+                            $"PATCH step {step.StepNumber}",
+                            cancellationToken);
+
                         correlatedCeRows = await WaitForCorrelatedCeRowsAsync(plan, runtimeCreateValues, correlatedCeRows, cancellationToken, $"after patch {step.StepNumber}");
                         fieldAssertionResults.AddRange(await VerifyCeFieldAssertionsAsync(plan, runtimeCreateValues, correlatedCeRows, cancellationToken, $"after patch {step.StepNumber}"));
                         AddTestifyLog(plan.MapDisplayName, "CE Verify", "Succeeded", $"Correlated CE row reused after patch {step.StepNumber}.");
                     }
+
+                    var failedAssertion = fieldAssertionResults.FirstOrDefault(result => !result.Passed);
 
                     ceSucceeded = DidCeVerificationSucceedForCompletedRun(
                         createSucceeded,
                         patchesSucceeded,
                         plan.PatchSteps.Count,
                         correlatedCeVerificationSucceeded: correlatedCeRows is not null && fieldAssertionResults.All(result => result.Passed));
-                    valid = true;
-                    status = "Valid map.";
-                    AddTestifyLog(plan.MapDisplayName, "Result", "Valid", status);
+                    valid = ceSucceeded;
+                    status = fieldAssertionResults.Count == 0
+                        ? "Valid map."
+                        : string.Join("; ", fieldAssertionResults.Select(result => result.Detail));
+
+                    if (failedAssertion is not null)
+                    {
+                        throw new InvalidOperationException($"CE verification failed for leg '{failedAssertion.LegId}' field '{failedAssertion.CeField}' {failedAssertion.Phase}: expected '{failedAssertion.ExpectedValue}' but found '{failedAssertion.ActualValue}'.");
+                    }
+
+                    AddTestifyLog(plan.MapDisplayName, "Result", valid ? "Valid" : "Failed", status);
                 }
                 catch (Exception ex)
                 {
@@ -1744,10 +1777,6 @@ public sealed partial class DualWriteMapBrowserViewModel
                 var detail = $"{phase}: {assertion.FoField}->{assertion.CeField} {(passed ? "PASS" : "FAIL")} expected='{expectedValue}' actual='{actualValue}'";
                 results.Add(new TestifyFieldAssertionResult(assertion.LegId, assertion.FoField, assertion.CeField, phase, passed, expectedValue, actualValue, detail));
 
-                if (!passed)
-                {
-                    throw new InvalidOperationException($"CE verification failed for leg '{assertion.LegId}' field '{assertion.CeField}' {phase}: expected '{expectedValue}' but found '{actualValue}'.");
-                }
             }
         }
 
@@ -1757,11 +1786,11 @@ public sealed partial class DualWriteMapBrowserViewModel
     private static string ResolveExpectedCeValue(TestifyFieldAssertionPlan assertion, IReadOnlyDictionary<string, string> foValues)
     {
         foValues.TryGetValue(assertion.FoField, out var foValue);
-        foValue ??= string.Empty;
+        foValue = NormalizeOptionalValue(foValue);
 
         if (assertion.HasValueMap && assertion.MappedTargetValues.TryGetValue(foValue, out var mapped))
         {
-            return mapped ?? string.Empty;
+            return NormalizeOptionalValue(mapped);
         }
 
         return foValue;
@@ -1769,6 +1798,14 @@ public sealed partial class DualWriteMapBrowserViewModel
 
     private static bool ValuesMatch(TestifyFieldAssertionPlan assertion, string expectedValue, string actualValue)
     {
+        expectedValue = NormalizeOptionalValue(expectedValue);
+        actualValue = NormalizeOptionalValue(actualValue);
+
+        if (string.IsNullOrWhiteSpace(expectedValue) && string.IsNullOrWhiteSpace(actualValue))
+        {
+            return true;
+        }
+
         if (string.Equals(assertion.FoType, "Edm.Boolean", StringComparison.OrdinalIgnoreCase))
         {
             return string.Equals(NormalizeBoolean(expectedValue), NormalizeBoolean(actualValue), StringComparison.OrdinalIgnoreCase);
@@ -1787,12 +1824,20 @@ public sealed partial class DualWriteMapBrowserViewModel
             return string.Equals(NormalizeNumber(expectedValue), NormalizeNumber(actualValue), StringComparison.OrdinalIgnoreCase);
         }
 
-        if (string.IsNullOrWhiteSpace(expectedValue) && string.IsNullOrWhiteSpace(actualValue))
+        return string.Equals(expectedValue, actualValue, StringComparison.OrdinalIgnoreCase);
+    }
+
+    private static string NormalizeOptionalValue(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
         {
-            return true;
+            return string.Empty;
         }
 
-        return string.Equals(expectedValue?.Trim(), actualValue?.Trim(), StringComparison.OrdinalIgnoreCase);
+        var trimmed = value.Trim();
+        return trimmed.Equals("null", StringComparison.OrdinalIgnoreCase)
+            ? string.Empty
+            : trimmed;
     }
 
     private static string NormalizeBoolean(string value)
@@ -1804,9 +1849,17 @@ public sealed partial class DualWriteMapBrowserViewModel
 
     private static string NormalizeNumber(string value)
     {
-        return decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed)
-            ? parsed.ToString(CultureInfo.InvariantCulture)
-            : value.Trim();
+        if (decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var decimalValue))
+        {
+            return decimalValue.ToString(CultureInfo.InvariantCulture);
+        }
+
+        if (double.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var doubleValue))
+        {
+            return doubleValue.ToString("G17", CultureInfo.InvariantCulture);
+        }
+
+        return value.Trim();
     }
 
     private static string NormalizeDateLike(string value)
@@ -1822,6 +1875,135 @@ public sealed partial class DualWriteMapBrowserViewModel
         }
 
         return value.Trim();
+    }
+
+    private async Task VerifyFoPersistedValuesAsync(
+        TestifyMapPlan plan,
+        string entityInstanceUrl,
+        IReadOnlyDictionary<string, string> expectedValues,
+        string phase,
+        string operation,
+        CancellationToken cancellationToken)
+    {
+        if (plan.FoEntityDetails is null || expectedValues.Count == 0)
+        {
+            return;
+        }
+
+        var propertiesByName = plan.FoEntityDetails.Properties
+            .GroupBy(property => property.Name, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(group => group.Key, group => group.First(), StringComparer.OrdinalIgnoreCase);
+
+        var fieldsToVerify = expectedValues.Keys
+            .Where(field => propertiesByName.ContainsKey(field))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToArray();
+        if (fieldsToVerify.Length == 0)
+        {
+            return;
+        }
+
+        IReadOnlyDictionary<string, string> persistedValues;
+        try
+        {
+            persistedValues = await ReadFoPersistedValuesAsync(entityInstanceUrl, fieldsToVerify, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"FO {operation} transport succeeded but readback request failed {phase}: {ex.Message}",
+                ex);
+        }
+
+        foreach (var field in fieldsToVerify)
+        {
+            expectedValues.TryGetValue(field, out var expectedValueRaw);
+            var expectedValue = NormalizeOptionalValue(expectedValueRaw);
+
+            persistedValues.TryGetValue(field, out var actualValueRaw);
+            var actualValue = NormalizeOptionalValue(actualValueRaw);
+
+            var property = propertiesByName[field];
+            if (!FoValuesMatch(property, expectedValue, actualValue))
+            {
+                throw new InvalidOperationException(
+                    $"FO {operation} transport succeeded but persisted-value verification failed {phase} for field '{field}': expected '{expectedValue}' but found '{actualValue}'.");
+            }
+        }
+
+        AddTestifyLog(plan.MapDisplayName, "FO Readback", "Succeeded", $"{phase}: verified {fieldsToVerify.Length} persisted field(s).");
+    }
+
+    private async Task<IReadOnlyDictionary<string, string>> ReadFoPersistedValuesAsync(
+        string entityInstanceUrl,
+        IReadOnlyList<string> fields,
+        CancellationToken cancellationToken)
+    {
+        var queryUrl = BuildFoReadbackUrl(entityInstanceUrl, fields);
+
+        await foreach (var page in _ctx.OData.StreamAsync(new QueryRequest(queryUrl), cancellationToken))
+        {
+            var row = page.Rows.FirstOrDefault();
+            if (row is null)
+            {
+                continue;
+            }
+
+            var values = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var field in fields)
+            {
+                if (TryGetRowValueIgnoreCase(row, field, out var value))
+                {
+                    values[field] = value;
+                }
+            }
+
+            return values;
+        }
+
+        throw new InvalidOperationException("FO readback returned no rows for the created/updated record.");
+    }
+
+    private static string BuildFoReadbackUrl(string entityInstanceUrl, IReadOnlyList<string> fields)
+    {
+        var selectClause = Uri.EscapeDataString(string.Join(",", fields.Distinct(StringComparer.OrdinalIgnoreCase)));
+        var separator = entityInstanceUrl.Contains("?", StringComparison.Ordinal) ? "&" : "?";
+        return $"{entityInstanceUrl}{separator}$select={selectClause}";
+    }
+
+    private static bool FoValuesMatch(ODataProperty property, string expectedValue, string actualValue)
+    {
+        expectedValue = NormalizeOptionalValue(expectedValue);
+        actualValue = NormalizeOptionalValue(actualValue);
+
+        if (string.IsNullOrWhiteSpace(expectedValue) && string.IsNullOrWhiteSpace(actualValue))
+        {
+            return true;
+        }
+
+        if (string.Equals(property.Type, "Edm.Boolean", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Equals(NormalizeBoolean(expectedValue), NormalizeBoolean(actualValue), StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (string.Equals(property.Type, "Edm.Date", StringComparison.OrdinalIgnoreCase) || string.Equals(property.Type, "Edm.DateTimeOffset", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Equals(NormalizeDateLike(expectedValue), NormalizeDateLike(actualValue), StringComparison.OrdinalIgnoreCase);
+        }
+
+        if (property.Type.StartsWith("Edm.Int", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(property.Type, "Edm.Decimal", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(property.Type, "Edm.Double", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(property.Type, "Edm.Single", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Equals(NormalizeNumber(expectedValue), NormalizeNumber(actualValue), StringComparison.OrdinalIgnoreCase);
+        }
+
+        return string.Equals(expectedValue, actualValue, StringComparison.OrdinalIgnoreCase);
     }
 
     private static async Task<JsonElement> ReadDataverseRowAsync(
@@ -2329,7 +2511,7 @@ public sealed partial class DualWriteMapBrowserViewModel
             deleteUrls.GroupBy(d => d.MapName)
                 .Select(g => $"- {g.Key}: {g.Count()} record(s)"));
 
-        var confirmation = MessageBox.Show(
+        var confirmation = TestifyMessageBox(
             $"Delete {deleteUrls.Count} Testify test record(s)?\n\n{breakdown}\n\nThis will permanently delete FO records.",
             "Confirm Testify Cleanup",
             MessageBoxButton.YesNo,

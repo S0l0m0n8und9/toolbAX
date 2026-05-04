@@ -9,6 +9,7 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Text;
+using System.Windows;
 
 namespace FoToolbox.Tests;
 
@@ -258,6 +259,11 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
     [Fact]
     public async Task WaitForCorrelatedCeRowsAsync_ReusesExplicitStableRowIdField_WhenCorrelationMatchesExistingRecord()
     {
+        var originalDelay = DualWriteMapBrowserViewModel.TestifyDelayAsync;
+        DualWriteMapBrowserViewModel.TestifyDelayAsync = static (_, _) => Task.CompletedTask;
+
+        try
+        {
         var handler = new SequenceJsonHttpMessageHandler(
             "{\"value\":[{\"accountnumber\":\"ACC-001\",\"tbx_externalid\":\"stable-row-1\"}]}");
         using var dataverseHttp = new HttpClient(handler)
@@ -266,6 +272,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
         };
 
         var viewModel = CreateCorrelationViewModel(dataverseHttp, out var config);
+        config.CePollTimeoutMinutes = 1;
         var plan = new TestifyMapPlan(
             mapId: "map-timeout",
             mapDisplayName: "Timeout Map",
@@ -297,6 +304,361 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
         Assert.Equal(
             "https://contoso.crm.dynamics.com/api/data/v9.2/accounts?$filter=accountnumber%20eq%20%27ACC-001%27&$select=accountnumber%2Ctbx_externalid%2Caccountsid",
             handler.RequestUris[0].AbsoluteUri);
+        }
+        finally
+        {
+            DualWriteMapBrowserViewModel.TestifyDelayAsync = originalDelay;
+        }
+    }
+
+    [Fact]
+    public async Task VerifyCeFieldAssertionsAsync_ReadsCeRowValues_AfterCreate_AndAfterPatch()
+    {
+        var handler = new SequenceJsonHttpMessageHandler(
+            "{\"name\":\"TESTIFY-001\",\"customertypecode\":\"100000001\",\"createdon\":\"2026-04-27\",\"creditlimit\":1,\"donotemail\":true,\"description\":null}",
+            "{\"name\":\"TESTIFY-001\",\"customertypecode\":\"100000002\",\"createdon\":\"2026-04-27\",\"creditlimit\":2.0,\"donotemail\":false,\"description\":null}");
+        using var dataverseHttp = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+
+        var viewModel = CreateCorrelationViewModel(dataverseHttp, out var config);
+        var plan = new TestifyMapPlan(
+            mapId: "map-assert",
+            mapDisplayName: "Assertion Map",
+            foEntity: "CustomersV3",
+            foEntityDetails: null,
+            configuration: config,
+            foFilter: string.Empty,
+            ceLegs: new[] { new TestifyLegPlan("leg-1", "accounts", string.Empty, string.Empty, "Name", "name") },
+            createValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Name"] = "TESTIFY-001",
+                ["CustomerType"] = "Retail",
+                ["CreatedOn"] = "2026-04-27",
+                ["CreditLimit"] = "1.00",
+                ["DoNotEmail"] = "true",
+                ["Description"] = "null"
+            },
+            createPayloadJson: "{}",
+            enumFields: new Dictionary<string, TestifyEnumFieldPlan>(StringComparer.OrdinalIgnoreCase),
+            fieldAssertions: new[]
+            {
+                new TestifyFieldAssertionPlan("leg-1", "CustomerType", "customertypecode", "Default.CustomerType", "Picklist", true, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Retail"] = "100000001",
+                    ["Wholesale"] = "100000002"
+                }),
+                new TestifyFieldAssertionPlan("leg-1", "CreatedOn", "createdon", "Edm.Date", null, false, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)),
+                new TestifyFieldAssertionPlan("leg-1", "CreditLimit", "creditlimit", "Edm.Decimal", null, false, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)),
+                new TestifyFieldAssertionPlan("leg-1", "DoNotEmail", "donotemail", "Edm.Boolean", null, false, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)),
+                new TestifyFieldAssertionPlan("leg-1", "Description", "description", "Edm.String", null, false, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase))
+            },
+            patchSteps: Array.Empty<TestifyPatchStep>(),
+            warnings: Array.Empty<string>(),
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+            blockingIssues: Array.Empty<string>());
+
+        var correlatedRows = new Dictionary<string, TestifyCorrelatedCeRow>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["leg-1"] = new TestifyCorrelatedCeRow("leg-1", "accounts", "row-1", "leg-1|accounts|Name|name|TESTIFY-001", "TESTIFY-001", "Name", "name")
+        };
+
+        var method = typeof(DualWriteMapBrowserViewModel)
+            .GetMethod("VerifyCeFieldAssertionsAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+
+        var createResults = await (Task<IReadOnlyList<TestifyFieldAssertionResult>>)method.Invoke(
+            viewModel,
+            new object[]
+            {
+                plan,
+                new Dictionary<string, string>(plan.CreateValues, StringComparer.OrdinalIgnoreCase),
+                correlatedRows,
+                CancellationToken.None,
+                "after create"
+            })!;
+
+        Assert.Equal(5, createResults.Count);
+        Assert.All(createResults, result => Assert.True(result.Passed, result.Detail));
+        Assert.Contains(createResults, result => result.CeField == "customertypecode" && result.ExpectedValue == "100000001" && result.ActualValue == "100000001");
+        Assert.Contains(createResults, result => result.CeField == "creditlimit" && result.ExpectedValue == "1.00" && result.ActualValue == "1");
+        Assert.Contains(createResults, result => result.CeField == "donotemail" && result.ExpectedValue == "true" && result.ActualValue == "true");
+        Assert.Contains(createResults, result => result.CeField == "description" && result.ExpectedValue == string.Empty && result.ActualValue == string.Empty);
+
+        var patchValues = new Dictionary<string, string>(plan.CreateValues, StringComparer.OrdinalIgnoreCase)
+        {
+            ["CustomerType"] = "Wholesale",
+            ["CreditLimit"] = "2.00",
+            ["DoNotEmail"] = "false"
+        };
+
+        var patchResults = await (Task<IReadOnlyList<TestifyFieldAssertionResult>>)method.Invoke(
+            viewModel,
+            new object[]
+            {
+                plan,
+                patchValues,
+                correlatedRows,
+                CancellationToken.None,
+                "after patch 1"
+            })!;
+
+        Assert.Equal(5, patchResults.Count);
+        Assert.All(patchResults, result => Assert.True(result.Passed, result.Detail));
+        Assert.Contains(patchResults, result => result.CeField == "customertypecode" && result.ExpectedValue == "100000002" && result.ActualValue == "100000002");
+        Assert.Contains(patchResults, result => result.CeField == "creditlimit" && result.ExpectedValue == "2.00" && result.ActualValue == "2.0");
+        Assert.Contains(patchResults, result => result.CeField == "donotemail" && result.ExpectedValue == "false" && result.ActualValue == "false");
+
+        Assert.Collection(
+            handler.RequestUris,
+            uri => Assert.Equal(
+                "https://contoso.crm.dynamics.com/api/data/v9.2/accounts(row-1)?$select=customertypecode%2Ccreatedon%2Ccreditlimit%2Cdescription%2Cdonotemail",
+                uri.AbsoluteUri),
+            uri => Assert.Equal(
+                "https://contoso.crm.dynamics.com/api/data/v9.2/accounts(row-1)?$select=customertypecode%2Ccreatedon%2Ccreditlimit%2Cdescription%2Cdonotemail",
+                uri.AbsoluteUri));
+    }
+
+    [Fact]
+    public async Task RunTestifyAsync_PreservesFieldLevelPassFailResults_WhenCeAssertionFails()
+    {
+        using var dataverseHttp = new HttpClient(new SequenceJsonHttpMessageHandler(
+            "{\"value\":[{\"accountid\":\"row-1\",\"accountsid\":\"row-1\",\"name\":\"TESTIFY-001\"}]}",
+            "{\"name\":\"TESTIFY-001\",\"customertypecode\":\"100000001\"}",
+            "{\"value\":[{\"accountid\":\"row-1\",\"accountsid\":\"row-1\",\"name\":\"TESTIFY-001\"}]}",
+            "{\"name\":\"TESTIFY-001\",\"customertypecode\":\"100000001\"}"))
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+
+        var writeClient = new SequenceODataWriteClient(
+            new ODataWriteResponse(201, "{\"AccountNumber\":\"CUST-0001\",\"dataAreaId\":\"USMF\"}", new Dictionary<string, string>()),
+            new ODataWriteResponse(204, null, new Dictionary<string, string>()));
+        var foReadbackClient = new SequenceODataClient(
+            new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["AccountNumber"] = "CUST-0001",
+                ["dataAreaId"] = "USMF",
+                ["Name"] = "TESTIFY-001",
+                ["CustomerType"] = "Retail"
+            },
+            new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["CustomerType"] = "Wholesale"
+            });
+        var context = new FakeIntegrationDataverseWriteContext(writeClient, dataverseHttp, foReadbackClient);
+        var store = new TestifyConfigurationStore(CreateTempTestifyStorePath());
+        var viewModel = new DualWriteMapBrowserViewModel(context, store);
+        var config = await store.GetOrCreateAsync("env-1", "map-fail", CancellationToken.None);
+
+        var entity = new ODataEntity(
+            "CustomersV3",
+            new[]
+            {
+                new ODataProperty("AccountNumber", "Edm.String", Nullable: false, IsKey: true, IsMandatory: true, MaxLength: "20"),
+                new ODataProperty("dataAreaId", "Edm.String", Nullable: false, IsKey: true, IsMandatory: true, MaxLength: "4"),
+                new ODataProperty("Name", "Edm.String", Nullable: false, IsMandatory: true, MaxLength: "60"),
+                new ODataProperty("CustomerType", "Default.CustomerType", Nullable: false, IsMandatory: false)
+            },
+            Array.Empty<ODataNavigationProperty>());
+
+        var plan = new TestifyMapPlan(
+            mapId: "map-fail",
+            mapDisplayName: "Assertion Failure Map",
+            foEntity: "CustomersV3",
+            foEntityDetails: entity,
+            configuration: config,
+            foFilter: string.Empty,
+            ceLegs: new[] { new TestifyLegPlan("leg-1", "accounts", string.Empty, string.Empty, "Name", "name") },
+            createValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["AccountNumber"] = "CUST-0001",
+                ["dataAreaId"] = "USMF",
+                ["Name"] = "TESTIFY-001",
+                ["CustomerType"] = "Retail"
+            },
+            createPayloadJson: "{}",
+            enumFields: new Dictionary<string, TestifyEnumFieldPlan>(StringComparer.OrdinalIgnoreCase),
+            fieldAssertions: new[]
+            {
+                new TestifyFieldAssertionPlan("leg-1", "Name", "name", "Edm.String", null, false, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)),
+                new TestifyFieldAssertionPlan("leg-1", "CustomerType", "customertypecode", "Default.CustomerType", "Picklist", true, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Retail"] = "100000001",
+                    ["Wholesale"] = "100000002"
+                })
+            },
+            patchSteps: new[]
+            {
+                new TestifyPatchStep(1, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["CustomerType"] = "Wholesale"
+                })
+            },
+            warnings: Array.Empty<string>(),
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+            blockingIssues: Array.Empty<string>());
+
+        typeof(DualWriteMapBrowserViewModel)
+            .GetField("_testifyPlans", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .SetValue(viewModel, new Dictionary<string, TestifyMapPlan>(StringComparer.OrdinalIgnoreCase)
+            {
+                [plan.MapId] = plan
+            });
+
+        var runMethod = typeof(DualWriteMapBrowserViewModel)
+            .GetMethod("RunTestifyAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+
+        var originalMessageBox = DualWriteMapBrowserViewModel.TestifyMessageBox;
+        DualWriteMapBrowserViewModel.TestifyMessageBox = static (_, _, _, _) => MessageBoxResult.Yes;
+        try
+        {
+            await (Task)runMethod.Invoke(viewModel, new object[] { CancellationToken.None })!;
+        }
+        finally
+        {
+            DualWriteMapBrowserViewModel.TestifyMessageBox = originalMessageBox;
+        }
+
+        var result = Assert.Single(viewModel.TestifyResultRows);
+        Assert.False(result.Valid);
+        Assert.True(result.CreateSucceeded);
+        Assert.Equal(1, result.PatchesSucceeded);
+        Assert.False(result.CeVerificationSucceeded);
+        Assert.Equal(4, result.FieldAssertions.Count);
+        Assert.Collection(
+            result.FieldAssertions,
+            assertion =>
+            {
+                Assert.Equal("after create", assertion.Phase);
+                Assert.True(assertion.Passed);
+                Assert.Equal("name", assertion.CeField);
+            },
+            assertion =>
+            {
+                Assert.Equal("after create", assertion.Phase);
+                Assert.True(assertion.Passed);
+                Assert.Equal("customertypecode", assertion.CeField);
+            },
+            assertion =>
+            {
+                Assert.Equal("after patch 1", assertion.Phase);
+                Assert.True(assertion.Passed);
+                Assert.Equal("name", assertion.CeField);
+            },
+            assertion =>
+            {
+                Assert.Equal("after patch 1", assertion.Phase);
+                Assert.False(assertion.Passed);
+                Assert.Equal("customertypecode", assertion.CeField);
+                Assert.Equal("100000002", assertion.ExpectedValue);
+                Assert.Equal("100000001", assertion.ActualValue);
+            });
+        Assert.Equal(result.FieldAssertionDetail, result.Status);
+        Assert.Contains("after create: Name->name PASS", result.Status);
+        Assert.Contains("after patch 1: CustomerType->customertypecode FAIL expected='100000002' actual='100000001'", result.Status);
+        Assert.Equal(2, foReadbackClient.RequestUrls.Count);
+        Assert.Contains("AccountNumber%2CdataAreaId%2CName%2CCustomerType", foReadbackClient.RequestUrls[0], StringComparison.Ordinal);
+        Assert.Contains("CustomerType", foReadbackClient.RequestUrls[1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public async Task RunTestifyAsync_FailsWithPersistenceMismatch_WhenPatchReadbackValueDidNotPersist()
+    {
+        using var dataverseHttp = new HttpClient(new SequenceJsonHttpMessageHandler(
+            "{\"value\":[{\"accountid\":\"row-1\",\"accountsid\":\"row-1\",\"name\":\"TESTIFY-001\"}]}"))
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+
+        var writeClient = new SequenceODataWriteClient(
+            new ODataWriteResponse(201, "{\"AccountNumber\":\"CUST-0001\",\"dataAreaId\":\"USMF\"}", new Dictionary<string, string>()),
+            new ODataWriteResponse(204, null, new Dictionary<string, string>()),
+            new ODataWriteResponse(204, null, new Dictionary<string, string>()));
+        var foReadbackClient = new SequenceODataClient(
+            new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["AccountNumber"] = "CUST-0001",
+                ["dataAreaId"] = "USMF",
+                ["Name"] = "TESTIFY-001",
+                ["CustomerType"] = "Retail"
+            },
+            new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["CustomerType"] = "Retail"
+            });
+        var context = new FakeIntegrationDataverseWriteContext(writeClient, dataverseHttp, foReadbackClient);
+        var store = new TestifyConfigurationStore(CreateTempTestifyStorePath());
+        var viewModel = new DualWriteMapBrowserViewModel(context, store);
+        var config = await store.GetOrCreateAsync("env-1", "map-persist-mismatch", CancellationToken.None);
+
+        var entity = new ODataEntity(
+            "CustomersV3",
+            new[]
+            {
+                new ODataProperty("AccountNumber", "Edm.String", Nullable: false, IsKey: true, IsMandatory: true, MaxLength: "20"),
+                new ODataProperty("dataAreaId", "Edm.String", Nullable: false, IsKey: true, IsMandatory: true, MaxLength: "4"),
+                new ODataProperty("Name", "Edm.String", Nullable: false, IsMandatory: true, MaxLength: "60"),
+                new ODataProperty("CustomerType", "Default.CustomerType", Nullable: false, IsMandatory: false)
+            },
+            Array.Empty<ODataNavigationProperty>());
+
+        var plan = new TestifyMapPlan(
+            mapId: "map-persist-mismatch",
+            mapDisplayName: "Persistence Mismatch Map",
+            foEntity: "CustomersV3",
+            foEntityDetails: entity,
+            configuration: config,
+            foFilter: string.Empty,
+            ceLegs: Array.Empty<TestifyLegPlan>(),
+            createValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["AccountNumber"] = "CUST-0001",
+                ["dataAreaId"] = "USMF",
+                ["Name"] = "TESTIFY-001",
+                ["CustomerType"] = "Retail"
+            },
+            createPayloadJson: "{}",
+            enumFields: new Dictionary<string, TestifyEnumFieldPlan>(StringComparer.OrdinalIgnoreCase),
+            patchSteps: new[]
+            {
+                new TestifyPatchStep(1, new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["CustomerType"] = "Wholesale"
+                })
+            },
+            warnings: Array.Empty<string>(),
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+            blockingIssues: Array.Empty<string>());
+
+        typeof(DualWriteMapBrowserViewModel)
+            .GetField("_testifyPlans", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!
+            .SetValue(viewModel, new Dictionary<string, TestifyMapPlan>(StringComparer.OrdinalIgnoreCase)
+            {
+                [plan.MapId] = plan
+            });
+
+        var runMethod = typeof(DualWriteMapBrowserViewModel)
+            .GetMethod("RunTestifyAsync", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!;
+
+        var originalMessageBox = DualWriteMapBrowserViewModel.TestifyMessageBox;
+        DualWriteMapBrowserViewModel.TestifyMessageBox = static (_, _, _, _) => MessageBoxResult.Yes;
+        try
+        {
+            await (Task)runMethod.Invoke(viewModel, new object[] { CancellationToken.None })!;
+        }
+        finally
+        {
+            DualWriteMapBrowserViewModel.TestifyMessageBox = originalMessageBox;
+        }
+
+        var result = Assert.Single(viewModel.TestifyResultRows);
+        Assert.False(result.Valid);
+        Assert.True(result.CreateSucceeded);
+        Assert.Equal(1, result.PatchesSucceeded);
+        Assert.False(result.CeVerificationSucceeded);
+        Assert.Contains("FO PATCH step 1 transport succeeded but persisted-value verification failed after patch 1 for field 'CustomerType'", result.Status);
+        Assert.Contains(writeClient.Requests, request => request.Method == HttpMethod.Delete);
     }
 
     [Fact]
@@ -555,8 +917,8 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
 
     private class FakeIntegrationWriteContext : FakeIntegrationContext, IPluginContextWrite
     {
-        public FakeIntegrationWriteContext(IODataWriteClient writeClient)
-            : base(new EmptyODataClient())
+        public FakeIntegrationWriteContext(IODataWriteClient writeClient, IODataClient? oDataClient = null)
+            : base(oDataClient ?? new EmptyODataClient())
         {
             ODataWrite = writeClient;
         }
@@ -566,8 +928,8 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
 
     private sealed class FakeIntegrationDataverseWriteContext : FakeIntegrationWriteContext, IPluginContextDataverse
     {
-        public FakeIntegrationDataverseWriteContext(IODataWriteClient writeClient, HttpClient dataverseHttp)
-            : base(writeClient)
+        public FakeIntegrationDataverseWriteContext(IODataWriteClient writeClient, HttpClient dataverseHttp, IODataClient? oDataClient = null)
+            : base(writeClient, oDataClient)
         {
             DataverseHttp = dataverseHttp;
             CurrentDataverseEnv = new DataverseEnvironment("dv-1", "https://contoso.crm.dynamics.com", "tenant");
@@ -621,6 +983,33 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
                 ? _responses.Dequeue()
                 : new ODataWriteResponse(204, null, new Dictionary<string, string>());
             return Task.FromResult(response);
+        }
+    }
+
+    private sealed class SequenceODataClient : IODataClient
+    {
+        private readonly Queue<IReadOnlyDictionary<string, object?>> _rows;
+
+        public SequenceODataClient(params IReadOnlyDictionary<string, object?>[] rows)
+        {
+            _rows = new Queue<IReadOnlyDictionary<string, object?>>(rows);
+        }
+
+        public List<string> RequestUrls { get; } = new();
+
+        public async IAsyncEnumerable<ODataPage> StreamAsync(QueryRequest request, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            RequestUrls.Add(request.Url);
+            await Task.Yield();
+
+            if (_rows.Count == 0)
+            {
+                yield return new ODataPage(Array.Empty<IReadOnlyDictionary<string, object?>>(), null);
+                yield break;
+            }
+
+            var row = _rows.Dequeue();
+            yield return new ODataPage(new[] { row }, null);
         }
     }
 

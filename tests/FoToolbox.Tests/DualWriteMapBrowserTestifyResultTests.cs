@@ -179,6 +179,30 @@ public sealed class DualWriteMapBrowserTestifyResultTests
     }
 
     [Fact]
+    public void TestifyResultRow_FieldAssertionDetail_FormatsPerFieldPassFailSurface()
+    {
+        var row = new TestifyResultRow(
+            mapDisplayName: "Customers",
+            mapId: "map-1",
+            valid: false,
+            createSucceeded: true,
+            patchesPlanned: 1,
+            patchesSucceeded: 1,
+            ceVerificationSucceeded: false,
+            status: "after create: Name->name PASS expected='TESTIFY-001' actual='TESTIFY-001'; after patch 1: CustomerType->customertypecode FAIL expected='100000002' actual='100000001'",
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+            fieldAssertions: new[]
+            {
+                new TestifyFieldAssertionResult("leg-1", "Name", "name", "after create", true, "TESTIFY-001", "TESTIFY-001", "after create: Name->name PASS expected='TESTIFY-001' actual='TESTIFY-001'"),
+                new TestifyFieldAssertionResult("leg-1", "CustomerType", "customertypecode", "after patch 1", false, "100000002", "100000001", "after patch 1: CustomerType->customertypecode FAIL expected='100000002' actual='100000001'")
+            });
+
+        Assert.False(row.Valid);
+        Assert.False(row.CeVerificationSucceeded);
+        Assert.Equal(row.Status, row.FieldAssertionDetail);
+    }
+
+    [Fact]
     public void BuildCorrelationFilter_AddsCorrelationClause_WhenNoExistingFilterExists()
     {
         var filter = typeof(DualWriteMapBrowserViewModel)
@@ -214,5 +238,60 @@ public sealed class DualWriteMapBrowserTestifyResultTests
 
         Assert.Equal(string.Empty, row.CoverageGapDetail);
         Assert.Empty(row.CoverageGaps);
+    }
+
+    [Theory]
+    [InlineData("Edm.Boolean", "true", "1", true)]
+    [InlineData("Edm.Boolean", "false", "0", true)]
+    [InlineData("Edm.Decimal", "1.00", "1", true)]
+    [InlineData("Edm.Date", "2026-04-27", "2026-04-27T00:00:00+00:00", false)]
+    [InlineData("Edm.DateTimeOffset", "2026-04-27T00:00:00Z", "2026-04-27T00:00:00+00:00", true)]
+    [InlineData("Edm.String", null, "null", true)]
+    [InlineData("Edm.String", "", null, true)]
+    public void ValuesMatch_NormalizesSupportedAssertionTypes(string foType, string? expected, string? actual, bool shouldMatch)
+    {
+        var assertion = new TestifyFieldAssertionPlan(
+            legId: "leg-1",
+            foField: "FieldA",
+            ceField: "fielda",
+            foType: foType,
+            ceFieldType: null,
+            hasValueMap: false,
+            mappedTargetValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase));
+
+        var valuesMatch = (bool)typeof(DualWriteMapBrowserViewModel)
+            .GetMethod("ValuesMatch", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .Invoke(null, new object?[] { assertion, expected ?? string.Empty, actual ?? string.Empty })!;
+
+        Assert.Equal(shouldMatch, valuesMatch);
+    }
+
+    [Fact]
+    public void ResolveExpectedCeValue_UsesMappedTargetValue_ForOptionSetAssertion()
+    {
+        var assertion = new TestifyFieldAssertionPlan(
+            legId: "leg-1",
+            foField: "CustomerType",
+            ceField: "customertypecode",
+            foType: "Default.CustomerType",
+            ceFieldType: "Picklist",
+            hasValueMap: true,
+            mappedTargetValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Retail"] = "100000001"
+            });
+
+        var expected = (string)typeof(DualWriteMapBrowserViewModel)
+            .GetMethod("ResolveExpectedCeValue", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .Invoke(null, new object[]
+            {
+                assertion,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["CustomerType"] = "Retail"
+                }
+            })!;
+
+        Assert.Equal("100000001", expected);
     }
 }

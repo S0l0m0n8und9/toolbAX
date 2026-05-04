@@ -35,6 +35,7 @@
     ".ralph/runs/fix-failure-004.last-message.md",
     ".ralph/runs/fix-failure-004.transcript.md",
     ".ralph/tasks.json",
+    ".ralph/tasks.lock",
     "install/build.ps1",
     "install/Bundle.wxs",
     "install/FoToolbox.wxs",
@@ -68,6 +69,7 @@
     "tests/FoToolbox.Tests/TestifyPlannerTests.cs",
     "tests/FoToolbox.Tests/TestifyValueMapParserTests.cs",
     "tests/FoToolbox.Tests/TestResults/2f9f9e90-acf6-4f60-a077-d6e52b5a6c3a/coverage.cobertura.xml",
-    "tests/FoToolbox.Tests/TestResults/f4db302f-0976-45a0-adcf-67836074ef70/coverage.cobertura.xml"
+    "tests/FoToolbox.Tests/TestResults/f4db302f-0976-45a0-adcf-67836074ef70/coverage.cobertura.xml",
+    "tests/FoToolbox.Tests/TestResults/t13-targeted.trx"
   ]
 }

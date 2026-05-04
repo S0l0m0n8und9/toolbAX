@@ -271,8 +271,9 @@
       "dependsOn": [
         "T12"
       ],
-      "notes": "Read back the correlated CE row and compare mapped values against FO source values and transform output, including enums, lookups, null semantics, dates, numerics, and booleans where supported by the map.",
+      "notes": "Added a focused regression assertion proving CE field reconciliation reads the correlated CE row by ID with a minimal asserted-column $select shape during both create and patch verification. Validation remains blocked by the shared-workspace dotnet test hang before discovery completes.",
       "validation": "dotnet test",
+      "blocker": "Targeted dotnet test hangs in the shared workspace during project target evaluation/discovery and had to be stopped with no conclusive test result.",
       "priority": "high",
       "acceptance": [
         "Testify reads CE column values for the correlated row after create and patch operations",
@@ -289,12 +290,13 @@
         "DualWriteMapBrowserViewModel.Testify.cs",
         "TestifyResultRows",
         "TestifyPlanner"
-      ]
+      ],
+      "lastVerifierResult": "failed"
     },
     {
       "id": "T14",
       "title": "Add FO persisted-value readback checks",
-      "status": "todo",
+      "status": "in_progress",
       "notes": "After FO create and FO patch, GET the FO record and verify persisted values rather than accepting HTTP success alone.",
       "validation": "dotnet test",
       "priority": "high",
@@ -391,5 +393,5 @@
       ]
     }
   ],
-  "mutationCount": 28
+  "mutationCount": 30
 }

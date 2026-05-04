@@ -27,3 +27,5 @@
 - Added focused regression coverage for deterministic CE correlation when a leg specifies an explicit correlated-row-id field, proving update verification reuses the same stable CE row identity and query shape.
 - Tightened deterministic CE row correlation so explicit correlated-row-id fields are mandatory when configured, and added regression coverage for the missing-explicit-id path.
 - Added a narrow result-surface regression test so completed Testify runs cannot report success when deterministic CE correlation failed. The core CE correlation implementation and integration coverage were already present in durable state.
+- Updated Testify completion handling so CE field reconciliation determines final valid/failed state and result logs/status preserve per-field assertion detail; added focused result-row regression coverage for failed field assertions.
+- Added a focused regression assertion proving CE field reconciliation reads the correlated CE row by ID with a minimal asserted-column $select shape during both create and patch verification. Validation remains blocked by the shared-workspace dotnet test hang before discovery completes.
