@@ -297,8 +297,9 @@
       "id": "T14",
       "title": "Add FO persisted-value readback checks",
       "status": "in_progress",
-      "notes": "After FO create and FO patch, GET the FO record and verify persisted values rather than accepting HTTP success alone.",
+      "notes": "Added FO persisted-value readback verification after create and after each patch step, including explicit classification when transport succeeds but persisted values do not match expected transitions. Added a focused regression test for patch readback mismatch classification and a non-interactive confirmation seam for deterministic test execution.",
       "validation": "dotnet test",
+      "blocker": "Full validation remains blocked by shared-workspace test instability (intermittent testhost hangs/locks). Also, existing integration test RunTestifyAsync_PreservesFieldLevelPassFailResults_WhenCeAssertionFails currently fails with patchesSucceeded expected 1 actual 0.",
       "priority": "high",
       "tier": "medium",
       "acceptance": [
@@ -313,7 +314,8 @@
       "context": [
         "src",
         "DualWriteMapBrowserViewModel.Testify.cs"
-      ]
+      ],
+      "lastVerifierResult": "failed"
     },
     {
       "id": "T15",
@@ -393,5 +395,5 @@
       ]
     }
   ],
-  "mutationCount": 30
+  "mutationCount": 31
 }

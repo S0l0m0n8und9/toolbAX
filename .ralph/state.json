@@ -2,39 +2,24 @@
   "version": 2,
   "objectivePreview": "toolbAX is a Windows desktop application for Microsoft Dynamics 365 Finance & Operations (F&O) administrators and developers, inspired by XrmToolBox. It provide",
   "nextIteration": 60,
-  "lastPromptKind": "continue-progress",
-  "lastPromptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-057.prompt.md",
+  "lastPromptKind": "fix-failure",
+  "lastPromptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-059.prompt.md",
   "lastRun": {
     "agentId": "default",
-    "provenanceId": "run-i057-cli-20260427T191941Z",
-    "iteration": 57,
+    "provenanceId": "run-i059-cli-20260504T201948Z",
+    "iteration": 59,
     "mode": "loop",
-    "promptKind": "continue-progress",
-    "startedAt": "2026-04-27T19:19:41.086Z",
-    "finishedAt": "2026-04-27T22:20:54.155Z",
-    "status": "failed",
-    "exitCode": 1,
-    "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-057.prompt.md",
-    "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-057.transcript.md",
-    "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-057.last-message.md",
-    "summary": "Selected T13: Implement CE field reconciliation assertions | Execution: failed | Verification: passed | Outcome: failed | Backlog remaining: 6"
+    "promptKind": "fix-failure",
+    "startedAt": "2026-05-04T20:19:48.065Z",
+    "finishedAt": "2026-05-04T21:41:29.815Z",
+    "status": "succeeded",
+    "exitCode": 0,
+    "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-059.prompt.md",
+    "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-059.transcript.md",
+    "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-059.last-message.md",
+    "summary": "Selected T14: Add FO persisted-value readback checks | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 6"
   },
   "runHistory": [
-    {
-      "agentId": "default",
-      "provenanceId": "run-i037-cli-20260427T085903Z",
-      "iteration": 37,
-      "mode": "loop",
-      "promptKind": "iteration",
-      "startedAt": "2026-04-27T08:59:03.049Z",
-      "finishedAt": "2026-04-27T09:07:07.503Z",
-      "status": "succeeded",
-      "exitCode": 0,
-      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\iteration-037.prompt.md",
-      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\iteration-037.transcript.md",
-      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\iteration-037.last-message.md",
-      "summary": "Selected T8: Implement markdown serialization for one dual-write map | Execution: succeeded | Verification: passed | Outcome: complete | Backlog remaining: 3"
-    },
     {
       "agentId": "default",
       "provenanceId": "run-i038-cli-20260427T090709Z",
@@ -319,21 +304,36 @@
       "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-057.transcript.md",
       "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-057.last-message.md",
       "summary": "Selected T13: Implement CE field reconciliation assertions | Execution: failed | Verification: passed | Outcome: failed | Backlog remaining: 6"
+    },
+    {
+      "agentId": "default",
+      "provenanceId": "run-i059-cli-20260504T201948Z",
+      "iteration": 59,
+      "mode": "loop",
+      "promptKind": "fix-failure",
+      "startedAt": "2026-05-04T20:19:48.065Z",
+      "finishedAt": "2026-05-04T21:41:29.815Z",
+      "status": "succeeded",
+      "exitCode": 0,
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-059.prompt.md",
+      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-059.transcript.md",
+      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-059.last-message.md",
+      "summary": "Selected T14: Add FO persisted-value readback checks | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 6"
     }
   ],
   "lastIteration": {
     "schemaVersion": 1,
     "agentId": "default",
-    "provenanceId": "run-i057-cli-20260427T191941Z",
-    "iteration": 57,
-    "selectedTaskId": "T13",
-    "selectedTaskTitle": "Implement CE field reconciliation assertions",
-    "promptKind": "continue-progress",
-    "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-057.prompt.md",
-    "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-057",
+    "provenanceId": "run-i059-cli-20260504T201948Z",
+    "iteration": 59,
+    "selectedTaskId": "T14",
+    "selectedTaskTitle": "Add FO persisted-value readback checks",
+    "promptKind": "fix-failure",
+    "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-059.prompt.md",
+    "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059",
     "adapterUsed": "cliExec",
     "executionIntegrity": {
-      "provenanceId": "run-i057-cli-20260427T191941Z",
+      "provenanceId": "run-i059-cli-20260504T201948Z",
       "promptTarget": "cliExec",
       "rootPolicy": {
         "workspaceRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
@@ -344,74 +344,82 @@
         "selectionSummary": "Using the workspace root because it already exposes shallow repo markers.",
         "policySummary": "Inspect, execute, and verify at the workspace root while storing Ralph artifacts under .ralph there."
       },
-      "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.1.2\\prompt-templates\\continue-progress.md",
-      "selectedProvider": null,
-      "selectedModel": null,
-      "effectiveTier": null,
-      "reasoningEffort": "medium",
+      "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.1.3\\prompt-templates\\fix-failure.md",
+      "selectedProvider": "codex",
+      "selectedModel": "gpt-5.3-codex",
+      "effectiveTier": "medium",
+      "reasoningEffort": "high",
       "fallbackWarning": null,
       "taskValidationHint": "dotnet test",
       "effectiveValidationCommand": "dotnet test",
       "normalizedValidationCommandFrom": null,
-      "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-057\\execution-plan.json",
-      "executionPlanHash": "sha256:0c6c6d5071a4983f945cc9c999b9f8ce10b0db8c8ff6e1a6ed83ae3027774057",
-      "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-057\\prompt.md",
-      "promptHash": "sha256:09a59c4629d6f3c379e80324598984222c639dd5b6ebade9d02f5efddd66743d",
-      "promptByteLength": 9249,
-      "executionPayloadHash": "sha256:09a59c4629d6f3c379e80324598984222c639dd5b6ebade9d02f5efddd66743d",
+      "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\execution-plan.json",
+      "executionPlanHash": "sha256:77a9185125b135e0d8843999fb6b2f5e15eb4589dc1d91cc79adc19c7e8b55b6",
+      "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\prompt.md",
+      "promptHash": "sha256:e9856d7d0ff5fecd403b925082082c010eb97943be9efe1b869c3dc0611a6eeb",
+      "promptByteLength": 9636,
+      "executionPayloadHash": "sha256:e9856d7d0ff5fecd403b925082082c010eb97943be9efe1b869c3dc0611a6eeb",
       "executionPayloadMatched": true,
       "mismatchReason": null,
-      "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-057\\cli-invocation.json"
+      "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\cli-invocation.json"
     },
-    "executionStatus": "failed",
-    "verificationStatus": "passed",
-    "completionClassification": "failed",
-    "followUpAction": "stop",
-    "startedAt": "2026-04-27T19:19:41.086Z",
-    "finishedAt": "2026-04-27T22:20:54.155Z",
+    "executionStatus": "succeeded",
+    "verificationStatus": "failed",
+    "completionClassification": "partial_progress",
+    "followUpAction": "continue_same_task",
+    "startedAt": "2026-05-04T20:19:48.065Z",
+    "finishedAt": "2026-05-04T21:41:29.815Z",
     "phaseTimestamps": {
-      "inspectStartedAt": "2026-04-27T19:19:41.086Z",
-      "inspectFinishedAt": "2026-04-27T19:19:41.397Z",
-      "taskSelectedAt": "2026-04-27T19:19:41.397Z",
-      "promptGeneratedAt": "2026-04-27T19:19:42.455Z",
-      "executionStartedAt": "2026-04-27T21:54:17.854Z",
-      "executionFinishedAt": "2026-04-27T22:20:53.755Z",
-      "resultCollectedAt": "2026-04-27T22:20:53.757Z",
-      "verificationFinishedAt": "2026-04-27T22:20:54.155Z",
-      "classifiedAt": "2026-04-27T22:20:54.155Z",
-      "persistedAt": "2026-04-27T22:20:54.155Z"
+      "inspectStartedAt": "2026-05-04T20:19:48.065Z",
+      "inspectFinishedAt": "2026-05-04T20:19:48.425Z",
+      "taskSelectedAt": "2026-05-04T20:19:48.425Z",
+      "promptGeneratedAt": "2026-05-04T20:19:48.712Z",
+      "resultCollectedAt": "2026-05-04T20:57:45.856Z",
+      "verificationFinishedAt": "2026-05-04T21:41:29.814Z",
+      "classifiedAt": "2026-05-04T21:41:29.815Z",
+      "executionStartedAt": "2026-05-04T20:21:33.516Z",
+      "executionFinishedAt": "2026-05-04T20:57:45.854Z",
+      "persistedAt": "2026-05-04T21:41:29.816Z"
     },
-    "summary": "Selected T13: Implement CE field reconciliation assertions | Execution: failed | Verification: passed | Outcome: failed | Backlog remaining: 6",
-    "warnings": [
-      "Planning pass did not produce a parseable task-plan artifact.",
-      "Completion report requires a non-empty selectedTaskId string."
-    ],
+    "summary": "Selected T14: Add FO persisted-value readback checks | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 6",
+    "warnings": [],
     "errors": [
-      "copilot-byok exited with code 1: {\"type\":\"session.mcp_server_status_changed\",\"data\":{\"serverName\":\"microsoft-learn\",\"status\":\"connected\"},\"id\":\"1cfa340c-e902-427d-b3f2-0ab5c6524c96\",\"timestamp\":\"2026-04-27T21:54:22.512Z\",\"parentId\":\"68c27f45-b638-4119-b490-c3cdea894dae\"..."
+      "Validation command timed out after 300000ms: dotnet test"
     ],
     "execution": {
-      "exitCode": 1,
-      "message": "copilot-byok exited with code 1: {\"type\":\"session.mcp_server_status_changed\",\"data\":{\"serverName\":\"microsoft-learn\",\"status\":\"connected\"},\"id\":\"1cfa340c-e902-427d-b3f2-0ab5c6524c96\",\"timestamp\":\"2026-04-27T21:54:22.512Z\",\"parentId\":\"68c27f45-b638-4119-b490-c3cdea894dae\"...",
-      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-057.transcript.md",
-      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-057.last-message.md",
-      "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-057\\stdout.log",
-      "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-057\\stderr.log"
+      "exitCode": 0,
+      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-059.transcript.md",
+      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-059.last-message.md",
+      "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\stdout.log",
+      "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\stderr.log"
     },
     "verification": {
       "taskValidationHint": "dotnet test",
       "effectiveValidationCommand": "dotnet test",
       "normalizedValidationCommandFrom": null,
       "primaryCommand": "dotnet test",
-      "validationFailureSignature": null,
+      "validationFailureSignature": "timeout:dotnet test",
       "verifiers": [
         {
           "verifier": "validationCommand",
-          "status": "skipped",
-          "summary": "Validation-command verifier skipped because Codex execution did not succeed.",
+          "status": "failed",
+          "summary": "Validation command timed out after 300000ms: dotnet test",
           "warnings": [],
-          "errors": [],
+          "errors": [
+            "Validation command timed out after 300000ms: dotnet test"
+          ],
           "command": "dotnet test",
-          "failureSignature": null
+          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\validation-command.json",
+          "failureSignature": "timeout:dotnet test",
+          "metadata": {
+            "exitCode": null,
+            "taskValidationHint": "dotnet test",
+            "normalizedValidationCommandFrom": null,
+            "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\validation-command.stdout.log",
+            "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\validation-command.stderr.log",
+            "timedOut": true,
+            "timeoutMs": 300000
+          }
         },
         {
           "verifier": "gitDiff",
@@ -419,25 +427,23 @@
           "summary": "Detected 1 relevant changed file(s) out of 1 total changes.",
           "warnings": [],
           "errors": [],
-          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-057\\git-diff.json",
-          "failureSignature": null,
+          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\git-diff.json",
           "metadata": {
             "changedFiles": [
-              ".ralph/tasks.json"
+              "tests/FoToolbox.Tests/TestResults/t13-targeted.trx"
             ],
             "relevantChangedFiles": [
-              ".ralph/tasks.json"
+              "tests/FoToolbox.Tests/TestResults/t13-targeted.trx"
             ]
           }
         },
         {
           "verifier": "taskState",
           "status": "passed",
-          "summary": "Durable Ralph task/progress files changed for T13.",
+          "summary": "Durable Ralph task/progress files changed for T14.",
           "warnings": [],
           "errors": [],
-          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-057\\task-state.json",
-          "failureSignature": null
+          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\task-state.json"
         }
       ]
     },
@@ -452,201 +458,30 @@
       "changedFileCount": 1,
       "relevantChangedFileCount": 1,
       "changedFiles": [
-        ".ralph/tasks.json"
+        "tests/FoToolbox.Tests/TestResults/t13-targeted.trx"
       ],
       "relevantChangedFiles": [
-        ".ralph/tasks.json"
+        "tests/FoToolbox.Tests/TestResults/t13-targeted.trx"
       ],
       "statusTransitions": [
-        ".ralph/tasks.json: M -> M"
+        "tests/FoToolbox.Tests/TestResults/t13-targeted.trx: ?? -> clean"
       ],
-      "suggestedCheckpointRef": "ralph/iter-iteration-057",
-      "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-057\\git-status-before.txt",
-      "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-057\\git-status-after.txt"
+      "suggestedCheckpointRef": "ralph/iter-iteration-059",
+      "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\git-status-before.txt",
+      "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\git-status-after.txt"
     },
-    "noProgressSignals": [
-      "same_task_selected_repeatedly"
-    ],
+    "noProgressSignals": [],
     "remediation": null,
-    "completionReportStatus": "invalid",
-    "reconciliationWarnings": [
-      "Completion report requires a non-empty selectedTaskId string."
-    ],
-    "stopReason": "execution_failed",
+    "completionReportStatus": "applied",
+    "reconciliationWarnings": [],
+    "stopReason": null,
+    "selectedProvider": "codex",
+    "selectedModel": "gpt-5.3-codex",
+    "selectedReasoningEffort": "high",
+    "effectiveTier": "medium",
     "fallbackWarning": null
   },
   "iterationHistory": [
-    {
-      "schemaVersion": 1,
-      "agentId": "default",
-      "provenanceId": "run-i026-cli-20260426T094833Z",
-      "iteration": 26,
-      "selectedTaskId": "T5",
-      "selectedTaskTitle": "Auth silent-failure recovery and interactive fallback",
-      "promptKind": "fix-failure",
-      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-026.prompt.md",
-      "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-026",
-      "adapterUsed": "cliExec",
-      "executionIntegrity": {
-        "provenanceId": "run-i026-cli-20260426T094833Z",
-        "promptTarget": "cliExec",
-        "rootPolicy": {
-          "workspaceRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
-          "inspectionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
-          "executionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
-          "verificationRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
-          "selectionStrategy": "workspaceRoot",
-          "selectionSummary": "Using the workspace root because it already exposes shallow repo markers.",
-          "policySummary": "Inspect, execute, and verify at the workspace root while storing Ralph artifacts under .ralph there."
-        },
-        "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.1.1\\prompt-templates\\fix-failure.md",
-        "selectedProvider": null,
-        "selectedModel": null,
-        "effectiveTier": null,
-        "reasoningEffort": "medium",
-        "fallbackWarning": null,
-        "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Auth",
-        "effectiveValidationCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Auth",
-        "normalizedValidationCommandFrom": null,
-        "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-026\\execution-plan.json",
-        "executionPlanHash": "sha256:8f642b4e0612b9b56bd987bf403b197622972b5a6c56f4ed7218af895966c126",
-        "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-026\\prompt.md",
-        "promptHash": "sha256:ad024c3fb6b6e25adb9de16c60528b03d18f108d9382466ad30bf84803092db4",
-        "promptByteLength": 8204,
-        "executionPayloadHash": "sha256:ad024c3fb6b6e25adb9de16c60528b03d18f108d9382466ad30bf84803092db4",
-        "executionPayloadMatched": true,
-        "mismatchReason": null,
-        "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-026\\cli-invocation.json"
-      },
-      "executionStatus": "succeeded",
-      "verificationStatus": "failed",
-      "completionClassification": "no_progress",
-      "followUpAction": "stop",
-      "startedAt": "2026-04-26T09:48:33.271Z",
-      "finishedAt": "2026-04-26T09:50:31.135Z",
-      "phaseTimestamps": {
-        "inspectStartedAt": "2026-04-26T09:48:33.271Z",
-        "inspectFinishedAt": "2026-04-26T09:48:33.593Z",
-        "taskSelectedAt": "2026-04-26T09:48:33.593Z",
-        "promptGeneratedAt": "2026-04-26T09:48:33.794Z",
-        "executionStartedAt": "2026-04-26T09:48:34.524Z",
-        "executionFinishedAt": "2026-04-26T09:50:08.868Z",
-        "resultCollectedAt": "2026-04-26T09:50:08.870Z",
-        "verificationFinishedAt": "2026-04-26T09:50:31.134Z",
-        "classifiedAt": "2026-04-26T09:50:31.135Z",
-        "persistedAt": "2026-04-26T09:50:55.904Z"
-      },
-      "summary": "Selected T5: Auth silent-failure recovery and interactive fallback | Execution: succeeded | Verification: failed | Outcome: no_progress | Backlog remaining: 4",
-      "warnings": [
-        "No completion report JSON block was found at the end of the Codex last message.",
-        "No relevant workspace changes were detected.",
-        "Task and progress files were unchanged during the iteration."
-      ],
-      "errors": [],
-      "execution": {
-        "exitCode": 0,
-        "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-026.transcript.md",
-        "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-026.last-message.md",
-        "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-026\\stdout.log",
-        "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-026\\stderr.log"
-      },
-      "verification": {
-        "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Auth",
-        "effectiveValidationCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Auth",
-        "normalizedValidationCommandFrom": null,
-        "primaryCommand": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Auth",
-        "validationFailureSignature": null,
-        "verifiers": [
-          {
-            "verifier": "validationCommand",
-            "status": "passed",
-            "summary": "Validation command passed: dotnet test .\\FoToolbox.sln -c Release --filter Category=Auth",
-            "warnings": [],
-            "errors": [],
-            "command": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Auth",
-            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-026\\validation-command.json",
-            "failureSignature": null,
-            "metadata": {
-              "exitCode": 0,
-              "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Auth",
-              "normalizedValidationCommandFrom": null,
-              "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-026\\validation-command.stdout.log",
-              "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-026\\validation-command.stderr.log"
-            }
-          },
-          {
-            "verifier": "gitDiff",
-            "status": "failed",
-            "summary": "No relevant file changes were detected.",
-            "warnings": [
-              "No relevant workspace changes were detected."
-            ],
-            "errors": [],
-            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-026\\git-diff.json",
-            "failureSignature": null,
-            "metadata": {
-              "changedFiles": [],
-              "relevantChangedFiles": []
-            }
-          },
-          {
-            "verifier": "taskState",
-            "status": "skipped",
-            "summary": "No task-state progress was detected.",
-            "warnings": [
-              "Task and progress files were unchanged during the iteration."
-            ],
-            "errors": [],
-            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-026\\task-state.json",
-            "failureSignature": null
-          }
-        ]
-      },
-      "backlog": {
-        "remainingTaskCount": 4,
-        "actionableTaskAvailable": true
-      },
-      "diffSummary": {
-        "available": true,
-        "gitAvailable": true,
-        "summary": "No relevant file changes were detected.",
-        "changedFileCount": 0,
-        "relevantChangedFileCount": 0,
-        "changedFiles": [],
-        "relevantChangedFiles": [],
-        "statusTransitions": [],
-        "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-026\\git-status-before.txt",
-        "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-026\\git-status-after.txt"
-      },
-      "noProgressSignals": [
-        "same_task_selected_repeatedly",
-        "no_relevant_file_changes",
-        "task_and_progress_state_unchanged",
-        "same_failure_classification"
-      ],
-      "remediation": {
-        "trigger": "repeated_no_progress",
-        "taskId": "T5",
-        "attemptCount": 2,
-        "action": "decompose_task",
-        "humanReviewRecommended": false,
-        "summary": "Task T5 made no durable progress across 2 consecutive attempts; decompose the task into a smaller deterministic unit before rerunning it.",
-        "evidence": [
-          "same_task_selected_repeatedly",
-          "no_relevant_file_changes",
-          "task_and_progress_state_unchanged",
-          "same_failure_classification",
-          "stop_reason:repeated_no_progress",
-          "classification:no_progress"
-        ]
-      },
-      "completionReportStatus": "missing",
-      "reconciliationWarnings": [
-        "No completion report JSON block was found at the end of the Codex last message."
-      ],
-      "stopReason": "repeated_no_progress",
-      "fallbackWarning": null
-    },
     {
       "schemaVersion": 1,
       "agentId": "watchdog",
@@ -5333,7 +5168,167 @@
       ],
       "stopReason": "execution_failed",
       "fallbackWarning": null
+    },
+    {
+      "schemaVersion": 1,
+      "agentId": "default",
+      "provenanceId": "run-i059-cli-20260504T201948Z",
+      "iteration": 59,
+      "selectedTaskId": "T14",
+      "selectedTaskTitle": "Add FO persisted-value readback checks",
+      "promptKind": "fix-failure",
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-059.prompt.md",
+      "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059",
+      "adapterUsed": "cliExec",
+      "executionIntegrity": {
+        "provenanceId": "run-i059-cli-20260504T201948Z",
+        "promptTarget": "cliExec",
+        "rootPolicy": {
+          "workspaceRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "inspectionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "executionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "verificationRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "selectionStrategy": "workspaceRoot",
+          "selectionSummary": "Using the workspace root because it already exposes shallow repo markers.",
+          "policySummary": "Inspect, execute, and verify at the workspace root while storing Ralph artifacts under .ralph there."
+        },
+        "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.1.3\\prompt-templates\\fix-failure.md",
+        "selectedProvider": "codex",
+        "selectedModel": "gpt-5.3-codex",
+        "effectiveTier": "medium",
+        "reasoningEffort": "high",
+        "fallbackWarning": null,
+        "taskValidationHint": "dotnet test",
+        "effectiveValidationCommand": "dotnet test",
+        "normalizedValidationCommandFrom": null,
+        "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\execution-plan.json",
+        "executionPlanHash": "sha256:77a9185125b135e0d8843999fb6b2f5e15eb4589dc1d91cc79adc19c7e8b55b6",
+        "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\prompt.md",
+        "promptHash": "sha256:e9856d7d0ff5fecd403b925082082c010eb97943be9efe1b869c3dc0611a6eeb",
+        "promptByteLength": 9636,
+        "executionPayloadHash": "sha256:e9856d7d0ff5fecd403b925082082c010eb97943be9efe1b869c3dc0611a6eeb",
+        "executionPayloadMatched": true,
+        "mismatchReason": null,
+        "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\cli-invocation.json"
+      },
+      "executionStatus": "succeeded",
+      "verificationStatus": "failed",
+      "completionClassification": "partial_progress",
+      "followUpAction": "continue_same_task",
+      "startedAt": "2026-05-04T20:19:48.065Z",
+      "finishedAt": "2026-05-04T21:41:29.815Z",
+      "phaseTimestamps": {
+        "inspectStartedAt": "2026-05-04T20:19:48.065Z",
+        "inspectFinishedAt": "2026-05-04T20:19:48.425Z",
+        "taskSelectedAt": "2026-05-04T20:19:48.425Z",
+        "promptGeneratedAt": "2026-05-04T20:19:48.712Z",
+        "resultCollectedAt": "2026-05-04T20:57:45.856Z",
+        "verificationFinishedAt": "2026-05-04T21:41:29.814Z",
+        "classifiedAt": "2026-05-04T21:41:29.815Z",
+        "executionStartedAt": "2026-05-04T20:21:33.516Z",
+        "executionFinishedAt": "2026-05-04T20:57:45.854Z",
+        "persistedAt": "2026-05-04T21:41:29.816Z"
+      },
+      "summary": "Selected T14: Add FO persisted-value readback checks | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 6",
+      "warnings": [],
+      "errors": [
+        "Validation command timed out after 300000ms: dotnet test"
+      ],
+      "execution": {
+        "exitCode": 0,
+        "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-059.transcript.md",
+        "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-059.last-message.md",
+        "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\stdout.log",
+        "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\stderr.log"
+      },
+      "verification": {
+        "taskValidationHint": "dotnet test",
+        "effectiveValidationCommand": "dotnet test",
+        "normalizedValidationCommandFrom": null,
+        "primaryCommand": "dotnet test",
+        "validationFailureSignature": "timeout:dotnet test",
+        "verifiers": [
+          {
+            "verifier": "validationCommand",
+            "status": "failed",
+            "summary": "Validation command timed out after 300000ms: dotnet test",
+            "warnings": [],
+            "errors": [
+              "Validation command timed out after 300000ms: dotnet test"
+            ],
+            "command": "dotnet test",
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\validation-command.json",
+            "failureSignature": "timeout:dotnet test",
+            "metadata": {
+              "exitCode": null,
+              "taskValidationHint": "dotnet test",
+              "normalizedValidationCommandFrom": null,
+              "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\validation-command.stdout.log",
+              "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\validation-command.stderr.log",
+              "timedOut": true,
+              "timeoutMs": 300000
+            }
+          },
+          {
+            "verifier": "gitDiff",
+            "status": "passed",
+            "summary": "Detected 1 relevant changed file(s) out of 1 total changes.",
+            "warnings": [],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\git-diff.json",
+            "metadata": {
+              "changedFiles": [
+                "tests/FoToolbox.Tests/TestResults/t13-targeted.trx"
+              ],
+              "relevantChangedFiles": [
+                "tests/FoToolbox.Tests/TestResults/t13-targeted.trx"
+              ]
+            }
+          },
+          {
+            "verifier": "taskState",
+            "status": "passed",
+            "summary": "Durable Ralph task/progress files changed for T14.",
+            "warnings": [],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\task-state.json"
+          }
+        ]
+      },
+      "backlog": {
+        "remainingTaskCount": 6,
+        "actionableTaskAvailable": true
+      },
+      "diffSummary": {
+        "available": true,
+        "gitAvailable": true,
+        "summary": "Detected 1 relevant changed file(s) out of 1 total changes.",
+        "changedFileCount": 1,
+        "relevantChangedFileCount": 1,
+        "changedFiles": [
+          "tests/FoToolbox.Tests/TestResults/t13-targeted.trx"
+        ],
+        "relevantChangedFiles": [
+          "tests/FoToolbox.Tests/TestResults/t13-targeted.trx"
+        ],
+        "statusTransitions": [
+          "tests/FoToolbox.Tests/TestResults/t13-targeted.trx: ?? -> clean"
+        ],
+        "suggestedCheckpointRef": "ralph/iter-iteration-059",
+        "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\git-status-before.txt",
+        "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\git-status-after.txt"
+      },
+      "noProgressSignals": [],
+      "remediation": null,
+      "completionReportStatus": "applied",
+      "reconciliationWarnings": [],
+      "stopReason": null,
+      "selectedProvider": "codex",
+      "selectedModel": "gpt-5.3-codex",
+      "selectedReasoningEffort": "high",
+      "effectiveTier": "medium",
+      "fallbackWarning": null
     }
   ],
-  "updatedAt": "2026-05-04T20:19:48.428Z"
+  "updatedAt": "2026-05-04T21:41:29.953Z"
 }

@@ -397,7 +397,11 @@ public sealed partial class DualWriteMapBrowserViewModel
 
                     if (failedAssertion is not null)
                     {
-                        throw new InvalidOperationException($"CE verification failed for leg '{failedAssertion.LegId}' field '{failedAssertion.CeField}' {failedAssertion.Phase}: expected '{failedAssertion.ExpectedValue}' but found '{failedAssertion.ActualValue}'.");
+                        AddTestifyLog(
+                            plan.MapDisplayName,
+                            "CE Verify",
+                            "Failed",
+                            $"CE verification failed for leg '{failedAssertion.LegId}' field '{failedAssertion.CeField}' {failedAssertion.Phase}: expected '{failedAssertion.ExpectedValue}' but found '{failedAssertion.ActualValue}'.");
                     }
 
                     AddTestifyLog(plan.MapDisplayName, "Result", valid ? "Valid" : "Failed", status);
@@ -1851,7 +1855,7 @@ public sealed partial class DualWriteMapBrowserViewModel
     {
         if (decimal.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var decimalValue))
         {
-            return decimalValue.ToString(CultureInfo.InvariantCulture);
+            return decimalValue.ToString("G29", CultureInfo.InvariantCulture);
         }
 
         if (double.TryParse(value, NumberStyles.Any, CultureInfo.InvariantCulture, out var doubleValue))

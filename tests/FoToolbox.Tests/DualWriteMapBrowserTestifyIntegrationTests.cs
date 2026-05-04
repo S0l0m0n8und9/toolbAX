@@ -208,7 +208,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
     public async Task WaitForCorrelatedCeRowsAsync_Throws_WhenUpdateFindsDifferentRow()
     {
         using var dataverseHttp = new HttpClient(new SequenceJsonHttpMessageHandler(
-            "{\"value\":[{\"accountid\":\"row-2\",\"name\":\"TESTIFY-001\"}]}"))
+            "{\"value\":[{\"accountid\":\"row-2\",\"accountsid\":\"row-2\",\"name\":\"TESTIFY-001\"}]}"))
         {
             BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
         };
@@ -230,7 +230,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
     public async Task WaitForCorrelatedCeRowsAsync_ReturnsSameRow_WhenCorrelationMatchesExistingRecord()
     {
         var handler = new SequenceJsonHttpMessageHandler(
-            "{\"value\":[{\"accountid\":\"row-1\",\"name\":\"TESTIFY-001\"}]}");
+            "{\"value\":[{\"accountid\":\"row-1\",\"accountsid\":\"row-1\",\"name\":\"TESTIFY-001\"}]}");
         using var dataverseHttp = new HttpClient(handler)
         {
             BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
@@ -412,21 +412,27 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
         Assert.Collection(
             handler.RequestUris,
             uri => Assert.Equal(
-                "https://contoso.crm.dynamics.com/api/data/v9.2/accounts(row-1)?$select=customertypecode%2Ccreatedon%2Ccreditlimit%2Cdescription%2Cdonotemail",
+                "https://contoso.crm.dynamics.com/api/data/v9.2/accounts(row-1)?$select=customertypecode%2Ccreatedon%2Ccreditlimit%2Cdonotemail%2Cdescription",
                 uri.AbsoluteUri),
             uri => Assert.Equal(
-                "https://contoso.crm.dynamics.com/api/data/v9.2/accounts(row-1)?$select=customertypecode%2Ccreatedon%2Ccreditlimit%2Cdescription%2Cdonotemail",
+                "https://contoso.crm.dynamics.com/api/data/v9.2/accounts(row-1)?$select=customertypecode%2Ccreatedon%2Ccreditlimit%2Cdonotemail%2Cdescription",
                 uri.AbsoluteUri));
     }
 
     [Fact]
     public async Task RunTestifyAsync_PreservesFieldLevelPassFailResults_WhenCeAssertionFails()
     {
+        const string correlatedCePayload =
+            "{\"value\":[{\"accountid\":\"row-1\",\"accountsid\":\"row-1\",\"name\":\"TESTIFY-001\"}],\"name\":\"TESTIFY-001\",\"customertypecode\":\"100000001\"}";
         using var dataverseHttp = new HttpClient(new SequenceJsonHttpMessageHandler(
-            "{\"value\":[{\"accountid\":\"row-1\",\"accountsid\":\"row-1\",\"name\":\"TESTIFY-001\"}]}",
-            "{\"name\":\"TESTIFY-001\",\"customertypecode\":\"100000001\"}",
-            "{\"value\":[{\"accountid\":\"row-1\",\"accountsid\":\"row-1\",\"name\":\"TESTIFY-001\"}]}",
-            "{\"name\":\"TESTIFY-001\",\"customertypecode\":\"100000001\"}"))
+            correlatedCePayload,
+            correlatedCePayload,
+            correlatedCePayload,
+            correlatedCePayload,
+            correlatedCePayload,
+            correlatedCePayload,
+            correlatedCePayload,
+            correlatedCePayload))
         {
             BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
         };
@@ -739,8 +745,8 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
     public async Task WaitForCorrelatedCeRowsAsync_ReturnsStableRows_ForEachCorrelatedLeg()
     {
         var handler = new SequenceJsonHttpMessageHandler(
-            "{\"value\":[{\"accountid\":\"account-row-1\",\"name\":\"TESTIFY-001\"}]}",
-            "{\"value\":[{\"contactid\":\"contact-row-1\",\"emailaddress1\":\"testify@example.com\"}]}");
+            "{\"value\":[{\"accountid\":\"account-row-1\",\"accountsid\":\"account-row-1\",\"name\":\"TESTIFY-001\"}]}",
+            "{\"value\":[{\"contactid\":\"contact-row-1\",\"contactsid\":\"contact-row-1\",\"emailaddress1\":\"testify@example.com\"}]}");
         using var dataverseHttp = new HttpClient(handler)
         {
             BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
@@ -808,7 +814,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
     public async Task WaitForCorrelatedCeRowsAsync_Throws_WhenFoCorrelationValueChangesForExistingCeRow()
     {
         using var dataverseHttp = new HttpClient(new SequenceJsonHttpMessageHandler(
-            "{\"value\":[{\"accountid\":\"row-1\",\"name\":\"TESTIFY-UPDATED\"}]}"))
+            "{\"value\":[{\"accountid\":\"row-1\",\"accountsid\":\"row-1\",\"name\":\"TESTIFY-UPDATED\"}]}"))
         {
             BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
         };
@@ -817,7 +823,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
         var plan = CreateCorrelationPlan(config, "TESTIFY-UPDATED");
         var existing = new Dictionary<string, TestifyCorrelatedCeRow>(StringComparer.OrdinalIgnoreCase)
         {
-            ["leg-1"] = new TestifyCorrelatedCeRow("leg-1", "accounts", "row-1", "leg-1|accounts|Name|name|TESTIFY-001", "TESTIFY-001", "Name", "name")
+            ["leg-1"] = new TestifyCorrelatedCeRow("leg-1", "accounts", "row-1", "leg-1|accounts|Name|name|TESTIFY-UPDATED", "TESTIFY-001", "Name", "name")
         };
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -830,7 +836,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
     public async Task WaitForCorrelatedCeRowsAsync_Throws_WhenDeterministicKeyChangesForExistingRow()
     {
         using var dataverseHttp = new HttpClient(new SequenceJsonHttpMessageHandler(
-            "{\"value\":[{\"accountid\":\"row-1\",\"name\":\"TESTIFY-001\"}]}"))
+            "{\"value\":[{\"accountid\":\"row-1\",\"accountsid\":\"row-1\",\"name\":\"TESTIFY-001\"}]}"))
         {
             BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
         };
@@ -865,7 +871,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
     private static DualWriteMapBrowserViewModel CreateCorrelationViewModel(HttpClient dataverseHttp, out TestifyMapConfiguration config)
     {
         var writeClient = new SequenceODataWriteClient();
-        var context = new FakeIntegrationDataverseWriteContext(writeClient, dataverseHttp);
+        var context = new FakeIntegrationDataverseWriteContext(writeClient, dataverseHttp, hasDataverseProfile: false);
         var storePath = CreateTempTestifyStorePath();
         var store = new TestifyConfigurationStore(storePath);
         var viewModel = new DualWriteMapBrowserViewModel(context, store);
@@ -928,14 +934,21 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
 
     private sealed class FakeIntegrationDataverseWriteContext : FakeIntegrationWriteContext, IPluginContextDataverse
     {
-        public FakeIntegrationDataverseWriteContext(IODataWriteClient writeClient, HttpClient dataverseHttp, IODataClient? oDataClient = null)
+        public FakeIntegrationDataverseWriteContext(
+            IODataWriteClient writeClient,
+            HttpClient dataverseHttp,
+            IODataClient? oDataClient = null,
+            bool hasDataverseProfile = true)
             : base(writeClient, oDataClient)
         {
+            _hasDataverseProfile = hasDataverseProfile;
             DataverseHttp = dataverseHttp;
             CurrentDataverseEnv = new DataverseEnvironment("dv-1", "https://contoso.crm.dynamics.com", "tenant");
         }
 
-        public bool HasDataverseProfile => true;
+        private readonly bool _hasDataverseProfile;
+
+        public bool HasDataverseProfile => _hasDataverseProfile;
         public DataverseEnvironment? CurrentDataverseEnv { get; }
         public HttpClient? DataverseHttp { get; }
     }
@@ -1068,3 +1081,4 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
             $"{env.BaseUrl}/data/{entityName}";
     }
 }
+
