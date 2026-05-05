@@ -256,6 +256,7 @@ public sealed partial class DualWriteMapBrowserViewModel
                 var valid = false;
                 var status = "Unknown error.";
                 var createdThisRun = false;
+                IReadOnlyDictionary<string, string>? correlatedCeRowIdentities = null;
 
                 try
                 {
@@ -287,7 +288,6 @@ public sealed partial class DualWriteMapBrowserViewModel
                     if (!reusingExisting)
                     {
                         AddTestifyLog(plan.MapDisplayName, "Create", "Started", "Creating FO test record.");
-                        var preCreateBaselines = await GetCeBaselinesAsync(plan, cancellationToken);
 
                         var createResponse = await SendCreateWithRetryAsync(plan, runtimeCreateValues, plan.Configuration, cancellationToken);
                         if (!IsSuccessfulStatusCode(createResponse.StatusCode))
@@ -319,16 +319,16 @@ public sealed partial class DualWriteMapBrowserViewModel
                         AddTestifyLog(plan.MapDisplayName, "Create Readback", "Succeeded", "FO readback matched expected create values.");
                         createSucceeded = true;
 
-                        await WaitForCeDeltaAsync(plan, preCreateBaselines, cancellationToken, "after create");
-                        AddTestifyLog(plan.MapDisplayName, "CE Verify", "Succeeded", "CE baseline delta reached after create.");
+                        correlatedCeRowIdentities = await WaitForCeCorrelationAsync(plan, runtimeCreateValues, expectedRowIdentities: null, cancellationToken, "after create");
+                        AddTestifyLog(plan.MapDisplayName, "CE Verify", "Succeeded", "Correlated CE row matched after create.");
                     }
                     else
                     {
                         entityInstanceUrl = plan.Configuration.LastEntityInstanceUrl!;
+                        await HydrateCorrelationValuesFromFoRecordAsync(plan, entityInstanceUrl, runtimeCreateValues, cancellationToken);
+                        correlatedCeRowIdentities = await WaitForCeCorrelationAsync(plan, runtimeCreateValues, expectedRowIdentities: null, cancellationToken, "before patch");
+                        AddTestifyLog(plan.MapDisplayName, "CE Verify", "Succeeded", "Correlated CE row matched before patching reused record.");
                     }
-
-                    // Get fresh baselines before patch steps (needed for both new and reused records).
-                    var baselines = await GetCeBaselinesAsync(plan, cancellationToken);
 
                     foreach (var step in plan.PatchSteps)
                     {
@@ -360,8 +360,13 @@ public sealed partial class DualWriteMapBrowserViewModel
                         AddTestifyLog(plan.MapDisplayName, "Patch Readback", "Succeeded", $"FO readback matched expected values after patch {step.StepNumber}.");
                         patchesSucceeded++;
 
-                        await WaitForCeDeltaAsync(plan, baselines, cancellationToken, $"after patch {step.StepNumber}");
-                        AddTestifyLog(plan.MapDisplayName, "CE Verify", "Succeeded", $"CE baseline delta reached after patch {step.StepNumber}.");
+                        correlatedCeRowIdentities = await WaitForCeCorrelationAsync(
+                            plan,
+                            runtimeCreateValues,
+                            correlatedCeRowIdentities,
+                            cancellationToken,
+                            $"after patch {step.StepNumber}");
+                        AddTestifyLog(plan.MapDisplayName, "CE Verify", "Succeeded", $"Correlated CE row remained stable after patch {step.StepNumber}.");
                     }
 
                     ceSucceeded = DidCeVerificationSucceedForCompletedRun(createSucceeded, patchesSucceeded, plan.PatchSteps.Count);
@@ -430,10 +435,7 @@ public sealed partial class DualWriteMapBrowserViewModel
             blockingIssues.Add("No AX->CRM legs found in map.");
         }
 
-        var ceLegs = axToCrmLegs
-            .Where(leg => !string.IsNullOrWhiteSpace(leg.DestinationSchema))
-            .Select(leg => new TestifyLegPlan(leg.LegId, leg.DestinationSchema, leg.ReversedSourceFilter?.Trim() ?? string.Empty))
-            .ToList();
+        var ceLegs = new List<TestifyLegPlan>();
 
         var foEntityCandidates = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         foreach (var leg in axToCrmLegs)
@@ -664,6 +666,44 @@ public sealed partial class DualWriteMapBrowserViewModel
 
             ApplyBestEffortRunTag(foEntityDetails, createValues, runToken);
 
+            var keyFoFields = foEntityDetails.Properties
+                .Where(p => p.IsKey)
+                .Select(p => p.Name)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var leg in axToCrmLegs)
+            {
+                if (string.IsNullOrWhiteSpace(leg.DestinationSchema))
+                {
+                    blockingIssues.Add($"Missing CE entity for leg '{leg.LegId}'.");
+                    continue;
+                }
+
+                if (!TryResolveCeCorrelationDescriptor(
+                    map,
+                    leg,
+                    createValues,
+                    keyFoFields,
+                    out var correlationFoField,
+                    out var correlationCeField,
+                    out var correlationError))
+                {
+                    blockingIssues.Add(correlationError);
+                    continue;
+                }
+
+                ceLegs.Add(new TestifyLegPlan(
+                    leg.LegId,
+                    leg.DestinationSchema.Trim(),
+                    NormalizeCeFilterExpression(leg.ReversedSourceFilter),
+                    correlationFoField,
+                    correlationCeField));
+            }
+
+            if (ceLegs.Count == 0)
+            {
+                blockingIssues.Add("No AX->CRM leg produced a deterministic CE correlation descriptor.");
+            }
+
             foreach (var keyProp in foEntityDetails.Properties.Where(p => p.IsKey))
             {
                 if (!createValues.TryGetValue(keyProp.Name, out var keyValue) || string.IsNullOrWhiteSpace(keyValue))
@@ -765,35 +805,10 @@ public sealed partial class DualWriteMapBrowserViewModel
             $"Unmapped enum members for field '{gap.FieldName}': {string.Join(", ", gap.EnumValues.Select(value => $"'{value}'"))}.");
     }
 
-    private async Task<Dictionary<string, long>> GetCeBaselinesAsync(TestifyMapPlan plan, CancellationToken cancellationToken)
-    {
-        var baselines = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-        var dataverseHttp = _dataverse!.DataverseHttp!;
-        var apiBase = ResourceUrlNormalizer.BuildDataverseApiBaseUrl(_dataverse.CurrentDataverseEnv!.BaseUrl);
-
-        foreach (var leg in plan.CeLegs)
-        {
-            if (string.IsNullOrWhiteSpace(leg.CeEntity))
-            {
-                throw new InvalidOperationException($"Missing CE entity for leg '{leg.LegId}'.");
-            }
-
-            var baseline = await GetDataverseExactCountAsync(dataverseHttp, apiBase, leg.CeEntity, leg.CeFilter, cancellationToken);
-            if (!baseline.HasValue)
-            {
-                throw new InvalidOperationException($"Unable to retrieve CE baseline for leg '{leg.LegId}' ({leg.CeEntity}).");
-            }
-
-            baselines[leg.LegId] = baseline.Value;
-            AddTestifyLog(plan.MapDisplayName, "CE Baseline", "Captured", $"Leg {leg.LegId} baseline count: {baseline.Value}.");
-        }
-
-        return baselines;
-    }
-
-    internal async Task WaitForCeDeltaAsync(
+    internal async Task<IReadOnlyDictionary<string, string>> WaitForCeCorrelationAsync(
         TestifyMapPlan plan,
-        IReadOnlyDictionary<string, long> baselines,
+        IReadOnlyDictionary<string, string> runtimeCreateValues,
+        IReadOnlyDictionary<string, string>? expectedRowIdentities,
         CancellationToken cancellationToken,
         string phase)
     {
@@ -801,38 +816,236 @@ public sealed partial class DualWriteMapBrowserViewModel
         var apiBase = ResourceUrlNormalizer.BuildDataverseApiBaseUrl(_dataverse.CurrentDataverseEnv!.BaseUrl);
         var timeoutMinutes = plan.Configuration.CePollTimeoutMinutes > 0 ? plan.Configuration.CePollTimeoutMinutes : 5;
         var deadline = TestifyUtcNow().AddMinutes(timeoutMinutes);
+        var criteriaByLeg = BuildCeCorrelationCriteria(plan, runtimeCreateValues, expectedRowIdentities);
 
         while (TestifyUtcNow() <= deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
             var allReached = true;
-            foreach (var leg in plan.CeLegs)
+            var matchedRowIdentities = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var criteria in criteriaByLeg)
             {
-                var current = await GetDataverseExactCountAsync(dataverseHttp, apiBase, leg.CeEntity, leg.CeFilter, cancellationToken);
-                if (!current.HasValue)
+                var rows = await QueryDataverseRowsAsync(dataverseHttp, apiBase, criteria.CeEntity, criteria.CorrelationFilter, top: 2, cancellationToken);
+                if (rows.Count > 1)
                 {
-                    allReached = false;
-                    break;
+                    throw new InvalidOperationException(
+                        $"CE correlation for leg '{criteria.LegId}' matched {rows.Count} rows ({phase}). Expected exactly one row for {criteria.CorrelationCeField}='{criteria.ExpectedValue}'.");
                 }
 
-                var target = baselines[leg.LegId] + 1;
-                if (current.Value < target)
+                if (rows.Count == 0)
                 {
                     allReached = false;
-                    break;
+                    continue;
                 }
+
+                var row = rows[0];
+                if (!TryGetRowValueIgnoreCase(row, criteria.CorrelationCeField, out var actualCorrelationValue) ||
+                    !string.Equals(actualCorrelationValue, criteria.ExpectedValue, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(
+                        $"CE correlation for leg '{criteria.LegId}' returned an unrelated row ({phase}). Expected {criteria.CorrelationCeField}='{criteria.ExpectedValue}'.");
+                }
+
+                var rowIdentity = TryGetDataverseRowIdentity(criteria.CeEntity, row);
+                if (string.IsNullOrWhiteSpace(rowIdentity))
+                {
+                    throw new InvalidOperationException(
+                        $"CE correlation for leg '{criteria.LegId}' ({criteria.CeEntity}) matched a row, but no stable row identity field was found.");
+                }
+
+                if (!string.IsNullOrWhiteSpace(criteria.ExpectedRowIdentity) &&
+                    !string.Equals(criteria.ExpectedRowIdentity, rowIdentity, StringComparison.OrdinalIgnoreCase))
+                {
+                    throw new InvalidOperationException(
+                        $"CE correlation for leg '{criteria.LegId}' matched a different row after update ({phase}). Expected '{criteria.ExpectedRowIdentity}' but found '{rowIdentity}'.");
+                }
+
+                matchedRowIdentities[criteria.LegId] = rowIdentity;
             }
 
             if (allReached)
             {
-                return;
+                return matchedRowIdentities;
             }
 
             await TestifyDelayAsync(TimeSpan.FromSeconds(5), cancellationToken);
         }
 
-        throw new InvalidOperationException($"CE verification timed out ({phase}) after {timeoutMinutes} minute(s). Increase CePollTimeoutMinutes in Testify configuration if sync is slow.");
+        throw new InvalidOperationException($"CE correlation verification timed out ({phase}) after {timeoutMinutes} minute(s). Increase CePollTimeoutMinutes in Testify configuration if sync is slow.");
+    }
+
+    private static IReadOnlyList<TestifyCeCorrelationCriteria> BuildCeCorrelationCriteria(
+        TestifyMapPlan plan,
+        IReadOnlyDictionary<string, string> runtimeCreateValues,
+        IReadOnlyDictionary<string, string>? expectedRowIdentities)
+    {
+        var criteria = new List<TestifyCeCorrelationCriteria>(plan.CeLegs.Count);
+
+        foreach (var leg in plan.CeLegs)
+        {
+            if (!runtimeCreateValues.TryGetValue(leg.CorrelationFoField, out var expectedValue) || string.IsNullOrWhiteSpace(expectedValue))
+            {
+                throw new InvalidOperationException(
+                    $"CE correlation for leg '{leg.LegId}' requires FO field '{leg.CorrelationFoField}', but no runtime value was available.");
+            }
+
+            var normalizedExpected = expectedValue.Trim();
+            var correlationFilter = BuildCeCorrelationFilter(leg.CeFilter, leg.CorrelationCeField, normalizedExpected);
+            string? expectedRowIdentity = null;
+            expectedRowIdentities?.TryGetValue(leg.LegId, out expectedRowIdentity);
+
+            criteria.Add(new TestifyCeCorrelationCriteria(
+                leg.LegId,
+                leg.CeEntity,
+                leg.CorrelationCeField,
+                normalizedExpected,
+                correlationFilter,
+                expectedRowIdentity));
+        }
+
+        return criteria;
+    }
+
+    private static string BuildCeCorrelationFilter(string baseFilter, string correlationCeField, string expectedValue)
+    {
+        var normalizedBaseFilter = NormalizeCeFilterExpression(baseFilter);
+        var escapedValue = expectedValue.Replace("'", "''", StringComparison.Ordinal);
+        var correlationClause = $"{correlationCeField} eq '{escapedValue}'";
+
+        if (string.IsNullOrWhiteSpace(normalizedBaseFilter))
+        {
+            return correlationClause;
+        }
+
+        return $"({normalizedBaseFilter}) and ({correlationClause})";
+    }
+
+    private static string NormalizeCeFilterExpression(string? rawFilter)
+    {
+        if (string.IsNullOrWhiteSpace(rawFilter))
+        {
+            return string.Empty;
+        }
+
+        var trimmed = rawFilter.Trim();
+        return trimmed.StartsWith("$filter=", StringComparison.OrdinalIgnoreCase)
+            ? trimmed.Substring("$filter=".Length).Trim()
+            : trimmed;
+    }
+
+    private static async Task<IReadOnlyList<IReadOnlyDictionary<string, object?>>> QueryDataverseRowsAsync(
+        HttpClient dataverseHttp,
+        string apiBase,
+        string entitySetName,
+        string? oDataFilter,
+        int top,
+        CancellationToken cancellationToken)
+    {
+        var query = new List<string> { $"$top={Math.Max(1, top)}" };
+        if (!string.IsNullOrWhiteSpace(oDataFilter))
+        {
+            query.Add($"$filter={Uri.EscapeDataString(oDataFilter)}");
+        }
+
+        var url = $"{apiBase}/{entitySetName}?{string.Join("&", query)}";
+        using var request = new HttpRequestMessage(HttpMethod.Get, url);
+        request.Headers.Accept.ParseAdd("application/json");
+        request.Headers.TryAddWithoutValidation("Prefer", $"odata.maxpagesize={Math.Max(1, top)}");
+
+        using var response = await dataverseHttp.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            var body = await response.Content.ReadAsStringAsync(cancellationToken);
+            throw new InvalidOperationException(
+                $"Dataverse row query failed: {(int)response.StatusCode} {response.ReasonPhrase}. {TrimForStatus(body)}");
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        using var document = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+        if (!document.RootElement.TryGetProperty("value", out var valueArray) || valueArray.ValueKind != JsonValueKind.Array)
+        {
+            throw new InvalidOperationException("Dataverse row query response did not contain a 'value' array.");
+        }
+
+        var rows = new List<IReadOnlyDictionary<string, object?>>(valueArray.GetArrayLength());
+        foreach (var rowElement in valueArray.EnumerateArray())
+        {
+            var row = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+            foreach (var property in rowElement.EnumerateObject())
+            {
+                row[property.Name] = property.Value.ValueKind switch
+                {
+                    JsonValueKind.String => property.Value.GetString(),
+                    JsonValueKind.Number => property.Value.GetRawText(),
+                    JsonValueKind.True => bool.TrueString.ToLowerInvariant(),
+                    JsonValueKind.False => bool.FalseString.ToLowerInvariant(),
+                    JsonValueKind.Null => null,
+                    _ => property.Value.GetRawText()
+                };
+            }
+
+            rows.Add(row);
+        }
+
+        return rows;
+    }
+
+    private static string? TryGetDataverseRowIdentity(string entitySetName, IReadOnlyDictionary<string, object?> row)
+    {
+        if (TryGetRowValueIgnoreCase(row, "@odata.id", out var odataId) && !string.IsNullOrWhiteSpace(odataId))
+        {
+            return odataId;
+        }
+
+        var candidatePrimary = entitySetName.EndsWith("s", StringComparison.OrdinalIgnoreCase)
+            ? $"{entitySetName.Substring(0, entitySetName.Length - 1)}id"
+            : $"{entitySetName}id";
+        if (TryGetRowValueIgnoreCase(row, candidatePrimary, out var primaryId) && !string.IsNullOrWhiteSpace(primaryId))
+        {
+            return primaryId;
+        }
+
+        foreach (var pair in row.OrderBy(p => p.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!pair.Key.EndsWith("id", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (TryGetRowValueIgnoreCase(row, pair.Key, out var value) && !string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return null;
+    }
+
+    private sealed class TestifyCeCorrelationCriteria
+    {
+        public TestifyCeCorrelationCriteria(
+            string legId,
+            string ceEntity,
+            string correlationCeField,
+            string expectedValue,
+            string correlationFilter,
+            string? expectedRowIdentity)
+        {
+            LegId = legId;
+            CeEntity = ceEntity;
+            CorrelationCeField = correlationCeField;
+            ExpectedValue = expectedValue;
+            CorrelationFilter = correlationFilter;
+            ExpectedRowIdentity = expectedRowIdentity;
+        }
+
+        public string LegId { get; }
+        public string CeEntity { get; }
+        public string CorrelationCeField { get; }
+        public string ExpectedValue { get; }
+        public string CorrelationFilter { get; }
+        public string? ExpectedRowIdentity { get; }
     }
 
     private async Task<ODataWriteResponse> SendCreateWithRetryAsync(
@@ -1672,6 +1885,109 @@ public sealed partial class DualWriteMapBrowserViewModel
     private static bool IsSuccessfulStatusCode(int statusCode) => statusCode >= 200 && statusCode <= 299;
     private static bool IsDeleteSuccessfulStatusCode(int statusCode) => IsSuccessfulStatusCode(statusCode) || statusCode == 404;
 
+    private static bool TryResolveCeCorrelationDescriptor(
+        DualWriteMapRecord map,
+        MappingLegRow leg,
+        IReadOnlyDictionary<string, string> createValues,
+        IReadOnlySet<string> keyFoFields,
+        out string correlationFoField,
+        out string correlationCeField,
+        out string error)
+    {
+        correlationFoField = string.Empty;
+        correlationCeField = string.Empty;
+        error = string.Empty;
+
+        var createFieldsByNormalized = createValues.Keys
+            .GroupBy(TestifyPlanner.NormalizeKey, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(g => g.Key, g => g.First(), StringComparer.OrdinalIgnoreCase);
+        var candidates = new List<(int Score, string FoField, string CeField)>();
+
+        foreach (var mapping in map.MappingFieldRows.Where(r =>
+                     string.Equals(r.LegId, leg.LegId, StringComparison.OrdinalIgnoreCase) &&
+                     !string.IsNullOrWhiteSpace(r.SourceField) &&
+                     !string.IsNullOrWhiteSpace(r.DestinationField)))
+        {
+            var normalizedSource = TestifyPlanner.NormalizeKey(mapping.SourceField);
+            if (!createFieldsByNormalized.TryGetValue(normalizedSource, out var foField) ||
+                !createValues.TryGetValue(foField, out var value) ||
+                string.IsNullOrWhiteSpace(value))
+            {
+                continue;
+            }
+
+            var ceField = mapping.DestinationField.Trim();
+            if (!Regex.IsMatch(ceField, @"^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.CultureInvariant))
+            {
+                continue;
+            }
+
+            var score = 0;
+            if (IsRunTagField(foField))
+            {
+                score += 300;
+            }
+
+            if (value.StartsWith("TESTIFY", StringComparison.OrdinalIgnoreCase))
+            {
+                score += 200;
+            }
+
+            if (keyFoFields.Contains(foField))
+            {
+                score += 100;
+            }
+
+            if (!string.IsNullOrWhiteSpace(mapping.SyncDirection) &&
+                (mapping.SyncDirection.Contains("Source", StringComparison.OrdinalIgnoreCase) ||
+                 mapping.SyncDirection.Contains("Bidirectional", StringComparison.OrdinalIgnoreCase)))
+            {
+                score += 10;
+            }
+
+            candidates.Add((score, foField, ceField));
+        }
+
+        if (candidates.Count == 0)
+        {
+            error = $"Leg '{leg.LegId}' is missing a deterministic CE correlation field. Add an AX->CRM field mapping that carries a run-tag or key field value into CE.";
+            return false;
+        }
+
+        var selected = candidates
+            .OrderByDescending(c => c.Score)
+            .ThenBy(c => c.FoField, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(c => c.CeField, StringComparer.OrdinalIgnoreCase)
+            .First();
+
+        if (!createValues.TryGetValue(selected.FoField, out var selectedValue) || string.IsNullOrWhiteSpace(selectedValue))
+        {
+            error = $"Leg '{leg.LegId}' selected FO field '{selected.FoField}' for CE correlation but no create value is available.";
+            return false;
+        }
+
+        var isDeterministic = selectedValue.StartsWith("TESTIFY", StringComparison.OrdinalIgnoreCase) ||
+                              IsRunTagField(selected.FoField) ||
+                              keyFoFields.Contains(selected.FoField);
+        if (!isDeterministic)
+        {
+            error = $"Leg '{leg.LegId}' correlation candidate '{selected.FoField}->{selected.CeField}' is not deterministic. Use a run-tag or key field mapping.";
+            return false;
+        }
+
+        correlationFoField = selected.FoField;
+        correlationCeField = selected.CeField;
+        return true;
+    }
+
+    private static bool IsRunTagField(string fieldName)
+    {
+        return fieldName.Equals("FOTBTestifyRunId", StringComparison.OrdinalIgnoreCase) ||
+               fieldName.Equals("TestifyRunId", StringComparison.OrdinalIgnoreCase) ||
+               fieldName.Equals("Description", StringComparison.OrdinalIgnoreCase) ||
+               fieldName.Equals("Name", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static string BuildLegFieldKey(string legId, string field) =>
         $"{legId}|{TestifyPlanner.NormalizeKey(field)}";
 
@@ -1917,6 +2233,24 @@ public sealed partial class DualWriteMapBrowserViewModel
             if (!string.Equals(actualValue, expectedValue, StringComparison.Ordinal))
             {
                 throw new InvalidOperationException($"{operationLabel} succeeded but persisted value for '{property.Name}' was '{actualValue}' instead of expected '{expectedValue}'.");
+            }
+        }
+    }
+
+    private async Task HydrateCorrelationValuesFromFoRecordAsync(
+        TestifyMapPlan plan,
+        string entityInstanceUrl,
+        Dictionary<string, string> runtimeCreateValues,
+        CancellationToken cancellationToken)
+    {
+        var row = await ReadFoRecordAsync(entityInstanceUrl, "FO correlation readback", cancellationToken);
+        foreach (var foField in plan.CeLegs
+                     .Select(leg => leg.CorrelationFoField)
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+        {
+            if (TryGetRowValueIgnoreCase(row, foField, out var value) && !string.IsNullOrWhiteSpace(value))
+            {
+                runtimeCreateValues[foField] = value;
             }
         }
     }

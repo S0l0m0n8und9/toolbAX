@@ -100,16 +100,25 @@ public sealed class TestifyFieldCoverageGap
 
 public sealed class TestifyLegPlan
 {
-    public TestifyLegPlan(string legId, string ceEntity, string ceFilter)
+    public TestifyLegPlan(
+        string legId,
+        string ceEntity,
+        string ceFilter,
+        string correlationFoField,
+        string correlationCeField)
     {
         LegId = legId;
         CeEntity = ceEntity;
         CeFilter = ceFilter;
+        CorrelationFoField = correlationFoField;
+        CorrelationCeField = correlationCeField;
     }
 
     public string LegId { get; }
     public string CeEntity { get; }
     public string CeFilter { get; }
+    public string CorrelationFoField { get; }
+    public string CorrelationCeField { get; }
 }
 
 public sealed class TestifyEnumFieldPlan

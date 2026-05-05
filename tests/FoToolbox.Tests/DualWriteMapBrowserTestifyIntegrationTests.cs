@@ -155,7 +155,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
     }
 
     [Fact]
-    public async Task WaitForCeDeltaAsync_ThrowsTimeout_WhenCeCountsDoNotAdvance()
+    public async Task WaitForCeCorrelationAsync_ThrowsTimeout_WhenCorrelatedRowDoesNotAppear()
     {
         var originalDelay = DualWriteMapBrowserViewModel.TestifyDelayAsync;
         var originalUtcNow = DualWriteMapBrowserViewModel.TestifyUtcNow;
@@ -184,7 +184,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
                 foEntityDetails: null,
                 configuration: config,
                 foFilter: string.Empty,
-                ceLegs: new[] { new TestifyLegPlan("leg-1", "accounts", "$filter=name eq 'Timeout'") },
+                ceLegs: new[] { new TestifyLegPlan("leg-1", "accounts", "$filter=name eq 'Timeout'", "Name", "name") },
                 createValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
                 createPayloadJson: "{}",
                 enumFields: new Dictionary<string, TestifyEnumFieldPlan>(StringComparer.OrdinalIgnoreCase),
@@ -194,19 +194,100 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
                 blockingIssues: Array.Empty<string>());
 
             var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
-                viewModel.WaitForCeDeltaAsync(
+                viewModel.WaitForCeCorrelationAsync(
                     plan,
-                    new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase) { ["leg-1"] = 0 },
+                    new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Name"] = "TESTIFY-TIMEOUT" },
+                    expectedRowIdentities: null,
                     CancellationToken.None,
                     "after patch 1"));
 
-            Assert.Equal("CE verification timed out (after patch 1) after 1 minute(s). Increase CePollTimeoutMinutes in Testify configuration if sync is slow.", ex.Message);
+            Assert.Equal("CE correlation verification timed out (after patch 1) after 1 minute(s). Increase CePollTimeoutMinutes in Testify configuration if sync is slow.", ex.Message);
         }
         finally
         {
             DualWriteMapBrowserViewModel.TestifyDelayAsync = originalDelay;
             DualWriteMapBrowserViewModel.TestifyUtcNow = originalUtcNow;
         }
+    }
+
+    [Fact]
+    public async Task WaitForCeCorrelationAsync_Throws_WhenDuplicateRowsMatchCorrelation()
+    {
+        using var dataverseHttp = new HttpClient(new StaticJsonHttpMessageHandler("""
+{"value":[{"accountid":"11111111-1111-1111-1111-111111111111","name":"TESTIFY-DUP"},{"accountid":"22222222-2222-2222-2222-222222222222","name":"TESTIFY-DUP"}]}
+"""))
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+        var viewModel = new DualWriteMapBrowserViewModel(
+            new FakeIntegrationDataverseWriteContext(new SequenceODataWriteClient(), dataverseHttp),
+            new TestifyConfigurationStore(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-integration.json")));
+        var plan = BuildCeCorrelationPlan(new TestifyMapConfiguration { CePollTimeoutMinutes = 1 });
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            viewModel.WaitForCeCorrelationAsync(
+                plan,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Name"] = "TESTIFY-DUP" },
+                expectedRowIdentities: null,
+                CancellationToken.None,
+                "after create"));
+
+        Assert.Contains("matched 2 rows", ex.Message);
+    }
+
+    [Fact]
+    public async Task WaitForCeCorrelationAsync_Throws_WhenReturnedRowDoesNotMatchExpectedCorrelation()
+    {
+        using var dataverseHttp = new HttpClient(new StaticJsonHttpMessageHandler("""
+{"value":[{"accountid":"11111111-1111-1111-1111-111111111111","name":"UNRELATED"}]}
+"""))
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+        var viewModel = new DualWriteMapBrowserViewModel(
+            new FakeIntegrationDataverseWriteContext(new SequenceODataWriteClient(), dataverseHttp),
+            new TestifyConfigurationStore(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-integration.json")));
+        var plan = BuildCeCorrelationPlan(new TestifyMapConfiguration { CePollTimeoutMinutes = 1 });
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            viewModel.WaitForCeCorrelationAsync(
+                plan,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Name"] = "TESTIFY-EXPECTED" },
+                expectedRowIdentities: null,
+                CancellationToken.None,
+                "after create"));
+
+        Assert.Contains("returned an unrelated row", ex.Message);
+    }
+
+    [Fact]
+    public async Task WaitForCeCorrelationAsync_Throws_WhenPatchMatchesDifferentCeRowIdentity()
+    {
+        using var dataverseHttp = new HttpClient(new StaticJsonHttpMessageHandler(
+            """
+{"value":[{"accountid":"22222222-2222-2222-2222-222222222222","name":"TESTIFY-ROW"}]}
+"""))
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+        var viewModel = new DualWriteMapBrowserViewModel(
+            new FakeIntegrationDataverseWriteContext(new SequenceODataWriteClient(), dataverseHttp),
+            new TestifyConfigurationStore(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-integration.json")));
+        var plan = BuildCeCorrelationPlan(new TestifyMapConfiguration { CePollTimeoutMinutes = 1 });
+        var runtimeValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Name"] = "TESTIFY-ROW" };
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            viewModel.WaitForCeCorrelationAsync(
+                plan,
+                runtimeValues,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["leg-1"] = "11111111-1111-1111-1111-111111111111"
+                },
+                CancellationToken.None,
+                "after patch 1"));
+
+        Assert.Contains("matched a different row after update", ex.Message);
     }
 
     private class FakeIntegrationContext : IPluginContext
@@ -379,5 +460,24 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
                 new ODataProperty("Name", "Edm.String", Nullable: true, MaxLength: "60")
             },
             Array.Empty<ODataNavigationProperty>());
+    }
+
+    private static TestifyMapPlan BuildCeCorrelationPlan(TestifyMapConfiguration configuration)
+    {
+        return new TestifyMapPlan(
+            mapId: "map-correlation",
+            mapDisplayName: "Correlation Map",
+            foEntity: "CustomersV3",
+            foEntityDetails: null,
+            configuration: configuration,
+            foFilter: string.Empty,
+            ceLegs: new[] { new TestifyLegPlan("leg-1", "accounts", "$filter=statecode eq 0", "Name", "name") },
+            createValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+            createPayloadJson: "{}",
+            enumFields: new Dictionary<string, TestifyEnumFieldPlan>(StringComparer.OrdinalIgnoreCase),
+            patchSteps: Array.Empty<TestifyPatchStep>(),
+            warnings: Array.Empty<string>(),
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+            blockingIssues: Array.Empty<string>());
     }
 }

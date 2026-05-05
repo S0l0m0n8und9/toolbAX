@@ -145,11 +145,11 @@
     {
       "id": "T8",
       "title": "Add deterministic CE record correlation",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T7"
       ],
-      "notes": "Replace count-only CE success checks with identity-based verification using the FO test tag or another deterministic correlation key so noisy environments cannot produce false positives.",
+      "notes": "Replaced CE count-delta verification with deterministic per-leg CE correlation descriptors, exact correlated-row polling, duplicate/missing/unrelated guards, and patch-time same-row identity enforcement. Added targeted integration coverage for timeout (missing row), duplicate row match, unrelated row, and update row-identity drift.",
       "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
       "acceptance": [
         "Testify queries CE by a deterministic correlation key for each exercised map leg",
@@ -160,7 +160,8 @@
         "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
         "plugins/DualWriteMapBrowser/TestifyPlanner.cs",
         "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T9",
@@ -184,5 +185,5 @@
       ]
     }
   ],
-  "mutationCount": 15
+  "mutationCount": 16
 }
