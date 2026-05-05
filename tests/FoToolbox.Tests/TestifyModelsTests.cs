@@ -1,5 +1,6 @@
 using DualWriteMapBrowserPlugin;
 using Xunit;
+using System.Reflection;
 
 namespace FoToolbox.Tests;
 
@@ -145,6 +146,7 @@ public sealed class TestifyModelsTests
             isReady: false,
             status: "Blocked: incomplete coverage",
             blockingIssue: "Unmapped enum members for field 'Status': 'Canceled', 'Closed'.",
+            warnings: Array.Empty<string>(),
             coverageGaps: new[]
             {
                 new TestifyEnumCoverageGap("Status", "Closed"),
@@ -178,12 +180,40 @@ public sealed class TestifyModelsTests
             isReady: false,
             status: "Blocked: missing entity",
             blockingIssue: "FO entity 'CustomersV3' was not found in metadata.",
+            warnings: Array.Empty<string>(),
             coverageGaps: Array.Empty<TestifyEnumCoverageGap>());
 
         Assert.False(row.IsReady);
         Assert.Equal("Blocked: missing entity", row.Status);
         Assert.Equal("FO entity 'CustomersV3' was not found in metadata.", row.BlockingIssue);
         Assert.Empty(row.CoverageGaps);
+    }
+
+    [Fact]
+    public void TestifyPreflightRow_ExposesWarningDetailForUiBinding()
+    {
+        var warningMessages = new[]
+        {
+            "Skipped CE assertion for 'DocumentBlob->new_documentblob' on leg 'leg-1' because FO type 'Edm.Binary' is not yet supported for direct CE assertions.",
+            "Applied learned create value for 'CustomerGroupId' from prior validation output."
+        };
+
+        var row = (TestifyPreflightRow)Activator.CreateInstance(
+            typeof(TestifyPreflightRow),
+            "Customers",
+            "map-1",
+            "CustomersV3",
+            1,
+            0,
+            true,
+            "Ready (with warnings)",
+            string.Empty,
+            warningMessages,
+            Array.Empty<TestifyEnumCoverageGap>())!;
+
+        var warnings = Assert.IsAssignableFrom<IReadOnlyList<string>>(GetRequiredProperty(row, "Warnings").GetValue(row));
+        Assert.Equal(warningMessages, warnings);
+        Assert.Equal(string.Join("; ", warningMessages), GetRequiredProperty(row, "WarningDetail").GetValue(row));
     }
 
     [Fact]
@@ -198,6 +228,7 @@ public sealed class TestifyModelsTests
             patchesSucceeded: 0,
             ceVerificationSucceeded: false,
             status: "Blocked: incomplete coverage",
+            warnings: Array.Empty<string>(),
             coverageGaps: new[]
             {
                 new TestifyEnumCoverageGap("Type", "Vendor"),
@@ -233,6 +264,7 @@ public sealed class TestifyModelsTests
             patchesSucceeded: 0,
             ceVerificationSucceeded: false,
             status: "Blocked: incomplete coverage",
+            warnings: Array.Empty<string>(),
             coverageGaps: new[]
             {
                 new TestifyEnumCoverageGap("Status", "Closed"),
@@ -254,6 +286,38 @@ public sealed class TestifyModelsTests
                 Assert.Equal(new[] { "Vendor" }, gap.EnumValues);
                 Assert.Equal("Type: Vendor", gap.Detail);
             });
+    }
+
+    [Fact]
+    public void TestifyResultRow_ExposesWarningDetailAlongsideCeAssertions()
+    {
+        var warningMessages = new[]
+        {
+            "Skipped CE assertion for 'DocumentBlob->new_documentblob' on leg 'leg-1' because FO type 'Edm.Binary' is not yet supported for direct CE assertions.",
+            "Applied learned create value for 'CustomerGroupId' from prior validation output."
+        };
+
+        var row = (TestifyResultRow)Activator.CreateInstance(
+            typeof(TestifyResultRow),
+            "Customers",
+            "map-1",
+            true,
+            true,
+            1,
+            1,
+            true,
+            "Valid map. CE assertions: 1/1.",
+            warningMessages,
+            Array.Empty<TestifyEnumCoverageGap>(),
+            new[]
+            {
+                new TestifyCeFieldAssertion("Create", "leg-1", "Name", "name", "TESTIFY-1", "TESTIFY-1", passed: true)
+            })!;
+
+        var warnings = Assert.IsAssignableFrom<IReadOnlyList<string>>(GetRequiredProperty(row, "Warnings").GetValue(row));
+        Assert.Equal(warningMessages, warnings);
+        Assert.Equal(string.Join("; ", warningMessages), GetRequiredProperty(row, "WarningDetail").GetValue(row));
+        Assert.Equal("1/1", row.CeAssertionSummary);
     }
 
     [Fact]
@@ -288,5 +352,12 @@ public sealed class TestifyModelsTests
 
         Assert.False(plan.HasCoverageGap);
         Assert.Equal(string.Empty, plan.CoverageGapDetail);
+    }
+
+    private static PropertyInfo GetRequiredProperty(object instance, string propertyName)
+    {
+        var property = instance.GetType().GetProperty(propertyName, BindingFlags.Instance | BindingFlags.Public);
+        Assert.NotNull(property);
+        return property!;
     }
 }

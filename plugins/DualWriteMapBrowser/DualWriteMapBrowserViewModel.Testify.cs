@@ -139,6 +139,7 @@ public sealed partial class DualWriteMapBrowserViewModel
                     isReady: plan.CanRun,
                     status: rowStatus,
                     blockingIssue: blockingIssue,
+                    warnings: plan.Warnings,
                     coverageGaps: plan.CoverageGaps);
                 _testifyPreflightRows.Add(row);
 
@@ -246,6 +247,7 @@ public sealed partial class DualWriteMapBrowserViewModel
                         patchesSucceeded: 0,
                         ceVerificationSucceeded: false,
                         status: GetBlockedStatus(plan),
+                        warnings: plan.Warnings,
                         coverageGaps: plan.CoverageGaps,
                         ceFieldAssertions: Array.Empty<TestifyCeFieldAssertion>()));
                     continue;
@@ -415,6 +417,7 @@ public sealed partial class DualWriteMapBrowserViewModel
                     patchesSucceeded,
                     ceSucceeded,
                     status,
+                    plan.Warnings,
                     plan.CoverageGaps,
                     ceFieldAssertions));
             }

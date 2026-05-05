@@ -65,6 +65,7 @@ public sealed class TestifyPlannerTests
             patchesSucceeded: 0,
             ceVerificationSucceeded: false,
             status: "Blocked: incomplete coverage",
+            warnings: Array.Empty<string>(),
             coverageGaps: new[]
             {
                 new TestifyEnumCoverageGap("Status", "Closed"),

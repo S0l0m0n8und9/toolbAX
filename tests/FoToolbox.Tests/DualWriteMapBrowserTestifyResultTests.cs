@@ -1,4 +1,6 @@
 using DualWriteMapBrowserPlugin;
+using System.IO;
+using System.Text.RegularExpressions;
 
 namespace FoToolbox.Tests;
 
@@ -156,6 +158,7 @@ public sealed class DualWriteMapBrowserTestifyResultTests
             patchesSucceeded: 0,
             ceVerificationSucceeded: false,
             status: "Blocked: incomplete coverage",
+            warnings: Array.Empty<string>(),
             coverageGaps: new[]
             {
                 new TestifyEnumCoverageGap("Status", "Closed"),
@@ -247,6 +250,7 @@ public sealed class DualWriteMapBrowserTestifyResultTests
             patchesSucceeded: 0,
             ceVerificationSucceeded: false,
             status: "Blocked: missing entity",
+            warnings: Array.Empty<string>(),
             coverageGaps: Array.Empty<TestifyEnumCoverageGap>());
 
         Assert.Equal(string.Empty, row.CoverageGapDetail);
@@ -265,6 +269,7 @@ public sealed class DualWriteMapBrowserTestifyResultTests
             patchesSucceeded: 1,
             ceVerificationSucceeded: false,
             status: "CE mismatch",
+            warnings: Array.Empty<string>(),
             coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
             ceFieldAssertions: new[]
             {
@@ -277,5 +282,32 @@ public sealed class DualWriteMapBrowserTestifyResultTests
         Assert.Equal(1, row.CeAssertionsPassed);
         Assert.Equal(1, row.CeAssertionsFailed);
         Assert.Equal("Create:name=pass; Patch 1:statuscode=fail", row.CeAssertionDetail);
+    }
+
+    [Fact]
+    public void DualWriteMapBrowserView_BindsWarningDetailIntoPreflightAndResultGrids()
+    {
+        var repoRoot = FindRepoRoot();
+        var xamlPath = Path.Combine(repoRoot, "plugins", "DualWriteMapBrowser", "DualWriteMapBrowserView.xaml");
+        var xaml = File.ReadAllText(xamlPath);
+
+        Assert.Equal(2, Regex.Matches(xaml, "Binding=\"{Binding WarningDetail, Mode=OneWay}\"").Count);
+        Assert.Contains("Header=\"Warnings\" Binding=\"{Binding WarningDetail, Mode=OneWay}\"", xaml);
+    }
+
+    private static string FindRepoRoot()
+    {
+        var current = new DirectoryInfo(AppContext.BaseDirectory);
+        while (current is not null)
+        {
+            if (File.Exists(Path.Combine(current.FullName, "FoToolbox.sln")))
+            {
+                return current.FullName;
+            }
+
+            current = current.Parent;
+        }
+
+        throw new InvalidOperationException("Could not locate repo root from test output directory.");
     }
 }

@@ -233,11 +233,11 @@
     {
       "id": "T12",
       "title": "Surface Testify warning detail for skipped assertions",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T10"
       ],
-      "notes": "The current preflight row only says `Ready (with warnings)` while `TestifyMapPlan.Warnings` contains the actual reasons assertions were skipped or learned config was applied. Operators need the warning detail in the durable UI surfaces so blocked or partial coverage is diagnosable without inspecting logs or code.",
+      "notes": "Added Testify warning-detail support to preflight and execution result row models, threaded plan warnings through DualWriteMapBrowser Testify row construction, surfaced warning columns in both grids, and added focused model and XAML binding coverage.",
       "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
       "tier": "medium",
       "acceptance": [
@@ -251,8 +251,9 @@
         "plugins/DualWriteMapBrowser/TestifyModels.cs",
         "tests/FoToolbox.Tests/TestifyModelsTests.cs",
         "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     }
   ],
-  "mutationCount": 20
+  "mutationCount": 21
 }

@@ -252,6 +252,7 @@ public sealed class TestifyPreflightRow
         bool isReady,
         string status,
         string blockingIssue,
+        IReadOnlyList<string> warnings,
         IReadOnlyList<TestifyEnumCoverageGap> coverageGaps)
     {
         MapDisplayName = mapDisplayName;
@@ -262,6 +263,7 @@ public sealed class TestifyPreflightRow
         IsReady = isReady;
         Status = status;
         BlockingIssue = blockingIssue;
+        Warnings = warnings;
         CoverageGaps = coverageGaps;
     }
 
@@ -273,6 +275,10 @@ public sealed class TestifyPreflightRow
     public bool IsReady { get; }
     public string Status { get; }
     public string BlockingIssue { get; }
+    public IReadOnlyList<string> Warnings { get; }
+    public string WarningDetail => Warnings.Count == 0
+        ? string.Empty
+        : string.Join("; ", Warnings);
     public IReadOnlyList<TestifyEnumCoverageGap> CoverageGaps { get; }
     public IReadOnlyList<TestifyFieldCoverageGap> CoverageGapsByField => CoverageGaps
         .GroupBy(g => g.FieldName, StringComparer.OrdinalIgnoreCase)
@@ -322,6 +328,7 @@ public sealed class TestifyResultRow
         int patchesSucceeded,
         bool ceVerificationSucceeded,
         string status,
+        IReadOnlyList<string> warnings,
         IReadOnlyList<TestifyEnumCoverageGap> coverageGaps,
         IReadOnlyList<TestifyCeFieldAssertion>? ceFieldAssertions = null)
     {
@@ -333,6 +340,7 @@ public sealed class TestifyResultRow
         PatchesSucceeded = patchesSucceeded;
         CeVerificationSucceeded = ceVerificationSucceeded;
         Status = status;
+        Warnings = warnings;
         CoverageGaps = coverageGaps;
         CeFieldAssertions = ceFieldAssertions ?? Array.Empty<TestifyCeFieldAssertion>();
     }
@@ -345,6 +353,10 @@ public sealed class TestifyResultRow
     public int PatchesSucceeded { get; }
     public bool CeVerificationSucceeded { get; }
     public string Status { get; }
+    public IReadOnlyList<string> Warnings { get; }
+    public string WarningDetail => Warnings.Count == 0
+        ? string.Empty
+        : string.Join("; ", Warnings);
     public IReadOnlyList<TestifyEnumCoverageGap> CoverageGaps { get; }
     public IReadOnlyList<TestifyCeFieldAssertion> CeFieldAssertions { get; }
     public int CeAssertionsTotal => CeFieldAssertions.Count;

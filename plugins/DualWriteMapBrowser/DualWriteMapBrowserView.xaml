@@ -562,6 +562,7 @@
                                 <DataGridCheckBoxColumn Header="Ready" Binding="{Binding IsReady, Mode=OneWay}" Width="70" />
                                 <DataGridTextColumn Header="Status" Binding="{Binding Status, Mode=OneWay}" Width="110" MinWidth="90" />
                                 <DataGridTextColumn Header="Blocking Issue" Binding="{Binding BlockingIssue, Mode=OneWay}" Width="2*" MinWidth="260" />
+                                <DataGridTextColumn Header="Warnings" Binding="{Binding WarningDetail, Mode=OneWay}" Width="2*" MinWidth="260" />
                                 <DataGridTextColumn Header="Coverage Gaps" Binding="{Binding CoverageGapFieldDetail, Mode=OneWay}" Width="*" MinWidth="220" />
                             </DataGrid.Columns>
                         </DataGrid>
@@ -592,6 +593,7 @@
                                 <DataGridTextColumn Header="CE Fields OK" Binding="{Binding CeAssertionSummary, Mode=OneWay}" Width="90" MinWidth="80" />
                                 <DataGridTextColumn Header="Status" Binding="{Binding Status, Mode=OneWay}" Width="220" MinWidth="180" />
                                 <DataGridTextColumn Header="CE Assertions" Binding="{Binding CeAssertionDetail, Mode=OneWay}" Width="2*" MinWidth="280" />
+                                <DataGridTextColumn Header="Warnings" Binding="{Binding WarningDetail, Mode=OneWay}" Width="2*" MinWidth="260" />
                                 <DataGridTextColumn Header="Coverage Gaps" Binding="{Binding CoverageGapFieldDetail, Mode=OneWay}" Width="*" MinWidth="220" />
                             </DataGrid.Columns>
                         </DataGrid>
