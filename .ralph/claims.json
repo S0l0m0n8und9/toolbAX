@@ -347,11 +347,11 @@
       "status": "released"
     },
     {
-      "taskId": "T15",
       "agentId": "default",
-      "provenanceId": "run-i048-cli-20260505T034900Z",
+      "taskId": "T15",
       "claimedAt": "2026-05-05T03:49:00.882Z",
-      "status": "active"
+      "provenanceId": "run-i048-cli-20260505T034900Z",
+      "status": "released"
     }
   ]
 }
