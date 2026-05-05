@@ -289,6 +289,13 @@
       "claimedAt": "2026-04-27T03:31:41.170Z",
       "provenanceId": "run-i035-cli-20260427T033141Z",
       "status": "released"
+    },
+    {
+      "taskId": "T7",
+      "agentId": "default",
+      "provenanceId": "run-i038-cli-20260505T023427Z",
+      "claimedAt": "2026-05-05T02:34:27.938Z",
+      "status": "active"
     }
   ]
 }

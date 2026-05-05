@@ -17,9 +17,9 @@
             "model": "gpt-5.5",
             "provider": "codex"
         },
-        "enabled": false
+        "enabled": true
     },
-    "ralphCodex.cliProvider": "copilot-byok",
+    "ralphCodex.cliProvider": "codex",
     "ralphCodex.model": "gpt-5.4",
     "ralphCodex.copilotFoundry": {
         "baseUrlOverride": "https://me-me3mef6a-eastus2.cognitiveservices.azure.com/openai/deployments/gpt-5.4",

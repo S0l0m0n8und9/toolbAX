@@ -297,7 +297,6 @@ public sealed partial class DualWriteMapBrowserViewModel
 
                         MergeKeyValuesFromCreateResponse(plan.FoEntityDetails!, createResponse.Body, runtimeCreateValues);
 
-                        createSucceeded = true;
                         createdThisRun = true;
                         AddTestifyLog(plan.MapDisplayName, "Create", "Succeeded", $"FO create returned HTTP {createResponse.StatusCode}.");
 
@@ -314,6 +313,11 @@ public sealed partial class DualWriteMapBrowserViewModel
                             : null;
                         plan.Configuration.LastEntityInstanceUrl = entityInstanceUrl;
                         await _testifyConfigStore.SaveAsync(plan.Configuration, cancellationToken);
+
+                        AddTestifyLog(plan.MapDisplayName, "Create Readback", "Started", "Verifying FO persisted values after create.");
+                        await VerifyFoPersistedValuesAsync(entityInstanceUrl, plan.FoEntityDetails!, runtimeCreateValues, "FO create", cancellationToken);
+                        AddTestifyLog(plan.MapDisplayName, "Create Readback", "Succeeded", "FO readback matched expected create values.");
+                        createSucceeded = true;
 
                         await WaitForCeDeltaAsync(plan, preCreateBaselines, cancellationToken, "after create");
                         AddTestifyLog(plan.MapDisplayName, "CE Verify", "Succeeded", "CE baseline delta reached after create.");
@@ -350,8 +354,11 @@ public sealed partial class DualWriteMapBrowserViewModel
                             throw new InvalidOperationException($"FO PATCH step {step.StepNumber} failed: HTTP {patchResponse.StatusCode}. {TrimForStatus(patchResponse.Body ?? string.Empty)}");
                         }
 
-                        patchesSucceeded++;
                         AddTestifyLog(plan.MapDisplayName, "Patch", "Succeeded", $"PATCH step {step.StepNumber} returned HTTP {patchResponse.StatusCode}.");
+                        AddTestifyLog(plan.MapDisplayName, "Patch Readback", "Started", $"Verifying FO persisted values after patch {step.StepNumber}.");
+                        await VerifyFoPersistedValuesAsync(entityInstanceUrl, plan.FoEntityDetails!, step.EnumValues, $"FO PATCH step {step.StepNumber}", cancellationToken);
+                        AddTestifyLog(plan.MapDisplayName, "Patch Readback", "Succeeded", $"FO readback matched expected values after patch {step.StepNumber}.");
+                        patchesSucceeded++;
 
                         await WaitForCeDeltaAsync(plan, baselines, cancellationToken, $"after patch {step.StepNumber}");
                         AddTestifyLog(plan.MapDisplayName, "CE Verify", "Succeeded", $"CE baseline delta reached after patch {step.StepNumber}.");
@@ -1888,6 +1895,68 @@ public sealed partial class DualWriteMapBrowserViewModel
         }
 
         return false;
+    }
+
+    internal async Task VerifyFoPersistedValuesAsync(
+        string entityInstanceUrl,
+        ODataEntity entity,
+        IReadOnlyDictionary<string, string> expectedValues,
+        string operationLabel,
+        CancellationToken cancellationToken)
+    {
+        var row = await ReadFoRecordAsync(entityInstanceUrl, operationLabel, cancellationToken);
+
+        foreach (var property in entity.Properties.Where(p => expectedValues.ContainsKey(p.Name)))
+        {
+            var expectedValue = NormalizeExpectedFoValue(property, expectedValues[property.Name]);
+            if (!TryGetRowValueIgnoreCase(row, property.Name, out var actualValue))
+            {
+                throw new InvalidOperationException($"{operationLabel} succeeded but FO readback did not include persisted field '{property.Name}'.");
+            }
+
+            if (!string.Equals(actualValue, expectedValue, StringComparison.Ordinal))
+            {
+                throw new InvalidOperationException($"{operationLabel} succeeded but persisted value for '{property.Name}' was '{actualValue}' instead of expected '{expectedValue}'.");
+            }
+        }
+    }
+
+    private async Task<IReadOnlyDictionary<string, object?>> ReadFoRecordAsync(
+        string entityInstanceUrl,
+        string operationLabel,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await foreach (var page in _ctx.OData.StreamAsync(new QueryRequest(entityInstanceUrl), cancellationToken))
+            {
+                var row = page.Rows.FirstOrDefault();
+                if (row is not null)
+                {
+                    return row;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"{operationLabel} succeeded but FO readback failed: {TrimForStatus(ex.Message)}", ex);
+        }
+
+        throw new InvalidOperationException($"{operationLabel} succeeded but FO readback returned no rows.");
+    }
+
+    private static string NormalizeExpectedFoValue(ODataProperty property, string value)
+    {
+        if (string.Equals(property.Type, "Edm.Boolean", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Equals(value, bool.TrueString, StringComparison.OrdinalIgnoreCase) ? bool.TrueString.ToLowerInvariant() : bool.FalseString.ToLowerInvariant();
+        }
+
+        return value;
     }
 
     private static string? FindTagField(ODataEntity entity)

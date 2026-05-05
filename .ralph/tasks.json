@@ -122,7 +122,67 @@
         "install/README.md"
       ],
       "lastVerifierResult": "failed"
+    },
+    {
+      "id": "T7",
+      "title": "Add FO persisted-value readback checks",
+      "status": "done",
+      "notes": "Added FO persisted-value readback verification after create and after each PATCH, with dedicated readback log phases and mismatch failures. Added targeted integration tests for matching readback plus create/patch mismatch cases.",
+      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "tier": "medium",
+      "acceptance": [
+        "FO create path performs a readback of the created record",
+        "FO patch path performs a readback confirming the intended field transition persisted",
+        "Failures distinguish transport success from persistence mismatch"
+      ],
+      "context": [
+        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
+        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs",
+        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
+      ],
+      "lastVerifierResult": "passed"
+    },
+    {
+      "id": "T8",
+      "title": "Add deterministic CE record correlation",
+      "status": "todo",
+      "dependsOn": [
+        "T7"
+      ],
+      "notes": "Replace count-only CE success checks with identity-based verification using the FO test tag or another deterministic correlation key so noisy environments cannot produce false positives.",
+      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "acceptance": [
+        "Testify queries CE by a deterministic correlation key for each exercised map leg",
+        "Create verification fails if the correlated CE row is missing, duplicated, or unrelated to the FO test record",
+        "Update verification reuses the same correlated CE row instead of accepting any CE count delta"
+      ],
+      "context": [
+        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
+        "plugins/DualWriteMapBrowser/TestifyPlanner.cs",
+        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs"
+      ]
+    },
+    {
+      "id": "T9",
+      "title": "Implement CE field reconciliation assertions",
+      "status": "todo",
+      "dependsOn": [
+        "T8"
+      ],
+      "notes": "Read back the correlated CE row and compare stored values against FO source values and transform output for fields the selected map can already describe.",
+      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "acceptance": [
+        "Testify reads CE column values for the correlated row after create and patch operations",
+        "Result rows surface pass or fail per verified mapped field instead of count-only success",
+        "Enum and supported scalar target values are validated against expected CE outcomes"
+      ],
+      "context": [
+        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
+        "plugins/DualWriteMapBrowser/TestifyModels.cs",
+        "plugins/DualWriteMapBrowser/TestifyPlanner.cs",
+        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
+      ]
     }
   ],
-  "mutationCount": 13
+  "mutationCount": 15
 }

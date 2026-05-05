@@ -8,12 +8,95 @@ using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Text;
+using System.Runtime.CompilerServices;
 
 namespace FoToolbox.Tests;
 
 [Trait("Category", "Testify")]
 public sealed class DualWriteMapBrowserTestifyIntegrationTests
 {
+    [Fact]
+    public async Task VerifyFoPersistedValuesAsync_AllowsMatchingCreateReadback()
+    {
+        var entity = BuildCustomersEntity();
+        var oData = new StaticRowODataClient(new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["AccountNumber"] = "CUST-0001",
+            ["dataAreaId"] = "USMF",
+            ["Name"] = "TESTIFY-CREATE"
+        });
+        var viewModel = new DualWriteMapBrowserViewModel(
+            new FakeIntegrationContext(oData),
+            new TestifyConfigurationStore(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-integration.json")));
+
+        await viewModel.VerifyFoPersistedValuesAsync(
+            "https://contoso.operations.dynamics.com/data/CustomersV3(AccountNumber='CUST-0001',dataAreaId='USMF')?cross-company=true",
+            entity,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["AccountNumber"] = "CUST-0001",
+                ["dataAreaId"] = "USMF",
+                ["Name"] = "TESTIFY-CREATE"
+            },
+            "FO create",
+            CancellationToken.None);
+
+        Assert.Single(oData.Requests);
+        Assert.Equal("https://contoso.operations.dynamics.com/data/CustomersV3(AccountNumber='CUST-0001',dataAreaId='USMF')?cross-company=true", oData.Requests[0]);
+    }
+
+    [Fact]
+    public async Task VerifyFoPersistedValuesAsync_ThrowsDetailedMismatch_ForCreateReadback()
+    {
+        var entity = BuildCustomersEntity();
+        var viewModel = new DualWriteMapBrowserViewModel(
+            new FakeIntegrationContext(new StaticRowODataClient(new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["AccountNumber"] = "CUST-0001",
+                ["dataAreaId"] = "USMF",
+                ["Name"] = "ACTUAL-NAME"
+            })),
+            new TestifyConfigurationStore(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-integration.json")));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => viewModel.VerifyFoPersistedValuesAsync(
+            "https://contoso.operations.dynamics.com/data/CustomersV3(AccountNumber='CUST-0001',dataAreaId='USMF')?cross-company=true",
+            entity,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Name"] = "EXPECTED-NAME"
+            },
+            "FO create",
+            CancellationToken.None));
+
+        Assert.Equal("FO create succeeded but persisted value for 'Name' was 'ACTUAL-NAME' instead of expected 'EXPECTED-NAME'.", ex.Message);
+    }
+
+    [Fact]
+    public async Task VerifyFoPersistedValuesAsync_ThrowsDetailedMismatch_ForPatchReadback()
+    {
+        var entity = BuildCustomersEntity();
+        var viewModel = new DualWriteMapBrowserViewModel(
+            new FakeIntegrationContext(new StaticRowODataClient(new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["AccountNumber"] = "CUST-0001",
+                ["dataAreaId"] = "USMF",
+                ["Name"] = "PATCH-0"
+            })),
+            new TestifyConfigurationStore(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-integration.json")));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => viewModel.VerifyFoPersistedValuesAsync(
+            "https://contoso.operations.dynamics.com/data/CustomersV3(AccountNumber='CUST-0001',dataAreaId='USMF')?cross-company=true",
+            entity,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Name"] = "PATCH-1"
+            },
+            "FO PATCH step 1",
+            CancellationToken.None));
+
+        Assert.Equal("FO PATCH step 1 succeeded but persisted value for 'Name' was 'PATCH-0' instead of expected 'PATCH-1'.", ex.Message);
+    }
+
     [Fact]
     public async Task CheckFoRecordExistsAsync_ReturnsFalse_ForStaleCachedEntityUrl()
     {
@@ -173,6 +256,31 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
             ODataClientExtensions.EmptyPages(cancellationToken);
     }
 
+    private sealed class StaticRowODataClient : IODataClient
+    {
+        private readonly IReadOnlyDictionary<string, object?>? _row;
+
+        public StaticRowODataClient(IReadOnlyDictionary<string, object?>? row)
+        {
+            _row = row;
+        }
+
+        public List<string> Requests { get; } = new();
+
+        public async IAsyncEnumerable<ODataPage> StreamAsync(QueryRequest request, [EnumeratorCancellation] CancellationToken cancellationToken = default)
+        {
+            Requests.Add(request.Url);
+            await Task.Yield();
+
+            if (_row is null)
+            {
+                yield break;
+            }
+
+            yield return new ODataPage(new[] { _row }, null);
+        }
+    }
+
     private sealed class ThrowingODataClient : IODataClient
     {
         private readonly Exception _exception;
@@ -258,5 +366,18 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
 
         public string BuildODataEntityUrl(FoEnvironment env, string entityName) =>
             $"{env.BaseUrl}/data/{entityName}";
+    }
+
+    private static ODataEntity BuildCustomersEntity()
+    {
+        return new ODataEntity(
+            "CustomersV3",
+            new[]
+            {
+                new ODataProperty("AccountNumber", "Edm.String", Nullable: false, IsKey: true, IsMandatory: true, MaxLength: "20"),
+                new ODataProperty("dataAreaId", "Edm.String", Nullable: false, IsKey: true, IsMandatory: true, MaxLength: "4"),
+                new ODataProperty("Name", "Edm.String", Nullable: true, MaxLength: "60")
+            },
+            Array.Empty<ODataNavigationProperty>());
     }
 }
