@@ -589,7 +589,9 @@
                                 <DataGridTextColumn Header="Patches Planned" Binding="{Binding PatchesPlanned, Mode=OneWay}" Width="100" MinWidth="90" />
                                 <DataGridTextColumn Header="Patches OK" Binding="{Binding PatchesSucceeded, Mode=OneWay}" Width="90" MinWidth="80" />
                                 <DataGridCheckBoxColumn Header="CE OK" Binding="{Binding CeVerificationSucceeded, Mode=OneWay}" Width="70" />
-                                <DataGridTextColumn Header="Status" Binding="{Binding Status, Mode=OneWay}" Width="260" MinWidth="220" />
+                                <DataGridTextColumn Header="CE Fields OK" Binding="{Binding CeAssertionSummary, Mode=OneWay}" Width="90" MinWidth="80" />
+                                <DataGridTextColumn Header="Status" Binding="{Binding Status, Mode=OneWay}" Width="220" MinWidth="180" />
+                                <DataGridTextColumn Header="CE Assertions" Binding="{Binding CeAssertionDetail, Mode=OneWay}" Width="2*" MinWidth="280" />
                                 <DataGridTextColumn Header="Coverage Gaps" Binding="{Binding CoverageGapFieldDetail, Mode=OneWay}" Width="*" MinWidth="220" />
                             </DataGrid.Columns>
                         </DataGrid>

@@ -189,6 +189,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
                 createPayloadJson: "{}",
                 enumFields: new Dictionary<string, TestifyEnumFieldPlan>(StringComparer.OrdinalIgnoreCase),
                 patchSteps: Array.Empty<TestifyPatchStep>(),
+                ceFieldPlans: Array.Empty<TestifyCeFieldPlan>(),
                 warnings: Array.Empty<string>(),
                 coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
                 blockingIssues: Array.Empty<string>());
@@ -288,6 +289,170 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
                 "after patch 1"));
 
         Assert.Contains("matched a different row after update", ex.Message);
+    }
+
+    [Fact]
+    public void EvaluateCeFieldAssertions_PassesCreatePhase_ForEnumValueMapAndScalar()
+    {
+        var plan = BuildCeAssertionPlan(new[]
+        {
+            new TestifyCeFieldPlan(
+                legId: "leg-1",
+                foField: "Status",
+                foFieldType: "Edm.String",
+                ceField: "statuscode",
+                kind: TestifyCeFieldAssertionKind.ValueMap,
+                valueMap: new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase) { ["Open"] = "1" },
+                defaultValue: null),
+            new TestifyCeFieldPlan(
+                legId: "leg-1",
+                foField: "IsActive",
+                foFieldType: "Edm.Boolean",
+                ceField: "isactive",
+                kind: TestifyCeFieldAssertionKind.DirectScalar,
+                valueMap: null,
+                defaultValue: null)
+        });
+
+        var assertions = DualWriteMapBrowserViewModel.EvaluateCeFieldAssertions(
+            plan,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Status"] = "Open",
+                ["IsActive"] = "true"
+            },
+            new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["leg-1"] = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["statuscode"] = "1",
+                    ["isactive"] = "true"
+                }
+            },
+            "Create");
+
+        Assert.Equal(2, assertions.Count);
+        Assert.All(assertions, assertion => Assert.True(assertion.Passed));
+    }
+
+    [Fact]
+    public void EvaluateCeFieldAssertions_ThrowsPatchMismatch_ForEnumValueMapOutput()
+    {
+        var plan = BuildCeAssertionPlan(new[]
+        {
+            new TestifyCeFieldPlan(
+                legId: "leg-1",
+                foField: "Status",
+                foFieldType: "Edm.String",
+                ceField: "statuscode",
+                kind: TestifyCeFieldAssertionKind.ValueMap,
+                valueMap: new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Open"] = "1",
+                    ["Closed"] = "2"
+                },
+                defaultValue: null)
+        });
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            DualWriteMapBrowserViewModel.EvaluateCeFieldAssertions(
+                plan,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Status"] = "Closed"
+                },
+                new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["leg-1"] = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["statuscode"] = "1"
+                    }
+                },
+                "Patch 1"));
+
+        Assert.Contains("Patch 1", ex.Message);
+        Assert.Contains("statuscode", ex.Message);
+    }
+
+    [Fact]
+    public void EvaluateCeFieldAssertions_NormalizesScalarValues()
+    {
+        var plan = BuildCeAssertionPlan(new[]
+        {
+            new TestifyCeFieldPlan(
+                legId: "leg-1",
+                foField: "Quantity",
+                foFieldType: "Edm.Int32",
+                ceField: "new_quantity",
+                kind: TestifyCeFieldAssertionKind.DirectScalar,
+                valueMap: null,
+                defaultValue: null),
+            new TestifyCeFieldPlan(
+                legId: "leg-1",
+                foField: "IsPreferred",
+                foFieldType: "Edm.Boolean",
+                ceField: "new_ispreferred",
+                kind: TestifyCeFieldAssertionKind.DirectScalar,
+                valueMap: null,
+                defaultValue: null)
+        });
+
+        var assertions = DualWriteMapBrowserViewModel.EvaluateCeFieldAssertions(
+            plan,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Quantity"] = "1",
+                ["IsPreferred"] = "1"
+            },
+            new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["leg-1"] = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["new_quantity"] = "1.0",
+                    ["new_ispreferred"] = "true"
+                }
+            },
+            "Create");
+
+        Assert.Equal(2, assertions.Count);
+        Assert.All(assertions, assertion => Assert.True(assertion.Passed));
+    }
+
+    [Fact]
+    public async Task ReadCorrelatedCeRowsAsync_SelectsCeAssertionColumns()
+    {
+        var handler = new CapturingJsonHttpMessageHandler("""
+{"value":[{"accountid":"11111111-1111-1111-1111-111111111111","name":"TESTIFY-ROW","statuscode":"1"}]}
+""");
+        using var dataverseHttp = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://contoso.crm.dynamics.com/")
+        };
+        var viewModel = new DualWriteMapBrowserViewModel(
+            new FakeIntegrationDataverseWriteContext(new SequenceODataWriteClient(), dataverseHttp),
+            new TestifyConfigurationStore(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-integration.json")));
+        var plan = BuildCeAssertionPlan(new[]
+        {
+            new TestifyCeFieldPlan(
+                legId: "leg-1",
+                foField: "Status",
+                foFieldType: "Edm.String",
+                ceField: "statuscode",
+                kind: TestifyCeFieldAssertionKind.ValueMap,
+                valueMap: new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase) { ["Open"] = "1" },
+                defaultValue: null)
+        });
+
+        var rows = await viewModel.ReadCorrelatedCeRowsAsync(
+            plan,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Name"] = "TESTIFY-ROW" },
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["leg-1"] = "11111111-1111-1111-1111-111111111111" },
+            CancellationToken.None);
+
+        Assert.True(rows.ContainsKey("leg-1"));
+        Assert.NotNull(handler.LastRequestUri);
+        Assert.Contains("$select=", handler.LastRequestUri!.ToString(), StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("statuscode", handler.LastRequestUri!.ToString(), StringComparison.OrdinalIgnoreCase);
     }
 
     private class FakeIntegrationContext : IPluginContext
@@ -421,6 +586,28 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
         }
     }
 
+    private sealed class CapturingJsonHttpMessageHandler : HttpMessageHandler
+    {
+        private readonly string _json;
+
+        public CapturingJsonHttpMessageHandler(string json)
+        {
+            _json = json;
+        }
+
+        public Uri? LastRequestUri { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            LastRequestUri = request.RequestUri;
+            var response = new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(_json, Encoding.UTF8, "application/json")
+            };
+            return Task.FromResult(response);
+        }
+    }
+
     private sealed class FakeCatalogService : ICatalogService
     {
         public Task<TableCatalog> GetTablesAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default) =>
@@ -476,6 +663,27 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
             createPayloadJson: "{}",
             enumFields: new Dictionary<string, TestifyEnumFieldPlan>(StringComparer.OrdinalIgnoreCase),
             patchSteps: Array.Empty<TestifyPatchStep>(),
+            ceFieldPlans: Array.Empty<TestifyCeFieldPlan>(),
+            warnings: Array.Empty<string>(),
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+            blockingIssues: Array.Empty<string>());
+    }
+
+    private static TestifyMapPlan BuildCeAssertionPlan(IReadOnlyList<TestifyCeFieldPlan> ceFieldPlans)
+    {
+        return new TestifyMapPlan(
+            mapId: "map-assertions",
+            mapDisplayName: "Assertion Map",
+            foEntity: "CustomersV3",
+            foEntityDetails: null,
+            configuration: new TestifyMapConfiguration { CePollTimeoutMinutes = 1 },
+            foFilter: string.Empty,
+            ceLegs: new[] { new TestifyLegPlan("leg-1", "accounts", "$filter=statecode eq 0", "Name", "name") },
+            createValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+            createPayloadJson: "{}",
+            enumFields: new Dictionary<string, TestifyEnumFieldPlan>(StringComparer.OrdinalIgnoreCase),
+            patchSteps: Array.Empty<TestifyPatchStep>(),
+            ceFieldPlans: ceFieldPlans,
             warnings: Array.Empty<string>(),
             coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
             blockingIssues: Array.Empty<string>());

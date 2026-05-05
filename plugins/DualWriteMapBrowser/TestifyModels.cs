@@ -18,6 +18,7 @@ public sealed class TestifyMapPlan
         string createPayloadJson,
         IReadOnlyDictionary<string, TestifyEnumFieldPlan> enumFields,
         IReadOnlyList<TestifyPatchStep> patchSteps,
+        IReadOnlyList<TestifyCeFieldPlan>? ceFieldPlans,
         IReadOnlyList<string> warnings,
         IReadOnlyList<TestifyEnumCoverageGap> coverageGaps,
         IReadOnlyList<string> blockingIssues)
@@ -33,6 +34,7 @@ public sealed class TestifyMapPlan
         CreatePayloadJson = createPayloadJson;
         EnumFields = enumFields;
         PatchSteps = patchSteps;
+        CeFieldPlans = ceFieldPlans ?? Array.Empty<TestifyCeFieldPlan>();
         Warnings = warnings;
         CoverageGaps = coverageGaps;
         BlockingIssues = blockingIssues;
@@ -49,6 +51,7 @@ public sealed class TestifyMapPlan
     public string CreatePayloadJson { get; }
     public IReadOnlyDictionary<string, TestifyEnumFieldPlan> EnumFields { get; }
     public IReadOnlyList<TestifyPatchStep> PatchSteps { get; }
+    public IReadOnlyList<TestifyCeFieldPlan> CeFieldPlans { get; }
     public IReadOnlyList<string> Warnings { get; }
     public IReadOnlyList<TestifyEnumCoverageGap> CoverageGaps { get; }
     public IReadOnlyList<TestifyFieldCoverageGap> CoverageGapsByField => CoverageGaps
@@ -169,6 +172,73 @@ public sealed class TestifyPatchStep
     public IReadOnlyDictionary<string, string> EnumValues { get; }
 }
 
+public enum TestifyCeFieldAssertionKind
+{
+    DirectScalar = 0,
+    ValueMap = 1
+}
+
+public sealed class TestifyCeFieldPlan
+{
+    public TestifyCeFieldPlan(
+        string legId,
+        string foField,
+        string foFieldType,
+        string ceField,
+        TestifyCeFieldAssertionKind kind,
+        IReadOnlyDictionary<string, string?>? valueMap,
+        string? defaultValue)
+    {
+        LegId = legId;
+        FoField = foField;
+        FoFieldType = foFieldType;
+        CeField = ceField;
+        Kind = kind;
+        ValueMap = valueMap ?? new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        DefaultValue = defaultValue;
+    }
+
+    public string LegId { get; }
+    public string FoField { get; }
+    public string FoFieldType { get; }
+    public string CeField { get; }
+    public TestifyCeFieldAssertionKind Kind { get; }
+    public IReadOnlyDictionary<string, string?> ValueMap { get; }
+    public string? DefaultValue { get; }
+}
+
+public sealed class TestifyCeFieldAssertion
+{
+    public TestifyCeFieldAssertion(
+        string phase,
+        string legId,
+        string foField,
+        string ceField,
+        string? expectedValue,
+        string? actualValue,
+        bool passed)
+    {
+        Phase = phase;
+        LegId = legId;
+        FoField = foField;
+        CeField = ceField;
+        ExpectedValue = expectedValue;
+        ActualValue = actualValue;
+        Passed = passed;
+    }
+
+    public string Phase { get; }
+    public string LegId { get; }
+    public string FoField { get; }
+    public string CeField { get; }
+    public string? ExpectedValue { get; }
+    public string? ActualValue { get; }
+    public bool Passed { get; }
+    public string ExpectedDisplay => ExpectedValue ?? "<null>";
+    public string ActualDisplay => ActualValue ?? "<null>";
+    public string Detail => $"{Phase} {CeField} expected '{ExpectedDisplay}' actual '{ActualDisplay}'";
+}
+
 public sealed class TestifyPreflightRow
 {
     public TestifyPreflightRow(
@@ -250,7 +320,8 @@ public sealed class TestifyResultRow
         int patchesSucceeded,
         bool ceVerificationSucceeded,
         string status,
-        IReadOnlyList<TestifyEnumCoverageGap> coverageGaps)
+        IReadOnlyList<TestifyEnumCoverageGap> coverageGaps,
+        IReadOnlyList<TestifyCeFieldAssertion>? ceFieldAssertions = null)
     {
         MapDisplayName = mapDisplayName;
         MapId = mapId;
@@ -261,6 +332,7 @@ public sealed class TestifyResultRow
         CeVerificationSucceeded = ceVerificationSucceeded;
         Status = status;
         CoverageGaps = coverageGaps;
+        CeFieldAssertions = ceFieldAssertions ?? Array.Empty<TestifyCeFieldAssertion>();
     }
 
     public string MapDisplayName { get; }
@@ -272,6 +344,16 @@ public sealed class TestifyResultRow
     public bool CeVerificationSucceeded { get; }
     public string Status { get; }
     public IReadOnlyList<TestifyEnumCoverageGap> CoverageGaps { get; }
+    public IReadOnlyList<TestifyCeFieldAssertion> CeFieldAssertions { get; }
+    public int CeAssertionsTotal => CeFieldAssertions.Count;
+    public int CeAssertionsPassed => CeFieldAssertions.Count(a => a.Passed);
+    public int CeAssertionsFailed => CeFieldAssertions.Count(a => !a.Passed);
+    public string CeAssertionSummary => CeAssertionsTotal == 0
+        ? "0/0"
+        : $"{CeAssertionsPassed}/{CeAssertionsTotal}";
+    public string CeAssertionDetail => CeFieldAssertions.Count == 0
+        ? string.Empty
+        : string.Join("; ", CeFieldAssertions.Select(a => $"{a.Phase}:{a.CeField}={(a.Passed ? "pass" : "fail")}"));
     public IReadOnlyList<TestifyFieldCoverageGap> CoverageGapsByField => CoverageGaps
         .GroupBy(g => g.FieldName, StringComparer.OrdinalIgnoreCase)
         .OrderBy(group => group.First().FieldName, StringComparer.OrdinalIgnoreCase)

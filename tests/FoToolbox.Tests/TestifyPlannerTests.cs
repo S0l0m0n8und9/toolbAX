@@ -32,6 +32,7 @@ public sealed class TestifyPlannerTests
                     parseError: string.Empty)
             },
             patchSteps: Array.Empty<TestifyPatchStep>(),
+            ceFieldPlans: Array.Empty<TestifyCeFieldPlan>(),
             warnings: Array.Empty<string>(),
             coverageGaps: new[]
             {

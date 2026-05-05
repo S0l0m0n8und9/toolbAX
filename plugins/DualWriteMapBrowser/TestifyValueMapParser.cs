@@ -16,9 +16,37 @@ public static class TestifyValueMapParser
         "name"
     };
 
+    private static readonly string[] TargetKeyCandidates =
+    {
+        "target",
+        "to",
+        "destination",
+        "destinationValue",
+        "targetValue",
+        "value"
+    };
+
     public static bool TryExtractKeys(string valueMapJson, out HashSet<string> keys, out string error)
     {
         keys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        error = string.Empty;
+
+        if (!TryExtractMappings(valueMapJson, out var mappings, out error))
+        {
+            return false;
+        }
+
+        foreach (var key in mappings.Keys)
+        {
+            keys.Add(key);
+        }
+
+        return true;
+    }
+
+    public static bool TryExtractMappings(string valueMapJson, out Dictionary<string, string?> mappings, out string error)
+    {
+        mappings = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         error = string.Empty;
 
         if (string.IsNullOrWhiteSpace(valueMapJson))
@@ -38,11 +66,11 @@ public static class TestifyValueMapParser
                     {
                         if (!string.IsNullOrWhiteSpace(property.Name))
                         {
-                            keys.Add(property.Name.Trim());
+                            mappings[property.Name.Trim()] = GetPrimitiveValue(property.Value);
                         }
                     }
 
-                    if (keys.Count == 0)
+                    if (mappings.Count == 0)
                     {
                         error = "ValueMap object did not contain keys.";
                         return false;
@@ -55,19 +83,19 @@ public static class TestifyValueMapParser
                     foreach (var item in root.EnumerateArray())
                     {
                         index++;
-                        if (!TryExtractArrayItemKey(item, out var key))
+                        if (!TryExtractArrayItemMapping(item, out var source, out var target))
                         {
                             error = $"ValueMap array item {index} did not contain a recognizable source key.";
                             return false;
                         }
 
-                        if (!string.IsNullOrWhiteSpace(key))
+                        if (!string.IsNullOrWhiteSpace(source))
                         {
-                            keys.Add(key);
+                            mappings[source] = target;
                         }
                     }
 
-                    if (keys.Count == 0)
+                    if (mappings.Count == 0)
                     {
                         error = "ValueMap array did not contain keys.";
                         return false;
@@ -124,5 +152,54 @@ public static class TestifyValueMapParser
             : firstPrimitive.Value.ToString();
 
         return !string.IsNullOrWhiteSpace(key);
+    }
+
+    private static bool TryExtractArrayItemMapping(JsonElement item, out string source, out string? target)
+    {
+        source = string.Empty;
+        target = null;
+
+        if (!TryExtractArrayItemKey(item, out source))
+        {
+            return false;
+        }
+
+        if (item.ValueKind != JsonValueKind.Object)
+        {
+            return true;
+        }
+
+        foreach (var candidate in TargetKeyCandidates)
+        {
+            if (item.TryGetProperty(candidate, out var value))
+            {
+                target = GetPrimitiveValue(value);
+                return true;
+            }
+        }
+
+        var firstTarget = item.EnumerateObject()
+            .FirstOrDefault(p =>
+                !SourceKeyCandidates.Contains(p.Name, StringComparer.OrdinalIgnoreCase) &&
+                p.Value.ValueKind is JsonValueKind.String or JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False or JsonValueKind.Null);
+        if (!firstTarget.Equals(default(JsonProperty)))
+        {
+            target = GetPrimitiveValue(firstTarget.Value);
+        }
+
+        return true;
+    }
+
+    private static string? GetPrimitiveValue(JsonElement value)
+    {
+        return value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString(),
+            JsonValueKind.Number => value.GetRawText(),
+            JsonValueKind.True => bool.TrueString.ToLowerInvariant(),
+            JsonValueKind.False => bool.FalseString.ToLowerInvariant(),
+            JsonValueKind.Null => null,
+            _ => value.GetRawText()
+        };
     }
 }

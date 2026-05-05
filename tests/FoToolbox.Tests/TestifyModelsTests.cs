@@ -27,6 +27,7 @@ public sealed class TestifyModelsTests
             createPayloadJson: string.Empty,
             enumFields: new Dictionary<string, TestifyEnumFieldPlan>(),
             patchSteps: Array.Empty<TestifyPatchStep>(),
+            ceFieldPlans: Array.Empty<TestifyCeFieldPlan>(),
             warnings: Array.Empty<string>(),
             coverageGaps: coverageGaps,
             blockingIssues: new[] { "Enum coverage missing for field 'Status'." });
@@ -62,6 +63,7 @@ public sealed class TestifyModelsTests
             createPayloadJson: "{ }",
             enumFields: new Dictionary<string, TestifyEnumFieldPlan>(),
             patchSteps: Array.Empty<TestifyPatchStep>(),
+            ceFieldPlans: Array.Empty<TestifyCeFieldPlan>(),
             warnings: Array.Empty<string>(),
             coverageGaps: new[] { new TestifyEnumCoverageGap("Status", "Closed") },
             blockingIssues: Array.Empty<string>());
@@ -89,6 +91,7 @@ public sealed class TestifyModelsTests
             createPayloadJson: string.Empty,
             enumFields: new Dictionary<string, TestifyEnumFieldPlan>(),
             patchSteps: Array.Empty<TestifyPatchStep>(),
+            ceFieldPlans: Array.Empty<TestifyCeFieldPlan>(),
             warnings: Array.Empty<string>(),
             coverageGaps: new[] { new TestifyEnumCoverageGap("Status", "Closed") },
             blockingIssues: new[] { "FO entity 'CustomersV3' was not found in metadata." });

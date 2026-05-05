@@ -23,6 +23,7 @@ public sealed class DualWriteMapBrowserTestifyResultTests
             createPayloadJson: string.Empty,
             enumFields: new Dictionary<string, TestifyEnumFieldPlan>(),
             patchSteps: Array.Empty<TestifyPatchStep>(),
+            ceFieldPlans: Array.Empty<TestifyCeFieldPlan>(),
             warnings: Array.Empty<string>(),
             coverageGaps: new[] { new TestifyEnumCoverageGap("Status", "Closed") },
             blockingIssues: new[] { "Enum coverage missing for field 'Status'." });
@@ -55,6 +56,7 @@ public sealed class DualWriteMapBrowserTestifyResultTests
             createPayloadJson: "{ }",
             enumFields: new Dictionary<string, TestifyEnumFieldPlan>(),
             patchSteps: Array.Empty<TestifyPatchStep>(),
+            ceFieldPlans: Array.Empty<TestifyCeFieldPlan>(),
             warnings: Array.Empty<string>(),
             coverageGaps: new[] { new TestifyEnumCoverageGap("Status", "Closed") },
             blockingIssues: new[] { "Some other blocking issue." });
@@ -161,5 +163,31 @@ public sealed class DualWriteMapBrowserTestifyResultTests
 
         Assert.Equal(string.Empty, row.CoverageGapDetail);
         Assert.Empty(row.CoverageGaps);
+    }
+
+    [Fact]
+    public void CeAssertionSummary_ReportsPassAndFailCounts()
+    {
+        var row = new TestifyResultRow(
+            mapDisplayName: "Customers",
+            mapId: "map-1",
+            valid: false,
+            createSucceeded: true,
+            patchesPlanned: 1,
+            patchesSucceeded: 1,
+            ceVerificationSucceeded: false,
+            status: "CE mismatch",
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+            ceFieldAssertions: new[]
+            {
+                new TestifyCeFieldAssertion("Create", "leg-1", "Name", "name", "TEST", "TEST", passed: true),
+                new TestifyCeFieldAssertion("Patch 1", "leg-1", "Status", "statuscode", "2", "1", passed: false)
+            });
+
+        Assert.Equal("1/2", row.CeAssertionSummary);
+        Assert.Equal(2, row.CeAssertionsTotal);
+        Assert.Equal(1, row.CeAssertionsPassed);
+        Assert.Equal(1, row.CeAssertionsFailed);
+        Assert.Equal("Create:name=pass; Patch 1:statuscode=fail", row.CeAssertionDetail);
     }
 }

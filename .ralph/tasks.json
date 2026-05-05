@@ -166,11 +166,11 @@
     {
       "id": "T9",
       "title": "Implement CE field reconciliation assertions",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T8"
       ],
-      "notes": "Read back the correlated CE row and compare stored values against FO source values and transform output for fields the selected map can already describe.",
+      "notes": "Implemented CE correlated-row field reconciliation assertions with per-phase expected/actual checks (create + patch), added value-map output parsing for enum transform validation, surfaced per-field pass/fail in Testify result rows/UI, and added targeted tests for create/patch assertions, scalar normalization, and assertion reporting.",
       "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
       "acceptance": [
         "Testify reads CE column values for the correlated row after create and patch operations",
@@ -182,8 +182,9 @@
         "plugins/DualWriteMapBrowser/TestifyModels.cs",
         "plugins/DualWriteMapBrowser/TestifyPlanner.cs",
         "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     }
   ],
-  "mutationCount": 16
+  "mutationCount": 17
 }

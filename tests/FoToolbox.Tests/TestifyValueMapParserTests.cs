@@ -39,4 +39,28 @@ public sealed class TestifyValueMapParserTests
         Assert.Empty(keys);
         Assert.Contains("Invalid valueMap JSON", error);
     }
+
+    [Fact]
+    public void TryExtractMappings_ObjectValueMap_ExtractsTargets()
+    {
+        const string json = "{\"Open\":\"1\",\"Closed\":\"2\"}";
+
+        var ok = TestifyValueMapParser.TryExtractMappings(json, out var mappings, out var error);
+
+        Assert.True(ok, error);
+        Assert.Equal("1", mappings["Open"]);
+        Assert.Equal("2", mappings["Closed"]);
+    }
+
+    [Fact]
+    public void TryExtractMappings_ArrayValueMap_ExtractsSourceAndTarget()
+    {
+        const string json = "[{\"source\":\"Retail\",\"target\":\"100\"},{\"from\":\"Wholesale\",\"to\":\"200\"}]";
+
+        var ok = TestifyValueMapParser.TryExtractMappings(json, out var mappings, out var error);
+
+        Assert.True(ok, error);
+        Assert.Equal("100", mappings["Retail"]);
+        Assert.Equal("200", mappings["Wholesale"]);
+    }
 }
