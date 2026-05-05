@@ -490,6 +490,99 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
     }
 
     [Fact]
+    public void EvaluateCeFieldAssertions_NormalizesBooleanShapedValueMapOutputs()
+    {
+        var plan = BuildCeAssertionPlan(new[]
+        {
+            new TestifyCeFieldPlan(
+                legId: "leg-1",
+                foField: "Status",
+                foFieldType: "Edm.String",
+                ceField: "new_isenabled",
+                kind: TestifyCeFieldAssertionKind.ValueMap,
+                valueMap: new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Enabled"] = "1"
+                },
+                defaultValue: "0")
+        });
+
+        var mappedAssertions = DualWriteMapBrowserViewModel.EvaluateCeFieldAssertions(
+            plan,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Status"] = "Enabled"
+            },
+            new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["leg-1"] = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["new_isenabled"] = "true"
+                }
+            },
+            "Create");
+
+        var mappedAssertion = Assert.Single(mappedAssertions);
+        Assert.True(mappedAssertion.Passed);
+
+        var defaultAssertions = DualWriteMapBrowserViewModel.EvaluateCeFieldAssertions(
+            plan,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Status"] = "Disabled"
+            },
+            new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["leg-1"] = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["new_isenabled"] = "false"
+                }
+            },
+            "Patch 1");
+
+        var defaultAssertion = Assert.Single(defaultAssertions);
+        Assert.True(defaultAssertion.Passed);
+    }
+
+    [Fact]
+    public void EvaluateCeFieldAssertions_ThrowsPatchMismatch_ForBooleanShapedValueMapOutputs()
+    {
+        var plan = BuildCeAssertionPlan(new[]
+        {
+            new TestifyCeFieldPlan(
+                legId: "leg-1",
+                foField: "Status",
+                foFieldType: "Edm.String",
+                ceField: "new_isenabled",
+                kind: TestifyCeFieldAssertionKind.ValueMap,
+                valueMap: new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Enabled"] = "1"
+                },
+                defaultValue: null)
+        });
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            DualWriteMapBrowserViewModel.EvaluateCeFieldAssertions(
+                plan,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Status"] = "Enabled"
+                },
+                new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["leg-1"] = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["new_isenabled"] = "false"
+                    }
+                },
+                "Patch 1"));
+
+        Assert.Contains("Patch 1", ex.Message);
+        Assert.Contains("new_isenabled", ex.Message);
+    }
+
+    [Fact]
     public void EvaluateCeFieldAssertions_NormalizesTemporalValues()
     {
         var plan = BuildCeAssertionPlan(new[]

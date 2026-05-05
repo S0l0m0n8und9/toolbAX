@@ -279,11 +279,11 @@
     {
       "id": "T14",
       "title": "Normalize boolean-shaped value-map CE outputs",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T13"
       ],
-      "notes": "Value-map assertions currently normalize numeric outputs, but boolean-style mapped values still fall back to raw string equality unless the FO source field itself is typed as `Edm.Boolean`. That leaves enum-to-two-option CE mappings vulnerable to false mismatches.",
+      "notes": "Normalized boolean-shaped CE value-map and default outputs so 0/1 and false/true compare semantically without weakening existing numeric comparison behavior. Added focused Testify regression coverage for pass and mismatch cases.",
       "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
       "tier": "medium",
       "acceptance": [
@@ -295,7 +295,8 @@
         "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
         "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs",
         "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T15",
@@ -320,5 +321,5 @@
       ]
     }
   ],
-  "mutationCount": 23
+  "mutationCount": 24
 }

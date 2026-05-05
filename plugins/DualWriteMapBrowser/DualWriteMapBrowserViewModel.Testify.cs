@@ -1292,6 +1292,13 @@ public sealed partial class DualWriteMapBrowserViewModel
             return string.Equals(normalizedExpectedGuid, normalizedActualGuid, StringComparison.Ordinal);
         }
 
+        if (cePlan.Kind == TestifyCeFieldAssertionKind.ValueMap &&
+            TryNormalizeBooleanShapedValue(expectedValue, out var normalizedExpectedBoolean) &&
+            TryNormalizeBooleanShapedValue(actualValue, out var normalizedActualBoolean))
+        {
+            return string.Equals(normalizedExpectedBoolean, normalizedActualBoolean, StringComparison.Ordinal);
+        }
+
         var shouldCompareAsNumeric = cePlan.Kind == TestifyCeFieldAssertionKind.ValueMap || IsNumericEdmType(cePlan.FoFieldType);
         if (shouldCompareAsNumeric &&
             decimal.TryParse(expectedValue, NumberStyles.Any, CultureInfo.InvariantCulture, out var expectedNumber) &&
@@ -1301,6 +1308,27 @@ public sealed partial class DualWriteMapBrowserViewModel
         }
 
         return string.Equals((expectedValue ?? string.Empty).Trim(), (actualValue ?? string.Empty).Trim(), StringComparison.Ordinal);
+    }
+
+    private static bool TryNormalizeBooleanShapedValue(string? value, out string normalizedValue)
+    {
+        normalizedValue = string.Empty;
+        if (value is null)
+        {
+            return false;
+        }
+
+        var trimmed = value.Trim();
+        if (!string.Equals(trimmed, "0", StringComparison.Ordinal) &&
+            !string.Equals(trimmed, "1", StringComparison.Ordinal) &&
+            !string.Equals(trimmed, bool.FalseString, StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(trimmed, bool.TrueString, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        normalizedValue = NormalizeBooleanString(trimmed) ?? string.Empty;
+        return true;
     }
 
     private static string? NormalizeBooleanString(string? value)
