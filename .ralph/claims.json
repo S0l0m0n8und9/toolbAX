@@ -326,10 +326,17 @@
       "status": "released"
     },
     {
-      "taskId": "T12",
       "agentId": "default",
-      "provenanceId": "run-i044-cli-20260505T032931Z",
+      "taskId": "T12",
       "claimedAt": "2026-05-05T03:29:31.915Z",
+      "provenanceId": "run-i044-cli-20260505T032931Z",
+      "status": "released"
+    },
+    {
+      "taskId": "T13",
+      "agentId": "default",
+      "provenanceId": "run-i046-cli-20260505T034132Z",
+      "claimedAt": "2026-05-05T03:41:32.148Z",
       "status": "active"
     }
   ]

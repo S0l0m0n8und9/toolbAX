@@ -1260,6 +1260,11 @@ public sealed partial class DualWriteMapBrowserViewModel
             return NormalizeNumericString(value);
         }
 
+        if (string.Equals(foFieldType, "Edm.Guid", StringComparison.OrdinalIgnoreCase))
+        {
+            return NormalizeGuidString(value) ?? value.Trim();
+        }
+
         return value;
     }
 
@@ -1278,6 +1283,13 @@ public sealed partial class DualWriteMapBrowserViewModel
         if (string.Equals(cePlan.FoFieldType, "Edm.DateTimeOffset", StringComparison.OrdinalIgnoreCase))
         {
             return string.Equals(NormalizeDateTimeOffsetString(expectedValue), NormalizeDateTimeOffsetString(actualValue), StringComparison.Ordinal);
+        }
+
+        var normalizedExpectedGuid = NormalizeGuidString(expectedValue);
+        var normalizedActualGuid = NormalizeGuidString(actualValue);
+        if (normalizedExpectedGuid is not null && normalizedActualGuid is not null)
+        {
+            return string.Equals(normalizedExpectedGuid, normalizedActualGuid, StringComparison.Ordinal);
         }
 
         var shouldCompareAsNumeric = cePlan.Kind == TestifyCeFieldAssertionKind.ValueMap || IsNumericEdmType(cePlan.FoFieldType);
@@ -1377,6 +1389,25 @@ public sealed partial class DualWriteMapBrowserViewModel
         }
 
         return numeric.ToString(CultureInfo.InvariantCulture);
+    }
+
+    private static string? NormalizeGuidString(string? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        if (trimmed.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        trimmed = trimmed.Trim('{', '}');
+        return Guid.TryParse(trimmed, out var guid)
+            ? guid.ToString("D")
+            : null;
     }
 
     private static bool IsNumericEdmType(string? type) =>

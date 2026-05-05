@@ -253,7 +253,72 @@
         "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
       ],
       "lastVerifierResult": "passed"
+    },
+    {
+      "id": "T13",
+      "title": "Normalize GUID-shaped CE assertion values",
+      "status": "done",
+      "dependsOn": [
+        "T12"
+      ],
+      "notes": "Normalized GUID-shaped CE assertion values so direct Edm.Guid assertions and GUID-looking value-map outputs compare semantically across casing and brace-format differences. Added focused regression coverage and the full Testify validation command passed.",
+      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "tier": "medium",
+      "acceptance": [
+        "Direct `Edm.Guid` CE assertions compare equivalent GUID values successfully even when Dataverse readback casing or brace formatting differs",
+        "GUID-shaped value-map outputs compare semantically instead of relying on ordinal string equality",
+        "Focused Testify regression tests cover GUID pass and mismatch cases for CE field assertions"
+      ],
+      "context": [
+        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
+        "plugins/DualWriteMapBrowser/TestifyModels.cs",
+        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs"
+      ],
+      "lastVerifierResult": "passed"
+    },
+    {
+      "id": "T14",
+      "title": "Normalize boolean-shaped value-map CE outputs",
+      "status": "todo",
+      "dependsOn": [
+        "T13"
+      ],
+      "notes": "Value-map assertions currently normalize numeric outputs, but boolean-style mapped values still fall back to raw string equality unless the FO source field itself is typed as `Edm.Boolean`. That leaves enum-to-two-option CE mappings vulnerable to false mismatches.",
+      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "tier": "medium",
+      "acceptance": [
+        "Value-map CE assertions treat equivalent boolean outputs such as `0/1` and `false/true` as semantic matches",
+        "Boolean normalization applies to mapped or default CE outputs without weakening existing numeric assertion behavior",
+        "Focused Testify regression tests cover boolean-shaped value-map pass and mismatch cases"
+      ],
+      "context": [
+        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
+        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs",
+        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
+      ]
+    },
+    {
+      "id": "T15",
+      "title": "Cover null and default CE assertion outputs",
+      "status": "todo",
+      "dependsOn": [
+        "T14"
+      ],
+      "notes": "The current assertion path carries `null` and `defaultValue` outputs through the model, but there is no focused regression coverage proving those fallback cases remain assertable after the newer semantic comparison work.",
+      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "tier": "medium",
+      "acceptance": [
+        "Value-map CE assertions can validate mapped or default `null` outputs without collapsing into generic string mismatches",
+        "Assertion failure detail preserves `<null>` expected or actual values clearly in result rows and thrown messages",
+        "Focused Testify regression tests cover mapped-null, default-null, and missing-default mismatch scenarios"
+      ],
+      "context": [
+        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
+        "plugins/DualWriteMapBrowser/TestifyValueMapParser.cs",
+        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs",
+        "tests/FoToolbox.Tests/TestifyModelsTests.cs"
+      ]
     }
   ],
-  "mutationCount": 21
+  "mutationCount": 23
 }

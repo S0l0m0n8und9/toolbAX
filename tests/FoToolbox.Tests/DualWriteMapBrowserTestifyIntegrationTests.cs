@@ -419,6 +419,77 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
     }
 
     [Fact]
+    public void EvaluateCeFieldAssertions_NormalizesDirectGuidValues()
+    {
+        var plan = BuildCeAssertionPlan(new[]
+        {
+            new TestifyCeFieldPlan(
+                legId: "leg-1",
+                foField: "ExternalId",
+                foFieldType: "Edm.Guid",
+                ceField: "new_externalid",
+                kind: TestifyCeFieldAssertionKind.DirectScalar,
+                valueMap: null,
+                defaultValue: null)
+        });
+
+        var assertions = DualWriteMapBrowserViewModel.EvaluateCeFieldAssertions(
+            plan,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["ExternalId"] = "3F2504E0-4F89-11D3-9A0C-0305E82C3301"
+            },
+            new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["leg-1"] = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["new_externalid"] = "{3f2504e0-4f89-11d3-9a0c-0305e82c3301}"
+                }
+            },
+            "Create");
+
+        var assertion = Assert.Single(assertions);
+        Assert.True(assertion.Passed);
+    }
+
+    [Fact]
+    public void EvaluateCeFieldAssertions_NormalizesGuidShapedValueMapOutputs()
+    {
+        var plan = BuildCeAssertionPlan(new[]
+        {
+            new TestifyCeFieldPlan(
+                legId: "leg-1",
+                foField: "Status",
+                foFieldType: "Edm.String",
+                ceField: "new_statuslookup",
+                kind: TestifyCeFieldAssertionKind.ValueMap,
+                valueMap: new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Open"] = "3F2504E0-4F89-11D3-9A0C-0305E82C3301"
+                },
+                defaultValue: null)
+        });
+
+        var assertions = DualWriteMapBrowserViewModel.EvaluateCeFieldAssertions(
+            plan,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Status"] = "Open"
+            },
+            new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["leg-1"] = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["new_statuslookup"] = "{3f2504e0-4f89-11d3-9a0c-0305e82c3301}"
+                }
+            },
+            "Patch 1");
+
+        var assertion = Assert.Single(assertions);
+        Assert.True(assertion.Passed);
+    }
+
+    [Fact]
     public void EvaluateCeFieldAssertions_NormalizesTemporalValues()
     {
         var plan = BuildCeAssertionPlan(new[]
