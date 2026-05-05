@@ -95,7 +95,7 @@ public sealed class TestifyModelsTests
             ceFieldPlans: Array.Empty<TestifyCeFieldPlan>(),
             warnings: new[]
             {
-                "Skipped CE assertion for 'CreatedDateTime->createdon' on leg 'leg-1' because FO type 'Edm.DateTimeOffset' is not yet supported for direct CE assertions."
+                "Skipped CE assertion for 'DocumentBlob->new_documentblob' on leg 'leg-1' because FO type 'Edm.Binary' is not yet supported for direct CE assertions."
             },
             coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
             blockingIssues: Array.Empty<string>());

@@ -1242,6 +1242,16 @@ public sealed partial class DualWriteMapBrowserViewModel
             return NormalizeBooleanString(value);
         }
 
+        if (string.Equals(foFieldType, "Edm.Date", StringComparison.OrdinalIgnoreCase))
+        {
+            return NormalizeDateOnlyString(value) ?? value.Trim();
+        }
+
+        if (string.Equals(foFieldType, "Edm.DateTimeOffset", StringComparison.OrdinalIgnoreCase))
+        {
+            return NormalizeDateTimeOffsetString(value) ?? value.Trim();
+        }
+
         if (IsNumericEdmType(foFieldType))
         {
             return NormalizeNumericString(value);
@@ -1255,6 +1265,16 @@ public sealed partial class DualWriteMapBrowserViewModel
         if (string.Equals(cePlan.FoFieldType, "Edm.Boolean", StringComparison.OrdinalIgnoreCase))
         {
             return string.Equals(NormalizeBooleanString(expectedValue), NormalizeBooleanString(actualValue), StringComparison.Ordinal);
+        }
+
+        if (string.Equals(cePlan.FoFieldType, "Edm.Date", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Equals(NormalizeDateOnlyString(expectedValue), NormalizeDateOnlyString(actualValue), StringComparison.Ordinal);
+        }
+
+        if (string.Equals(cePlan.FoFieldType, "Edm.DateTimeOffset", StringComparison.OrdinalIgnoreCase))
+        {
+            return string.Equals(NormalizeDateTimeOffsetString(expectedValue), NormalizeDateTimeOffsetString(actualValue), StringComparison.Ordinal);
         }
 
         var shouldCompareAsNumeric = cePlan.Kind == TestifyCeFieldAssertionKind.ValueMap || IsNumericEdmType(cePlan.FoFieldType);
@@ -1292,6 +1312,58 @@ public sealed partial class DualWriteMapBrowserViewModel
         }
 
         return trimmed;
+    }
+
+    private static string? NormalizeDateOnlyString(string? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        if (trimmed.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        if (DateOnly.TryParseExact(trimmed, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDate))
+        {
+            return parsedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        }
+
+        if (DateTimeOffset.TryParse(trimmed, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeUniversal, out var parsedOffset))
+        {
+            return DateOnly.FromDateTime(parsedOffset.Date).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        }
+
+        if (DateTime.TryParse(trimmed, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeUniversal, out var parsedDateTime))
+        {
+            return DateOnly.FromDateTime(parsedDateTime).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        }
+
+        return null;
+    }
+
+    private static string? NormalizeDateTimeOffsetString(string? value)
+    {
+        if (value is null)
+        {
+            return null;
+        }
+
+        var trimmed = value.Trim();
+        if (trimmed.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        if (!DateTimeOffset.TryParse(trimmed, CultureInfo.InvariantCulture, DateTimeStyles.AllowWhiteSpaces | DateTimeStyles.AssumeUniversal, out var parsed))
+        {
+            return null;
+        }
+
+        return parsed.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
     }
 
     private static string NormalizeNumericString(string value)
@@ -1380,6 +1452,8 @@ public sealed partial class DualWriteMapBrowserViewModel
     private static bool IsSupportedDirectCeScalarType(string type) =>
         string.Equals(type, "Edm.String", StringComparison.OrdinalIgnoreCase) ||
         string.Equals(type, "Edm.Boolean", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(type, "Edm.Date", StringComparison.OrdinalIgnoreCase) ||
+        string.Equals(type, "Edm.DateTimeOffset", StringComparison.OrdinalIgnoreCase) ||
         IsNumericEdmType(type) ||
         string.Equals(type, "Edm.Guid", StringComparison.OrdinalIgnoreCase);
 

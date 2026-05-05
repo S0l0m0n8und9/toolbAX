@@ -211,11 +211,11 @@
     {
       "id": "T11",
       "title": "Support temporal CE assertion normalization",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T10"
       ],
-      "notes": "The planner already synthesizes `Edm.Date` and `Edm.DateTimeOffset` create values, but direct CE assertion support currently stops at string, bool, numeric, and guid types. This leaves common date-bearing dual-write fields outside the CE reconciliation surface and will become a visible blocker once T10 requires assertable coverage.",
+      "notes": "Enabled direct CE assertions for Edm.Date and Edm.DateTimeOffset, normalized date-only and datetimeoffset comparisons semantically, and added focused temporal pass/mismatch regression coverage.",
       "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
       "tier": "medium",
       "acceptance": [
@@ -227,7 +227,8 @@
         "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
         "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs",
         "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T12",
@@ -253,5 +254,5 @@
       ]
     }
   ],
-  "mutationCount": 19
+  "mutationCount": 20
 }

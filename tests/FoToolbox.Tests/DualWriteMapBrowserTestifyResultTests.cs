@@ -92,7 +92,7 @@ public sealed class DualWriteMapBrowserTestifyResultTests
             ceFieldPlans: Array.Empty<TestifyCeFieldPlan>(),
             warnings: new[]
             {
-                "Skipped CE assertion for 'CreatedDateTime->createdon' on leg 'leg-1' because FO type 'Edm.DateTimeOffset' is not yet supported for direct CE assertions."
+                "Skipped CE assertion for 'DocumentBlob->new_documentblob' on leg 'leg-1' because FO type 'Edm.Binary' is not yet supported for direct CE assertions."
             },
             coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
             blockingIssues: Array.Empty<string>());
@@ -128,12 +128,12 @@ public sealed class DualWriteMapBrowserTestifyResultTests
             ceFieldPlans: Array.Empty<TestifyCeFieldPlan>(),
             warnings: new[]
             {
-                "Skipped CE assertion for 'CreatedDateTime->createdon' on leg 'leg-1' because FO type 'Edm.DateTimeOffset' is not yet supported for direct CE assertions."
+                "Skipped CE assertion for 'DocumentBlob->new_documentblob' on leg 'leg-1' because FO type 'Edm.Binary' is not yet supported for direct CE assertions."
             },
             coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
             blockingIssues: new[]
             {
-                "No assertable CE field coverage could be generated for runnable AX->CRM legs. Skipped CE assertion for 'CreatedDateTime->createdon' on leg 'leg-1' because FO type 'Edm.DateTimeOffset' is not yet supported for direct CE assertions."
+                "No assertable CE field coverage could be generated for runnable AX->CRM legs. Skipped CE assertion for 'DocumentBlob->new_documentblob' on leg 'leg-1' because FO type 'Edm.Binary' is not yet supported for direct CE assertions."
             });
 
         var blockingIssue = typeof(DualWriteMapBrowserViewModel)
@@ -141,7 +141,7 @@ public sealed class DualWriteMapBrowserTestifyResultTests
             .Invoke(null, new object[] { plan });
 
         Assert.Contains("No assertable CE field coverage could be generated", (string)blockingIssue!);
-        Assert.Contains("CreatedDateTime->createdon", (string)blockingIssue!);
+        Assert.Contains("DocumentBlob->new_documentblob", (string)blockingIssue!);
     }
 
     [Fact]

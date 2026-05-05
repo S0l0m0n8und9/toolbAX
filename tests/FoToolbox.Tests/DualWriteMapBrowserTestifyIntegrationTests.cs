@@ -419,6 +419,95 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
     }
 
     [Fact]
+    public void EvaluateCeFieldAssertions_NormalizesTemporalValues()
+    {
+        var plan = BuildCeAssertionPlan(new[]
+        {
+            new TestifyCeFieldPlan(
+                legId: "leg-1",
+                foField: "InvoiceDate",
+                foFieldType: "Edm.Date",
+                ceField: "new_invoicedate",
+                kind: TestifyCeFieldAssertionKind.DirectScalar,
+                valueMap: null,
+                defaultValue: null),
+            new TestifyCeFieldPlan(
+                legId: "leg-1",
+                foField: "ModifiedDateTime",
+                foFieldType: "Edm.DateTimeOffset",
+                ceField: "new_modifieddatetime",
+                kind: TestifyCeFieldAssertionKind.DirectScalar,
+                valueMap: null,
+                defaultValue: null)
+        });
+
+        var assertions = DualWriteMapBrowserViewModel.EvaluateCeFieldAssertions(
+            plan,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["InvoiceDate"] = "2026-05-05",
+                ["ModifiedDateTime"] = "2026-05-05T12:34:56Z"
+            },
+            new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["leg-1"] = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["new_invoicedate"] = "2026-05-05T00:00:00-07:00",
+                    ["new_modifieddatetime"] = "2026-05-05T05:34:56-07:00"
+                }
+            },
+            "Create");
+
+        Assert.Equal(2, assertions.Count);
+        Assert.All(assertions, assertion => Assert.True(assertion.Passed));
+    }
+
+    [Fact]
+    public void EvaluateCeFieldAssertions_ThrowsPatchMismatch_ForTemporalValues()
+    {
+        var plan = BuildCeAssertionPlan(new[]
+        {
+            new TestifyCeFieldPlan(
+                legId: "leg-1",
+                foField: "ModifiedDateTime",
+                foFieldType: "Edm.DateTimeOffset",
+                ceField: "new_modifieddatetime",
+                kind: TestifyCeFieldAssertionKind.DirectScalar,
+                valueMap: null,
+                defaultValue: null)
+        });
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            DualWriteMapBrowserViewModel.EvaluateCeFieldAssertions(
+                plan,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["ModifiedDateTime"] = "2026-05-05T12:34:56Z"
+                },
+                new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["leg-1"] = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["new_modifieddatetime"] = "2026-05-05T05:35:56-07:00"
+                    }
+                },
+                "Patch 1"));
+
+        Assert.Contains("Patch 1", ex.Message);
+        Assert.Contains("new_modifieddatetime", ex.Message);
+    }
+
+    [Fact]
+    public void IsSupportedDirectCeScalarType_IncludesTemporalTypes()
+    {
+        var method = typeof(DualWriteMapBrowserViewModel)
+            .GetMethod("IsSupportedDirectCeScalarType", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!;
+
+        Assert.True((bool)method.Invoke(null, new object[] { "Edm.Date" })!);
+        Assert.True((bool)method.Invoke(null, new object[] { "Edm.DateTimeOffset" })!);
+    }
+
+    [Fact]
     public async Task ReadCorrelatedCeRowsAsync_SelectsCeAssertionColumns()
     {
         var handler = new CapturingJsonHttpMessageHandler("""
