@@ -184,7 +184,74 @@
         "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
       ],
       "lastVerifierResult": "passed"
+    },
+    {
+      "id": "T10",
+      "title": "Block Testify maps with no assertable CE coverage",
+      "status": "done",
+      "dependsOn": [
+        "T9"
+      ],
+      "notes": "Blocked Testify maps that produce runnable CE legs but zero assertable CE field plans, surfaced skipped-assertion reasons in preflight detail, and prevented completed runs from reporting valid 0/0 CE assertion results. Added targeted regression coverage and the canonical Testify validator passed.",
+      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "tier": "medium",
+      "acceptance": [
+        "Preflight blocks a map when no CE field assertions can be generated for its runnable AX->CRM legs",
+        "Run execution cannot report a valid map with zero CE assertions evaluated",
+        "Blocking or status detail explains why CE assertions were unavailable for the map"
+      ],
+      "context": [
+        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
+        "plugins/DualWriteMapBrowser/TestifyModels.cs",
+        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs",
+        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs"
+      ],
+      "lastVerifierResult": "passed"
+    },
+    {
+      "id": "T11",
+      "title": "Support temporal CE assertion normalization",
+      "status": "todo",
+      "dependsOn": [
+        "T10"
+      ],
+      "notes": "The planner already synthesizes `Edm.Date` and `Edm.DateTimeOffset` create values, but direct CE assertion support currently stops at string, bool, numeric, and guid types. This leaves common date-bearing dual-write fields outside the CE reconciliation surface and will become a visible blocker once T10 requires assertable coverage.",
+      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "tier": "medium",
+      "acceptance": [
+        "Direct CE assertions support FO source fields typed as `Edm.Date` and `Edm.DateTimeOffset`",
+        "Expected and actual temporal values are normalized so equivalent FO and Dataverse formats compare successfully",
+        "Targeted tests cover temporal assertion pass and mismatch cases across create or patch verification"
+      ],
+      "context": [
+        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
+        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs",
+        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
+      ]
+    },
+    {
+      "id": "T12",
+      "title": "Surface Testify warning detail for skipped assertions",
+      "status": "todo",
+      "dependsOn": [
+        "T10"
+      ],
+      "notes": "The current preflight row only says `Ready (with warnings)` while `TestifyMapPlan.Warnings` contains the actual reasons assertions were skipped or learned config was applied. Operators need the warning detail in the durable UI surfaces so blocked or partial coverage is diagnosable without inspecting logs or code.",
+      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "tier": "medium",
+      "acceptance": [
+        "Preflight rows expose per-map warning detail from `TestifyMapPlan.Warnings`",
+        "Execution results preserve warning detail alongside CE assertion summaries for completed maps",
+        "Tests cover warning-detail row models and any added DualWriteMapBrowser bindings"
+      ],
+      "context": [
+        "plugins/DualWriteMapBrowser/DualWriteMapBrowserView.xaml",
+        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
+        "plugins/DualWriteMapBrowser/TestifyModels.cs",
+        "tests/FoToolbox.Tests/TestifyModelsTests.cs",
+        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
+      ]
     }
   ],
-  "mutationCount": 17
+  "mutationCount": 19
 }

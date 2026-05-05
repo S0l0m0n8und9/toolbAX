@@ -326,7 +326,7 @@ public sealed partial class DualWriteMapBrowserViewModel
                         var ceRowsAfterCreate = await ReadCorrelatedCeRowsAsync(plan, runtimeCreateValues, correlatedCeRowIdentities, cancellationToken);
                         var createAssertions = EvaluateCeFieldAssertions(plan, runtimeCreateValues, ceRowsAfterCreate, "Create");
                         ceFieldAssertions.AddRange(createAssertions);
-                        AddTestifyLog(plan.MapDisplayName, "CE Assert", "Succeeded", $"Create CE field assertions passed ({createAssertions.Count}/{createAssertions.Count}).");
+                        AddCeAssertionLog(plan.MapDisplayName, "Create", createAssertions.Count);
                     }
                     else
                     {
@@ -380,11 +380,15 @@ public sealed partial class DualWriteMapBrowserViewModel
                         var ceRowsAfterPatch = await ReadCorrelatedCeRowsAsync(plan, runtimeCreateValues, correlatedCeRowIdentities, cancellationToken);
                         var patchAssertions = EvaluateCeFieldAssertions(plan, runtimeCreateValues, ceRowsAfterPatch, $"Patch {step.StepNumber}");
                         ceFieldAssertions.AddRange(patchAssertions);
-                        AddTestifyLog(plan.MapDisplayName, "CE Assert", "Succeeded", $"Patch {step.StepNumber} CE field assertions passed ({patchAssertions.Count}/{patchAssertions.Count}).");
+                        AddCeAssertionLog(plan.MapDisplayName, $"Patch {step.StepNumber}", patchAssertions.Count);
                     }
 
-                    ceSucceeded = DidCeVerificationSucceedForCompletedRun(createSucceeded, patchesSucceeded, plan.PatchSteps.Count) &&
-                                  ceFieldAssertions.All(a => a.Passed);
+                    if (!DidCeVerificationSucceedForCompletedRun(createSucceeded, patchesSucceeded, plan.PatchSteps.Count, ceFieldAssertions.Count))
+                    {
+                        throw new InvalidOperationException("CE verification completed with zero assertable CE assertions evaluated. Resolve skipped CE assertion coverage in preflight before running this map.");
+                    }
+
+                    ceSucceeded = ceFieldAssertions.All(a => a.Passed);
                     valid = true;
                     status = $"Valid map. CE assertions: {ceFieldAssertions.Count(a => a.Passed)}/{ceFieldAssertions.Count}.";
                     AddTestifyLog(plan.MapDisplayName, "Result", "Valid", status);
@@ -786,6 +790,10 @@ public sealed partial class DualWriteMapBrowserViewModel
                             valueMap: null,
                             defaultValue: null));
                     }
+                    else
+                    {
+                        warnings.Add(BuildUnsupportedDirectCeAssertionWarning(fieldMapping.LegId, actualFoField, ceField, foProperty.Type));
+                    }
                 }
                 else if (IsSupportedDirectCeScalarType(foProperty.Type))
                 {
@@ -798,11 +806,19 @@ public sealed partial class DualWriteMapBrowserViewModel
                         valueMap: null,
                         defaultValue: null));
                 }
+                else
+                {
+                    warnings.Add(BuildUnsupportedDirectCeAssertionWarning(fieldMapping.LegId, actualFoField, ceField, foProperty.Type));
+                }
             }
 
             if (ceLegs.Count == 0)
             {
                 blockingIssues.Add("No AX->CRM leg produced a deterministic CE correlation descriptor.");
+            }
+            else if (ceFieldPlans.Count == 0)
+            {
+                blockingIssues.Add(BuildNoAssertableCeCoverageIssue(warnings));
             }
 
             foreach (var keyProp in foEntityDetails.Properties.Where(p => p.IsKey))
@@ -869,6 +885,11 @@ public sealed partial class DualWriteMapBrowserViewModel
             return "Blocked: missing entity";
         }
 
+        if (plan.HasAssertableCeCoverageGap)
+        {
+            return "Blocked: no assertable CE coverage";
+        }
+
         if (plan.CoverageGaps.Count > 0 && !plan.Configuration.AllowPartialEnumCoverage)
         {
             return "Blocked: incomplete coverage";
@@ -905,6 +926,37 @@ public sealed partial class DualWriteMapBrowserViewModel
 
         return plan.CoverageGapsByField.Select(gap =>
             $"Unmapped enum members for field '{gap.FieldName}': {string.Join(", ", gap.EnumValues.Select(value => $"'{value}'"))}.");
+    }
+
+    private static string BuildNoAssertableCeCoverageIssue(IReadOnlyList<string> warnings)
+    {
+        var skippedAssertionWarnings = warnings
+            .Where(IsSkippedCeAssertionWarning)
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
+        if (skippedAssertionWarnings.Length == 0)
+        {
+            return "No assertable CE field coverage could be generated for runnable AX->CRM legs.";
+        }
+
+        return $"No assertable CE field coverage could be generated for runnable AX->CRM legs. {string.Join(" ", skippedAssertionWarnings)}";
+    }
+
+    private static bool IsSkippedCeAssertionWarning(string warning) =>
+        warning.StartsWith("Skipped CE assertion", StringComparison.OrdinalIgnoreCase);
+
+    private static string BuildUnsupportedDirectCeAssertionWarning(string legId, string foField, string ceField, string foFieldType) =>
+        $"Skipped CE assertion for '{foField}->{ceField}' on leg '{legId}' because FO type '{foFieldType}' is not yet supported for direct CE assertions.";
+
+    private void AddCeAssertionLog(string mapDisplayName, string phase, int assertionCount)
+    {
+        if (assertionCount > 0)
+        {
+            AddTestifyLog(mapDisplayName, "CE Assert", "Succeeded", $"{phase} CE field assertions passed ({assertionCount}/{assertionCount}).");
+            return;
+        }
+
+        AddTestifyLog(mapDisplayName, "CE Assert", "Blocked", $"{phase} completed with no assertable CE field assertions evaluated.");
     }
 
     internal async Task<IReadOnlyDictionary<string, string>> WaitForCeCorrelationAsync(
@@ -2298,8 +2350,8 @@ public sealed partial class DualWriteMapBrowserViewModel
         return true;
     }
 
-    internal static bool DidCeVerificationSucceedForCompletedRun(bool createSucceeded, int patchesSucceeded, int patchesPlanned) =>
-        createSucceeded && patchesSucceeded == patchesPlanned;
+    internal static bool DidCeVerificationSucceedForCompletedRun(bool createSucceeded, int patchesSucceeded, int patchesPlanned, int ceAssertionsEvaluated = 1) =>
+        createSucceeded && patchesSucceeded == patchesPlanned && ceAssertionsEvaluated > 0;
 
     private static bool IsSuccessfulStatusCode(int statusCode) => statusCode >= 200 && statusCode <= 299;
     private static bool IsDeleteSuccessfulStatusCode(int statusCode) => IsSuccessfulStatusCode(statusCode) || statusCode == 404;

@@ -69,6 +69,82 @@ public sealed class DualWriteMapBrowserTestifyResultTests
     }
 
     [Fact]
+    public void GetBlockedStatus_ReturnsNoAssertableCoverage_WhenCeLegsExistButNoAssertions()
+    {
+        var plan = new TestifyMapPlan(
+            mapId: "map-1",
+            mapDisplayName: "Customers",
+            foEntity: "CustomersV3",
+            foEntityDetails: new FoToolbox.Core.OData.ODataEntity(
+                "CustomersV3",
+                Array.Empty<FoToolbox.Core.OData.ODataProperty>(),
+                Array.Empty<FoToolbox.Core.OData.ODataNavigationProperty>()),
+            configuration: new TestifyMapConfiguration(),
+            foFilter: string.Empty,
+            ceLegs: new[]
+            {
+                new TestifyLegPlan("leg-1", "accounts", "$filter=name eq 'TESTIFY-ROW'", "Name", "name")
+            },
+            createValues: new Dictionary<string, string>(),
+            createPayloadJson: "{ }",
+            enumFields: new Dictionary<string, TestifyEnumFieldPlan>(),
+            patchSteps: Array.Empty<TestifyPatchStep>(),
+            ceFieldPlans: Array.Empty<TestifyCeFieldPlan>(),
+            warnings: new[]
+            {
+                "Skipped CE assertion for 'CreatedDateTime->createdon' on leg 'leg-1' because FO type 'Edm.DateTimeOffset' is not yet supported for direct CE assertions."
+            },
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+            blockingIssues: Array.Empty<string>());
+
+        var status = typeof(DualWriteMapBrowserViewModel)
+            .GetMethod("GetBlockedStatus", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .Invoke(null, new object[] { plan });
+
+        Assert.Equal("Blocked: no assertable CE coverage", status);
+    }
+
+    [Fact]
+    public void FormatBlockingIssue_IncludesSkippedAssertionReason_WhenNoAssertableCoverageExists()
+    {
+        var plan = new TestifyMapPlan(
+            mapId: "map-1",
+            mapDisplayName: "Customers",
+            foEntity: "CustomersV3",
+            foEntityDetails: new FoToolbox.Core.OData.ODataEntity(
+                "CustomersV3",
+                Array.Empty<FoToolbox.Core.OData.ODataProperty>(),
+                Array.Empty<FoToolbox.Core.OData.ODataNavigationProperty>()),
+            configuration: new TestifyMapConfiguration(),
+            foFilter: string.Empty,
+            ceLegs: new[]
+            {
+                new TestifyLegPlan("leg-1", "accounts", "$filter=name eq 'TESTIFY-ROW'", "Name", "name")
+            },
+            createValues: new Dictionary<string, string>(),
+            createPayloadJson: "{ }",
+            enumFields: new Dictionary<string, TestifyEnumFieldPlan>(),
+            patchSteps: Array.Empty<TestifyPatchStep>(),
+            ceFieldPlans: Array.Empty<TestifyCeFieldPlan>(),
+            warnings: new[]
+            {
+                "Skipped CE assertion for 'CreatedDateTime->createdon' on leg 'leg-1' because FO type 'Edm.DateTimeOffset' is not yet supported for direct CE assertions."
+            },
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+            blockingIssues: new[]
+            {
+                "No assertable CE field coverage could be generated for runnable AX->CRM legs. Skipped CE assertion for 'CreatedDateTime->createdon' on leg 'leg-1' because FO type 'Edm.DateTimeOffset' is not yet supported for direct CE assertions."
+            });
+
+        var blockingIssue = typeof(DualWriteMapBrowserViewModel)
+            .GetMethod("FormatBlockingIssue", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)!
+            .Invoke(null, new object[] { plan });
+
+        Assert.Contains("No assertable CE field coverage could be generated", (string)blockingIssue!);
+        Assert.Contains("CreatedDateTime->createdon", (string)blockingIssue!);
+    }
+
+    [Fact]
     public void CoverageGapDetail_ListsEachFieldAndEnumValue()
     {
         var row = new TestifyResultRow(
@@ -143,6 +219,18 @@ public sealed class DualWriteMapBrowserTestifyResultTests
             createSucceeded: true,
             patchesSucceeded: 1,
             patchesPlanned: 2);
+
+        Assert.False(succeeded);
+    }
+
+    [Fact]
+    public void DidCeVerificationSucceedForCompletedRun_ReturnsFalse_WhenNoAssertionsWereEvaluated()
+    {
+        var succeeded = DualWriteMapBrowserViewModel.DidCeVerificationSucceedForCompletedRun(
+            createSucceeded: true,
+            patchesSucceeded: 0,
+            patchesPlanned: 0,
+            ceAssertionsEvaluated: 0);
 
         Assert.False(succeeded);
     }

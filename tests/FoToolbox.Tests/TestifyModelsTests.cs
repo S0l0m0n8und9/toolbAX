@@ -72,6 +72,38 @@ public sealed class TestifyModelsTests
     }
 
     [Fact]
+    public void TestifyMapPlan_BlocksRun_WhenCorrelatedCeLegsHaveNoAssertableCoverage()
+    {
+        var plan = new TestifyMapPlan(
+            mapId: "map-1",
+            mapDisplayName: "Customers",
+            foEntity: "CustomersV3",
+            foEntityDetails: new FoToolbox.Core.OData.ODataEntity(
+                "CustomersV3",
+                Array.Empty<FoToolbox.Core.OData.ODataProperty>(),
+                Array.Empty<FoToolbox.Core.OData.ODataNavigationProperty>()),
+            configuration: new TestifyMapConfiguration(),
+            foFilter: string.Empty,
+            ceLegs: new[]
+            {
+                new TestifyLegPlan("leg-1", "accounts", "$filter=name eq 'TESTIFY-ROW'", "Name", "name")
+            },
+            createValues: new Dictionary<string, string>(),
+            createPayloadJson: "{ }",
+            enumFields: new Dictionary<string, TestifyEnumFieldPlan>(),
+            patchSteps: Array.Empty<TestifyPatchStep>(),
+            ceFieldPlans: Array.Empty<TestifyCeFieldPlan>(),
+            warnings: new[]
+            {
+                "Skipped CE assertion for 'CreatedDateTime->createdon' on leg 'leg-1' because FO type 'Edm.DateTimeOffset' is not yet supported for direct CE assertions."
+            },
+            coverageGaps: Array.Empty<TestifyEnumCoverageGap>(),
+            blockingIssues: Array.Empty<string>());
+
+        Assert.False(plan.CanRun);
+    }
+
+    [Fact]
     public void TestifyMapPlan_PartialCoverageDoesNotBlockMissingEntityClassification()
     {
         var configuration = new TestifyMapConfiguration

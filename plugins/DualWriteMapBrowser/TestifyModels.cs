@@ -68,8 +68,10 @@ public sealed class TestifyMapPlan
         ? string.Empty
         : string.Join("; ", CoverageGapsByField.Select(gap => gap.Detail));
     public IReadOnlyList<string> BlockingIssues { get; }
+    public bool HasAssertableCeCoverageGap => CeLegs.Count > 0 && CeFieldPlans.Count == 0;
     public bool CanRun =>
         BlockingIssues.Count == 0 &&
+        !HasAssertableCeCoverageGap &&
         FoEntityDetails is not null &&
         !string.IsNullOrWhiteSpace(CreatePayloadJson) &&
         (CoverageGaps.Count == 0 || Configuration.AllowPartialEnumCoverage);
