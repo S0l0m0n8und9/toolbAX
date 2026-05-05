@@ -2282,12 +2282,18 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
                         valueMap = JsonSerializer.Serialize(valueMapElement);
                     }
 
+                    var hasDefaultValue = transform.TryGetProperty("defaultValue", out var defaultValueElement);
+                    var defaultValue = hasDefaultValue
+                        ? GetNullablePrimitiveValue(defaultValueElement)
+                        : null;
+
                     rows.Add(new MappingValueTransformRow(
                         legId: legId,
                         sourceField: sourceField,
                         destinationField: destinationField,
                         transformType: GetJsonString(transform, "transformType"),
-                        defaultValue: GetJsonString(transform, "defaultValue"),
+                        defaultValue: defaultValue,
+                        hasDefaultValue: hasDefaultValue,
                         valueMap: valueMap,
                         createValuesOnDestination: GetJsonBool(transform, "createValuesOnDestination")));
                 }
@@ -2357,6 +2363,18 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
         {
             JsonValueKind.Null => string.Empty,
             JsonValueKind.String => element.GetString() ?? string.Empty,
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            _ => element.ToString()
+        };
+    }
+
+    private static string? GetNullablePrimitiveValue(JsonElement element)
+    {
+        return element.ValueKind switch
+        {
+            JsonValueKind.Null => null,
+            JsonValueKind.String => element.GetString(),
             JsonValueKind.True => "true",
             JsonValueKind.False => "false",
             _ => element.ToString()
@@ -2641,7 +2659,8 @@ public sealed class MappingValueTransformRow
         string sourceField,
         string destinationField,
         string transformType,
-        string defaultValue,
+        string? defaultValue,
+        bool hasDefaultValue,
         string valueMap,
         bool? createValuesOnDestination)
     {
@@ -2650,6 +2669,7 @@ public sealed class MappingValueTransformRow
         DestinationField = destinationField;
         TransformType = transformType;
         DefaultValue = defaultValue;
+        HasDefaultValue = hasDefaultValue;
         ValueMap = valueMap;
         CreateValuesOnDestination = createValuesOnDestination;
     }
@@ -2658,7 +2678,8 @@ public sealed class MappingValueTransformRow
     public string SourceField { get; }
     public string DestinationField { get; }
     public string TransformType { get; }
-    public string DefaultValue { get; }
+    public string? DefaultValue { get; }
+    public bool HasDefaultValue { get; }
     public string ValueMap { get; }
     public bool? CreateValuesOnDestination { get; }
 }

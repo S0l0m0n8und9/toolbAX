@@ -545,6 +545,108 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
     }
 
     [Fact]
+    public void EvaluateCeFieldAssertions_PreservesMappedNullOutputs()
+    {
+        var plan = BuildCeAssertionPlan(new[]
+        {
+            new TestifyCeFieldPlan(
+                legId: "leg-1",
+                foField: "Status",
+                foFieldType: "Edm.String",
+                ceField: "new_optionalvalue",
+                kind: TestifyCeFieldAssertionKind.ValueMap,
+                valueMap: new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Cleared"] = null
+                },
+                defaultValue: null)
+        });
+
+        var assertions = DualWriteMapBrowserViewModel.EvaluateCeFieldAssertions(
+            plan,
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Status"] = "Cleared"
+            },
+            new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["leg-1"] = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["new_optionalvalue"] = null
+                }
+            },
+            "Create");
+
+        var assertion = Assert.Single(assertions);
+        Assert.True(assertion.Passed);
+        Assert.Null(assertion.ExpectedValue);
+        Assert.Null(assertion.ActualValue);
+        Assert.Equal("<null>", assertion.ExpectedDisplay);
+        Assert.Equal("<null>", assertion.ActualDisplay);
+        Assert.Equal("Create new_optionalvalue expected '<null>' actual '<null>'", assertion.Detail);
+    }
+
+    [Fact]
+    public void TryBuildCeValueMapAssertionPlan_PreservesExplicitNullDefaultOutput()
+    {
+        var method = typeof(DualWriteMapBrowserViewModel)
+            .GetMethod("TryBuildCeValueMapAssertionPlan", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+        Assert.NotNull(method);
+
+        var args = new object?[]
+        {
+            "leg-1",
+            "Status",
+            "Edm.String",
+            "new_optionalvalue",
+            new[]
+            {
+                new MappingValueTransformRow(
+                    legId: "leg-1",
+                    sourceField: "Status",
+                    destinationField: "new_optionalvalue",
+                    transformType: "ValueMap",
+                    defaultValue: (string)null!,
+                    hasDefaultValue: true,
+                    valueMap: """{"Enabled":"1"}""",
+                    createValuesOnDestination: null)
+            },
+            null,
+            null
+        };
+
+        var built = (bool)method.Invoke(null, args)!;
+        Assert.True(built);
+
+        var plan = Assert.IsType<TestifyCeFieldPlan>(args[5]);
+        var hasDefaultValueProperty = typeof(TestifyCeFieldPlan).GetProperty("HasDefaultValue", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public);
+        Assert.NotNull(hasDefaultValueProperty);
+        Assert.True(Assert.IsType<bool>(hasDefaultValueProperty!.GetValue(plan)));
+
+        var assertions = DualWriteMapBrowserViewModel.EvaluateCeFieldAssertions(
+            BuildCeAssertionPlan(new[] { plan }),
+            new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["Status"] = "Disabled"
+            },
+            new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["leg-1"] = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["new_optionalvalue"] = null
+                }
+            },
+            "Patch 1");
+
+        var assertion = Assert.Single(assertions);
+        Assert.True(assertion.Passed);
+        Assert.Null(assertion.ExpectedValue);
+        Assert.Null(assertion.ActualValue);
+        Assert.Equal("<null>", assertion.ExpectedDisplay);
+        Assert.Equal("<null>", assertion.ActualDisplay);
+    }
+
+    [Fact]
     public void EvaluateCeFieldAssertions_ThrowsPatchMismatch_ForBooleanShapedValueMapOutputs()
     {
         var plan = BuildCeAssertionPlan(new[]
@@ -580,6 +682,43 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
 
         Assert.Contains("Patch 1", ex.Message);
         Assert.Contains("new_isenabled", ex.Message);
+    }
+
+    [Fact]
+    public void EvaluateCeFieldAssertions_ThrowsPatchMismatch_WhenActualCeValueIsNull()
+    {
+        var plan = BuildCeAssertionPlan(new[]
+        {
+            new TestifyCeFieldPlan(
+                legId: "leg-1",
+                foField: "Status",
+                foFieldType: "Edm.String",
+                ceField: "statuscode",
+                kind: TestifyCeFieldAssertionKind.ValueMap,
+                valueMap: new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Open"] = "1"
+                },
+                defaultValue: null)
+        });
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            DualWriteMapBrowserViewModel.EvaluateCeFieldAssertions(
+                plan,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Status"] = "Open"
+                },
+                new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["leg-1"] = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["statuscode"] = null
+                    }
+                },
+                "Patch 1"));
+
+        Assert.Equal("CE Patch 1 assertion failed for leg 'leg-1' field 'statuscode': expected '1' but found '<null>'.", ex.Message);
     }
 
     [Fact]

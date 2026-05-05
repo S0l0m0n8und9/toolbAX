@@ -301,11 +301,11 @@
     {
       "id": "T15",
       "title": "Cover null and default CE assertion outputs",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T14"
       ],
-      "notes": "The current assertion path carries `null` and `defaultValue` outputs through the model, but there is no focused regression coverage proving those fallback cases remain assertable after the newer semantic comparison work.",
+      "notes": "Preserved explicit null CE value-map outputs through transform ingestion, assertion planning, and CE readback formatting. Added focused regression tests for mapped-null pass, explicit null default pass, and null mismatch messaging.",
       "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
       "tier": "medium",
       "acceptance": [
@@ -318,8 +318,9 @@
         "plugins/DualWriteMapBrowser/TestifyValueMapParser.cs",
         "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs",
         "tests/FoToolbox.Tests/TestifyModelsTests.cs"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     }
   ],
-  "mutationCount": 24
+  "mutationCount": 25
 }

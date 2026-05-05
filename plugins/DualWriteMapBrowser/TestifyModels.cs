@@ -189,7 +189,8 @@ public sealed class TestifyCeFieldPlan
         string ceField,
         TestifyCeFieldAssertionKind kind,
         IReadOnlyDictionary<string, string?>? valueMap,
-        string? defaultValue)
+        string? defaultValue,
+        bool hasDefaultValue = false)
     {
         LegId = legId;
         FoField = foField;
@@ -198,6 +199,7 @@ public sealed class TestifyCeFieldPlan
         Kind = kind;
         ValueMap = valueMap ?? new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         DefaultValue = defaultValue;
+        HasDefaultValue = hasDefaultValue || defaultValue is not null;
     }
 
     public string LegId { get; }
@@ -207,6 +209,7 @@ public sealed class TestifyCeFieldPlan
     public TestifyCeFieldAssertionKind Kind { get; }
     public IReadOnlyDictionary<string, string?> ValueMap { get; }
     public string? DefaultValue { get; }
+    public bool HasDefaultValue { get; }
 }
 
 public sealed class TestifyCeFieldAssertion

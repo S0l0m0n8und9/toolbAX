@@ -1178,7 +1178,7 @@ public sealed partial class DualWriteMapBrowserViewModel
                 throw new InvalidOperationException(resolutionError);
             }
 
-            if (!TryGetRowValueIgnoreCase(ceRow, cePlan.CeField, out var actualValue))
+            if (!TryGetNullableRowValueIgnoreCase(ceRow, cePlan.CeField, out var actualValue))
             {
                 throw new InvalidOperationException(
                     $"CE {phase} assertion failed for leg '{cePlan.LegId}' field '{cePlan.CeField}': readback row did not include the field.");
@@ -1224,7 +1224,7 @@ public sealed partial class DualWriteMapBrowserViewModel
                 return true;
             }
 
-            if (cePlan.DefaultValue is not null)
+            if (cePlan.HasDefaultValue)
             {
                 expectedValue = cePlan.DefaultValue;
                 return true;
@@ -1308,6 +1308,16 @@ public sealed partial class DualWriteMapBrowserViewModel
         }
 
         return string.Equals((expectedValue ?? string.Empty).Trim(), (actualValue ?? string.Empty).Trim(), StringComparison.Ordinal);
+    }
+
+    private static bool AreEquivalentMappedOutputs(string? left, string? right)
+    {
+        if (left is null || right is null)
+        {
+            return left is null && right is null;
+        }
+
+        return string.Equals(left, right, StringComparison.OrdinalIgnoreCase);
     }
 
     private static bool TryNormalizeBooleanShapedValue(string? value, out string normalizedValue)
@@ -1460,6 +1470,7 @@ public sealed partial class DualWriteMapBrowserViewModel
 
         var merged = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
         string? defaultValue = null;
+        var hasDefaultValue = false;
         foreach (var transform in transforms)
         {
             if (!TestifyValueMapParser.TryExtractMappings(transform.ValueMap, out var mappings, out var parseError))
@@ -1480,13 +1491,14 @@ public sealed partial class DualWriteMapBrowserViewModel
                 merged[pair.Key] = pair.Value;
             }
 
-            if (!string.IsNullOrWhiteSpace(transform.DefaultValue))
+            if (transform.HasDefaultValue)
             {
-                if (defaultValue is null)
+                if (!hasDefaultValue)
                 {
-                    defaultValue = transform.DefaultValue.Trim();
+                    defaultValue = transform.DefaultValue?.Trim();
+                    hasDefaultValue = true;
                 }
-                else if (!string.Equals(defaultValue, transform.DefaultValue.Trim(), StringComparison.OrdinalIgnoreCase))
+                else if (!AreEquivalentMappedOutputs(defaultValue, transform.DefaultValue?.Trim()))
                 {
                     warning = $"Skipped CE assertion for '{foField}->{ceField}' on leg '{legId}' because valueMap default values conflict.";
                     return false;
@@ -1494,7 +1506,7 @@ public sealed partial class DualWriteMapBrowserViewModel
             }
         }
 
-        if (merged.Count == 0 && defaultValue is null)
+        if (merged.Count == 0 && !hasDefaultValue)
         {
             warning = $"Skipped CE assertion for '{foField}->{ceField}' on leg '{legId}' because valueMap had no assertable outputs.";
             return false;
@@ -1507,7 +1519,8 @@ public sealed partial class DualWriteMapBrowserViewModel
             ceField: ceField,
             kind: TestifyCeFieldAssertionKind.ValueMap,
             valueMap: merged,
-            defaultValue: defaultValue);
+            defaultValue: defaultValue,
+            hasDefaultValue: hasDefaultValue);
         return true;
     }
 
@@ -2159,6 +2172,35 @@ public sealed partial class DualWriteMapBrowserViewModel
         }
 
         value = string.Empty;
+        return false;
+    }
+
+    private static bool TryGetNullableRowValueIgnoreCase(IReadOnlyDictionary<string, object?> row, string fieldName, out string? value)
+    {
+        foreach (var pair in row)
+        {
+            if (!string.Equals(pair.Key, fieldName, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+
+            if (pair.Value is null)
+            {
+                value = null;
+                return true;
+            }
+
+            value = pair.Value switch
+            {
+                string s => s,
+                bool b => b ? "true" : "false",
+                _ => Convert.ToString(pair.Value, CultureInfo.InvariantCulture) ?? pair.Value.ToString()
+            };
+
+            return true;
+        }
+
+        value = null;
         return false;
     }
 
