@@ -16,7 +16,13 @@
     <StandardDirectory Id="$(var.InstallRoot)">
       <Directory Id="INSTALLFOLDER" Name="FoToolbox">
         <Directory Id="BIN" Name="bin">
-          <Directory Id="PLUGINS" Name="plugins" />
+          <Directory Id="PLUGINS" Name="plugins">
+            <Directory Id="PLUGIN_HELLOPLUGIN" Name="HelloPlugin" />
+            <Directory Id="PLUGIN_QUERYBUILDER" Name="QueryBuilder" />
+            <Directory Id="PLUGIN_TABLEENTITYBROWSER" Name="TableEntityBrowser" />
+            <Directory Id="PLUGIN_ODATAPOSTBUILDER" Name="ODataPostBuilder" />
+            <Directory Id="PLUGIN_DUALWRITEMAPBROWSER" Name="DualWriteMapBrowser" />
+          </Directory>
         </Directory>
       </Directory>
     </StandardDirectory>
@@ -51,20 +57,20 @@
       </Component>
 
       <!-- Plugins -->
-      <Component Id="FoToolboxPluginHello" Guid="{1D8F6E5A-A8E0-4D58-9B0E-8E3C21FE8D8C}" Directory="PLUGINS">
-        <File Id="HelloPlugin.dll" Source="$(var.SourceDir)\plugins\HelloPlugin.dll" />
+      <Component Id="FoToolboxPluginHello" Guid="{C1C44D43-8E90-4EF4-B681-9E4C831B8F12}" Directory="PLUGIN_HELLOPLUGIN">
+        <File Id="HelloPlugin.dll" Source="$(var.SourceDir)\plugins\HelloPlugin\HelloPlugin.dll" KeyPath="yes" />
       </Component>
-      <Component Id="FoToolboxPluginQueryBuilder" Guid="{8BE5F3E5-C8D2-4BB2-9B9D-9D2A4D927254}" Directory="PLUGINS">
-        <File Id="QueryBuilder.dll" Source="$(var.SourceDir)\plugins\QueryBuilder.dll" />
+      <Component Id="FoToolboxPluginQueryBuilder" Guid="{8D2B0C47-2B72-4B8D-9E7A-8F1DAB232B1D}" Directory="PLUGIN_QUERYBUILDER">
+        <File Id="QueryBuilder.dll" Source="$(var.SourceDir)\plugins\QueryBuilder\QueryBuilder.dll" KeyPath="yes" />
       </Component>
-      <Component Id="FoToolboxPluginTableEntityBrowser" Guid="{DFAA5D17-7A94-413C-BA6B-41B0AA4FAD00}" Directory="PLUGINS">
-        <File Id="TableEntityBrowser.dll" Source="$(var.SourceDir)\plugins\TableEntityBrowser.dll" />
+      <Component Id="FoToolboxPluginTableEntityBrowser" Guid="{12BB533F-B682-4A81-B1C6-C5A2C6D3C2C2}" Directory="PLUGIN_TABLEENTITYBROWSER">
+        <File Id="TableEntityBrowser.dll" Source="$(var.SourceDir)\plugins\TableEntityBrowser\TableEntityBrowser.dll" KeyPath="yes" />
       </Component>
-      <Component Id="FoToolboxPluginODataPostBuilder" Guid="{B4E5D6B8-1A2F-4CCB-B0C8-2E47E72D1F6A}" Directory="PLUGINS">
-        <File Id="ODataPostBuilder.dll" Source="$(var.SourceDir)\plugins\ODataPostBuilder.dll" />
+      <Component Id="FoToolboxPluginODataPostBuilder" Guid="{F6BB58D4-C84E-4F35-9C2A-B9F6D3D1C048}" Directory="PLUGIN_ODATAPOSTBUILDER">
+        <File Id="ODataPostBuilder.dll" Source="$(var.SourceDir)\plugins\ODataPostBuilder\ODataPostBuilder.dll" KeyPath="yes" />
       </Component>
-      <Component Id="FoToolboxPluginDualWriteMapBrowser" Guid="{62B15A6A-9C45-4BFC-9A9F-C8D6A0C2F1A7}" Directory="PLUGINS">
-        <File Id="DualWriteMapBrowser.dll" Source="$(var.SourceDir)\plugins\DualWriteMapBrowser.dll" />
+      <Component Id="FoToolboxPluginDualWriteMapBrowser" Guid="{5D1B8280-9F8E-4545-8F2B-6267F943E1E7}" Directory="PLUGIN_DUALWRITEMAPBROWSER">
+        <File Id="DualWriteMapBrowser.dll" Source="$(var.SourceDir)\plugins\DualWriteMapBrowser\DualWriteMapBrowser.dll" KeyPath="yes" />
       </Component>
 
       <!-- Start menu shortcut -->

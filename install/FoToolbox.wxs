@@ -12,16 +12,19 @@
     <?define InstallScope="perUserOrMachine" ?>
   <?endif?>
   <?ifndef ProductCode?>
-    <?define ProductCode="{F057FFFE-9295-4B8D-A60F-41CB15E1ABB6}" ?>
+    <?define ProductCode="*" ?>
   <?endif?>
   <?ifndef ProductCodeUser?>
-    <?define ProductCodeUser="{F057FFFE-9295-4B8D-A60F-41CB15E1ABB6}" ?>
+    <?define ProductCodeUser="*" ?>
   <?endif?>
   <?ifndef ProductCodeMachine?>
-    <?define ProductCodeMachine="{6F8A8A0D-7791-4B24-8A2F-D4E8E93FE4AA}" ?>
+    <?define ProductCodeMachine="*" ?>
   <?endif?>
   <?ifndef UpgradeCode?>
     <?define UpgradeCode="{5E38A1ED-8CDD-4069-81F2-04C4DF076C11}" ?>
+  <?endif?>
+  <?ifndef AllowDowngrades?>
+    <?define AllowDowngrades="no" ?>
   <?endif?>
 
   <?if $(var.InstallScope) = perMachine ?>
@@ -33,8 +36,12 @@
   <?endif?>
 
   <Package Name="$(var.ProductName)" Language="1033" Version="$(var.Version)" Manufacturer="$(var.Manufacturer)" UpgradeCode="$(var.UpgradeCode)" Scope="$(var.InstallScope)" ProductCode="$(var.ProductCode)">
-    
-    <MajorUpgrade DowngradeErrorMessage="A newer version of $(var.ProductName) is already installed." />
+
+    <?if $(var.AllowDowngrades) = yes ?>
+      <MajorUpgrade AllowDowngrades="yes" />
+    <?else?>
+      <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of $(var.ProductName) is already installed." />
+    <?endif?>
 
     <MediaTemplate EmbedCab="yes" />
     

@@ -17,6 +17,8 @@
     <ProjectReference Include="..\\..\\src\\FoToolbox.Updater\\FoToolbox.Updater.csproj" />
     <ProjectReference Include="..\\..\\plugins\\HelloPlugin\\HelloPlugin.csproj" />
     <ProjectReference Include="..\\..\\plugins\\QueryBuilder\\QueryBuilder.csproj" />
+    <ProjectReference Include="..\\..\\plugins\\TableEntityBrowser\\TableEntityBrowser.csproj" />
+    <ProjectReference Include="..\\..\\plugins\\ODataPostBuilder\\ODataPostBuilder.csproj" />
     <ProjectReference Include="..\\..\\plugins\\DualWriteMapBrowser\\DualWriteMapBrowser.csproj" />
   </ItemGroup>
 

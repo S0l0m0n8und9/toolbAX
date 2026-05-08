@@ -722,6 +722,80 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
     }
 
     [Fact]
+    public void EvaluateCeFieldAssertions_ThrowsWhenFoSourceValueMissing()
+    {
+        var plan = BuildCeAssertionPlan(new[]
+        {
+            new TestifyCeFieldPlan(
+                legId: "leg-1",
+                foField: "Status",
+                foFieldType: "Edm.String",
+                ceField: "statuscode",
+                kind: TestifyCeFieldAssertionKind.ValueMap,
+                valueMap: new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Open"] = "1"
+                },
+                defaultValue: null)
+        });
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            DualWriteMapBrowserViewModel.EvaluateCeFieldAssertions(
+                plan,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),
+                new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["leg-1"] = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["statuscode"] = "1"
+                    }
+                },
+                "Create"));
+
+        Assert.Contains("Create", ex.Message);
+        Assert.Contains("statuscode", ex.Message);
+        Assert.Contains("Status", ex.Message);
+    }
+
+    [Fact]
+    public void EvaluateCeFieldAssertions_ThrowsWhenActualIsEmptyButExpectedIsMappedNull()
+    {
+        var plan = BuildCeAssertionPlan(new[]
+        {
+            new TestifyCeFieldPlan(
+                legId: "leg-1",
+                foField: "Status",
+                foFieldType: "Edm.String",
+                ceField: "new_optionalvalue",
+                kind: TestifyCeFieldAssertionKind.ValueMap,
+                valueMap: new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Cleared"] = null
+                },
+                defaultValue: null)
+        });
+
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            DualWriteMapBrowserViewModel.EvaluateCeFieldAssertions(
+                plan,
+                new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["Status"] = "Cleared"
+                },
+                new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["leg-1"] = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase)
+                    {
+                        ["new_optionalvalue"] = ""
+                    }
+                },
+                "Create"));
+
+        Assert.Contains("new_optionalvalue", ex.Message);
+        Assert.Contains("<null>", ex.Message);
+    }
+
+    [Fact]
     public void EvaluateCeFieldAssertions_NormalizesTemporalValues()
     {
         var plan = BuildCeAssertionPlan(new[]

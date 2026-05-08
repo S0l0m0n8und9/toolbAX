@@ -1170,7 +1170,8 @@ public sealed partial class DualWriteMapBrowserViewModel
 
             if (!runtimeCreateValues.TryGetValue(cePlan.FoField, out var sourceValue) || string.IsNullOrWhiteSpace(sourceValue))
             {
-                continue;
+                throw new InvalidOperationException(
+                    $"CE {phase} assertion for leg '{cePlan.LegId}' field '{cePlan.CeField}' requires FO field '{cePlan.FoField}', but no runtime value was available.");
             }
 
             if (!TryResolveExpectedCeValue(cePlan, sourceValue, out var expectedValue, out var resolutionError))
@@ -1307,7 +1308,12 @@ public sealed partial class DualWriteMapBrowserViewModel
             return expectedNumber == actualNumber;
         }
 
-        return string.Equals((expectedValue ?? string.Empty).Trim(), (actualValue ?? string.Empty).Trim(), StringComparison.Ordinal);
+        if (expectedValue is null || actualValue is null)
+        {
+            return expectedValue is null && actualValue is null;
+        }
+
+        return string.Equals(expectedValue.Trim(), actualValue.Trim(), StringComparison.Ordinal);
     }
 
     private static bool AreEquivalentMappedOutputs(string? left, string? right)

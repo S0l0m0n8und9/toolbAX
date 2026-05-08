@@ -65,6 +65,7 @@ public sealed class PluginManager
     public async Task<IReadOnlyList<LoadedPlugin>> DiscoverAsync(CancellationToken cancellationToken = default)
     {
         var results = new List<LoadedPlugin>();
+        _logger.LogInformation("Discovering plugins from root {PluginRoot}.", _pluginRoot);
 
         if (!Directory.Exists(_pluginRoot))
         {
@@ -77,42 +78,90 @@ public sealed class PluginManager
         //   QueryBuilder/QueryBuilder.dll (+ deps)
         //   HelloPlugin/HelloPlugin.dll (+ deps)
         // This avoids attempting to load every dependency DLL as if it were a plugin.
-        var candidates = new List<string>();
-        foreach (var dir in Directory.GetDirectories(_pluginRoot))
+        var allDlls = Directory.GetFiles(_pluginRoot, "*.dll", SearchOption.AllDirectories);
+        var candidates = DiscoverPluginCandidates();
+
+        foreach (var candidate in candidates)
+        {
+            _logger.LogInformation("Discovered plugin candidate {Dll} ({Layout}).", candidate.Path, candidate.Layout);
+        }
+
+        foreach (var candidate in candidates)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            try
+            {
+                var loaded = await LoadPluginAsync(candidate.Path, cancellationToken);
+                if (loaded is not null)
+                {
+                    var duplicate = results.FirstOrDefault(p => string.Equals(p.Manifest.Id, loaded.Manifest.Id, StringComparison.OrdinalIgnoreCase));
+                    if (duplicate is not null)
+                    {
+                        loaded.LoadContext.Unload();
+                        _logger.LogWarning(
+                            "Skipping duplicate plugin {PluginId} from {Dll}; already loaded from {LoadedDll}.",
+                            loaded.Manifest.Id,
+                            candidate.Path,
+                            duplicate.Instance.GetType().Assembly.Location);
+                        continue;
+                    }
+
+                    results.Add(loaded);
+                    _logger.LogInformation(
+                        "Loaded plugin {PluginName} ({PluginId}) from {Dll}.",
+                        loaded.Manifest.Name,
+                        loaded.Manifest.Id,
+                        candidate.Path);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to load plugin {Dll}", candidate.Path);
+            }
+        }
+
+        if (allDlls.Length > 0 && results.Count == 0)
+        {
+            _logger.LogWarning(
+                "Plugin DLLs were found under {PluginRoot}, but zero plugins loaded. Check plugin layout, signatures, manifests, SDK compatibility, and preceding load errors.",
+                _pluginRoot);
+        }
+
+        _navBus.SetPlugins(results);
+        return results;
+    }
+
+    private IReadOnlyList<PluginCandidate> DiscoverPluginCandidates()
+    {
+        var candidates = new List<PluginCandidate>();
+        var canonicalAssemblyNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var dir in Directory.GetDirectories(_pluginRoot).OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
         {
             var name = Path.GetFileName(dir);
             var primary = Path.Combine(dir, name + ".dll");
             if (File.Exists(primary))
             {
-                candidates.Add(primary);
+                candidates.Add(new PluginCandidate(primary, PluginCandidateLayout.CanonicalSubfolder));
+                canonicalAssemblyNames.Add(Path.GetFileNameWithoutExtension(primary));
             }
         }
 
-        if (candidates.Count == 0)
+        foreach (var flatDll in Directory.GetFiles(_pluginRoot, "*.dll", SearchOption.TopDirectoryOnly).OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
         {
-            // Flat layout fallback (used by tests and some dev setups).
-            candidates.AddRange(Directory.GetFiles(_pluginRoot, "*.dll", SearchOption.TopDirectoryOnly));
+            var assemblyName = Path.GetFileNameWithoutExtension(flatDll);
+            if (canonicalAssemblyNames.Contains(assemblyName))
+            {
+                _logger.LogInformation(
+                    "Skipping duplicate plugin candidate {Dll}; canonical subfolder copy takes precedence.",
+                    flatDll);
+                continue;
+            }
+
+            candidates.Add(new PluginCandidate(flatDll, PluginCandidateLayout.LegacyFlat));
         }
 
-        foreach (var dll in candidates)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            try
-            {
-                var loaded = await LoadPluginAsync(dll, cancellationToken);
-                if (loaded is not null)
-                {
-                    results.Add(loaded);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to load plugin {Dll}", dll);
-            }
-        }
-
-        _navBus.SetPlugins(results);
-        return results;
+        return candidates;
     }
 
     private async Task<LoadedPlugin?> LoadPluginAsync(string assemblyPath, CancellationToken cancellationToken)
@@ -228,6 +277,14 @@ public sealed class PluginManager
     {
         return manifest.CapabilitiesOrEmpty().Contains("OData.Write", StringComparer.OrdinalIgnoreCase);
     }
+
+    private enum PluginCandidateLayout
+    {
+        CanonicalSubfolder,
+        LegacyFlat
+    }
+
+    private sealed record PluginCandidate(string Path, PluginCandidateLayout Layout);
 }
 
 internal static class FoPluginManifestExtensions

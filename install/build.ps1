@@ -71,8 +71,8 @@ function New-DevVersion {
 
 $installDir = Split-Path -Parent $PSCommandPath
 $repoRoot = Resolve-Path (Join-Path $installDir "..") | Select-Object -ExpandProperty Path
-$defaultProductCodeUser = "{F057FFFE-9295-4B8D-A60F-41CB15E1ABB6}"
-$defaultProductCodeMachine = "{6F8A8A0D-7791-4B24-8A2F-D4E8E93FE4AA}"
+$defaultProductCodeUser = "*"
+$defaultProductCodeMachine = "*"
 $defaultUpgradeCode = "{5E38A1ED-8CDD-4069-81F2-04C4DF076C11}"
 $defaultBundleUpgradeCode = "{ED449692-157D-46FC-A96D-AFB178DF60F1}"
 $defaultBundleId = "BenJones.FOtoolbox.Bundle"
@@ -160,6 +160,59 @@ if (-not [string]::IsNullOrWhiteSpace($BundleManufacturer)) { Write-Host "Bundle
 if (-not [string]::IsNullOrWhiteSpace($BundleUpgradeCode)) { Write-Host "BundleUpgradeCode: $BundleUpgradeCode" }
 if (-not [string]::IsNullOrWhiteSpace($BundleId)) { Write-Host "BundleId: $BundleId" }
 if (-not [string]::IsNullOrWhiteSpace($LicenseUrl)) { Write-Host "LicenseUrl: $LicenseUrl" }
+
+function Get-InstalledFoToolboxProducts {
+    $uninstallRoots = @(
+        "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKLM:\SOFTWARE\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*",
+        "HKCU:\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\*"
+    )
+
+    $results = @()
+    foreach ($root in $uninstallRoots) {
+        $scope = if ($root -like "HKCU:*") { "User" } else { "Machine" }
+        $entries = Get-ItemProperty -Path $root -ErrorAction SilentlyContinue |
+            Where-Object {
+                $hasDisplayName = $_.PSObject.Properties.Name -contains "DisplayName"
+                $hasProductCode = $_.PSObject.Properties.Name -contains "PSChildName"
+                if (-not $hasDisplayName -or -not $hasProductCode) {
+                    return $false
+                }
+
+                ($_.DisplayName -eq "FOtoolbox" -or $_.DisplayName -eq "FoToolbox") -and
+                -not [string]::IsNullOrWhiteSpace($_.PSChildName)
+            }
+
+        foreach ($entry in $entries) {
+            $results += [PSCustomObject]@{
+                Scope = $scope
+                ProductCode = $entry.PSChildName
+                Version = $entry.DisplayVersion
+            }
+        }
+    }
+
+    return $results
+}
+
+function Write-InstallPreflight {
+    $installed = Get-InstalledFoToolboxProducts
+    if (-not $installed -or $installed.Count -eq 0) {
+        return
+    }
+
+    Write-Host "`nDetected existing FOtoolbox MSI registration(s):" -ForegroundColor Yellow
+    foreach ($item in $installed) {
+        Write-Host " - Scope=$($item.Scope), Version=$($item.Version), ProductCode=$($item.ProductCode)" -ForegroundColor Yellow
+    }
+
+    Write-Host "Potential reinstall blocker: existing registrations with static ProductCode from older builds can trigger MSI error 1638." -ForegroundColor Yellow
+    Write-Host "If install fails, uninstall old registrations first:" -ForegroundColor Yellow
+    foreach ($item in $installed) {
+        Write-Host " msiexec /x $($item.ProductCode)" -ForegroundColor Yellow
+    }
+    Write-Host "For machine-scope entries, run the uninstall command from an elevated terminal." -ForegroundColor Yellow
+}
 
 function Get-SignToolPath {
     param([string]$ExplicitPath)
@@ -252,6 +305,8 @@ if (-not (Get-Command wix -ErrorAction SilentlyContinue)) {
     throw "wix is required but was not found on PATH. Install with: dotnet tool install --global wix"
 }
 
+Write-InstallPreflight
+
 Assert-SigningConfiguration
 
 New-Item -ItemType Directory -Force -Path $SourceDir | Out-Null
@@ -266,6 +321,13 @@ dotnet publish (Join-Path $repoRoot "src\\FoToolbox.Host\\FoToolbox.Host.csproj"
 
 $pluginsOut = Join-Path $SourceDir "plugins"
 New-Item -ItemType Directory -Force -Path $pluginsOut | Out-Null
+$bundledPlugins = @(
+    "HelloPlugin",
+    "QueryBuilder",
+    "TableEntityBrowser",
+    "ODataPostBuilder",
+    "DualWriteMapBrowser"
+)
 
 Write-Host "`nBuilding plugins..."
 dotnet clean (Join-Path $repoRoot "plugins\\HelloPlugin\\HelloPlugin.csproj") -c $Configuration | Out-Host
@@ -280,16 +342,27 @@ dotnet clean (Join-Path $repoRoot "plugins\\DualWriteMapBrowser\\DualWriteMapBro
 dotnet build (Join-Path $repoRoot "plugins\\DualWriteMapBrowser\\DualWriteMapBrowser.csproj") -c $Configuration -p:Version=$msiVersion -p:AssemblyVersion=$assemblyVersion -p:FileVersion=$fileVersion | Out-Host
 
 Write-Host "`nCopying plugin binaries to SourceDir..."
-Copy-Item (Join-Path $repoRoot "plugins\\HelloPlugin\\bin\\$Configuration\\net8.0-windows\\HelloPlugin.dll") `
-    -Destination (Join-Path $pluginsOut "HelloPlugin.dll") -Force
-Copy-Item (Join-Path $repoRoot "plugins\\QueryBuilder\\bin\\$Configuration\\net8.0-windows\\QueryBuilder.dll") `
-    -Destination (Join-Path $pluginsOut "QueryBuilder.dll") -Force
-Copy-Item (Join-Path $repoRoot "plugins\\TableEntityBrowser\\bin\\$Configuration\\net8.0-windows\\TableEntityBrowser.dll") `
-    -Destination (Join-Path $pluginsOut "TableEntityBrowser.dll") -Force
-Copy-Item (Join-Path $repoRoot "plugins\\ODataPostBuilder\\bin\\$Configuration\\net8.0-windows\\ODataPostBuilder.dll") `
-    -Destination (Join-Path $pluginsOut "ODataPostBuilder.dll") -Force
-Copy-Item (Join-Path $repoRoot "plugins\\DualWriteMapBrowser\\bin\\$Configuration\\net8.0-windows\\DualWriteMapBrowser.dll") `
-    -Destination (Join-Path $pluginsOut "DualWriteMapBrowser.dll") -Force
+foreach ($pluginName in $bundledPlugins) {
+    $legacyFlatPath = Join-Path $pluginsOut "$pluginName.dll"
+    if (Test-Path $legacyFlatPath) {
+        Remove-Item $legacyFlatPath -Force
+    }
+
+    $pluginDirectory = Join-Path $pluginsOut $pluginName
+    New-Item -ItemType Directory -Force -Path $pluginDirectory | Out-Null
+
+    $source = Join-Path $repoRoot "plugins\\$pluginName\\bin\\$Configuration\\net8.0-windows\\$pluginName.dll"
+    $destination = Join-Path $pluginDirectory "$pluginName.dll"
+    Copy-Item $source -Destination $destination -Force
+}
+
+Write-Host "Verifying canonical plugin staging layout..."
+foreach ($pluginName in $bundledPlugins) {
+    $expectedPath = Join-Path (Join-Path $pluginsOut $pluginName) "$pluginName.dll"
+    if (-not (Test-Path $expectedPath)) {
+        throw "Bundled plugin staging assertion failed: expected $expectedPath"
+    }
+}
 
 $sqliteNativeSource = Join-Path $SourceDir "runtimes\\win-x64\\native\\e_sqlite3.dll"
 $sqliteNativeDestination = Join-Path $SourceDir "e_sqlite3.dll"
@@ -322,6 +395,7 @@ if (-not [string]::IsNullOrWhiteSpace($ProductName)) { $wixArgs += @("-d", "Prod
     if (-not [string]::IsNullOrWhiteSpace($Manufacturer)) { $wixArgs += @("-d", "Manufacturer=$Manufacturer") }
     if (-not [string]::IsNullOrWhiteSpace($msiVersion)) { $wixArgs += @("-d", "Version=$msiVersion") }
     if (-not [string]::IsNullOrWhiteSpace($UpgradeCode)) { $wixArgs += @("-d", "UpgradeCode=$UpgradeCode") }
+    if ($Configuration -eq "Debug") { $wixArgs += @("-d", "AllowDowngrades=yes") }
     if (-not [string]::IsNullOrWhiteSpace($ProductCodeUser)) { $wixArgs += @("-d", "ProductCodeUser=$ProductCodeUser") }
     if (-not [string]::IsNullOrWhiteSpace($ProductCodeMachine)) { $wixArgs += @("-d", "ProductCodeMachine=$ProductCodeMachine") }
 
