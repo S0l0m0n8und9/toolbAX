@@ -16,7 +16,8 @@
     "T13",
     "T14",
     "T15",
-    "T16"
+    "T16",
+    "T18.1"
   ],
   "touchedFiles": [
     ".ralph/.gitignore",
@@ -55,6 +56,7 @@
     "src/FoToolbox.Core/Auth/AuthRecoveryException.cs",
     "src/FoToolbox.Core/Auth/AuthService.cs",
     "src/FoToolbox.Host/AuthenticatedHandler.cs",
+    "src/FoToolbox.Host/Plugins/PluginManager.cs",
     "src/FoToolbox.Host/ViewModels/ProfilesViewModel.cs",
     "tests/FoToolbox.Tests/AuthReauthCoordinatorTests.cs",
     "tests/FoToolbox.Tests/AuthServiceTests.cs",
@@ -63,7 +65,9 @@
     "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyRollbackTests.cs",
     "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyTests.cs",
     "tests/FoToolbox.Tests/DualWriteMapBrowserViewModelTestifySettingsTests.cs",
+    "tests/FoToolbox.Tests/Fixtures/LegacyFlatBundledPluginFixture.cs",
     "tests/FoToolbox.Tests/MainWindowAuthRecoveryTests.cs",
+    "tests/FoToolbox.Tests/PluginManagerTests.cs",
     "tests/FoToolbox.Tests/ProfilesViewModelAuthValidationTests.cs",
     "tests/FoToolbox.Tests/TestifyConfigurationStoreTests.cs",
     "tests/FoToolbox.Tests/TestifyModelsTests.cs",

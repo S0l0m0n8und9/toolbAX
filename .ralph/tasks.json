@@ -350,12 +350,13 @@
     {
       "id": "T17",
       "title": "Per-machine fresh install plugin load proof",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T16"
       ],
-      "notes": "Machine-wide install path differences can break plugin discovery; execute after per-user baseline evidence is stable.",
+      "notes": "Executed a deterministic per-machine uninstall/install proof attempt and captured evidence under artifacts/t17-per-machine-proof-20260509. Machine install failed with MSI 1603 / Error 1925 due non-elevated shell, so launch/restart plugin-load proof could not be completed.",
       "validation": "dotnet build .\\FoToolbox.sln -c Release",
+      "blocker": "Per-machine MSI install requires administrator privileges. Current shell is non-elevated (isElevated=false), producing Error 1925 in artifacts/t17-per-machine-proof-20260509/install-machine.log.",
       "priority": "high",
       "tier": "medium",
       "acceptance": [
@@ -371,17 +372,22 @@
       "context": [
         "Program Files install root",
         "machine-level plugin directory"
-      ]
+      ],
+      "lastVerifierResult": "failed"
     },
     {
       "id": "T18",
       "title": "Upgrade from flat plugin layout verification",
-      "status": "todo",
+      "status": "in_progress",
       "dependsOn": [
-        "T17"
+        "T17",
+        "T18.1",
+        "T18.2",
+        "T18.3"
       ],
-      "notes": "Validate in-place upgrade from legacy flat plugin DLL layout to canonical subfolder layout without plugin loss.",
+      "notes": "Added runtime migration from legacy flat bundled plugin DLLs to canonical subfolder layout with explicit plugin/path logging for migrated, skipped, and failed cases; added regression tests covering migration and skip diagnostics; required Release build validation passed.",
       "validation": "dotnet build .\\FoToolbox.sln -c Release",
+      "blocker": "Need a known older flat-layout MSI build and an in-place upgrade execution to produce direct installer/runtime proof for the remaining acceptance criteria tied to real upgrade flow.",
       "priority": "high",
       "tier": "medium",
       "acceptance": [
@@ -397,7 +403,8 @@
       "context": [
         "legacy flat plugin folder",
         "upgrade installer artifacts"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T19",
@@ -479,7 +486,81 @@
         "dogfood notes file",
         "validation artifacts"
       ]
+    },
+    {
+      "id": "T18.1",
+      "title": "Create legacy flat-layout upgrade fixture",
+      "status": "done",
+      "parentId": "T18",
+      "notes": "Added a deterministic legacy flat-layout fixture helper with explicit expected bundled plugin identities and expected count, and wired PluginManager tests to use it for reproducible old-layout staging.",
+      "validation": "dotnet build .\\FoToolbox.sln -c Release",
+      "tier": "simple",
+      "acceptance": [
+        "A reproducible fixture exists that represents a known older flat bundled-plugin layout.",
+        "Fixture includes explicit expected bundled plugin identities and expected count used by later assertions."
+      ],
+      "constraints": [
+        "Keep fixture deterministic and repo-local.",
+        "Do not alter production plugin discovery contract while adding fixture support."
+      ],
+      "context": [
+        "Task T18 acceptance criteria",
+        "Bundled plugin migration and discovery path in FoToolbox",
+        ".ralph/artifacts/plans/T18/plan.md#task-1"
+      ],
+      "lastVerifierResult": "passed"
+    },
+    {
+      "id": "T18.2",
+      "title": "Verify upgrade preserves bundled plugin discovery count",
+      "status": "todo",
+      "parentId": "T18",
+      "dependsOn": [
+        "T18.1"
+      ],
+      "notes": "Core regression risk is silent plugin loss after upgrade/restart despite partial loading.",
+      "validation": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
+      "tier": "medium",
+      "acceptance": [
+        "After upgrade and restart from fixture, discovered plugin count equals expected bundled count exactly.",
+        "Loaded plugin identities match expected bundled set."
+      ],
+      "constraints": [
+        "Count assertion must not pass on non-zero partial discovery.",
+        "Test should be resilient to plugin enumeration order."
+      ],
+      "context": [
+        "Task T18 acceptance criteria",
+        "Existing plugin discovery tests and startup flow",
+        ".ralph/artifacts/plans/T18/plan.md#task-2"
+      ]
+    },
+    {
+      "id": "T18.3",
+      "title": "Verify canonical layout migration diagnostics",
+      "status": "todo",
+      "parentId": "T18",
+      "dependsOn": [
+        "T18.2"
+      ],
+      "notes": "Operator trust requires observable detail when migration skips or failures occur.",
+      "validation": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
+      "tier": "medium",
+      "acceptance": [
+        "Canonical subfolder layout exists after upgrade for bundled plugins.",
+        "Legacy flat duplicates do not suppress plugin loading.",
+        "Any skipped or failed migration is surfaced with specific plugin and path details in logs or UI output."
+      ],
+      "constraints": [
+        "Do not hide migration exceptions behind generic error text.",
+        "Preserve backward compatibility fallback behavior where required."
+      ],
+      "context": [
+        "Task T18 acceptance criteria",
+        "Migration logging/status surface in FoToolbox",
+        ".ralph/artifacts/plans/T18/plan.md#task-3"
+      ]
     }
   ],
-  "mutationCount": 27
+  "mutationCount": 31
 }

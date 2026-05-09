@@ -22,6 +22,15 @@ namespace FoToolbox.Host.Plugins;
 /// </summary>
 public sealed class PluginManager
 {
+    private static readonly HashSet<string> BundledPluginAssemblyNames = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "HelloPlugin",
+        "QueryBuilder",
+        "TableEntityBrowser",
+        "ODataPostBuilder",
+        "DualWriteMapBrowser"
+    };
+
     private readonly string _pluginRoot;
     private readonly FoEnvironment _env;
     private readonly IODataClient _odata;
@@ -72,6 +81,8 @@ public sealed class PluginManager
             _logger.LogWarning("Plugin directory {Root} not found.", _pluginRoot);
             return results;
         }
+
+        MigrateLegacyFlatBundledPluginsToCanonicalLayout();
 
         // Prefer "one plugin per directory" layout:
         // plugins/
@@ -129,6 +140,50 @@ public sealed class PluginManager
 
         _navBus.SetPlugins(results);
         return results;
+    }
+
+    private void MigrateLegacyFlatBundledPluginsToCanonicalLayout()
+    {
+        foreach (var flatDll in Directory.GetFiles(_pluginRoot, "*.dll", SearchOption.TopDirectoryOnly).OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase))
+        {
+            var assemblyName = Path.GetFileNameWithoutExtension(flatDll);
+            if (!BundledPluginAssemblyNames.Contains(assemblyName))
+            {
+                continue;
+            }
+
+            var canonicalDirectory = Path.Combine(_pluginRoot, assemblyName);
+            var canonicalPath = Path.Combine(canonicalDirectory, assemblyName + ".dll");
+            if (File.Exists(canonicalPath))
+            {
+                _logger.LogInformation(
+                    "Skipping legacy flat plugin migration for {PluginName}; canonical plugin already exists at {CanonicalPath}. Legacy path: {LegacyPath}.",
+                    assemblyName,
+                    canonicalPath,
+                    flatDll);
+                continue;
+            }
+
+            try
+            {
+                Directory.CreateDirectory(canonicalDirectory);
+                File.Move(flatDll, canonicalPath, overwrite: true);
+                _logger.LogInformation(
+                    "Migrated legacy flat plugin {PluginName} from {LegacyPath} to canonical path {CanonicalPath}.",
+                    assemblyName,
+                    flatDll,
+                    canonicalPath);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(
+                    ex,
+                    "Failed migrating legacy flat plugin {PluginName} from {LegacyPath} to {CanonicalPath}; falling back to flat-layout loading.",
+                    assemblyName,
+                    flatDll,
+                    canonicalPath);
+            }
+        }
     }
 
     private IReadOnlyList<PluginCandidate> DiscoverPluginCandidates()

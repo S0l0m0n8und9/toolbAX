@@ -1,5 +1,6 @@
 using FoToolbox.Core.Models;
 using FoToolbox.Host.Plugins;
+using FoToolbox.Tests.Fixtures;
 using FoToolbox.Core.OData;
 using FoToolbox.Core.Catalog;
 using FoToolbox.SDK.Plugins;
@@ -87,19 +88,10 @@ public sealed class PluginManagerTests
     private static FoEnvironment CreateEnv() =>
         new("dev", "Dev", "https://contoso.operations.dynamics.com", "00000000-0000-0000-0000-000000000000", "USMF");
 
-    private static readonly (string Name, Type PluginType, string Id)[] BundledPlugins =
-    {
-        ("HelloPlugin", typeof(HelloFoToolPlugin), "fo.hello"),
-        ("QueryBuilder", typeof(QueryBuilderPlugin.QueryBuilderPlugin), "fo.querybuilder"),
-        ("TableEntityBrowser", typeof(TableEntityBrowserPlugin.TableEntityBrowserPlugin), "fo.tableentitybrowser"),
-        ("ODataPostBuilder", typeof(ODataPostBuilderPlugin.ODataPostBuilderPlugin), "fo.odatapostbuilder"),
-        ("DualWriteMapBrowser", typeof(DualWriteMapBrowserPlugin.DualWriteMapBrowserPlugin), "fo.dualwritemapbrowser")
-    };
-
     private static PluginManager CreateManager(string pluginRoot, CapturingLogger logger) =>
         new(pluginRoot, CreateEnv(), new StubODataClient(), new StubODataWriteClient(), new StubCatalogService(), logger, trustOptions: new PluginTrustOptions(true, Array.Empty<string>()));
 
-    private static string StageCanonical(string pluginRoot, (string Name, Type PluginType, string Id) plugin)
+    private static string StageCanonical(string pluginRoot, LegacyFlatBundledPluginFixture.BundledPluginDescriptor plugin)
     {
         var assemblyPath = plugin.PluginType.Assembly.Location;
         var pluginDir = Path.Combine(pluginRoot, plugin.Name);
@@ -109,7 +101,7 @@ public sealed class PluginManagerTests
         return stagedPath;
     }
 
-    private static string StageFlat(string pluginRoot, (string Name, Type PluginType, string Id) plugin)
+    private static string StageFlat(string pluginRoot, LegacyFlatBundledPluginFixture.BundledPluginDescriptor plugin)
     {
         Directory.CreateDirectory(pluginRoot);
         var assemblyPath = plugin.PluginType.Assembly.Location;
@@ -177,7 +169,7 @@ public sealed class PluginManagerTests
         RunSta(async () =>
         {
             var pluginRoot = Directory.CreateTempSubdirectory("plugins-canonical").FullName;
-            foreach (var plugin in BundledPlugins)
+            foreach (var plugin in LegacyFlatBundledPluginFixture.BundledPlugins)
             {
                 StageCanonical(pluginRoot, plugin);
             }
@@ -186,7 +178,7 @@ public sealed class PluginManagerTests
             var manager = CreateManager(pluginRoot, logger);
             var plugins = await manager.DiscoverAsync();
 
-            Assert.Equal(BundledPlugins.Select(p => p.Id).OrderBy(id => id), plugins.Select(p => p.Manifest.Id).OrderBy(id => id));
+            Assert.Equal(LegacyFlatBundledPluginFixture.ExpectedBundledPluginIds, plugins.Select(p => p.Manifest.Id).OrderBy(id => id));
             Assert.DoesNotContain(logger.Entries, e => e.Level >= Microsoft.Extensions.Logging.LogLevel.Error);
         });
     }
@@ -196,8 +188,25 @@ public sealed class PluginManagerTests
     {
         RunSta(async () =>
         {
-            var pluginRoot = Directory.CreateTempSubdirectory("plugins-flat").FullName;
-            foreach (var plugin in BundledPlugins)
+            var pluginRoot = LegacyFlatBundledPluginFixture.CreateLegacyFlatLayoutFixture();
+
+            var logger = new CapturingLogger();
+            var manager = CreateManager(pluginRoot, logger);
+            var plugins = await manager.DiscoverAsync();
+
+            Assert.Equal(LegacyFlatBundledPluginFixture.ExpectedBundledPluginIds, plugins.Select(p => p.Manifest.Id).OrderBy(id => id));
+            Assert.Equal(LegacyFlatBundledPluginFixture.ExpectedBundledPluginCount, plugins.Count);
+            Assert.DoesNotContain(logger.Entries, e => e.Level >= Microsoft.Extensions.Logging.LogLevel.Error);
+        });
+    }
+
+    [Fact]
+    public void Discover_Migrates_Legacy_Flat_Bundled_Plugins_To_Canonical_Subfolders()
+    {
+        RunSta(async () =>
+        {
+            var pluginRoot = Directory.CreateTempSubdirectory("plugins-flat-migration").FullName;
+            foreach (var plugin in LegacyFlatBundledPluginFixture.BundledPlugins)
             {
                 StageFlat(pluginRoot, plugin);
             }
@@ -206,8 +215,46 @@ public sealed class PluginManagerTests
             var manager = CreateManager(pluginRoot, logger);
             var plugins = await manager.DiscoverAsync();
 
-            Assert.Equal(BundledPlugins.Select(p => p.Id).OrderBy(id => id), plugins.Select(p => p.Manifest.Id).OrderBy(id => id));
-            Assert.DoesNotContain(logger.Entries, e => e.Level >= Microsoft.Extensions.Logging.LogLevel.Error);
+            Assert.Equal(LegacyFlatBundledPluginFixture.ExpectedBundledPluginIds, plugins.Select(p => p.Manifest.Id).OrderBy(id => id));
+
+            foreach (var plugin in LegacyFlatBundledPluginFixture.BundledPlugins)
+            {
+                var canonicalPath = Path.Combine(pluginRoot, plugin.Name, plugin.Name + ".dll");
+                var flatPath = Path.Combine(pluginRoot, plugin.Name + ".dll");
+                Assert.True(File.Exists(canonicalPath), $"Expected canonical plugin path {canonicalPath} to exist.");
+                Assert.False(File.Exists(flatPath), $"Expected legacy flat plugin path {flatPath} to be removed.");
+            }
+
+            Assert.Contains(
+                logger.Entries,
+                e => e.Level == Microsoft.Extensions.Logging.LogLevel.Information &&
+                     e.Message.Contains("Migrated legacy flat plugin", StringComparison.OrdinalIgnoreCase));
+        });
+    }
+
+    [Fact]
+    public void Discover_Logs_Skipped_Migration_With_Plugin_And_Path_When_Canonical_Exists()
+    {
+        RunSta(async () =>
+        {
+            var pluginRoot = Directory.CreateTempSubdirectory("plugins-flat-skip-migration").FullName;
+            var hello = LegacyFlatBundledPluginFixture.BundledPlugins.Single(p => p.Name == "HelloPlugin");
+            var canonicalHelloPath = StageCanonical(pluginRoot, hello);
+            var flatHelloPath = StageFlat(pluginRoot, hello);
+
+            var logger = new CapturingLogger();
+            var manager = CreateManager(pluginRoot, logger);
+            _ = await manager.DiscoverAsync();
+
+            Assert.True(File.Exists(canonicalHelloPath));
+            Assert.True(File.Exists(flatHelloPath));
+            Assert.Contains(
+                logger.Entries,
+                e => e.Level == Microsoft.Extensions.Logging.LogLevel.Information &&
+                     e.Message.Contains("Skipping legacy flat plugin migration", StringComparison.OrdinalIgnoreCase) &&
+                     e.Message.Contains("HelloPlugin", StringComparison.OrdinalIgnoreCase) &&
+                     e.Message.Contains(Path.Combine(pluginRoot, "HelloPlugin", "HelloPlugin.dll"), StringComparison.OrdinalIgnoreCase) &&
+                     e.Message.Contains(Path.Combine(pluginRoot, "HelloPlugin.dll"), StringComparison.OrdinalIgnoreCase));
         });
     }
 
@@ -217,8 +264,8 @@ public sealed class PluginManagerTests
         RunSta(async () =>
         {
             var pluginRoot = Directory.CreateTempSubdirectory("plugins-duplicate").FullName;
-            var canonicalHello = StageCanonical(pluginRoot, BundledPlugins.Single(p => p.Name == "HelloPlugin"));
-            foreach (var plugin in BundledPlugins)
+            var canonicalHello = StageCanonical(pluginRoot, LegacyFlatBundledPluginFixture.BundledPlugins.Single(p => p.Name == "HelloPlugin"));
+            foreach (var plugin in LegacyFlatBundledPluginFixture.BundledPlugins)
             {
                 StageFlat(pluginRoot, plugin);
             }
@@ -227,7 +274,7 @@ public sealed class PluginManagerTests
             var manager = CreateManager(pluginRoot, logger);
             var plugins = await manager.DiscoverAsync();
 
-            Assert.Equal(BundledPlugins.Select(p => p.Id).OrderBy(id => id), plugins.Select(p => p.Manifest.Id).OrderBy(id => id));
+            Assert.Equal(LegacyFlatBundledPluginFixture.ExpectedBundledPluginIds, plugins.Select(p => p.Manifest.Id).OrderBy(id => id));
             var hello = Assert.Single(plugins, p => p.Manifest.Id == "fo.hello");
             Assert.Equal(Path.GetFullPath(canonicalHello), Path.GetFullPath(LoadedAssemblyPath(hello)));
             Assert.Contains(logger.Entries, e => e.Message.Contains("Skipping duplicate plugin candidate", StringComparison.OrdinalIgnoreCase));
@@ -240,7 +287,7 @@ public sealed class PluginManagerTests
         RunSta(async () =>
         {
             var pluginRoot = Directory.CreateTempSubdirectory("plugins-invalid").FullName;
-            StageFlat(pluginRoot, BundledPlugins.Single(p => p.Name == "HelloPlugin"));
+            StageFlat(pluginRoot, LegacyFlatBundledPluginFixture.BundledPlugins.Single(p => p.Name == "HelloPlugin"));
             File.WriteAllText(Path.Combine(pluginRoot, "InvalidPlugin.dll"), "not a managed assembly");
 
             var logger = new CapturingLogger();
