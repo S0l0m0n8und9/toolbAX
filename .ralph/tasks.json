@@ -320,7 +320,166 @@
         "tests/FoToolbox.Tests/TestifyModelsTests.cs"
       ],
       "lastVerifierResult": "passed"
+    },
+    {
+      "id": "T16",
+      "title": "Per-user fresh install plugin load proof",
+      "status": "done",
+      "notes": "Re-ran T16 with separate uninstall/install/launch/restart commands, captured per-user runtime evidence under artifacts/t16-per-user-proof-rerun-20260509, confirmed required plugin set on both launches, and verified plugin count parity (5/5). Validation command also passed in explicit build+test steps.",
+      "validation": "dotnet build .\\FoToolbox.sln -c Release && dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "priority": "high",
+      "tier": "medium",
+      "acceptance": [
+        "Clean uninstall/install in per-user scope completes with exit code 0 and recorded install root",
+        "Launch and restart from installed location shows HelloPlugin, QueryBuilder, TableEntityBrowser, ODataPostBuilder, and DualWriteMapBrowser loaded",
+        "Evidence records observed plugin count and expected bundled plugin count (must match)",
+        "If any plugin is missing, evidence includes plugin name, searched plugin path, and loader/runtime log excerpt"
+      ],
+      "constraints": [
+        "Use a clean per-user install location only",
+        "Run install, launch, and restart as separate commands (no semicolon-combined validation shorthand)",
+        "No code changes unless a blocking defect is found"
+      ],
+      "context": [
+        "install/build.ps1 output artifacts",
+        "installed FoToolbox.Host.exe runtime logs",
+        "bin/plugins and installed plugins directory layout"
+      ],
+      "lastVerifierResult": "passed"
+    },
+    {
+      "id": "T17",
+      "title": "Per-machine fresh install plugin load proof",
+      "status": "todo",
+      "dependsOn": [
+        "T16"
+      ],
+      "notes": "Machine-wide install path differences can break plugin discovery; execute after per-user baseline evidence is stable.",
+      "validation": "dotnet build .\\FoToolbox.sln -c Release",
+      "priority": "high",
+      "tier": "medium",
+      "acceptance": [
+        "Clean uninstall/install in per-machine scope completes with exit code 0 and recorded Program Files install root",
+        "Launch and restart from machine install path loads all five bundled plugins",
+        "Plugin discovery works without manual folder edits",
+        "Failure evidence includes install root, plugin root, missing plugin names, and loader/runtime log excerpt"
+      ],
+      "constraints": [
+        "Use elevated install for per-machine layout",
+        "Do not rely on artifacts from per-user install"
+      ],
+      "context": [
+        "Program Files install root",
+        "machine-level plugin directory"
+      ]
+    },
+    {
+      "id": "T18",
+      "title": "Upgrade from flat plugin layout verification",
+      "status": "todo",
+      "dependsOn": [
+        "T17"
+      ],
+      "notes": "Validate in-place upgrade from legacy flat plugin DLL layout to canonical subfolder layout without plugin loss.",
+      "validation": "dotnet build .\\FoToolbox.sln -c Release",
+      "priority": "high",
+      "tier": "medium",
+      "acceptance": [
+        "Starting from known older flat-layout build, upgrade and restart preserves discovery of all bundled plugins",
+        "Post-upgrade plugin count matches expected bundled count (not just non-zero)",
+        "Canonical subfolder layout exists after upgrade and legacy flat duplicates do not suppress plugin loading",
+        "Any skipped or failed migration is visible in logs or UI with specific plugin/path details"
+      ],
+      "constraints": [
+        "Start from a known older build using flat plugin DLL placement",
+        "Exercise in-place upgrade path only"
+      ],
+      "context": [
+        "legacy flat plugin folder",
+        "upgrade installer artifacts"
+      ]
+    },
+    {
+      "id": "T19",
+      "title": "Reinstall same-version resilience check",
+      "status": "todo",
+      "dependsOn": [
+        "T18"
+      ],
+      "notes": "Same-version reinstall must preserve plugin discovery state and not require manual folder repair.",
+      "validation": "dotnet build .\\FoToolbox.sln -c Release",
+      "tier": "medium",
+      "acceptance": [
+        "Same-version reinstall completes successfully without manual plugin-folder intervention",
+        "Restart after reinstall loads all bundled plugins and plugin count matches expected count",
+        "Logs or UI clearly indicate plugin scan result and plugin root used"
+      ],
+      "constraints": [
+        "Use same-version reinstall path",
+        "Do not manually edit plugin folders during validation"
+      ],
+      "context": [
+        "installer identity",
+        "plugin staging output"
+      ]
+    },
+    {
+      "id": "T20",
+      "title": "Plugin discovery layout matrix tests",
+      "status": "todo",
+      "dependsOn": [
+        "T19"
+      ],
+      "notes": "Add deterministic automated tests for canonical, flat, mixed, and duplicate plugin layouts so installer scenarios are guarded by CI.",
+      "validation": "dotnet test .\\FoToolbox.sln -c Release",
+      "priority": "high",
+      "tier": "medium",
+      "acceptance": [
+        "Tests assert canonical subfolder discovery",
+        "Tests assert legacy flat DLL fallback discovery",
+        "Tests assert mixed layout behavior",
+        "Tests assert duplicate plugin handling with deterministic winner and clear diagnostics",
+        "New tests fail on pre-fix behavior and pass after implementation"
+      ],
+      "constraints": [
+        "Test only discovery behavior, not unrelated plugin runtime features",
+        "Use deterministic fixture directories"
+      ],
+      "context": [
+        "plugin loader",
+        "discovery tests",
+        "fixture plugin layouts"
+      ]
+    },
+    {
+      "id": "T21",
+      "title": "Dogfood evidence pack for install reliability",
+      "status": "todo",
+      "dependsOn": [
+        "T16",
+        "T17",
+        "T18",
+        "T19",
+        "T20"
+      ],
+      "notes": "Release readiness needs explicit operator evidence from executed install scenarios plus passing repo validation.",
+      "validation": "npm run validate",
+      "mode": "documentation",
+      "acceptance": [
+        "Notes include install path, plugin path, expected plugin count, and observed plugin count for each scenario",
+        "Notes include failure evidence for any failed scenario",
+        "Evidence covers per-user, per-machine, upgrade, and reinstall runs",
+        "Evidence references the exact artifact paths for logs and command output used to support conclusions"
+      ],
+      "constraints": [
+        "Record facts only from executed runs",
+        "Do not mark pass without path and count evidence"
+      ],
+      "context": [
+        "dogfood notes file",
+        "validation artifacts"
+      ]
     }
   ],
-  "mutationCount": 25
+  "mutationCount": 27
 }

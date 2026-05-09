@@ -10,17 +10,19 @@
             "model": "gpt-5.3-codex"
         },
         "medium": {
-            "model": "gpt-5.4",
-            "provider": "codex"
+            "model": "gpt-5.3-codex",
+            "provider": "codex",
+            "reasoningEffort": "high"
         },
         "complex": {
             "model": "gpt-5.5",
-            "provider": "codex"
+            "provider": "codex",
+            "reasoningEffort": "high"
         },
         "enabled": true
     },
     "ralphCodex.cliProvider": "codex",
-    "ralphCodex.model": "gpt-5.4",
+    "ralphCodex.model": "gpt-5.3-codex",
     "ralphCodex.copilotFoundry": {
         "baseUrlOverride": "https://me-me3mef6a-eastus2.cognitiveservices.azure.com/openai/deployments/gpt-5.4",
         "model": "gpt-5.4",

@@ -15,11 +15,13 @@
     "T12",
     "T13",
     "T14",
-    "T15"
+    "T15",
+    "T16"
   ],
   "touchedFiles": [
     ".ralph/.gitignore",
     ".ralph/agents/default.json",
+    ".ralph/claims.json.lock",
     ".ralph/progress.md",
     ".ralph/prompts/continue-progress-005.prompt.md",
     ".ralph/prompts/continue-progress-006.prompt.md",
