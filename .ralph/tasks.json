@@ -513,7 +513,7 @@
     {
       "id": "T18.2",
       "title": "Verify upgrade preserves bundled plugin discovery count",
-      "status": "todo",
+      "status": "done",
       "parentId": "T18",
       "dependsOn": [
         "T18.1"

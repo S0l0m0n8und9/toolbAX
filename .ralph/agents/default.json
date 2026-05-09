@@ -74,7 +74,19 @@
     "tests/FoToolbox.Tests/TestifyPayloadBuilderTests.cs",
     "tests/FoToolbox.Tests/TestifyPlannerTests.cs",
     "tests/FoToolbox.Tests/TestifyValueMapParserTests.cs",
+    "tests/FoToolbox.Tests/TestResults/1a959cee-0d17-4413-ac6c-500a50cc5d04/coverage.cobertura.xml",
+    "tests/FoToolbox.Tests/TestResults/23c6a018-902a-4d50-9ae0-5794abd2fe68/coverage.cobertura.xml",
+    "tests/FoToolbox.Tests/TestResults/2b86f9df-ddfa-4b30-a79d-c85876e7bdb5/coverage.cobertura.xml",
     "tests/FoToolbox.Tests/TestResults/2f9f9e90-acf6-4f60-a077-d6e52b5a6c3a/coverage.cobertura.xml",
+    "tests/FoToolbox.Tests/TestResults/37010bba-c5be-4425-a79c-1f71f49a39e8/coverage.cobertura.xml",
+    "tests/FoToolbox.Tests/TestResults/50fdc5f0-0f89-4168-a8f6-bd31f6029c26/coverage.cobertura.xml",
+    "tests/FoToolbox.Tests/TestResults/56b5e6f8-32cf-4ee1-b1d9-2066309b9e91/coverage.cobertura.xml",
+    "tests/FoToolbox.Tests/TestResults/8c8692b1-3d12-418d-9229-35011e5a9734/coverage.cobertura.xml",
+    "tests/FoToolbox.Tests/TestResults/9fe1a17a-1162-4746-b2b5-8b7bdcb00ac3/coverage.cobertura.xml",
+    "tests/FoToolbox.Tests/TestResults/a1374cf9-4b65-4bb3-ae1d-dce93ece91a3/coverage.cobertura.xml",
+    "tests/FoToolbox.Tests/TestResults/deb0855c-36d5-4d7d-ae21-b57fa5216a17/coverage.cobertura.xml",
+    "tests/FoToolbox.Tests/TestResults/ed523891-1d66-48c5-8044-ec479857ec7d/coverage.cobertura.xml",
+    "tests/FoToolbox.Tests/TestResults/efeeedb3-6daf-466b-a003-13430812e953/coverage.cobertura.xml",
     "tests/FoToolbox.Tests/TestResults/f4db302f-0976-45a0-adcf-67836074ef70/coverage.cobertura.xml"
   ]
 }

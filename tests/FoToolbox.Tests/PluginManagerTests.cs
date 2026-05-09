@@ -201,6 +201,34 @@ public sealed class PluginManagerTests
     }
 
     [Fact]
+    public void Discover_Upgrade_Then_Restart_Preserves_Bundled_Plugin_Count_And_Identities()
+    {
+        RunSta(async () =>
+        {
+            var pluginRoot = LegacyFlatBundledPluginFixture.CreateLegacyFlatLayoutFixture();
+
+            var firstLogger = new CapturingLogger();
+            var firstManager = CreateManager(pluginRoot, firstLogger);
+            var firstDiscovery = await firstManager.DiscoverAsync();
+            var firstIds = firstDiscovery.Select(p => p.Manifest.Id).OrderBy(id => id).ToArray();
+
+            Assert.Equal(LegacyFlatBundledPluginFixture.ExpectedBundledPluginCount, firstDiscovery.Count);
+            Assert.Equal(LegacyFlatBundledPluginFixture.ExpectedBundledPluginIds, firstIds);
+            Assert.DoesNotContain(firstLogger.Entries, e => e.Level >= Microsoft.Extensions.Logging.LogLevel.Error);
+
+            var restartLogger = new CapturingLogger();
+            var restartManager = CreateManager(pluginRoot, restartLogger);
+            var restartDiscovery = await restartManager.DiscoverAsync();
+            var restartIds = restartDiscovery.Select(p => p.Manifest.Id).OrderBy(id => id).ToArray();
+
+            Assert.Equal(LegacyFlatBundledPluginFixture.ExpectedBundledPluginCount, restartDiscovery.Count);
+            Assert.Equal(LegacyFlatBundledPluginFixture.ExpectedBundledPluginIds, restartIds);
+            Assert.Equal(firstIds, restartIds);
+            Assert.DoesNotContain(restartLogger.Entries, e => e.Level >= Microsoft.Extensions.Logging.LogLevel.Error);
+        });
+    }
+
+    [Fact]
     public void Discover_Migrates_Legacy_Flat_Bundled_Plugins_To_Canonical_Subfolders()
     {
         RunSta(async () =>
