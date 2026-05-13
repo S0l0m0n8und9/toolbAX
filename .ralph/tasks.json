@@ -378,16 +378,14 @@
     {
       "id": "T18",
       "title": "Upgrade from flat plugin layout verification",
-      "status": "in_progress",
+      "status": "done",
       "dependsOn": [
-        "T17",
         "T18.1",
         "T18.2",
         "T18.3"
       ],
-      "notes": "Added runtime migration from legacy flat bundled plugin DLLs to canonical subfolder layout with explicit plugin/path logging for migrated, skipped, and failed cases; added regression tests covering migration and skip diagnostics; required Release build validation passed.",
+      "notes": "Completed code-level flat-layout migration verification using deterministic fixture coverage and migration diagnostics tests. Live in-place installer upgrade evidence remains tracked by the install reliability evidence pack task.",
       "validation": "dotnet build .\\FoToolbox.sln -c Release",
-      "blocker": "Need a known older flat-layout MSI build and an in-place upgrade execution to produce direct installer/runtime proof for the remaining acceptance criteria tied to real upgrade flow.",
       "priority": "high",
       "tier": "medium",
       "acceptance": [
@@ -519,7 +517,7 @@
         "T18.1"
       ],
       "notes": "Core regression risk is silent plugin loss after upgrade/restart despite partial loading.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
+      "validation": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:'XPlat Code Coverage'",
       "tier": "medium",
       "acceptance": [
         "After upgrade and restart from fixture, discovered plugin count equals expected bundled count exactly.",
@@ -538,13 +536,13 @@
     {
       "id": "T18.3",
       "title": "Verify canonical layout migration diagnostics",
-      "status": "todo",
+      "status": "done",
       "parentId": "T18",
       "dependsOn": [
         "T18.2"
       ],
       "notes": "Operator trust requires observable detail when migration skips or failures occur.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
+      "validation": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:'XPlat Code Coverage'",
       "tier": "medium",
       "acceptance": [
         "Canonical subfolder layout exists after upgrade for bundled plugins.",

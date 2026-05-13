@@ -287,6 +287,37 @@ public sealed class PluginManagerTests
     }
 
     [Fact]
+    public void Discover_Logs_Failed_Migration_With_Plugin_And_Path_And_Falls_Back_To_Flat_Load()
+    {
+        RunSta(async () =>
+        {
+            var pluginRoot = Directory.CreateTempSubdirectory("plugins-flat-failed-migration").FullName;
+            var hello = LegacyFlatBundledPluginFixture.BundledPlugins.Single(p => p.Name == "HelloPlugin");
+            var flatHelloPath = StageFlat(pluginRoot, hello);
+            var canonicalPath = Path.Combine(pluginRoot, "HelloPlugin", "HelloPlugin.dll");
+
+            // Block canonical directory creation so migration fails and fallback loading remains exercised.
+            File.WriteAllText(Path.Combine(pluginRoot, "HelloPlugin"), "blocking file");
+
+            var logger = new CapturingLogger();
+            var manager = CreateManager(pluginRoot, logger);
+            var plugins = await manager.DiscoverAsync();
+
+            var loadedHello = Assert.Single(plugins, p => p.Manifest.Id == "fo.hello");
+            Assert.Equal(Path.GetFullPath(flatHelloPath), Path.GetFullPath(LoadedAssemblyPath(loadedHello)));
+            Assert.True(File.Exists(flatHelloPath));
+            var migrationWarning = Assert.Single(
+                logger.Entries,
+                e => e.Level == Microsoft.Extensions.Logging.LogLevel.Warning &&
+                     e.Message.Contains("Failed migrating legacy flat plugin", StringComparison.OrdinalIgnoreCase) &&
+                     e.Message.Contains("HelloPlugin", StringComparison.OrdinalIgnoreCase) &&
+                     e.Message.Contains(flatHelloPath, StringComparison.OrdinalIgnoreCase) &&
+                     e.Message.Contains(canonicalPath, StringComparison.OrdinalIgnoreCase));
+            Assert.NotNull(migrationWarning.Exception);
+        });
+    }
+
+    [Fact]
     public void Discover_Deduplicates_Flat_And_Canonical_Plugins_And_Prefers_Canonical_Copy()
     {
         RunSta(async () =>

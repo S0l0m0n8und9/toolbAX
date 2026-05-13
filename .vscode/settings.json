@@ -6,23 +6,23 @@
     },
     "ralphCodex.modelTiering": {
         "simple": {
-            "provider": "codex",
-            "model": "gpt-5.3-codex"
+            "provider": "claude",
+            "model": "claude-haiku-4-5"
         },
         "medium": {
-            "model": "gpt-5.3-codex",
-            "provider": "codex",
-            "reasoningEffort": "high"
+            "model": "claude-sonnet-4-6",
+            "provider": "claude",
+            "reasoningEffort": "medium"
         },
         "complex": {
-            "model": "gpt-5.5",
-            "provider": "codex",
+            "model": "claude-opus-4-7",
+            "provider": "claude",
             "reasoningEffort": "high"
         },
         "enabled": true
     },
-    "ralphCodex.cliProvider": "codex",
-    "ralphCodex.model": "gpt-5.3-codex",
+    "ralphCodex.cliProvider": "claude",
+    "ralphCodex.model": "claude-sonnet-4-6",
     "ralphCodex.copilotFoundry": {
         "baseUrlOverride": "https://me-me3mef6a-eastus2.cognitiveservices.azure.com/openai/deployments/gpt-5.4",
         "model": "gpt-5.4",
