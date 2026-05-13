@@ -17,7 +17,9 @@
     "T14",
     "T15",
     "T16",
-    "T18.1"
+    "T18.1",
+    "T19",
+    "T20"
   ],
   "touchedFiles": [
     ".ralph/.gitignore",
@@ -41,6 +43,7 @@
     ".ralph/runs/fix-failure-004.last-message.md",
     ".ralph/runs/fix-failure-004.transcript.md",
     ".ralph/tasks.json",
+    ".ralph/tasks.lock",
     "install/build.ps1",
     "install/Bundle.wxs",
     "install/FoToolbox.wxs",

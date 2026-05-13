@@ -618,6 +618,27 @@
       "claimedAt": "2026-05-13T19:48:02.061Z",
       "provenanceId": "run-i087-cli-20260513T194802Z",
       "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T19",
+      "claimedAt": "2026-05-13T19:55:23.859Z",
+      "provenanceId": "run-i088-cli-20260513T195523Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T19",
+      "claimedAt": "2026-05-13T20:06:24.005Z",
+      "provenanceId": "run-i089-cli-20260513T200623Z",
+      "status": "released"
+    },
+    {
+      "taskId": "T20",
+      "agentId": "default",
+      "provenanceId": "run-i090-cli-20260513T200806Z",
+      "claimedAt": "2026-05-13T20:08:06.177Z",
+      "status": "active"
     }
   ]
 }

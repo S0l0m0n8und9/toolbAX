@@ -318,6 +318,41 @@ public sealed class PluginManagerTests
     }
 
     [Fact]
+    public void Discover_Loads_Mixed_Layout_Canonical_And_FlatOnly()
+    {
+        // Canonical for HelloPlugin+QueryBuilder; flat-only for TableEntityBrowser+ODataPostBuilder.
+        // Migration moves the flat-only bundled ones to canonical before discovery runs.
+        // All four must load and no "Skipping duplicate" log must appear because there is no overlap.
+        RunSta(async () =>
+        {
+            var pluginRoot = Directory.CreateTempSubdirectory("plugins-mixed-layout").FullName;
+
+            var hello = LegacyFlatBundledPluginFixture.BundledPlugins.Single(p => p.Name == "HelloPlugin");
+            var query = LegacyFlatBundledPluginFixture.BundledPlugins.Single(p => p.Name == "QueryBuilder");
+            var tableEntity = LegacyFlatBundledPluginFixture.BundledPlugins.Single(p => p.Name == "TableEntityBrowser");
+            var odata = LegacyFlatBundledPluginFixture.BundledPlugins.Single(p => p.Name == "ODataPostBuilder");
+
+            StageCanonical(pluginRoot, hello);
+            StageCanonical(pluginRoot, query);
+            StageFlat(pluginRoot, tableEntity);
+            StageFlat(pluginRoot, odata);
+
+            var logger = new CapturingLogger();
+            var manager = CreateManager(pluginRoot, logger);
+            var plugins = await manager.DiscoverAsync();
+
+            var loadedIds = plugins.Select(p => p.Manifest.Id).OrderBy(id => id).ToArray();
+            Assert.Equal(
+                new[] { "fo.hello", "fo.odatapostbuilder", "fo.querybuilder", "fo.tableentitybrowser" },
+                loadedIds);
+            Assert.DoesNotContain(
+                logger.Entries,
+                e => e.Message.Contains("Skipping duplicate plugin candidate", StringComparison.OrdinalIgnoreCase));
+            Assert.DoesNotContain(logger.Entries, e => e.Level >= Microsoft.Extensions.Logging.LogLevel.Error);
+        });
+    }
+
+    [Fact]
     public void Discover_Deduplicates_Flat_And_Canonical_Plugins_And_Prefers_Canonical_Copy()
     {
         RunSta(async () =>
@@ -337,6 +372,47 @@ public sealed class PluginManagerTests
             var hello = Assert.Single(plugins, p => p.Manifest.Id == "fo.hello");
             Assert.Equal(Path.GetFullPath(canonicalHello), Path.GetFullPath(LoadedAssemblyPath(hello)));
             Assert.Contains(logger.Entries, e => e.Message.Contains("Skipping duplicate plugin candidate", StringComparison.OrdinalIgnoreCase));
+        });
+    }
+
+    [Fact]
+    public void Discover_SameVersionReinstall_Loads_All_Bundled_Plugins_Without_Errors()
+    {
+        // Scenario: WiX places canonical plugin subfolders during initial install. A same-version
+        // reinstall re-places the same files while the app is closed (no file locks). On next
+        // app start, DiscoverAsync must load all plugins cleanly from the pre-existing canonical
+        // layout, without requiring any migration or manual intervention.
+        RunSta(async () =>
+        {
+            var pluginRoot = Directory.CreateTempSubdirectory("plugins-same-version-reinstall").FullName;
+
+            // Pre-stage canonical layout as WiX would leave it after install or same-version reinstall.
+            foreach (var plugin in LegacyFlatBundledPluginFixture.BundledPlugins)
+            {
+                StageCanonical(pluginRoot, plugin);
+            }
+
+            // First app start post-install.
+            var firstLogger = new CapturingLogger();
+            var firstManager = CreateManager(pluginRoot, firstLogger);
+            var firstPlugins = await firstManager.DiscoverAsync();
+
+            Assert.Equal(LegacyFlatBundledPluginFixture.ExpectedBundledPluginCount, firstPlugins.Count);
+            Assert.Equal(LegacyFlatBundledPluginFixture.ExpectedBundledPluginIds, firstPlugins.Select(p => p.Manifest.Id).OrderBy(id => id));
+            Assert.DoesNotContain(firstLogger.Entries, e => e.Level >= Microsoft.Extensions.Logging.LogLevel.Error);
+            Assert.Contains(firstLogger.Entries, e => e.Level == Microsoft.Extensions.Logging.LogLevel.Information && e.Message.Contains(pluginRoot, StringComparison.OrdinalIgnoreCase));
+
+            // Simulate app restart after same-version reinstall: canonical layout is unchanged
+            // (reinstall replaces files with identical content while app is closed, so no migration
+            // or re-staging is needed). A fresh PluginManager discovers the same layout.
+            var restartLogger = new CapturingLogger();
+            var restartManager = CreateManager(pluginRoot, restartLogger);
+            var restartPlugins = await restartManager.DiscoverAsync();
+
+            Assert.Equal(LegacyFlatBundledPluginFixture.ExpectedBundledPluginCount, restartPlugins.Count);
+            Assert.Equal(LegacyFlatBundledPluginFixture.ExpectedBundledPluginIds, restartPlugins.Select(p => p.Manifest.Id).OrderBy(id => id));
+            Assert.DoesNotContain(restartLogger.Entries, e => e.Level >= Microsoft.Extensions.Logging.LogLevel.Error);
+            Assert.Contains(restartLogger.Entries, e => e.Level == Microsoft.Extensions.Logging.LogLevel.Information && e.Message.Contains(pluginRoot, StringComparison.OrdinalIgnoreCase));
         });
     }
 

@@ -407,11 +407,11 @@
     {
       "id": "T19",
       "title": "Reinstall same-version resilience check",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T18"
       ],
-      "notes": "Same-version reinstall must preserve plugin discovery state and not require manual folder repair.",
+      "notes": "Test Discover_SameVersionReinstall_Loads_All_Bundled_Plugins_Without_Errors already present in PluginManagerTests.cs (lines 344-382). It pre-stages canonical layout via StageCanonical, runs two successive DiscoverAsync invocations (simulating post-reinstall app restart), and asserts: plugin count == ExpectedBundledPluginCount, plugin IDs match, no Error-level log entries, and plugin root is logged",
       "validation": "dotnet build .\\FoToolbox.sln -c Release",
       "tier": "medium",
       "acceptance": [
@@ -426,16 +426,17 @@
       "context": [
         "installer identity",
         "plugin staging output"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T20",
       "title": "Plugin discovery layout matrix tests",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T19"
       ],
-      "notes": "Add deterministic automated tests for canonical, flat, mixed, and duplicate plugin layouts so installer scenarios are guarded by CI.",
+      "notes": "Added Discover_Loads_Mixed_Layout_Canonical_And_FlatOnly test covering criterion 3 (mixed layout). HelloPlugin+QueryBuilder staged canonical, TableEntityBrowser+ODataPostBuilder staged flat (auto-migrated by MigrateLegacyFlatBundledPluginsToCanonicalLayout). All 4 load; no duplicate-skip log emitted. All 175 tests pass.",
       "validation": "dotnet test .\\FoToolbox.sln -c Release",
       "priority": "high",
       "tier": "medium",
@@ -454,7 +455,8 @@
         "plugin loader",
         "discovery tests",
         "fixture plugin layouts"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T21",
@@ -560,5 +562,5 @@
       ]
     }
   ],
-  "mutationCount": 31
+  "mutationCount": 33
 }

@@ -1,55 +1,25 @@
 {
   "version": 2,
   "objectivePreview": "toolbAX is a Windows desktop application for Microsoft Dynamics 365 Finance & Operations (F&O) administrators and developers, inspired by XrmToolBox. It provide",
-  "nextIteration": 88,
+  "nextIteration": 91,
   "lastPromptKind": "continue-progress",
-  "lastPromptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-087.prompt.md",
+  "lastPromptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-089.prompt.md",
   "lastRun": {
     "agentId": "default",
-    "provenanceId": "run-i086-cli-20260513T193752Z",
-    "iteration": 86,
-    "mode": "singleExec",
+    "provenanceId": "run-i089-cli-20260513T200623Z",
+    "iteration": 89,
+    "mode": "loop",
     "promptKind": "continue-progress",
-    "startedAt": "2026-05-13T19:37:51.978Z",
-    "finishedAt": "2026-05-13T19:40:51.459Z",
+    "startedAt": "2026-05-13T20:06:23.253Z",
+    "finishedAt": "2026-05-13T20:08:04.236Z",
     "status": "succeeded",
     "exitCode": 0,
-    "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-086.prompt.md",
-    "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-086.transcript.md",
-    "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-086.last-message.md",
-    "summary": "Selected T18.3: Verify canonical layout migration diagnostics | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 5"
+    "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-089.prompt.md",
+    "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-089.transcript.md",
+    "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-089.last-message.md",
+    "summary": "Selected T19: Reinstall same-version resilience check | Execution: succeeded | Verification: passed | Outcome: complete | Backlog remaining: 2"
   },
   "runHistory": [
-    {
-      "agentId": "default",
-      "provenanceId": "run-i067-cli-20260509T020937Z",
-      "iteration": 67,
-      "mode": "loop",
-      "promptKind": "continue-progress",
-      "startedAt": "2026-05-09T02:09:37.047Z",
-      "finishedAt": "2026-05-09T02:11:08.110Z",
-      "status": "succeeded",
-      "exitCode": 0,
-      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-067.prompt.md",
-      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-067.transcript.md",
-      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-067.last-message.md",
-      "summary": "Selected T18.2: Verify upgrade preserves bundled plugin discovery count | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 6"
-    },
-    {
-      "agentId": "default",
-      "provenanceId": "run-i068-cli-20260509T021108Z",
-      "iteration": 68,
-      "mode": "loop",
-      "promptKind": "continue-progress",
-      "startedAt": "2026-05-09T02:11:08.217Z",
-      "finishedAt": "2026-05-09T02:13:56.407Z",
-      "status": "succeeded",
-      "exitCode": 0,
-      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-068.prompt.md",
-      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-068.transcript.md",
-      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-068.last-message.md",
-      "summary": "Selected T18.2: Verify upgrade preserves bundled plugin discovery count | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 6"
-    },
     {
       "agentId": "default",
       "provenanceId": "run-i069-cli-20260509T021357Z",
@@ -319,405 +289,199 @@
       "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-086.transcript.md",
       "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-086.last-message.md",
       "summary": "Selected T18.3: Verify canonical layout migration diagnostics | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 5"
+    },
+    {
+      "agentId": "default",
+      "provenanceId": "run-i088-cli-20260513T195523Z",
+      "iteration": 88,
+      "mode": "loop",
+      "promptKind": "fix-failure",
+      "startedAt": "2026-05-13T19:55:22.557Z",
+      "finishedAt": "2026-05-13T20:06:22.662Z",
+      "status": "succeeded",
+      "exitCode": 0,
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-088.prompt.md",
+      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-088.transcript.md",
+      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-088.last-message.md",
+      "summary": "Selected T19: Reinstall same-version resilience check | Execution: succeeded | Verification: passed | Outcome: partial_progress | Backlog remaining: 3"
+    },
+    {
+      "agentId": "default",
+      "provenanceId": "run-i089-cli-20260513T200623Z",
+      "iteration": 89,
+      "mode": "loop",
+      "promptKind": "continue-progress",
+      "startedAt": "2026-05-13T20:06:23.253Z",
+      "finishedAt": "2026-05-13T20:08:04.236Z",
+      "status": "succeeded",
+      "exitCode": 0,
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-089.prompt.md",
+      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-089.transcript.md",
+      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-089.last-message.md",
+      "summary": "Selected T19: Reinstall same-version resilience check | Execution: succeeded | Verification: passed | Outcome: complete | Backlog remaining: 2"
     }
   ],
   "lastIteration": {
     "schemaVersion": 1,
     "agentId": "default",
-    "provenanceId": "run-i087-cli-20260513T194802Z",
-    "iteration": 87,
-    "selectedTaskId": "T18",
-    "selectedTaskTitle": "Upgrade from flat plugin layout verification",
+    "provenanceId": "run-i089-cli-20260513T200623Z",
+    "iteration": 89,
+    "selectedTaskId": "T19",
+    "selectedTaskTitle": "Reinstall same-version resilience check",
     "promptKind": "continue-progress",
-    "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-087.prompt.md",
-    "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-087",
-    "adapterUsed": "codex",
-    "executionIntegrity": null,
-    "executionStatus": "skipped",
-    "verificationStatus": "skipped",
-    "completionClassification": "blocked",
-    "followUpAction": "stop",
-    "startedAt": "2026-05-13T19:48:01.565Z",
-    "finishedAt": "2026-05-13T19:49:27.697Z",
-    "phaseTimestamps": {
-      "inspectStartedAt": "2026-05-13T19:48:01.565Z",
-      "inspectFinishedAt": "2026-05-13T19:48:02.010Z",
-      "taskSelectedAt": "2026-05-13T19:48:02.010Z",
-      "promptGeneratedAt": "2026-05-13T19:48:04.485Z",
-      "resultCollectedAt": "2026-05-13T19:49:27.697Z",
-      "verificationFinishedAt": "2026-05-13T19:49:27.697Z",
-      "classifiedAt": "2026-05-13T19:49:27.697Z",
-      "executionStartedAt": "2026-05-13T19:49:27.697Z",
-      "executionFinishedAt": "2026-05-13T19:49:27.697Z",
-      "persistedAt": "2026-05-13T19:49:27.697Z"
+    "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-089.prompt.md",
+    "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089",
+    "adapterUsed": "cliExec",
+    "executionIntegrity": {
+      "provenanceId": "run-i089-cli-20260513T200623Z",
+      "promptTarget": "cliExec",
+      "rootPolicy": {
+        "workspaceRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+        "inspectionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+        "executionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+        "verificationRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+        "selectionStrategy": "workspaceRoot",
+        "selectionSummary": "Using the workspace root because it already exposes shallow repo markers.",
+        "policySummary": "Inspect, execute, and verify at the workspace root while storing Ralph artifacts under .ralph there."
+      },
+      "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.1.4\\prompt-templates\\continue-progress.md",
+      "selectedProvider": "claude",
+      "selectedModel": "claude-sonnet-4-6",
+      "effectiveTier": "medium",
+      "reasoningEffort": "medium",
+      "fallbackWarning": null,
+      "taskValidationHint": "dotnet build .\\FoToolbox.sln -c Release",
+      "effectiveValidationCommand": "dotnet build .\\FoToolbox.sln -c Release",
+      "normalizedValidationCommandFrom": null,
+      "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\execution-plan.json",
+      "executionPlanHash": "sha256:52eeb996f0fcd5c3c302d27fd8ee5881d2bfcb7d7879e79aa853c7ea562ca7f8",
+      "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\prompt.md",
+      "promptHash": "sha256:a86d49867d840ddd8f293cfc8f3b0e3ca82e6866254011eb62d662b807c9d895",
+      "promptByteLength": 9144,
+      "executionPayloadHash": "sha256:a86d49867d840ddd8f293cfc8f3b0e3ca82e6866254011eb62d662b807c9d895",
+      "executionPayloadMatched": true,
+      "mismatchReason": null,
+      "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\cli-invocation.json"
     },
-    "summary": "Planning gate blocked task before provider execution: Acceptance criteria are clear and validation command is concrete, but the required known older flat-layout build and real in-place upgrade evidence path are currently missing, so execution cannot be completed end-to-end in this iteration.",
-    "warnings": [],
+    "executionStatus": "succeeded",
+    "verificationStatus": "passed",
+    "completionClassification": "complete",
+    "followUpAction": "continue_next_task",
+    "startedAt": "2026-05-13T20:06:23.253Z",
+    "finishedAt": "2026-05-13T20:08:04.236Z",
+    "phaseTimestamps": {
+      "inspectStartedAt": "2026-05-13T20:06:23.253Z",
+      "inspectFinishedAt": "2026-05-13T20:06:23.700Z",
+      "taskSelectedAt": "2026-05-13T20:06:23.700Z",
+      "promptGeneratedAt": "2026-05-13T20:06:25.609Z",
+      "executionStartedAt": "2026-05-13T20:06:35.375Z",
+      "executionFinishedAt": "2026-05-13T20:07:51.471Z",
+      "resultCollectedAt": "2026-05-13T20:07:51.495Z",
+      "verificationFinishedAt": "2026-05-13T20:08:04.236Z",
+      "classifiedAt": "2026-05-13T20:08:04.236Z",
+      "persistedAt": "2026-05-13T20:08:04.236Z"
+    },
+    "summary": "Selected T19: Reinstall same-version resilience check | Execution: succeeded | Verification: passed | Outcome: complete | Backlog remaining: 2",
+    "warnings": [
+      "SCM commit-on-done failed for T19: git commit failed: fatal: Unable to create 'C:/Users/ben.jones/Repos/toolbAX/.git/index.lock': File exists.\n\nAnother git process seems to be running in this repository, or the lock file may be stale"
+    ],
     "errors": [],
     "execution": {
-      "exitCode": null,
-      "message": "Planning gate blocked task before provider execution: Acceptance criteria are clear and validation command is concrete, but the required known older flat-layout build and real in-place upgrade evidence path are currently missing, so execution cannot be completed end-to-end in this iteration."
+      "exitCode": 0,
+      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-089.transcript.md",
+      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-089.last-message.md",
+      "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\stdout.log",
+      "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\stderr.log"
     },
     "verification": {
       "taskValidationHint": "dotnet build .\\FoToolbox.sln -c Release",
       "effectiveValidationCommand": "dotnet build .\\FoToolbox.sln -c Release",
       "normalizedValidationCommandFrom": null,
-      "primaryCommand": null,
+      "primaryCommand": "dotnet build .\\FoToolbox.sln -c Release",
       "validationFailureSignature": null,
-      "verifiers": []
+      "verifiers": [
+        {
+          "verifier": "validationCommand",
+          "status": "passed",
+          "summary": "Validation command passed: dotnet build .\\FoToolbox.sln -c Release",
+          "warnings": [],
+          "errors": [],
+          "command": "dotnet build .\\FoToolbox.sln -c Release",
+          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\validation-command.json",
+          "failureSignature": null,
+          "metadata": {
+            "exitCode": 0,
+            "taskValidationHint": "dotnet build .\\FoToolbox.sln -c Release",
+            "normalizedValidationCommandFrom": null,
+            "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\validation-command.stdout.log",
+            "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\validation-command.stderr.log"
+          }
+        },
+        {
+          "verifier": "gitDiff",
+          "status": "passed",
+          "summary": "Detected 1 relevant changed file(s) out of 1 total changes.",
+          "warnings": [],
+          "errors": [],
+          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\git-diff.json",
+          "failureSignature": null,
+          "metadata": {
+            "changedFiles": [
+              ".ralph/tasks.lock"
+            ],
+            "relevantChangedFiles": [
+              ".ralph/tasks.lock"
+            ]
+          }
+        },
+        {
+          "verifier": "taskState",
+          "status": "passed",
+          "summary": "Selected task T19 is marked done.",
+          "warnings": [],
+          "errors": [],
+          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\task-state.json",
+          "failureSignature": null
+        }
+      ]
     },
     "backlog": {
-      "remainingTaskCount": 4,
+      "remainingTaskCount": 2,
       "actionableTaskAvailable": true
     },
-    "diffSummary": null,
-    "noProgressSignals": [],
+    "diffSummary": {
+      "available": true,
+      "gitAvailable": true,
+      "summary": "Detected 1 relevant changed file(s) out of 1 total changes.",
+      "changedFileCount": 1,
+      "relevantChangedFileCount": 1,
+      "changedFiles": [
+        ".ralph/tasks.lock"
+      ],
+      "relevantChangedFiles": [
+        ".ralph/tasks.lock"
+      ],
+      "statusTransitions": [
+        ".ralph/tasks.lock: ?? -> clean"
+      ],
+      "suggestedCheckpointRef": "ralph/iter-iteration-089",
+      "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\git-status-before.txt",
+      "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\git-status-after.txt"
+    },
+    "noProgressSignals": [
+      "same_task_selected_repeatedly"
+    ],
     "remediation": null,
-    "completionReportStatus": "missing",
-    "stopReason": "planning_gate_blocked",
-    "selectedModel": "gpt-5.3-codex",
+    "completionReportStatus": "applied",
+    "reconciliationWarnings": [],
+    "stopReason": null,
+    "selectedProvider": "claude",
+    "selectedModel": "claude-sonnet-4-6",
     "selectedReasoningEffort": "medium",
-    "effectiveTier": "planning_gate"
+    "effectiveTier": "medium",
+    "fallbackWarning": null
   },
   "iterationHistory": [
-    {
-      "schemaVersion": 1,
-      "agentId": "default",
-      "provenanceId": "run-i058-cli-20260509T014648Z",
-      "iteration": 58,
-      "selectedTaskId": "T18.2",
-      "selectedTaskTitle": "Verify upgrade preserves bundled plugin discovery count",
-      "promptKind": "iteration",
-      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\iteration-058.prompt.md",
-      "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-058",
-      "adapterUsed": "cliExec",
-      "executionIntegrity": {
-        "provenanceId": "run-i058-cli-20260509T014648Z",
-        "promptTarget": "cliExec",
-        "rootPolicy": {
-          "workspaceRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
-          "inspectionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
-          "executionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
-          "verificationRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
-          "selectionStrategy": "workspaceRoot",
-          "selectionSummary": "Using the workspace root because it already exposes shallow repo markers.",
-          "policySummary": "Inspect, execute, and verify at the workspace root while storing Ralph artifacts under .ralph there."
-        },
-        "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.1.4\\prompt-templates\\iteration.md",
-        "selectedProvider": "codex",
-        "selectedModel": "gpt-5.3-codex",
-        "effectiveTier": "medium",
-        "reasoningEffort": "high",
-        "fallbackWarning": null,
-        "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
-        "effectiveValidationCommand": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
-        "normalizedValidationCommandFrom": null,
-        "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-058\\execution-plan.json",
-        "executionPlanHash": "sha256:b66105808c80d254353fb95dca39d3b8db209322da02a84f13e96b50c02f7e67",
-        "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-058\\prompt.md",
-        "promptHash": "sha256:cad5a02ba78f4ffecd48f2e2352760ff707c477b423bc5fc023b4f405fc30b16",
-        "promptByteLength": 7810,
-        "executionPayloadHash": "sha256:cad5a02ba78f4ffecd48f2e2352760ff707c477b423bc5fc023b4f405fc30b16",
-        "executionPayloadMatched": true,
-        "mismatchReason": null,
-        "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-058\\cli-invocation.json"
-      },
-      "executionStatus": "succeeded",
-      "verificationStatus": "failed",
-      "completionClassification": "partial_progress",
-      "followUpAction": "continue_same_task",
-      "startedAt": "2026-05-09T01:46:47.372Z",
-      "finishedAt": "2026-05-09T01:49:14.717Z",
-      "phaseTimestamps": {
-        "inspectStartedAt": "2026-05-09T01:46:47.372Z",
-        "inspectFinishedAt": "2026-05-09T01:46:48.242Z",
-        "taskSelectedAt": "2026-05-09T01:46:48.242Z",
-        "promptGeneratedAt": "2026-05-09T01:46:50.360Z",
-        "executionStartedAt": "2026-05-09T01:46:54.922Z",
-        "executionFinishedAt": "2026-05-09T01:49:13.947Z",
-        "resultCollectedAt": "2026-05-09T01:49:13.953Z",
-        "verificationFinishedAt": "2026-05-09T01:49:14.716Z",
-        "classifiedAt": "2026-05-09T01:49:14.717Z",
-        "persistedAt": "2026-05-09T01:49:14.717Z"
-      },
-      "summary": "Selected T18.2: Verify upgrade preserves bundled plugin discovery count | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 6",
-      "warnings": [
-        "Completion report requested done, but verification status was failed.",
-        "Task and progress files were unchanged during the iteration."
-      ],
-      "errors": [
-        "Validation command exited with 1."
-      ],
-      "execution": {
-        "exitCode": 0,
-        "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\iteration-058.transcript.md",
-        "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\iteration-058.last-message.md",
-        "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-058\\stdout.log",
-        "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-058\\stderr.log"
-      },
-      "verification": {
-        "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
-        "effectiveValidationCommand": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
-        "normalizedValidationCommandFrom": null,
-        "primaryCommand": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
-        "validationFailureSignature": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"::exit:1::MSBUILD : error MSB1008: Only one project can be specified. | Full command line: 'C:\\Program Files\\dotnet\\sdk\\10.0.203\\MSBuild.dll -maxcpucount --verbosity:m -tlp:default=auto --property:VSTestNoBuild=true --property:VSTestCollect=\"XPlat\" -",
-        "verifiers": [
-          {
-            "verifier": "validationCommand",
-            "status": "failed",
-            "summary": "Validation command failed with exit code 1: dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
-            "warnings": [],
-            "errors": [
-              "Validation command exited with 1."
-            ],
-            "command": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:XPlat Code Coverage",
-            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-058\\validation-command.json",
-            "failureSignature": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"::exit:1::MSBUILD : error MSB1008: Only one project can be specified. | Full command line: 'C:\\Program Files\\dotnet\\sdk\\10.0.203\\MSBuild.dll -maxcpucount --verbosity:m -tlp:default=auto --property:VSTestNoBuild=true --property:VSTestCollect=\"XPlat\" -",
-            "metadata": {
-              "exitCode": 1,
-              "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
-              "normalizedValidationCommandFrom": null,
-              "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-058\\validation-command.stdout.log",
-              "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-058\\validation-command.stderr.log"
-            }
-          },
-          {
-            "verifier": "gitDiff",
-            "status": "passed",
-            "summary": "Detected 2 relevant changed file(s) out of 2 total changes.",
-            "warnings": [],
-            "errors": [],
-            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-058\\git-diff.json",
-            "failureSignature": null,
-            "metadata": {
-              "changedFiles": [
-                ".ralph/claims.json.lock",
-                "tests/FoToolbox.Tests/PluginManagerTests.cs"
-              ],
-              "relevantChangedFiles": [
-                ".ralph/claims.json.lock",
-                "tests/FoToolbox.Tests/PluginManagerTests.cs"
-              ]
-            }
-          },
-          {
-            "verifier": "taskState",
-            "status": "skipped",
-            "summary": "No task-state progress was detected.",
-            "warnings": [
-              "Task and progress files were unchanged during the iteration."
-            ],
-            "errors": [],
-            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-058\\task-state.json",
-            "failureSignature": null
-          }
-        ]
-      },
-      "backlog": {
-        "remainingTaskCount": 6,
-        "actionableTaskAvailable": true
-      },
-      "diffSummary": {
-        "available": true,
-        "gitAvailable": true,
-        "summary": "Detected 2 relevant changed file(s) out of 2 total changes.",
-        "changedFileCount": 2,
-        "relevantChangedFileCount": 2,
-        "changedFiles": [
-          ".ralph/claims.json.lock",
-          "tests/FoToolbox.Tests/PluginManagerTests.cs"
-        ],
-        "relevantChangedFiles": [
-          ".ralph/claims.json.lock",
-          "tests/FoToolbox.Tests/PluginManagerTests.cs"
-        ],
-        "statusTransitions": [
-          ".ralph/claims.json.lock: ?? -> clean",
-          "tests/FoToolbox.Tests/PluginManagerTests.cs: clean -> M"
-        ],
-        "suggestedCheckpointRef": "ralph/iter-iteration-058",
-        "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-058\\git-status-before.txt",
-        "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-058\\git-status-after.txt"
-      },
-      "noProgressSignals": [
-        "task_and_progress_state_unchanged"
-      ],
-      "remediation": null,
-      "completionReportStatus": "rejected",
-      "reconciliationWarnings": [
-        "Completion report requested done, but verification status was failed."
-      ],
-      "stopReason": null,
-      "selectedProvider": "codex",
-      "selectedModel": "gpt-5.3-codex",
-      "selectedReasoningEffort": "high",
-      "effectiveTier": "medium",
-      "fallbackWarning": null
-    },
-    {
-      "schemaVersion": 1,
-      "agentId": "default",
-      "provenanceId": "run-i059-cli-20260509T014915Z",
-      "iteration": 59,
-      "selectedTaskId": "T18.2",
-      "selectedTaskTitle": "Verify upgrade preserves bundled plugin discovery count",
-      "promptKind": "continue-progress",
-      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-059.prompt.md",
-      "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059",
-      "adapterUsed": "cliExec",
-      "executionIntegrity": {
-        "provenanceId": "run-i059-cli-20260509T014915Z",
-        "promptTarget": "cliExec",
-        "rootPolicy": {
-          "workspaceRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
-          "inspectionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
-          "executionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
-          "verificationRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
-          "selectionStrategy": "workspaceRoot",
-          "selectionSummary": "Using the workspace root because it already exposes shallow repo markers.",
-          "policySummary": "Inspect, execute, and verify at the workspace root while storing Ralph artifacts under .ralph there."
-        },
-        "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.1.4\\prompt-templates\\continue-progress.md",
-        "selectedProvider": "codex",
-        "selectedModel": "gpt-5.3-codex",
-        "effectiveTier": "medium",
-        "reasoningEffort": "high",
-        "fallbackWarning": null,
-        "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
-        "effectiveValidationCommand": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
-        "normalizedValidationCommandFrom": null,
-        "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\execution-plan.json",
-        "executionPlanHash": "sha256:d37cc7ea00b774a763938449a81115d23ddc30661f8dd624e5be766cbcbb8854",
-        "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\prompt.md",
-        "promptHash": "sha256:2a17eec41913a69b7a0557cb47dbce3fc3b8f81406a66c2e68dd5c6302500368",
-        "promptByteLength": 7973,
-        "executionPayloadHash": "sha256:2a17eec41913a69b7a0557cb47dbce3fc3b8f81406a66c2e68dd5c6302500368",
-        "executionPayloadMatched": true,
-        "mismatchReason": null,
-        "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\cli-invocation.json"
-      },
-      "executionStatus": "succeeded",
-      "verificationStatus": "failed",
-      "completionClassification": "no_progress",
-      "followUpAction": "retry_same_task",
-      "startedAt": "2026-05-09T01:49:14.988Z",
-      "finishedAt": "2026-05-09T01:52:05.752Z",
-      "phaseTimestamps": {
-        "inspectStartedAt": "2026-05-09T01:49:14.988Z",
-        "inspectFinishedAt": "2026-05-09T01:49:15.387Z",
-        "taskSelectedAt": "2026-05-09T01:49:15.387Z",
-        "promptGeneratedAt": "2026-05-09T01:49:15.733Z",
-        "executionStartedAt": "2026-05-09T01:49:16.909Z",
-        "executionFinishedAt": "2026-05-09T01:52:04.849Z",
-        "resultCollectedAt": "2026-05-09T01:52:04.853Z",
-        "verificationFinishedAt": "2026-05-09T01:52:05.751Z",
-        "classifiedAt": "2026-05-09T01:52:05.752Z",
-        "persistedAt": "2026-05-09T01:52:05.752Z"
-      },
-      "summary": "Selected T18.2: Verify upgrade preserves bundled plugin discovery count | Execution: succeeded | Verification: failed | Outcome: no_progress | Backlog remaining: 6",
-      "warnings": [
-        "Completion report requested done, but verification status was failed.",
-        "No relevant workspace changes were detected.",
-        "Task and progress files were unchanged during the iteration."
-      ],
-      "errors": [
-        "Validation command exited with 1."
-      ],
-      "execution": {
-        "exitCode": 0,
-        "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-059.transcript.md",
-        "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-059.last-message.md",
-        "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\stdout.log",
-        "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\stderr.log"
-      },
-      "verification": {
-        "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
-        "effectiveValidationCommand": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
-        "normalizedValidationCommandFrom": null,
-        "primaryCommand": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
-        "validationFailureSignature": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"::exit:1::MSBUILD : error MSB1008: Only one project can be specified. | Full command line: 'C:\\Program Files\\dotnet\\sdk\\10.0.203\\MSBuild.dll -maxcpucount --verbosity:m -tlp:default=auto --property:VSTestNoBuild=true --property:VSTestCollect=\"XPlat\" -",
-        "verifiers": [
-          {
-            "verifier": "validationCommand",
-            "status": "failed",
-            "summary": "Validation command failed with exit code 1: dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
-            "warnings": [],
-            "errors": [
-              "Validation command exited with 1."
-            ],
-            "command": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:XPlat Code Coverage",
-            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\validation-command.json",
-            "failureSignature": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"::exit:1::MSBUILD : error MSB1008: Only one project can be specified. | Full command line: 'C:\\Program Files\\dotnet\\sdk\\10.0.203\\MSBuild.dll -maxcpucount --verbosity:m -tlp:default=auto --property:VSTestNoBuild=true --property:VSTestCollect=\"XPlat\" -",
-            "metadata": {
-              "exitCode": 1,
-              "taskValidationHint": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:\"XPlat Code Coverage\"",
-              "normalizedValidationCommandFrom": null,
-              "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\validation-command.stdout.log",
-              "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\validation-command.stderr.log"
-            }
-          },
-          {
-            "verifier": "gitDiff",
-            "status": "failed",
-            "summary": "No relevant file changes were detected.",
-            "warnings": [
-              "No relevant workspace changes were detected."
-            ],
-            "errors": [],
-            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\git-diff.json",
-            "failureSignature": null,
-            "metadata": {
-              "changedFiles": [],
-              "relevantChangedFiles": []
-            }
-          },
-          {
-            "verifier": "taskState",
-            "status": "skipped",
-            "summary": "No task-state progress was detected.",
-            "warnings": [
-              "Task and progress files were unchanged during the iteration."
-            ],
-            "errors": [],
-            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\task-state.json",
-            "failureSignature": null
-          }
-        ]
-      },
-      "backlog": {
-        "remainingTaskCount": 6,
-        "actionableTaskAvailable": true
-      },
-      "diffSummary": {
-        "available": true,
-        "gitAvailable": true,
-        "summary": "No relevant file changes were detected.",
-        "changedFileCount": 0,
-        "relevantChangedFileCount": 0,
-        "changedFiles": [],
-        "relevantChangedFiles": [],
-        "statusTransitions": [],
-        "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\git-status-before.txt",
-        "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-059\\git-status-after.txt"
-      },
-      "noProgressSignals": [
-        "same_task_selected_repeatedly",
-        "same_validation_failure_signature",
-        "no_relevant_file_changes",
-        "task_and_progress_state_unchanged"
-      ],
-      "remediation": null,
-      "completionReportStatus": "rejected",
-      "reconciliationWarnings": [
-        "Completion report requested done, but verification status was failed."
-      ],
-      "stopReason": null,
-      "selectedProvider": "codex",
-      "selectedModel": "gpt-5.3-codex",
-      "selectedReasoningEffort": "high",
-      "effectiveTier": "medium",
-      "fallbackWarning": null
-    },
     {
       "schemaVersion": 1,
       "agentId": "default",
@@ -5427,11 +5191,11 @@
         "inspectFinishedAt": "2026-05-13T19:48:02.010Z",
         "taskSelectedAt": "2026-05-13T19:48:02.010Z",
         "promptGeneratedAt": "2026-05-13T19:48:04.485Z",
+        "executionStartedAt": "2026-05-13T19:49:27.697Z",
+        "executionFinishedAt": "2026-05-13T19:49:27.697Z",
         "resultCollectedAt": "2026-05-13T19:49:27.697Z",
         "verificationFinishedAt": "2026-05-13T19:49:27.697Z",
         "classifiedAt": "2026-05-13T19:49:27.697Z",
-        "executionStartedAt": "2026-05-13T19:49:27.697Z",
-        "executionFinishedAt": "2026-05-13T19:49:27.697Z",
         "persistedAt": "2026-05-13T19:49:27.697Z"
       },
       "summary": "Planning gate blocked task before provider execution: Acceptance criteria are clear and validation command is concrete, but the required known older flat-layout build and real in-place upgrade evidence path are currently missing, so execution cannot be completed end-to-end in this iteration.",
@@ -5460,8 +5224,334 @@
       "stopReason": "planning_gate_blocked",
       "selectedModel": "gpt-5.3-codex",
       "selectedReasoningEffort": "medium",
-      "effectiveTier": "planning_gate"
+      "effectiveTier": "planning_gate",
+      "fallbackWarning": null
+    },
+    {
+      "schemaVersion": 1,
+      "agentId": "default",
+      "provenanceId": "run-i088-cli-20260513T195523Z",
+      "iteration": 88,
+      "selectedTaskId": "T19",
+      "selectedTaskTitle": "Reinstall same-version resilience check",
+      "promptKind": "fix-failure",
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-088.prompt.md",
+      "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-088",
+      "adapterUsed": "cliExec",
+      "executionIntegrity": {
+        "provenanceId": "run-i088-cli-20260513T195523Z",
+        "promptTarget": "cliExec",
+        "rootPolicy": {
+          "workspaceRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "inspectionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "executionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "verificationRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "selectionStrategy": "workspaceRoot",
+          "selectionSummary": "Using the workspace root because it already exposes shallow repo markers.",
+          "policySummary": "Inspect, execute, and verify at the workspace root while storing Ralph artifacts under .ralph there."
+        },
+        "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.1.4\\prompt-templates\\fix-failure.md",
+        "selectedProvider": "claude",
+        "selectedModel": "claude-sonnet-4-6",
+        "effectiveTier": "medium",
+        "reasoningEffort": "medium",
+        "fallbackWarning": null,
+        "taskValidationHint": "dotnet build .\\FoToolbox.sln -c Release",
+        "effectiveValidationCommand": "dotnet build .\\FoToolbox.sln -c Release",
+        "normalizedValidationCommandFrom": null,
+        "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-088\\execution-plan.json",
+        "executionPlanHash": "sha256:87d94828d0f8d0eba140831a5f9ef333df4708d492f61ff552b1e07246d2d4c9",
+        "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-088\\prompt.md",
+        "promptHash": "sha256:f919e2a16d8c18a42a6deeb04d65d3cd5d8c0502acd99b06f98a5c3f9d42c7a0",
+        "promptByteLength": 9892,
+        "executionPayloadHash": "sha256:f919e2a16d8c18a42a6deeb04d65d3cd5d8c0502acd99b06f98a5c3f9d42c7a0",
+        "executionPayloadMatched": true,
+        "mismatchReason": null,
+        "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-088\\cli-invocation.json"
+      },
+      "executionStatus": "succeeded",
+      "verificationStatus": "passed",
+      "completionClassification": "partial_progress",
+      "followUpAction": "continue_same_task",
+      "startedAt": "2026-05-13T19:55:22.557Z",
+      "finishedAt": "2026-05-13T20:06:22.662Z",
+      "phaseTimestamps": {
+        "inspectStartedAt": "2026-05-13T19:55:22.557Z",
+        "inspectFinishedAt": "2026-05-13T19:55:23.821Z",
+        "taskSelectedAt": "2026-05-13T19:55:23.821Z",
+        "promptGeneratedAt": "2026-05-13T19:55:24.815Z",
+        "executionStartedAt": "2026-05-13T20:00:03.477Z",
+        "executionFinishedAt": "2026-05-13T20:06:10.015Z",
+        "resultCollectedAt": "2026-05-13T20:06:10.022Z",
+        "verificationFinishedAt": "2026-05-13T20:06:22.662Z",
+        "classifiedAt": "2026-05-13T20:06:22.662Z",
+        "persistedAt": "2026-05-13T20:06:22.663Z"
+      },
+      "summary": "Selected T19: Reinstall same-version resilience check | Execution: succeeded | Verification: passed | Outcome: partial_progress | Backlog remaining: 3",
+      "warnings": [
+        "Ignored invalid doctrineUpdates[0]: targetFile must reference a known doctrine file under .ralph/doctrine/.",
+        "Task and progress files were unchanged during the iteration."
+      ],
+      "errors": [],
+      "execution": {
+        "exitCode": 0,
+        "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-088.transcript.md",
+        "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-088.last-message.md",
+        "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-088\\stdout.log",
+        "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-088\\stderr.log"
+      },
+      "verification": {
+        "taskValidationHint": "dotnet build .\\FoToolbox.sln -c Release",
+        "effectiveValidationCommand": "dotnet build .\\FoToolbox.sln -c Release",
+        "normalizedValidationCommandFrom": null,
+        "primaryCommand": "dotnet build .\\FoToolbox.sln -c Release",
+        "validationFailureSignature": null,
+        "verifiers": [
+          {
+            "verifier": "validationCommand",
+            "status": "passed",
+            "summary": "Validation command passed: dotnet build .\\FoToolbox.sln -c Release",
+            "warnings": [],
+            "errors": [],
+            "command": "dotnet build .\\FoToolbox.sln -c Release",
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-088\\validation-command.json",
+            "failureSignature": null,
+            "metadata": {
+              "exitCode": 0,
+              "taskValidationHint": "dotnet build .\\FoToolbox.sln -c Release",
+              "normalizedValidationCommandFrom": null,
+              "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-088\\validation-command.stdout.log",
+              "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-088\\validation-command.stderr.log"
+            }
+          },
+          {
+            "verifier": "gitDiff",
+            "status": "passed",
+            "summary": "Detected 1 relevant changed file(s) out of 1 total changes.",
+            "warnings": [],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-088\\git-diff.json",
+            "failureSignature": null,
+            "metadata": {
+              "changedFiles": [
+                "tests/FoToolbox.Tests/PluginManagerTests.cs"
+              ],
+              "relevantChangedFiles": [
+                "tests/FoToolbox.Tests/PluginManagerTests.cs"
+              ]
+            }
+          },
+          {
+            "verifier": "taskState",
+            "status": "skipped",
+            "summary": "No task-state progress was detected.",
+            "warnings": [
+              "Task and progress files were unchanged during the iteration."
+            ],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-088\\task-state.json",
+            "failureSignature": null
+          }
+        ]
+      },
+      "backlog": {
+        "remainingTaskCount": 3,
+        "actionableTaskAvailable": true
+      },
+      "diffSummary": {
+        "available": true,
+        "gitAvailable": true,
+        "summary": "Detected 1 relevant changed file(s) out of 1 total changes.",
+        "changedFileCount": 1,
+        "relevantChangedFileCount": 1,
+        "changedFiles": [
+          "tests/FoToolbox.Tests/PluginManagerTests.cs"
+        ],
+        "relevantChangedFiles": [
+          "tests/FoToolbox.Tests/PluginManagerTests.cs"
+        ],
+        "statusTransitions": [
+          "tests/FoToolbox.Tests/PluginManagerTests.cs: clean -> M"
+        ],
+        "suggestedCheckpointRef": "ralph/iter-iteration-088",
+        "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-088\\git-status-before.txt",
+        "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-088\\git-status-after.txt"
+      },
+      "noProgressSignals": [
+        "task_and_progress_state_unchanged"
+      ],
+      "remediation": null,
+      "completionReportStatus": "rejected",
+      "reconciliationWarnings": [
+        "Ignored invalid doctrineUpdates[0]: targetFile must reference a known doctrine file under .ralph/doctrine/."
+      ],
+      "stopReason": null,
+      "selectedProvider": "claude",
+      "selectedModel": "claude-sonnet-4-6",
+      "selectedReasoningEffort": "medium",
+      "effectiveTier": "medium",
+      "fallbackWarning": null
+    },
+    {
+      "schemaVersion": 1,
+      "agentId": "default",
+      "provenanceId": "run-i089-cli-20260513T200623Z",
+      "iteration": 89,
+      "selectedTaskId": "T19",
+      "selectedTaskTitle": "Reinstall same-version resilience check",
+      "promptKind": "continue-progress",
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-089.prompt.md",
+      "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089",
+      "adapterUsed": "cliExec",
+      "executionIntegrity": {
+        "provenanceId": "run-i089-cli-20260513T200623Z",
+        "promptTarget": "cliExec",
+        "rootPolicy": {
+          "workspaceRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "inspectionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "executionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "verificationRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "selectionStrategy": "workspaceRoot",
+          "selectionSummary": "Using the workspace root because it already exposes shallow repo markers.",
+          "policySummary": "Inspect, execute, and verify at the workspace root while storing Ralph artifacts under .ralph there."
+        },
+        "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.1.4\\prompt-templates\\continue-progress.md",
+        "selectedProvider": "claude",
+        "selectedModel": "claude-sonnet-4-6",
+        "effectiveTier": "medium",
+        "reasoningEffort": "medium",
+        "fallbackWarning": null,
+        "taskValidationHint": "dotnet build .\\FoToolbox.sln -c Release",
+        "effectiveValidationCommand": "dotnet build .\\FoToolbox.sln -c Release",
+        "normalizedValidationCommandFrom": null,
+        "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\execution-plan.json",
+        "executionPlanHash": "sha256:52eeb996f0fcd5c3c302d27fd8ee5881d2bfcb7d7879e79aa853c7ea562ca7f8",
+        "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\prompt.md",
+        "promptHash": "sha256:a86d49867d840ddd8f293cfc8f3b0e3ca82e6866254011eb62d662b807c9d895",
+        "promptByteLength": 9144,
+        "executionPayloadHash": "sha256:a86d49867d840ddd8f293cfc8f3b0e3ca82e6866254011eb62d662b807c9d895",
+        "executionPayloadMatched": true,
+        "mismatchReason": null,
+        "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\cli-invocation.json"
+      },
+      "executionStatus": "succeeded",
+      "verificationStatus": "passed",
+      "completionClassification": "complete",
+      "followUpAction": "continue_next_task",
+      "startedAt": "2026-05-13T20:06:23.253Z",
+      "finishedAt": "2026-05-13T20:08:04.236Z",
+      "phaseTimestamps": {
+        "inspectStartedAt": "2026-05-13T20:06:23.253Z",
+        "inspectFinishedAt": "2026-05-13T20:06:23.700Z",
+        "taskSelectedAt": "2026-05-13T20:06:23.700Z",
+        "promptGeneratedAt": "2026-05-13T20:06:25.609Z",
+        "executionStartedAt": "2026-05-13T20:06:35.375Z",
+        "executionFinishedAt": "2026-05-13T20:07:51.471Z",
+        "resultCollectedAt": "2026-05-13T20:07:51.495Z",
+        "verificationFinishedAt": "2026-05-13T20:08:04.236Z",
+        "classifiedAt": "2026-05-13T20:08:04.236Z",
+        "persistedAt": "2026-05-13T20:08:04.236Z"
+      },
+      "summary": "Selected T19: Reinstall same-version resilience check | Execution: succeeded | Verification: passed | Outcome: complete | Backlog remaining: 2",
+      "warnings": [
+        "SCM commit-on-done failed for T19: git commit failed: fatal: Unable to create 'C:/Users/ben.jones/Repos/toolbAX/.git/index.lock': File exists.\n\nAnother git process seems to be running in this repository, or the lock file may be stale"
+      ],
+      "errors": [],
+      "execution": {
+        "exitCode": 0,
+        "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-089.transcript.md",
+        "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\continue-progress-089.last-message.md",
+        "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\stdout.log",
+        "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\stderr.log"
+      },
+      "verification": {
+        "taskValidationHint": "dotnet build .\\FoToolbox.sln -c Release",
+        "effectiveValidationCommand": "dotnet build .\\FoToolbox.sln -c Release",
+        "normalizedValidationCommandFrom": null,
+        "primaryCommand": "dotnet build .\\FoToolbox.sln -c Release",
+        "validationFailureSignature": null,
+        "verifiers": [
+          {
+            "verifier": "validationCommand",
+            "status": "passed",
+            "summary": "Validation command passed: dotnet build .\\FoToolbox.sln -c Release",
+            "warnings": [],
+            "errors": [],
+            "command": "dotnet build .\\FoToolbox.sln -c Release",
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\validation-command.json",
+            "failureSignature": null,
+            "metadata": {
+              "exitCode": 0,
+              "taskValidationHint": "dotnet build .\\FoToolbox.sln -c Release",
+              "normalizedValidationCommandFrom": null,
+              "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\validation-command.stdout.log",
+              "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\validation-command.stderr.log"
+            }
+          },
+          {
+            "verifier": "gitDiff",
+            "status": "passed",
+            "summary": "Detected 1 relevant changed file(s) out of 1 total changes.",
+            "warnings": [],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\git-diff.json",
+            "failureSignature": null,
+            "metadata": {
+              "changedFiles": [
+                ".ralph/tasks.lock"
+              ],
+              "relevantChangedFiles": [
+                ".ralph/tasks.lock"
+              ]
+            }
+          },
+          {
+            "verifier": "taskState",
+            "status": "passed",
+            "summary": "Selected task T19 is marked done.",
+            "warnings": [],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\task-state.json",
+            "failureSignature": null
+          }
+        ]
+      },
+      "backlog": {
+        "remainingTaskCount": 2,
+        "actionableTaskAvailable": true
+      },
+      "diffSummary": {
+        "available": true,
+        "gitAvailable": true,
+        "summary": "Detected 1 relevant changed file(s) out of 1 total changes.",
+        "changedFileCount": 1,
+        "relevantChangedFileCount": 1,
+        "changedFiles": [
+          ".ralph/tasks.lock"
+        ],
+        "relevantChangedFiles": [
+          ".ralph/tasks.lock"
+        ],
+        "statusTransitions": [
+          ".ralph/tasks.lock: ?? -> clean"
+        ],
+        "suggestedCheckpointRef": "ralph/iter-iteration-089",
+        "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\git-status-before.txt",
+        "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-089\\git-status-after.txt"
+      },
+      "noProgressSignals": [
+        "same_task_selected_repeatedly"
+      ],
+      "remediation": null,
+      "completionReportStatus": "applied",
+      "reconciliationWarnings": [],
+      "stopReason": null,
+      "selectedProvider": "claude",
+      "selectedModel": "claude-sonnet-4-6",
+      "selectedReasoningEffort": "medium",
+      "effectiveTier": "medium",
+      "fallbackWarning": null
     }
   ],
-  "updatedAt": "2026-05-13T19:49:27.759Z"
+  "updatedAt": "2026-05-13T20:08:06.158Z"
 }
