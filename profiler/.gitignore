@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.js
+*.d.ts
+.env
+.env.local
+test-output/
+dualwrite-output/
+*.log
+coverage/
