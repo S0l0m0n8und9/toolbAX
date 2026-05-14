@@ -1,6 +1,7 @@
 node_modules/
 dist/
 *.js
+!smoke-test.js
 *.d.ts
 .env
 .env.local
