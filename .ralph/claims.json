@@ -634,11 +634,74 @@
       "status": "released"
     },
     {
-      "taskId": "T20",
       "agentId": "default",
-      "provenanceId": "run-i090-cli-20260513T200806Z",
+      "taskId": "T20",
       "claimedAt": "2026-05-13T20:08:06.177Z",
-      "status": "active"
+      "provenanceId": "run-i090-cli-20260513T200806Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T21",
+      "claimedAt": "2026-05-13T20:12:31.007Z",
+      "provenanceId": "run-i091-cli-20260513T201230Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T21.1",
+      "claimedAt": "2026-05-14T00:48:12.876Z",
+      "provenanceId": "run-i093-cli-20260514T004812Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T21.1",
+      "claimedAt": "2026-05-14T00:50:08.123Z",
+      "provenanceId": "run-i094-cli-20260514T005007Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T21.1",
+      "claimedAt": "2026-05-14T00:51:35.828Z",
+      "provenanceId": "run-i095-cli-20260514T005135Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T21.1",
+      "claimedAt": "2026-05-14T00:53:15.689Z",
+      "provenanceId": "run-i096-cli-20260514T005315Z",
+      "status": "released"
+    },
+    {
+      "agentId": "watchdog",
+      "taskId": "T21.1.1",
+      "claimedAt": "2026-05-14T00:55:06.808Z",
+      "provenanceId": "run-i097-cli-20260514T005506Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T21.1.1",
+      "claimedAt": "2026-05-14T01:32:38.308Z",
+      "provenanceId": "run-i098-cli-20260514T013238Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T21.1.1",
+      "claimedAt": "2026-05-14T01:33:46.490Z",
+      "provenanceId": "run-i099-cli-20260514T013346Z",
+      "status": "released"
+    },
+    {
+      "agentId": "watchdog",
+      "taskId": "T21.1.1",
+      "claimedAt": "2026-05-14T01:35:17.520Z",
+      "provenanceId": "run-i100-cli-20260514T013517Z",
+      "status": "released"
     }
   ]
 }

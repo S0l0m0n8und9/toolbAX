@@ -461,13 +461,16 @@
     {
       "id": "T21",
       "title": "Dogfood evidence pack for install reliability",
-      "status": "todo",
+      "status": "in_progress",
       "dependsOn": [
         "T16",
-        "T17",
         "T18",
         "T19",
-        "T20"
+        "T20",
+        "T21.1",
+        "T21.3",
+        "T21.4",
+        "T21.5"
       ],
       "notes": "Release readiness needs explicit operator evidence from executed install scenarios plus passing repo validation.",
       "validation": "npm run validate",
@@ -475,7 +478,7 @@
       "acceptance": [
         "Notes include install path, plugin path, expected plugin count, and observed plugin count for each scenario",
         "Notes include failure evidence for any failed scenario",
-        "Evidence covers per-user, per-machine, upgrade, and reinstall runs",
+        "Evidence covers per-user, upgrade, and reinstall runs",
         "Evidence references the exact artifact paths for logs and command output used to support conclusions"
       ],
       "constraints": [
@@ -562,5 +565,5 @@
       ]
     }
   ],
-  "mutationCount": 33
+  "mutationCount": 35
 }

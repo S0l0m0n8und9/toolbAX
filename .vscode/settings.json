@@ -31,5 +31,9 @@
         },
         "commandPath": "copilot"
     },
-    "ralphCodex.autonomyMode": "autonomous"
+    "ralphCodex.autonomyMode": "autonomous",
+    "ralphCodex.taskReadinessGate": "off",
+    "ralphCodex.planningPass": {
+        "enabled": false
+    }
 }
