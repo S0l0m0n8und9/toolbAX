@@ -13,17 +13,26 @@ public sealed class AsyncRelayCommand : ICommand
 {
     private readonly Func<CancellationToken, Task> _execute;
     private readonly Action<Exception>? _onError;
+    private readonly Func<bool>? _canExecute;
     private readonly CancellationTokenSource _cts = new();
 
     public AsyncRelayCommand(Func<CancellationToken, Task> execute, Action<Exception>? onError = null)
     {
         _execute = execute;
         _onError = onError;
+        _canExecute = null;
+    }
+
+    public AsyncRelayCommand(Func<CancellationToken, Task> execute, Func<bool> canExecute, Action<Exception>? onError = null)
+    {
+        _execute = execute;
+        _onError = onError;
+        _canExecute = canExecute;
     }
 
     public event EventHandler? CanExecuteChanged { add { } remove { } }
 
-    public bool CanExecute(object? parameter) => true;
+    public bool CanExecute(object? parameter) => _canExecute?.Invoke() ?? true;
 
     public async void Execute(object? parameter)
     {

@@ -1,0 +1,163 @@
+using DualWriteMapBrowserPlugin;
+using System.IO;
+
+namespace FoToolbox.Tests;
+
+[Trait("Category", "Testify")]
+public sealed class TestifyConfigurationViewModelTests
+{
+    private static async Task WaitForLoadAsync()
+    {
+        await Task.Delay(100);
+    }
+
+    [Theory]
+    [InlineData(4, false)]
+    [InlineData(5, true)]
+    [InlineData(300, true)]
+    [InlineData(301, false)]
+    public async Task SaveCommand_TimeoutValidation_RespectsRange(int timeoutMinutes, bool shouldBeEnabled)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify.json");
+
+        try
+        {
+            var store = new TestifyConfigurationStore(path);
+            var errorsCaptured = new List<Exception>();
+            var onError = new Action<Exception>(ex => errorsCaptured.Add(ex));
+
+            var vm = new TestifyConfigurationViewModel(store, "env-1", "map-1", onError);
+            await WaitForLoadAsync();
+            vm.CePollTimeoutMinutes = timeoutMinutes;
+
+            Assert.Equal(shouldBeEnabled, vm.SaveCommand.CanExecute(null));
+        }
+        finally
+        {
+            await WaitForLoadAsync();
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task SaveCommand_BoundaryValues_ProducesCorrectStates()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify.json");
+
+        try
+        {
+            var store = new TestifyConfigurationStore(path);
+            var vm = new TestifyConfigurationViewModel(store, "env-1", "map-1", _ => { });
+            await WaitForLoadAsync();
+
+            // Test 4 (invalid - below minimum)
+            vm.CePollTimeoutMinutes = 4;
+            Assert.False(vm.SaveCommand.CanExecute(null), "Timeout 4 should be invalid (below minimum 5)");
+
+            // Test 5 (valid - at minimum)
+            vm.CePollTimeoutMinutes = 5;
+            Assert.True(vm.SaveCommand.CanExecute(null), "Timeout 5 should be valid (at minimum)");
+
+            // Test 300 (valid - at maximum)
+            vm.CePollTimeoutMinutes = 300;
+            Assert.True(vm.SaveCommand.CanExecute(null), "Timeout 300 should be valid (at maximum)");
+
+            // Test 301 (invalid - above maximum)
+            vm.CePollTimeoutMinutes = 301;
+            Assert.False(vm.SaveCommand.CanExecute(null), "Timeout 301 should be invalid (above maximum 300)");
+        }
+        finally
+        {
+            await WaitForLoadAsync();
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(1)]
+    [InlineData(2)]
+    [InlineData(3)]
+    public async Task SaveCommand_InvalidTimeoutValues_AreDisabled(int invalidTimeout)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify.json");
+
+        try
+        {
+            var store = new TestifyConfigurationStore(path);
+            var vm = new TestifyConfigurationViewModel(store, "env-1", "map-1", _ => { });
+            await WaitForLoadAsync();
+
+            vm.CePollTimeoutMinutes = invalidTimeout;
+            Assert.False(vm.SaveCommand.CanExecute(null), $"Timeout {invalidTimeout} should be invalid (below minimum 5)");
+        }
+        finally
+        {
+            await WaitForLoadAsync();
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(301)]
+    [InlineData(500)]
+    [InlineData(1000)]
+    public async Task SaveCommand_TimeoutAboveMaximum_AreDisabled(int invalidTimeout)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify.json");
+
+        try
+        {
+            var store = new TestifyConfigurationStore(path);
+            var vm = new TestifyConfigurationViewModel(store, "env-1", "map-1", _ => { });
+            await WaitForLoadAsync();
+
+            vm.CePollTimeoutMinutes = invalidTimeout;
+            Assert.False(vm.SaveCommand.CanExecute(null), $"Timeout {invalidTimeout} should be invalid (above maximum 300)");
+        }
+        finally
+        {
+            await WaitForLoadAsync();
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Theory]
+    [InlineData(5)]
+    [InlineData(50)]
+    [InlineData(150)]
+    [InlineData(300)]
+    public async Task SaveCommand_ValidTimeoutValues_AreEnabled(int validTimeout)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify.json");
+
+        try
+        {
+            var store = new TestifyConfigurationStore(path);
+            var vm = new TestifyConfigurationViewModel(store, "env-1", "map-1", _ => { });
+            await WaitForLoadAsync();
+
+            vm.CePollTimeoutMinutes = validTimeout;
+            Assert.True(vm.SaveCommand.CanExecute(null), $"Timeout {validTimeout} should be valid (within 5-300 range)");
+        }
+        finally
+        {
+            await WaitForLoadAsync();
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+}

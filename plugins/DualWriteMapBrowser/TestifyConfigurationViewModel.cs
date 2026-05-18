@@ -106,7 +106,7 @@ internal sealed class TestifyConfigurationViewModel : INotifyPropertyChanged
         _envId = envId ?? throw new ArgumentNullException(nameof(envId));
         _mapId = mapId ?? throw new ArgumentNullException(nameof(mapId));
 
-        SaveCommand = new AsyncRelayCommand(SaveAsync, onError);
+        SaveCommand = new AsyncRelayCommand(SaveAsync, IsTimeoutValid, onError);
 
         _ = LoadAsync(CancellationToken.None);
     }
@@ -153,6 +153,8 @@ internal sealed class TestifyConfigurationViewModel : INotifyPropertyChanged
             IsSaving = false;
         }
     }
+
+    private bool IsTimeoutValid() => _cePollTimeoutMinutes >= 5 && _cePollTimeoutMinutes <= 300;
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)
     {

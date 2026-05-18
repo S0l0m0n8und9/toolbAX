@@ -25,7 +25,7 @@
     {
       "id": "T2",
       "title": "Add CE poll timeout validation (5–300 s) to TestifyConfigurationViewModel",
-      "status": "todo",
+      "status": "in_progress",
       "dependsOn": [
         "T1"
       ],
