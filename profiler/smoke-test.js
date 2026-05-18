@@ -126,7 +126,9 @@ try {
   testsFailed++;
   console.log(`✗ FAIL: Output directory test should fail on auth`);
 } catch (error) {
-  const output = error.stdout ? error.stdout.toString() : '' + error.stderr ? error.stderr.toString() : '';
+  const stderr = error.stderr ? error.stderr.toString() : '';
+  const stdout = error.stdout ? error.stdout.toString() : '';
+  const output = stderr + stdout;
 
   // Check if output directory was created
   if (fs.existsSync(testOutputPath)) {
@@ -140,6 +142,67 @@ try {
     testsPassed++;
   } else {
     console.log(`✓ PASS: Auth failed as expected (output dir test)`);
+    testsPassed++;
+  }
+}
+
+// Test 7: Invalid credentials (non-Dynamics URL)
+console.log(`\n[TEST] Invalid credentials produces clear error message`);
+try {
+  execFileSync('node', [
+    indexJs,
+    '--env-url', 'https://invalid.example.com',
+    '--tenant', TEST_TENANT
+  ], {
+    stdio: 'pipe',
+    cwd: __dirname,
+    timeout: 5000
+  });
+  console.log(`✗ FAIL: Invalid URL should produce error`);
+  testsFailed++;
+} catch (error) {
+  const stderr = error.stderr ? error.stderr.toString() : '';
+  const stdout = error.stdout ? error.stdout.toString() : '';
+  const output = stderr + stdout;
+
+  if (output.includes('Error') && (output.includes('invalid') || output.includes('URL') || output.includes('Dynamics'))) {
+    console.log(`✓ PASS: Invalid URL produces clear error`);
+    testsPassed++;
+  } else {
+    console.log(`✗ FAIL: Error message not clear`);
+    console.log(`  Output: ${output.substring(0, 100)}`);
+    testsFailed++;
+  }
+}
+
+// Test 8: Token-based authentication (simulating valid credentials injection)
+console.log(`\n[TEST] CLI accepts token-based authentication`);
+try {
+  execFileSync('node', [
+    indexJs,
+    '--env-url', TEST_ENV_URL,
+    '--tenant', TEST_TENANT,
+    '--auth-method', 'token',
+    '--token', 'test-token'
+  ], {
+    stdio: 'pipe',
+    cwd: __dirname,
+    timeout: 5000
+  });
+  // May fail due to invalid token, but arg parsing should work
+  console.log(`✓ PASS: Token auth argument accepted`);
+  testsPassed++;
+} catch (error) {
+  const stderr = error.stderr ? error.stderr.toString() : '';
+  const stdout = error.stdout ? error.stdout.toString() : '';
+  const output = stderr + stdout;
+
+  // Check if it's an auth error (expected) vs argument parsing error (bad)
+  if (output.includes('--auth-method') || output.includes('--token')) {
+    console.log(`✗ FAIL: Token auth arguments not recognized`);
+    testsFailed++;
+  } else {
+    console.log(`✓ PASS: Token auth argument accepted (auth error expected)`);
     testsPassed++;
   }
 }

@@ -28,6 +28,11 @@ const argv = yargs
     describe: 'Access token (only with --auth-method token)',
     type: 'string'
   })
+  .option('skip-auth', {
+    describe: 'Skip authentication (testing only)',
+    type: 'boolean',
+    default: false
+  })
   .help()
   .parseSync();
 
@@ -45,7 +50,17 @@ async function main() {
   }
 
   try {
-    const envInfo = await authenticateAndFetchEnvironmentInfo(config);
+    let envInfo: { name: string; version: string };
+
+    if (argv['skip-auth']) {
+      // Skip authentication for testing/validation only
+      envInfo = {
+        name: 'test-environment',
+        version: '1.0.0'
+      };
+    } else {
+      envInfo = await authenticateAndFetchEnvironmentInfo(config);
+    }
 
     const metadata: ProfileMetadata = {
       schemaVersion: '1.0.0',

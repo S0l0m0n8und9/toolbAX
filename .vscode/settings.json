@@ -7,7 +7,8 @@
     "ralphCodex.modelTiering": {
         "simple": {
             "provider": "claude",
-            "model": "claude-haiku-4-5"
+            "model": "claude-haiku-4-5",
+            "reasoningEffort": "medium"
         },
         "medium": {
             "model": "claude-sonnet-4-6",
@@ -35,5 +36,12 @@
     "ralphCodex.taskReadinessGate": "off",
     "ralphCodex.planningPass": {
         "enabled": false
-    }
+    },
+    "ralphCodex.verifierModes": [
+        "validationCommand",
+        "gitDiff",
+        "taskState"
+    ],
+    "ralphCodex.promptBudgetProfile": "claude",
+    "ralphCodex.reasoningEffort": "medium"
 }

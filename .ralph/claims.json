@@ -702,6 +702,125 @@
       "claimedAt": "2026-05-14T01:35:17.520Z",
       "provenanceId": "run-i100-cli-20260514T013517Z",
       "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T22",
+      "claimedAt": "2026-05-14T02:20:54.938Z",
+      "provenanceId": "run-i101-cli-20260514T022054Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T22",
+      "claimedAt": "2026-05-14T02:28:25.563Z",
+      "provenanceId": "run-i102-cli-20260514T022825Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T22",
+      "claimedAt": "2026-05-14T02:33:01.511Z",
+      "provenanceId": "run-i103-cli-20260514T023301Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T22",
+      "claimedAt": "2026-05-14T02:50:58.209Z",
+      "provenanceId": "run-i104-cli-20260514T025058Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T22",
+      "claimedAt": "2026-05-14T02:53:32.660Z",
+      "provenanceId": "run-i105-cli-20260514T025332Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T22",
+      "claimedAt": "2026-05-14T03:01:21.971Z",
+      "provenanceId": "run-i106-cli-20260514T030118Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T22",
+      "claimedAt": "2026-05-14T03:03:22.030Z",
+      "provenanceId": "run-i107-cli-20260514T030320Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T22",
+      "claimedAt": "2026-05-14T03:09:54.692Z",
+      "provenanceId": "run-i108-cli-20260514T030953Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T22",
+      "claimedAt": "2026-05-14T03:12:33.111Z",
+      "provenanceId": "run-i109-cli-20260514T031232Z",
+      "status": "released"
+    },
+    {
+      "agentId": "watchdog",
+      "taskId": "T22",
+      "claimedAt": "2026-05-14T03:15:32.755Z",
+      "provenanceId": "run-i110-cli-20260514T031532Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T22",
+      "claimedAt": "2026-05-14T09:41:30.433Z",
+      "provenanceId": "run-i111-cli-20260514T094130Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T22",
+      "claimedAt": "2026-05-14T09:47:03.014Z",
+      "provenanceId": "run-i112-cli-20260514T094655Z",
+      "status": "released"
+    },
+    {
+      "agentId": "watchdog",
+      "taskId": "T22",
+      "claimedAt": "2026-05-14T09:51:56.145Z",
+      "provenanceId": "run-i113-cli-20260514T095156Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T1",
+      "claimedAt": "2026-05-18T09:04:42.605Z",
+      "provenanceId": "run-i114-cli-20260518T090442Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T1",
+      "claimedAt": "2026-05-18T09:06:44.435Z",
+      "provenanceId": "run-i115-cli-20260518T090643Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T1",
+      "claimedAt": "2026-05-18T09:07:48.520Z",
+      "provenanceId": "run-i116-cli-20260518T090748Z",
+      "status": "released"
+    },
+    {
+      "agentId": "watchdog",
+      "taskId": "T5",
+      "claimedAt": "2026-05-18T09:09:23.234Z",
+      "provenanceId": "run-i117-cli-20260518T090922Z",
+      "status": "released"
     }
   ]
 }
