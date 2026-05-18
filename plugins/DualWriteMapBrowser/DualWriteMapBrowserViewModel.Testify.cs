@@ -406,6 +406,7 @@ public sealed partial class DualWriteMapBrowserViewModel
                         cancellationToken);
                     AddTestifyLog(plan.MapDisplayName, "Result", "Failed", status);
                     _ctx.Logger.LogError(ex, "Testify failed for map {MapId} ({MapDisplayName})", plan.MapId, plan.MapDisplayName);
+                    throw;
                 }
 
                 _testifyResultRows.Add(new TestifyResultRow(
@@ -2668,17 +2669,25 @@ public sealed partial class DualWriteMapBrowserViewModel
             return failureStatus;
         }
 
-        var rollbackSucceeded = await TryDeleteTestifyRecordAsync(
-            mapDisplayName,
-            mapId,
+        if (_write?.ODataWrite is null)
+        {
+            return failureStatus;
+        }
+
+        var rollbackSucceeded = await TestifyRunner.RollbackAsync(
+            _write.ODataWrite,
             configuration,
-            configuration.LastEntityInstanceUrl,
-            "Rollback",
+            _testifyConfigStore,
             cancellationToken);
+
+        AddTestifyLog(mapDisplayName, "Rollback", rollbackSucceeded ? "Succeeded" : "Failed",
+            rollbackSucceeded
+                ? "Created record rolled back."
+                : $"DELETE failed for map {mapId}; manual cleanup may be required.");
 
         return rollbackSucceeded
             ? $"{failureStatus} Created record rolled back."
-            : $"{failureStatus} Rollback failed; manual cleanup may be required.";
+            : $"{failureStatus} Rollback attempted; manual cleanup may be required.";
     }
 
     internal async Task<bool> TryDeleteTestifyRecordAsync(

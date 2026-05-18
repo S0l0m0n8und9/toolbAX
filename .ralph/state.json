@@ -1,40 +1,25 @@
 {
   "version": 2,
   "objectivePreview": "toolbAX is a Windows desktop application targeting Microsoft Dynamics 365 Finance & Operations administrators and developers. It provides a plugin-based host su",
-  "nextIteration": 118,
+  "nextIteration": 120,
   "lastPromptKind": "fix-failure",
-  "lastPromptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-117.prompt.md",
+  "lastPromptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-118.prompt.md",
   "lastRun": {
-    "agentId": "watchdog",
-    "provenanceId": "run-i117-cli-20260518T090922Z",
-    "iteration": 117,
+    "agentId": "default",
+    "provenanceId": "run-i118-cli-20260518T210911Z",
+    "iteration": 118,
     "mode": "singleExec",
     "promptKind": "fix-failure",
-    "startedAt": "2026-05-18T09:09:22.314Z",
-    "finishedAt": "2026-05-18T09:09:56.655Z",
+    "startedAt": "2026-05-18T21:09:11.337Z",
+    "finishedAt": "2026-05-18T21:16:59.943Z",
     "status": "succeeded",
     "exitCode": 0,
-    "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-117.prompt.md",
-    "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-117.transcript.md",
-    "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-117.last-message.md",
-    "summary": "Selected T5: Add rollback method to Testify runner triggered on post-creation failure | Execution: succeeded | Verification: failed | Outcome: no_progress | Backlog remaining: 23"
+    "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-118.prompt.md",
+    "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-118.transcript.md",
+    "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-118.last-message.md",
+    "summary": "Selected T5: Add rollback method to Testify runner triggered on post-creation failure | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 20"
   },
   "runHistory": [
-    {
-      "agentId": "default",
-      "provenanceId": "run-i098-cli-20260514T013238Z",
-      "iteration": 98,
-      "mode": "loop",
-      "promptKind": "fix-failure",
-      "startedAt": "2026-05-14T01:32:37.920Z",
-      "finishedAt": "2026-05-14T01:33:45.953Z",
-      "status": "succeeded",
-      "exitCode": 0,
-      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-098.prompt.md",
-      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-098.transcript.md",
-      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-098.last-message.md",
-      "summary": "Selected T21.1.1: Reproduce the blocker with a deterministic verification target | Execution: succeeded | Verification: failed | Outcome: no_progress | Backlog remaining: 7"
-    },
     {
       "agentId": "default",
       "provenanceId": "run-i099-cli-20260514T013346Z",
@@ -319,21 +304,36 @@
       "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-117.transcript.md",
       "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-117.last-message.md",
       "summary": "Selected T5: Add rollback method to Testify runner triggered on post-creation failure | Execution: succeeded | Verification: failed | Outcome: no_progress | Backlog remaining: 23"
+    },
+    {
+      "agentId": "default",
+      "provenanceId": "run-i118-cli-20260518T210911Z",
+      "iteration": 118,
+      "mode": "singleExec",
+      "promptKind": "fix-failure",
+      "startedAt": "2026-05-18T21:09:11.337Z",
+      "finishedAt": "2026-05-18T21:16:59.943Z",
+      "status": "succeeded",
+      "exitCode": 0,
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-118.prompt.md",
+      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-118.transcript.md",
+      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-118.last-message.md",
+      "summary": "Selected T5: Add rollback method to Testify runner triggered on post-creation failure | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 20"
     }
   ],
   "lastIteration": {
     "schemaVersion": 1,
-    "agentId": "watchdog",
-    "provenanceId": "run-i117-cli-20260518T090922Z",
-    "iteration": 117,
+    "agentId": "default",
+    "provenanceId": "run-i118-cli-20260518T210911Z",
+    "iteration": 118,
     "selectedTaskId": "T5",
     "selectedTaskTitle": "Add rollback method to Testify runner triggered on post-creation failure",
     "promptKind": "fix-failure",
-    "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-117.prompt.md",
-    "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-117",
+    "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-118.prompt.md",
+    "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118",
     "adapterUsed": "cliExec",
     "executionIntegrity": {
-      "provenanceId": "run-i117-cli-20260518T090922Z",
+      "provenanceId": "run-i118-cli-20260518T210911Z",
       "promptTarget": "cliExec",
       "rootPolicy": {
         "workspaceRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
@@ -344,7 +344,7 @@
         "selectionSummary": "Using the workspace root because it already exposes shallow repo markers.",
         "policySummary": "Inspect, execute, and verify at the workspace root while storing Ralph artifacts under .ralph there."
       },
-      "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.1.7\\prompt-templates\\watchdog-agent.md",
+      "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.1.7\\prompt-templates\\fix-failure.md",
       "selectedProvider": "claude",
       "selectedModel": "claude-sonnet-4-6",
       "effectiveTier": "medium",
@@ -353,110 +353,141 @@
       "taskValidationHint": "dotnet build",
       "effectiveValidationCommand": "dotnet build",
       "normalizedValidationCommandFrom": null,
-      "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-117\\execution-plan.json",
-      "executionPlanHash": "sha256:c4e901eced14bde623372cfd29ea456dbe5774fb6fd5e7dfdeeded19b8662ac7",
-      "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-117\\prompt.md",
-      "promptHash": "sha256:63589e7ff9afff773ba5ee2b7cf7597b4a6df8a24c4e39dee3a3f56309b1e4ff",
-      "promptByteLength": 8588,
-      "executionPayloadHash": "sha256:63589e7ff9afff773ba5ee2b7cf7597b4a6df8a24c4e39dee3a3f56309b1e4ff",
+      "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\execution-plan.json",
+      "executionPlanHash": "sha256:35f3ec0acafc7f1e7dcce752645a49102d4f370299006ccac7a0206c446fc6cf",
+      "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\prompt.md",
+      "promptHash": "sha256:05f0bd70866856c89715f583ad12f876ea417cbe92910e9531375f28a2fbf4cf",
+      "promptByteLength": 7252,
+      "executionPayloadHash": "sha256:05f0bd70866856c89715f583ad12f876ea417cbe92910e9531375f28a2fbf4cf",
       "executionPayloadMatched": true,
       "mismatchReason": null,
-      "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-117\\cli-invocation.json"
+      "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\cli-invocation.json"
     },
     "executionStatus": "succeeded",
     "verificationStatus": "failed",
-    "completionClassification": "no_progress",
-    "followUpAction": "retry_same_task",
-    "startedAt": "2026-05-18T09:09:22.314Z",
-    "finishedAt": "2026-05-18T09:09:56.655Z",
+    "completionClassification": "partial_progress",
+    "followUpAction": "continue_same_task",
+    "startedAt": "2026-05-18T21:09:11.337Z",
+    "finishedAt": "2026-05-18T21:16:59.943Z",
     "phaseTimestamps": {
-      "inspectStartedAt": "2026-05-18T09:09:22.314Z",
-      "inspectFinishedAt": "2026-05-18T09:09:22.902Z",
-      "taskSelectedAt": "2026-05-18T09:09:22.902Z",
-      "promptGeneratedAt": "2026-05-18T09:09:23.551Z",
-      "resultCollectedAt": "2026-05-18T09:09:56.401Z",
-      "verificationFinishedAt": "2026-05-18T09:09:56.655Z",
-      "classifiedAt": "2026-05-18T09:09:56.655Z",
-      "executionStartedAt": "2026-05-18T09:09:23.937Z",
-      "executionFinishedAt": "2026-05-18T09:09:56.400Z",
-      "persistedAt": "2026-05-18T09:09:56.655Z"
+      "inspectStartedAt": "2026-05-18T21:09:11.337Z",
+      "inspectFinishedAt": "2026-05-18T21:09:11.682Z",
+      "taskSelectedAt": "2026-05-18T21:09:11.682Z",
+      "promptGeneratedAt": "2026-05-18T21:09:12.113Z",
+      "executionStartedAt": "2026-05-18T21:09:13.245Z",
+      "executionFinishedAt": "2026-05-18T21:16:35.843Z",
+      "resultCollectedAt": "2026-05-18T21:16:35.845Z",
+      "verificationFinishedAt": "2026-05-18T21:16:59.942Z",
+      "classifiedAt": "2026-05-18T21:16:59.943Z",
+      "persistedAt": "2026-05-18T21:16:59.943Z"
     },
-    "summary": "Selected T5: Add rollback method to Testify runner triggered on post-creation failure | Execution: succeeded | Verification: failed | Outcome: no_progress | Backlog remaining: 23",
+    "summary": "Selected T5: Add rollback method to Testify runner triggered on post-creation failure | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 20",
     "warnings": [
-      "Completion report requires a non-empty selectedTaskId string.",
-      "No relevant workspace changes were detected."
+      "Completion report requested done, but verification status was failed.",
+      "Task and progress files were unchanged during the iteration."
     ],
-    "errors": [],
+    "errors": [
+      "Validation command exited with 1."
+    ],
     "execution": {
       "exitCode": 0,
-      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-117.transcript.md",
-      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-117.last-message.md",
-      "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-117\\stdout.log",
-      "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-117\\stderr.log"
+      "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-118.transcript.md",
+      "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-118.last-message.md",
+      "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\stdout.log",
+      "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\stderr.log"
     },
     "verification": {
       "taskValidationHint": "dotnet build",
       "effectiveValidationCommand": "dotnet build",
       "normalizedValidationCommandFrom": null,
       "primaryCommand": "dotnet build",
-      "validationFailureSignature": null,
+      "validationFailureSignature": "dotnet build::exit:1::Determining projects to restore... | Restored C:\\Users\\ben.jones\\Repos\\toolbAX\\plugins\\DualWriteMapBrowser\\DualWriteMapBrowser.csproj (in 1.68 sec). | Restored c:\\Users\\ben.jones\\Repos\\toolbAX\\src\\FoToolbox.Host\\FoToolbox.Host.csproj (in 1.",
       "verifiers": [
         {
           "verifier": "validationCommand",
-          "status": "skipped",
-          "summary": "Validation-command verifier disabled for this iteration.",
+          "status": "failed",
+          "summary": "Validation command failed with exit code 1: dotnet build",
           "warnings": [],
-          "errors": [],
-          "command": "dotnet build"
+          "errors": [
+            "Validation command exited with 1."
+          ],
+          "command": "dotnet build",
+          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\validation-command.json",
+          "failureSignature": "dotnet build::exit:1::Determining projects to restore... | Restored C:\\Users\\ben.jones\\Repos\\toolbAX\\plugins\\DualWriteMapBrowser\\DualWriteMapBrowser.csproj (in 1.68 sec). | Restored c:\\Users\\ben.jones\\Repos\\toolbAX\\src\\FoToolbox.Host\\FoToolbox.Host.csproj (in 1.",
+          "metadata": {
+            "exitCode": 1,
+            "taskValidationHint": "dotnet build",
+            "normalizedValidationCommandFrom": null,
+            "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\validation-command.stdout.log",
+            "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\validation-command.stderr.log"
+          }
         },
         {
           "verifier": "gitDiff",
-          "status": "failed",
-          "summary": "No relevant file changes were detected.",
-          "warnings": [
-            "No relevant workspace changes were detected."
-          ],
+          "status": "passed",
+          "summary": "Detected 2 relevant changed file(s) out of 2 total changes.",
+          "warnings": [],
           "errors": [],
-          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-117\\git-diff.json",
+          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\git-diff.json",
+          "failureSignature": null,
           "metadata": {
-            "changedFiles": [],
-            "relevantChangedFiles": []
+            "changedFiles": [
+              ".ralph/tasks.lock",
+              "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs"
+            ],
+            "relevantChangedFiles": [
+              ".ralph/tasks.lock",
+              "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs"
+            ]
           }
         },
         {
           "verifier": "taskState",
           "status": "skipped",
-          "summary": "Task-state verifier disabled for this iteration.",
-          "warnings": [],
-          "errors": []
+          "summary": "No task-state progress was detected.",
+          "warnings": [
+            "Task and progress files were unchanged during the iteration."
+          ],
+          "errors": [],
+          "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\task-state.json",
+          "failureSignature": null
         }
       ]
     },
     "backlog": {
-      "remainingTaskCount": 23,
+      "remainingTaskCount": 20,
       "actionableTaskAvailable": true
     },
     "diffSummary": {
       "available": true,
       "gitAvailable": true,
-      "summary": "No relevant file changes were detected.",
-      "changedFileCount": 0,
-      "relevantChangedFileCount": 0,
-      "changedFiles": [],
-      "relevantChangedFiles": [],
-      "statusTransitions": [],
-      "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-117\\git-status-before.txt",
-      "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-117\\git-status-after.txt"
+      "summary": "Detected 2 relevant changed file(s) out of 2 total changes.",
+      "changedFileCount": 2,
+      "relevantChangedFileCount": 2,
+      "changedFiles": [
+        ".ralph/tasks.lock",
+        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs"
+      ],
+      "relevantChangedFiles": [
+        ".ralph/tasks.lock",
+        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs"
+      ],
+      "statusTransitions": [
+        ".ralph/tasks.lock: ?? -> clean",
+        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs: clean -> M"
+      ],
+      "suggestedCheckpointRef": "ralph/iter-iteration-118",
+      "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\git-status-before.txt",
+      "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\git-status-after.txt"
     },
     "noProgressSignals": [
-      "no_relevant_file_changes",
-      "task_and_progress_state_unchanged",
-      "same_failure_classification"
+      "same_task_selected_repeatedly",
+      "task_and_progress_state_unchanged"
     ],
     "remediation": null,
-    "completionReportStatus": "invalid",
+    "completionReportStatus": "rejected",
     "reconciliationWarnings": [
-      "Completion report requires a non-empty selectedTaskId string."
+      "Completion report requested done, but verification status was failed."
     ],
     "stopReason": null,
     "selectedProvider": "claude",
@@ -466,65 +497,6 @@
     "fallbackWarning": null
   },
   "iterationHistory": [
-    {
-      "schemaVersion": 1,
-      "agentId": "default",
-      "provenanceId": "run-i087-cli-20260513T194802Z",
-      "iteration": 87,
-      "selectedTaskId": "T18",
-      "selectedTaskTitle": "Upgrade from flat plugin layout verification",
-      "promptKind": "continue-progress",
-      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\continue-progress-087.prompt.md",
-      "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-087",
-      "adapterUsed": "codex",
-      "executionIntegrity": null,
-      "executionStatus": "skipped",
-      "verificationStatus": "skipped",
-      "completionClassification": "blocked",
-      "followUpAction": "stop",
-      "startedAt": "2026-05-13T19:48:01.565Z",
-      "finishedAt": "2026-05-13T19:49:27.697Z",
-      "phaseTimestamps": {
-        "inspectStartedAt": "2026-05-13T19:48:01.565Z",
-        "inspectFinishedAt": "2026-05-13T19:48:02.010Z",
-        "taskSelectedAt": "2026-05-13T19:48:02.010Z",
-        "promptGeneratedAt": "2026-05-13T19:48:04.485Z",
-        "executionStartedAt": "2026-05-13T19:49:27.697Z",
-        "executionFinishedAt": "2026-05-13T19:49:27.697Z",
-        "resultCollectedAt": "2026-05-13T19:49:27.697Z",
-        "verificationFinishedAt": "2026-05-13T19:49:27.697Z",
-        "classifiedAt": "2026-05-13T19:49:27.697Z",
-        "persistedAt": "2026-05-13T19:49:27.697Z"
-      },
-      "summary": "Planning gate blocked task before provider execution: Acceptance criteria are clear and validation command is concrete, but the required known older flat-layout build and real in-place upgrade evidence path are currently missing, so execution cannot be completed end-to-end in this iteration.",
-      "warnings": [],
-      "errors": [],
-      "execution": {
-        "exitCode": null,
-        "message": "Planning gate blocked task before provider execution: Acceptance criteria are clear and validation command is concrete, but the required known older flat-layout build and real in-place upgrade evidence path are currently missing, so execution cannot be completed end-to-end in this iteration."
-      },
-      "verification": {
-        "taskValidationHint": "dotnet build .\\FoToolbox.sln -c Release",
-        "effectiveValidationCommand": "dotnet build .\\FoToolbox.sln -c Release",
-        "normalizedValidationCommandFrom": null,
-        "primaryCommand": null,
-        "validationFailureSignature": null,
-        "verifiers": []
-      },
-      "backlog": {
-        "remainingTaskCount": 4,
-        "actionableTaskAvailable": true
-      },
-      "diffSummary": null,
-      "noProgressSignals": [],
-      "remediation": null,
-      "completionReportStatus": "missing",
-      "stopReason": "planning_gate_blocked",
-      "selectedModel": "gpt-5.3-codex",
-      "selectedReasoningEffort": "medium",
-      "effectiveTier": "planning_gate",
-      "fallbackWarning": null
-    },
     {
       "schemaVersion": 1,
       "agentId": "default",
@@ -4940,11 +4912,11 @@
         "inspectFinishedAt": "2026-05-18T09:09:22.902Z",
         "taskSelectedAt": "2026-05-18T09:09:22.902Z",
         "promptGeneratedAt": "2026-05-18T09:09:23.551Z",
+        "executionStartedAt": "2026-05-18T09:09:23.937Z",
+        "executionFinishedAt": "2026-05-18T09:09:56.400Z",
         "resultCollectedAt": "2026-05-18T09:09:56.401Z",
         "verificationFinishedAt": "2026-05-18T09:09:56.655Z",
         "classifiedAt": "2026-05-18T09:09:56.655Z",
-        "executionStartedAt": "2026-05-18T09:09:23.937Z",
-        "executionFinishedAt": "2026-05-18T09:09:56.400Z",
         "persistedAt": "2026-05-18T09:09:56.655Z"
       },
       "summary": "Selected T5: Add rollback method to Testify runner triggered on post-creation failure | Execution: succeeded | Verification: failed | Outcome: no_progress | Backlog remaining: 23",
@@ -4973,7 +4945,8 @@
             "summary": "Validation-command verifier disabled for this iteration.",
             "warnings": [],
             "errors": [],
-            "command": "dotnet build"
+            "command": "dotnet build",
+            "failureSignature": null
           },
           {
             "verifier": "gitDiff",
@@ -4984,6 +4957,7 @@
             ],
             "errors": [],
             "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-117\\git-diff.json",
+            "failureSignature": null,
             "metadata": {
               "changedFiles": [],
               "relevantChangedFiles": []
@@ -4994,7 +4968,8 @@
             "status": "skipped",
             "summary": "Task-state verifier disabled for this iteration.",
             "warnings": [],
-            "errors": []
+            "errors": [],
+            "failureSignature": null
           }
         ]
       },
@@ -5030,7 +5005,182 @@
       "selectedReasoningEffort": "medium",
       "effectiveTier": "medium",
       "fallbackWarning": null
+    },
+    {
+      "schemaVersion": 1,
+      "agentId": "default",
+      "provenanceId": "run-i118-cli-20260518T210911Z",
+      "iteration": 118,
+      "selectedTaskId": "T5",
+      "selectedTaskTitle": "Add rollback method to Testify runner triggered on post-creation failure",
+      "promptKind": "fix-failure",
+      "promptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\prompts\\fix-failure-118.prompt.md",
+      "artifactDir": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118",
+      "adapterUsed": "cliExec",
+      "executionIntegrity": {
+        "provenanceId": "run-i118-cli-20260518T210911Z",
+        "promptTarget": "cliExec",
+        "rootPolicy": {
+          "workspaceRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "inspectionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "executionRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "verificationRootPath": "c:\\Users\\ben.jones\\Repos\\toolbAX",
+          "selectionStrategy": "workspaceRoot",
+          "selectionSummary": "Using the workspace root because it already exposes shallow repo markers.",
+          "policySummary": "Inspect, execute, and verify at the workspace root while storing Ralph artifacts under .ralph there."
+        },
+        "templatePath": "c:\\Users\\ben.jones\\.vscode\\extensions\\s0l0m0n8und9.ralphdex-1.1.7\\prompt-templates\\fix-failure.md",
+        "selectedProvider": "claude",
+        "selectedModel": "claude-sonnet-4-6",
+        "effectiveTier": "medium",
+        "reasoningEffort": "medium",
+        "fallbackWarning": null,
+        "taskValidationHint": "dotnet build",
+        "effectiveValidationCommand": "dotnet build",
+        "normalizedValidationCommandFrom": null,
+        "executionPlanPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\execution-plan.json",
+        "executionPlanHash": "sha256:35f3ec0acafc7f1e7dcce752645a49102d4f370299006ccac7a0206c446fc6cf",
+        "promptArtifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\prompt.md",
+        "promptHash": "sha256:05f0bd70866856c89715f583ad12f876ea417cbe92910e9531375f28a2fbf4cf",
+        "promptByteLength": 7252,
+        "executionPayloadHash": "sha256:05f0bd70866856c89715f583ad12f876ea417cbe92910e9531375f28a2fbf4cf",
+        "executionPayloadMatched": true,
+        "mismatchReason": null,
+        "cliInvocationPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\cli-invocation.json"
+      },
+      "executionStatus": "succeeded",
+      "verificationStatus": "failed",
+      "completionClassification": "partial_progress",
+      "followUpAction": "continue_same_task",
+      "startedAt": "2026-05-18T21:09:11.337Z",
+      "finishedAt": "2026-05-18T21:16:59.943Z",
+      "phaseTimestamps": {
+        "inspectStartedAt": "2026-05-18T21:09:11.337Z",
+        "inspectFinishedAt": "2026-05-18T21:09:11.682Z",
+        "taskSelectedAt": "2026-05-18T21:09:11.682Z",
+        "promptGeneratedAt": "2026-05-18T21:09:12.113Z",
+        "executionStartedAt": "2026-05-18T21:09:13.245Z",
+        "executionFinishedAt": "2026-05-18T21:16:35.843Z",
+        "resultCollectedAt": "2026-05-18T21:16:35.845Z",
+        "verificationFinishedAt": "2026-05-18T21:16:59.942Z",
+        "classifiedAt": "2026-05-18T21:16:59.943Z",
+        "persistedAt": "2026-05-18T21:16:59.943Z"
+      },
+      "summary": "Selected T5: Add rollback method to Testify runner triggered on post-creation failure | Execution: succeeded | Verification: failed | Outcome: partial_progress | Backlog remaining: 20",
+      "warnings": [
+        "Completion report requested done, but verification status was failed.",
+        "Task and progress files were unchanged during the iteration."
+      ],
+      "errors": [
+        "Validation command exited with 1."
+      ],
+      "execution": {
+        "exitCode": 0,
+        "transcriptPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-118.transcript.md",
+        "lastMessagePath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\runs\\fix-failure-118.last-message.md",
+        "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\stdout.log",
+        "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\stderr.log"
+      },
+      "verification": {
+        "taskValidationHint": "dotnet build",
+        "effectiveValidationCommand": "dotnet build",
+        "normalizedValidationCommandFrom": null,
+        "primaryCommand": "dotnet build",
+        "validationFailureSignature": "dotnet build::exit:1::Determining projects to restore... | Restored C:\\Users\\ben.jones\\Repos\\toolbAX\\plugins\\DualWriteMapBrowser\\DualWriteMapBrowser.csproj (in 1.68 sec). | Restored c:\\Users\\ben.jones\\Repos\\toolbAX\\src\\FoToolbox.Host\\FoToolbox.Host.csproj (in 1.",
+        "verifiers": [
+          {
+            "verifier": "validationCommand",
+            "status": "failed",
+            "summary": "Validation command failed with exit code 1: dotnet build",
+            "warnings": [],
+            "errors": [
+              "Validation command exited with 1."
+            ],
+            "command": "dotnet build",
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\validation-command.json",
+            "failureSignature": "dotnet build::exit:1::Determining projects to restore... | Restored C:\\Users\\ben.jones\\Repos\\toolbAX\\plugins\\DualWriteMapBrowser\\DualWriteMapBrowser.csproj (in 1.68 sec). | Restored c:\\Users\\ben.jones\\Repos\\toolbAX\\src\\FoToolbox.Host\\FoToolbox.Host.csproj (in 1.",
+            "metadata": {
+              "exitCode": 1,
+              "taskValidationHint": "dotnet build",
+              "normalizedValidationCommandFrom": null,
+              "stdoutPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\validation-command.stdout.log",
+              "stderrPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\validation-command.stderr.log"
+            }
+          },
+          {
+            "verifier": "gitDiff",
+            "status": "passed",
+            "summary": "Detected 2 relevant changed file(s) out of 2 total changes.",
+            "warnings": [],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\git-diff.json",
+            "failureSignature": null,
+            "metadata": {
+              "changedFiles": [
+                ".ralph/tasks.lock",
+                "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs"
+              ],
+              "relevantChangedFiles": [
+                ".ralph/tasks.lock",
+                "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs"
+              ]
+            }
+          },
+          {
+            "verifier": "taskState",
+            "status": "skipped",
+            "summary": "No task-state progress was detected.",
+            "warnings": [
+              "Task and progress files were unchanged during the iteration."
+            ],
+            "errors": [],
+            "artifactPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\task-state.json",
+            "failureSignature": null
+          }
+        ]
+      },
+      "backlog": {
+        "remainingTaskCount": 20,
+        "actionableTaskAvailable": true
+      },
+      "diffSummary": {
+        "available": true,
+        "gitAvailable": true,
+        "summary": "Detected 2 relevant changed file(s) out of 2 total changes.",
+        "changedFileCount": 2,
+        "relevantChangedFileCount": 2,
+        "changedFiles": [
+          ".ralph/tasks.lock",
+          "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs"
+        ],
+        "relevantChangedFiles": [
+          ".ralph/tasks.lock",
+          "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs"
+        ],
+        "statusTransitions": [
+          ".ralph/tasks.lock: ?? -> clean",
+          "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs: clean -> M"
+        ],
+        "suggestedCheckpointRef": "ralph/iter-iteration-118",
+        "beforeStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\git-status-before.txt",
+        "afterStatusPath": "c:\\Users\\ben.jones\\Repos\\toolbAX\\.ralph\\artifacts\\iteration-118\\git-status-after.txt"
+      },
+      "noProgressSignals": [
+        "same_task_selected_repeatedly",
+        "task_and_progress_state_unchanged"
+      ],
+      "remediation": null,
+      "completionReportStatus": "rejected",
+      "reconciliationWarnings": [
+        "Completion report requested done, but verification status was failed."
+      ],
+      "stopReason": null,
+      "selectedProvider": "claude",
+      "selectedModel": "claude-sonnet-4-6",
+      "selectedReasoningEffort": "medium",
+      "effectiveTier": "medium",
+      "fallbackWarning": null
     }
   ],
-  "updatedAt": "2026-05-18T09:09:56.692Z"
+  "updatedAt": "2026-05-18T21:29:18.307Z"
 }

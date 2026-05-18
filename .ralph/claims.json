@@ -821,6 +821,20 @@
       "claimedAt": "2026-05-18T09:09:23.234Z",
       "provenanceId": "run-i117-cli-20260518T090922Z",
       "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T5",
+      "claimedAt": "2026-05-18T21:09:11.721Z",
+      "provenanceId": "run-i118-cli-20260518T210911Z",
+      "status": "released"
+    },
+    {
+      "taskId": "T5",
+      "agentId": "default",
+      "provenanceId": "run-i119-cli-20260518T212918Z",
+      "claimedAt": "2026-05-18T21:29:18.337Z",
+      "status": "active"
     }
   ]
 }

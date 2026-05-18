@@ -136,6 +136,144 @@ public sealed class DualWriteMapBrowserTestifyRollbackTests
         }
     }
 
+    [Fact]
+    public async Task RollbackAsync_ClearsUrlRegardlessOfDeleteFailure()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-rollback.json");
+
+        try
+        {
+            var store = new TestifyConfigurationStore(path);
+            var config = await store.GetOrCreateAsync("env-1", "map-b", CancellationToken.None);
+            var instanceUrl = "https://contoso.operations.dynamics.com/data/CustomersV3(AccountNumber='CUST-0002',dataAreaId='USMF')?cross-company=true";
+            config.LastRunToken = "TESTIFY-456";
+            config.LastEntityInstanceUrl = instanceUrl;
+            await store.SaveAsync(config, CancellationToken.None);
+
+            var deleteClient = new RecordingODataWriteClient(new ODataWriteResponse(500, "Server error", new Dictionary<string, string>()));
+
+            var result = await TestifyRunner.RollbackAsync(deleteClient, config, store, CancellationToken.None);
+
+            Assert.False(result);
+            Assert.Single(deleteClient.Requests);
+            Assert.Equal(HttpMethod.Delete, deleteClient.Requests[0].Method);
+            Assert.Equal(instanceUrl, deleteClient.Requests[0].Url);
+
+            var reloaded = await store.GetOrCreateAsync("env-1", "map-b", CancellationToken.None);
+            Assert.Null(reloaded.LastEntityInstanceUrl);
+            Assert.Null(reloaded.LastRunToken);
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RollbackAsync_Treats404AsSuccess()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-rollback.json");
+
+        try
+        {
+            var store = new TestifyConfigurationStore(path);
+            var config = await store.GetOrCreateAsync("env-1", "map-c", CancellationToken.None);
+            config.LastEntityInstanceUrl = "https://contoso.operations.dynamics.com/data/CustomersV3(AccountNumber='CUST-0003',dataAreaId='USMF')?cross-company=true";
+            config.LastRunToken = "TESTIFY-789";
+            await store.SaveAsync(config, CancellationToken.None);
+
+            var deleteClient = new RecordingODataWriteClient(new ODataWriteResponse(404, null, new Dictionary<string, string>()));
+
+            var result = await TestifyRunner.RollbackAsync(deleteClient, config, store, CancellationToken.None);
+
+            Assert.True(result);
+
+            var reloaded = await store.GetOrCreateAsync("env-1", "map-c", CancellationToken.None);
+            Assert.Null(reloaded.LastEntityInstanceUrl);
+            Assert.Null(reloaded.LastRunToken);
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task RollbackAsync_SkipsDeleteWhenUrlIsNull()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-rollback.json");
+
+        try
+        {
+            var store = new TestifyConfigurationStore(path);
+            var config = await store.GetOrCreateAsync("env-1", "map-d", CancellationToken.None);
+            config.LastEntityInstanceUrl = null;
+            config.LastRunToken = null;
+            await store.SaveAsync(config, CancellationToken.None);
+
+            var deleteClient = new RecordingODataWriteClient(new ODataWriteResponse(204, null, new Dictionary<string, string>()));
+
+            var result = await TestifyRunner.RollbackAsync(deleteClient, config, store, CancellationToken.None);
+
+            Assert.True(result);
+            Assert.Empty(deleteClient.Requests);
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task FinalizeTestifyFailureAsync_ClearsUrlEvenWhenDeleteFails()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-rollback.json");
+
+        try
+        {
+            var store = new TestifyConfigurationStore(path);
+            var config = await store.GetOrCreateAsync("env-1", "map-e", CancellationToken.None);
+            var instanceUrl = "https://contoso.operations.dynamics.com/data/CustomersV3(AccountNumber='CUST-0005',dataAreaId='USMF')?cross-company=true";
+            config.LastRunToken = "TESTIFY-999";
+            config.LastEntityInstanceUrl = instanceUrl;
+            await store.SaveAsync(config, CancellationToken.None);
+
+            var deleteClient = new RecordingODataWriteClient(new ODataWriteResponse(500, "Server error", new Dictionary<string, string>()));
+            var viewModel = new DualWriteMapBrowserViewModel(new FakeWriteContext(deleteClient), store);
+
+            var status = await viewModel.FinalizeTestifyFailureAsync(
+                "Map E",
+                "map-e",
+                config,
+                createdThisRun: true,
+                "Create readback failed.",
+                CancellationToken.None);
+
+            Assert.Contains("manual cleanup", status, StringComparison.OrdinalIgnoreCase);
+            Assert.Single(deleteClient.Requests);
+
+            var reloaded = await store.GetOrCreateAsync("env-1", "map-e", CancellationToken.None);
+            Assert.Null(reloaded.LastEntityInstanceUrl);
+            Assert.Null(reloaded.LastRunToken);
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
     private sealed class FakeWriteContext : IPluginContext, IPluginContextWrite
     {
         public FakeWriteContext(IODataWriteClient writeClient)

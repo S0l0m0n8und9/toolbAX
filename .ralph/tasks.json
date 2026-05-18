@@ -86,7 +86,8 @@
     {
       "id": "T5",
       "title": "Add rollback method to Testify runner triggered on post-creation failure",
-      "status": "in_progress",
+      "status": "done",
+      "notes": "Added TestifyRunner.RollbackAsync (internal static) that clears LastEntityInstanceUrl unconditionally before DELETE (404=success). Updated FinalizeTestifyFailureAsync to call it. All 4 acceptance criteria met: DELETE issued, 404=success, cache cleared regardless, original exception re-thrown at call site (unchanged). 7 rollback tests pass.",
       "validation": "dotnet build",
       "tier": "medium",
       "acceptance": [
@@ -101,7 +102,8 @@
       "context": [
         "Testify runner source",
         "F&O OData client"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T6",
@@ -423,5 +425,5 @@
       ]
     }
   ],
-  "mutationCount": 39
+  "mutationCount": 40
 }
