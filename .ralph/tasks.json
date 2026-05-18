@@ -3,567 +3,425 @@
   "tasks": [
     {
       "id": "T1",
-      "title": "Testify configuration settings panel",
+      "title": "Define TestifyConfigurationViewModel contract and load/save interface",
       "status": "done",
-      "notes": "No further code changes were needed in this slice. Existing T1 work already provides the Testify toolbar entry, in-view per-map settings editor, and persistence/reload coverage. Release build passed.",
-      "validation": "dotnet build .\\FoToolbox.sln -c Release",
-      "blocker": "Targeted test execution is still blocked on this machine because testhost.exe requires the x64 Microsoft.AspNetCore.App 8.0 runtime, which is not installed.",
-      "tier": "medium",
+      "validation": "dotnet build",
+      "tier": "simple",
       "acceptance": [
-        "Per-map settings (omitCreateFields, preferredCreateValues, cePollTimeoutMinutes, allowPartialEnumCoverage) are editable in a WPF panel inside DualWriteMapBrowser",
-        "Changes persist to TestifyConfigurationStore and reload correctly on next launch",
-        "Panel is reachable from the existing Testify toolbar without opening the JSON file"
+        "ViewModel exposes properties for omit fields list, preferred values map, CE poll timeout (int seconds), and partial enum coverage toggle",
+        "ViewModel constructor calls load against TestifyConfigurationStore for the given map key",
+        "SaveCommand is defined and invokes store write",
+        "No XAML or UI code in this task — ViewModel and store wiring only"
+      ],
+      "constraints": [
+        "No UI changes in this task",
+        "Must handle missing config (show defaults on first load)"
       ],
       "context": [
-        "plugins/DualWriteMapBrowser/TestifyConfigurationStore.cs",
-        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs"
-      ],
-      "lastVerifierResult": "failed"
+        "DualWriteMapBrowser plugin source",
+        "TestifyConfigurationStore (existing)"
+      ]
     },
     {
       "id": "T2",
-      "title": "Testify automatic rollback on failure",
-      "status": "done",
+      "title": "Add CE poll timeout validation (5–300 s) to TestifyConfigurationViewModel",
+      "status": "todo",
       "dependsOn": [
         "T1"
       ],
-      "notes": "No additional code changes were needed in this slice. Verified the existing rollback implementation and regression coverage already in the working tree; canonical Testify validation passed with 26/26 tests.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
-      "blocker": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify fails on this machine because x64 Microsoft.AspNetCore.App 8.0 is not installed for testhost.exe.",
-      "tier": "medium",
+      "validation": "dotnet test",
+      "tier": "simple",
       "acceptance": [
-        "If PATCH or CE-verification fails after a successful POST, the created record is deleted automatically",
-        "lastEntityInstanceUrl is cleared from TestifyConfigurationStore after rollback",
-        "Cleanup phase returns success (no error) when a cached URL references a record already deleted externally"
+        "SaveCommand is disabled / returns validation error when timeout < 5 or > 300",
+        "Unit test asserts boundary values 4, 5, 300, 301 produce correct valid/invalid states"
+      ],
+      "constraints": [
+        "Validation logic must live in ViewModel, not in XAML"
       ],
       "context": [
-        "plugins/DualWriteMapBrowser/TestifyRunner.cs",
-        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
-        "plugins/DualWriteMapBrowser/TestifyConfigurationStore.cs"
-      ],
-      "lastVerifierResult": "failed"
+        "TestifyConfigurationViewModel (T1 output)"
+      ]
     },
     {
       "id": "T3",
-      "title": "Testify enum coverage gap reporting",
-      "status": "done",
-      "notes": "Normalized Testify enum coverage gap prepare/detail output to sort missing enum members consistently and updated targeted Testify assertions to match the deterministic format.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
-      "blocker": "Skipped after diagnosis (validation_mismatch): Re-read the T3 verifier expectations and implement the smallest change that specifically affects enum coverage gap reporting behavior and its tests before rerunning validation.",
+      "title": "Build XAML settings panel UserControl for Testify configuration",
+      "status": "todo",
+      "dependsOn": [
+        "T1",
+        "T2"
+      ],
+      "validation": "dotnet build",
       "tier": "medium",
       "acceptance": [
-        "Prepare phase output lists each unmapped enum member by field name and enum value",
-        "Result grid distinguishes 'Blocked: incomplete coverage' from 'Blocked: missing entity'",
-        "TestifyResultRow carries per-field coverage gap detail accessible to the UI"
+        "UserControl binds to TestifyConfigurationViewModel",
+        "All four fields (omit list, preferred values, poll timeout, partial enum toggle) are present and editable",
+        "Save button triggers SaveCommand and shows inline confirmation message",
+        "Panel is accessible from DualWriteMapBrowser main toolbar without navigating away from map list"
       ],
       "context": [
-        "plugins/DualWriteMapBrowser/TestifyPlanner.cs",
-        "plugins/DualWriteMapBrowser/TestifyModels.cs",
-        "plugins/DualWriteMapBrowser/TestifyValueMapParser.cs"
-      ],
-      "lastVerifierResult": "passed"
+        "DualWriteMapBrowser plugin XAML layout",
+        "TestifyConfigurationViewModel (T1 output)"
+      ]
     },
     {
       "id": "T4",
-      "title": "Testify integration test coverage",
-      "status": "done",
+      "title": "Add integration test for TestifyConfiguration round-trip fidelity",
+      "status": "todo",
       "dependsOn": [
-        "T2",
-        "T3"
+        "T1"
       ],
-      "notes": "Confirmed T4 acceptance criteria are covered by the existing Testify integration/rollback tests, removed one duplicate rollback test, and reran the canonical Testify validator successfully.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
-      "tier": "medium",
+      "validation": "dotnet test --filter TestifyConfiguration",
+      "tier": "simple",
       "acceptance": [
-        "Idempotent rerun with a stale cached entity URL is covered and passes",
-        "Automatic rollback on mid-run failure is covered by at least one test",
-        "CE poll timeout expiry scenario is covered",
-        "All new tests pass under dotnet test with no parallelism failures"
+        "Test writes all four settings fields via ViewModel, reloads ViewModel, asserts all values match",
+        "Test covers first-write scenario (no prior config) and overwrite scenario",
+        "All assertions pass under dotnet test with no parallelism issues"
       ],
       "context": [
-        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyTests.cs",
-        "tests/FoToolbox.Tests/FakeODataServer.cs"
-      ],
-      "lastVerifierResult": "passed"
+        "DualWriteMapBrowserTestifyTests.cs",
+        "TestifyConfigurationStore",
+        "TestifyConfigurationViewModel (T1 output)"
+      ]
     },
     {
       "id": "T5",
-      "title": "Auth silent-failure recovery and interactive fallback",
-      "status": "done",
-      "notes": "Validated the existing auth silent-failure recovery implementation already present in the working tree. Interactive re-auth fallback, plugin-friendly re-auth messaging, and per-environment tenant handling all map to the selected task and pass both targeted auth and full solution tests.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Auth",
+      "title": "Add rollback method to Testify runner triggered on post-creation failure",
+      "status": "in_progress",
+      "validation": "dotnet build",
       "tier": "medium",
       "acceptance": [
-        "Silent token acquisition failure (invalid_grant, expired refresh) triggers an interactive re-auth prompt in the host UI",
-        "Plugin operations receive a clear re-authentication message rather than an unhandled HTTP 401",
-        "Per-environment TenantId is used for authority resolution, validated at profile save time"
+        "Rollback method issues DELETE to F&O OData endpoint for lastEntityInstanceUrl",
+        "404 response during DELETE is treated as success (no error raised)",
+        "lastEntityInstanceUrl cache key is cleared regardless of DELETE outcome",
+        "Original failure exception is re-thrown after cleanup completes"
+      ],
+      "constraints": [
+        "Rollback must not suppress the original failure — re-throw after cleanup"
       ],
       "context": [
-        "src/FoToolbox.Core/Auth/",
-        "src/FoToolbox.Host/ViewModels/MainWindowViewModel.cs"
-      ],
-      "lastVerifierResult": "failed"
+        "Testify runner source",
+        "F&O OData client"
+      ]
     },
     {
       "id": "T6",
-      "title": "Installer GUID lock, code signing, and runtime bundle",
-      "status": "done",
-      "notes": "Re-validated the installer pipeline from durable repo state. The source already satisfies the GUID lock, signing invocation, and runtime bundle acceptance criteria; the remaining blocker is environmental because release packaging now correctly fails fast when no signing certificate thumbprint or PFX is supplied.",
-      "validation": ".\\install\\build.ps1 -Configuration Release",
-      "blocker": "A signing certificate thumbprint or PFX was not provided in this environment, so .\\install\\build.ps1 -Configuration Release cannot complete packaging.",
-      "tier": "complex",
+      "title": "Integrate rollback into Testify runner failure path (PATCH and CE-verification phases)",
+      "status": "todo",
+      "dependsOn": [
+        "T5"
+      ],
+      "validation": "dotnet build",
+      "tier": "simple",
       "acceptance": [
-        "ProductCode, UpgradeCode, and Bundle GUID are hardcoded (non-generated) in WiX sources",
-        "install/build.ps1 calls signtool to sign MSI and Burn bundle outputs",
-        ".NET Desktop Runtime 8.0 installer is chained correctly in the Burn bundle and installs silently on a machine without the runtime"
+        "Any exception or non-success result raised after record creation triggers rollback before surfacing",
+        "Rollback is not triggered for failures that occur before record creation",
+        "Runner does not swallow exceptions after rollback completes"
       ],
       "context": [
-        "install/build.ps1",
-        "install/README.md"
-      ],
-      "lastVerifierResult": "failed"
+        "Testify runner source",
+        "Rollback method (T5 output)"
+      ]
     },
     {
       "id": "T7",
-      "title": "Add FO persisted-value readback checks",
-      "status": "done",
-      "notes": "Added FO persisted-value readback verification after create and after each PATCH, with dedicated readback log phases and mismatch failures. Added targeted integration tests for matching readback plus create/patch mismatch cases.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
-      "tier": "medium",
+      "title": "Add stale-URL validation to Testify run entry point",
+      "status": "todo",
+      "dependsOn": [
+        "T5"
+      ],
+      "validation": "dotnet build",
+      "tier": "simple",
       "acceptance": [
-        "FO create path performs a readback of the created record",
-        "FO patch path performs a readback confirming the intended field transition persisted",
-        "Failures distinguish transport success from persistence mismatch"
+        "Run entry point issues HEAD or GET against cached lastEntityInstanceUrl before using it",
+        "404 response invalidates the cached URL and proceeds as a fresh run",
+        "Non-404 error during pre-validation is surfaced as a run error, not silently ignored"
       ],
       "context": [
-        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
-        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs",
-        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
-      ],
-      "lastVerifierResult": "passed"
+        "Testify runner source",
+        "lastEntityInstanceUrl cache logic"
+      ]
     },
     {
       "id": "T8",
-      "title": "Add deterministic CE record correlation",
-      "status": "done",
+      "title": "Write FakeODataServer tests for rollback and idempotent rerun scenarios",
+      "status": "todo",
       "dependsOn": [
+        "T6",
         "T7"
       ],
-      "notes": "Replaced CE count-delta verification with deterministic per-leg CE correlation descriptors, exact correlated-row polling, duplicate/missing/unrelated guards, and patch-time same-row identity enforcement. Added targeted integration coverage for timeout (missing row), duplicate row match, unrelated row, and update row-identity drift.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "validation": "dotnet test --filter Rollback",
+      "tier": "medium",
       "acceptance": [
-        "Testify queries CE by a deterministic correlation key for each exercised map leg",
-        "Create verification fails if the correlated CE row is missing, duplicated, or unrelated to the FO test record",
-        "Update verification reuses the same correlated CE row instead of accepting any CE count delta"
+        "Test: stale/deleted lastEntityInstanceUrl — run proceeds cleanly, cache cleared",
+        "Test: failure after record creation triggers DELETE, original error surfaced, cache cleared",
+        "Test: 404 during rollback DELETE does not raise secondary error",
+        "All tests use FakeODataServer harness, no real HTTP calls",
+        "All tests pass deterministically under repeated dotnet test runs"
       ],
       "context": [
-        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
-        "plugins/DualWriteMapBrowser/TestifyPlanner.cs",
-        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs"
-      ],
-      "lastVerifierResult": "passed"
+        "DualWriteMapBrowserTestifyTests.cs",
+        "FakeODataServer (existing harness)"
+      ]
     },
     {
       "id": "T9",
-      "title": "Implement CE field reconciliation assertions",
-      "status": "done",
-      "dependsOn": [
-        "T8"
-      ],
-      "notes": "Implemented CE correlated-row field reconciliation assertions with per-phase expected/actual checks (create + patch), added value-map output parsing for enum transform validation, surfaced per-field pass/fail in Testify result rows/UI, and added targeted tests for create/patch assertions, scalar normalization, and assertion reporting.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "title": "Add EnumCoverageGap collection to TestifyPlanner output model",
+      "status": "todo",
+      "validation": "dotnet build",
+      "tier": "simple",
       "acceptance": [
-        "Testify reads CE column values for the correlated row after create and patch operations",
-        "Result rows surface pass or fail per verified mapped field instead of count-only success",
-        "Enum and supported scalar target values are validated against expected CE outcomes"
+        "TestifyPlanner output type carries a non-null EnumCoverageGap collection",
+        "Each gap entry has FieldName (string) and UnmappedValue (string or enum member identifier)",
+        "No planner analysis logic changed in this task — model definition only"
       ],
       "context": [
-        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
-        "plugins/DualWriteMapBrowser/TestifyModels.cs",
-        "plugins/DualWriteMapBrowser/TestifyPlanner.cs",
-        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
-      ],
-      "lastVerifierResult": "passed"
+        "TestifyPlanner source",
+        "TestifyResultRow source"
+      ]
     },
     {
       "id": "T10",
-      "title": "Block Testify maps with no assertable CE coverage",
-      "status": "done",
+      "title": "Implement enum gap collection in TestifyPlanner field-mapping analysis phase",
+      "status": "todo",
       "dependsOn": [
         "T9"
       ],
-      "notes": "Blocked Testify maps that produce runnable CE legs but zero assertable CE field plans, surfaced skipped-assertion reasons in preflight detail, and prevented completed runs from reporting valid 0/0 CE assertion results. Added targeted regression coverage and the canonical Testify validator passed.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "validation": "dotnet test --filter EnumCoverage",
       "tier": "medium",
       "acceptance": [
-        "Preflight blocks a map when no CE field assertions can be generated for its runnable AX->CRM legs",
-        "Run execution cannot report a valid map with zero CE assertions evaluated",
-        "Blocking or status detail explains why CE assertions were unavailable for the map"
+        "Planner enumerates all unmapped enum members for every mapped field during Prepare phase",
+        "Gaps are populated on the output before any test record is created",
+        "Existing partial-coverage warning is retained and supplemented with gap detail",
+        "Unit test asserts gap collection is populated correctly for a known mapping with missing members"
       ],
       "context": [
-        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
-        "plugins/DualWriteMapBrowser/TestifyModels.cs",
-        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs",
-        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs"
-      ],
-      "lastVerifierResult": "passed"
+        "TestifyPlanner source",
+        "EnumCoverageGap model (T9 output)"
+      ]
     },
     {
       "id": "T11",
-      "title": "Support temporal CE assertion normalization",
-      "status": "done",
+      "title": "Add 'Blocked: incomplete coverage' and 'Blocked: missing entity' discrete states to TestifyResultRow",
+      "status": "todo",
       "dependsOn": [
-        "T10"
+        "T9"
       ],
-      "notes": "Enabled direct CE assertions for Edm.Date and Edm.DateTimeOffset, normalized date-only and datetimeoffset comparisons semantically, and added focused temporal pass/mismatch regression coverage.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
-      "tier": "medium",
+      "validation": "dotnet build",
+      "tier": "simple",
       "acceptance": [
-        "Direct CE assertions support FO source fields typed as `Edm.Date` and `Edm.DateTimeOffset`",
-        "Expected and actual temporal values are normalized so equivalent FO and Dataverse formats compare successfully",
-        "Targeted tests cover temporal assertion pass and mismatch cases across create or patch verification"
+        "TestifyResultRow has two new distinct blocked state values",
+        "Coverage-blocked state carries structured detail payload: field name and unmapped values list",
+        "Missing-entity blocked state carries actionable detail message",
+        "No grid renderer changes in this task"
       ],
       "context": [
-        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
-        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs",
-        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
-      ],
-      "lastVerifierResult": "passed"
+        "TestifyResultRow source"
+      ]
     },
     {
       "id": "T12",
-      "title": "Surface Testify warning detail for skipped assertions",
-      "status": "done",
+      "title": "Update result grid renderer to display enum gap detail inline for coverage-blocked rows",
+      "status": "todo",
       "dependsOn": [
-        "T10"
+        "T11"
       ],
-      "notes": "Added Testify warning-detail support to preflight and execution result row models, threaded plan warnings through DualWriteMapBrowser Testify row construction, surfaced warning columns in both grids, and added focused model and XAML binding coverage.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
-      "tier": "medium",
+      "validation": "dotnet build",
+      "tier": "simple",
       "acceptance": [
-        "Preflight rows expose per-map warning detail from `TestifyMapPlan.Warnings`",
-        "Execution results preserve warning detail alongside CE assertion summaries for completed maps",
-        "Tests cover warning-detail row models and any added DualWriteMapBrowser bindings"
+        "Coverage-blocked rows display field name and unmapped values as comma-separated list inline in the grid",
+        "Missing-entity blocked rows display their actionable detail message",
+        "Non-blocked rows are unaffected by renderer changes"
       ],
       "context": [
-        "plugins/DualWriteMapBrowser/DualWriteMapBrowserView.xaml",
-        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
-        "plugins/DualWriteMapBrowser/TestifyModels.cs",
-        "tests/FoToolbox.Tests/TestifyModelsTests.cs",
-        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
-      ],
-      "lastVerifierResult": "passed"
+        "DualWriteMapBrowser result grid XAML/code-behind",
+        "TestifyResultRow (T11 output)"
+      ]
     },
     {
       "id": "T13",
-      "title": "Normalize GUID-shaped CE assertion values",
-      "status": "done",
+      "title": "Write FakeODataServer tests for enum gap reporting and payload trimming edge cases",
+      "status": "todo",
       "dependsOn": [
-        "T12"
+        "T10",
+        "T11"
       ],
-      "notes": "Normalized GUID-shaped CE assertion values so direct Edm.Guid assertions and GUID-looking value-map outputs compare semantically across casing and brace-format differences. Added focused regression coverage and the full Testify validation command passed.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "validation": "dotnet test --filter EnumCoverage",
       "tier": "medium",
       "acceptance": [
-        "Direct `Edm.Guid` CE assertions compare equivalent GUID values successfully even when Dataverse readback casing or brace formatting differs",
-        "GUID-shaped value-map outputs compare semantically instead of relying on ordinal string equality",
-        "Focused Testify regression tests cover GUID pass and mismatch cases for CE field assertions"
+        "Test: planner output contains correct gap entries for a mapping with unmapped members",
+        "Test: result row state is 'Blocked: incomplete coverage' when gaps exist and partial coverage is off",
+        "Test: payload trimming with null fields, empty collections, and fields in omit list produces correct trimmed payload",
+        "All tests in DualWriteMapBrowserTestifyTests.cs, no new test infrastructure required",
+        "All tests pass deterministically"
       ],
       "context": [
-        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
-        "plugins/DualWriteMapBrowser/TestifyModels.cs",
-        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs"
-      ],
-      "lastVerifierResult": "passed"
+        "DualWriteMapBrowserTestifyTests.cs",
+        "FakeODataServer (existing harness)",
+        "TestifyPlanner (T10 output)",
+        "TestifyResultRow (T11 output)"
+      ]
     },
     {
       "id": "T14",
-      "title": "Normalize boolean-shaped value-map CE outputs",
-      "status": "done",
-      "dependsOn": [
-        "T13"
-      ],
-      "notes": "Normalized boolean-shaped CE value-map and default outputs so 0/1 and false/true compare semantically without weakening existing numeric comparison behavior. Added focused Testify regression coverage for pass and mismatch cases.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
+      "title": "Write deterministic FakeODataServer test for CE poll timeout expiry",
+      "status": "todo",
+      "validation": "dotnet test --filter PollTimeout",
       "tier": "medium",
       "acceptance": [
-        "Value-map CE assertions treat equivalent boolean outputs such as `0/1` and `false/true` as semantic matches",
-        "Boolean normalization applies to mapped or default CE outputs without weakening existing numeric assertion behavior",
-        "Focused Testify regression tests cover boolean-shaped value-map pass and mismatch cases"
+        "Test uses injected clock or configurable timeout value — no real wall-time sleep",
+        "Test asserts result row state is a deterministic timeout result when CE poll expires",
+        "Test passes without flakiness under repeated runs",
+        "Added to DualWriteMapBrowserTestifyTests.cs"
+      ],
+      "constraints": [
+        "Must not use Thread.Sleep or Task.Delay with real durations — inject controllable clock"
       ],
       "context": [
-        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
-        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs",
-        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyResultTests.cs"
-      ],
-      "lastVerifierResult": "passed"
+        "DualWriteMapBrowserTestifyTests.cs",
+        "FakeODataServer (existing harness)",
+        "CE poll implementation"
+      ]
     },
     {
       "id": "T15",
-      "title": "Cover null and default CE assertion outputs",
-      "status": "done",
-      "dependsOn": [
-        "T14"
-      ],
-      "notes": "Preserved explicit null CE value-map outputs through transform ingestion, assertion planning, and CE readback formatting. Added focused regression tests for mapped-null pass, explicit null default pass, and null mismatch messaging.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
-      "tier": "medium",
+      "title": "Lock ProductCode, UpgradeCode, and Bundle GUIDs in WiX/Burn installer source",
+      "status": "todo",
+      "validation": "dotnet build install/",
+      "tier": "simple",
       "acceptance": [
-        "Value-map CE assertions can validate mapped or default `null` outputs without collapsing into generic string mismatches",
-        "Assertion failure detail preserves `<null>` expected or actual values clearly in result rows and thrown messages",
-        "Focused Testify regression tests cover mapped-null, default-null, and missing-default mismatch scenarios"
+        "Three GUIDs generated (ProductCode, UpgradeCode, Bundle) and committed to installer source",
+        "GUIDs are static values — not generated at build time",
+        "No other packaging changes in this task"
+      ],
+      "constraints": [
+        "GUIDs must be locked before any other packaging change to prevent upgrade-path breaks",
+        "This task must be completed before T16 and T17"
       ],
       "context": [
-        "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
-        "plugins/DualWriteMapBrowser/TestifyValueMapParser.cs",
-        "tests/FoToolbox.Tests/DualWriteMapBrowserTestifyIntegrationTests.cs",
-        "tests/FoToolbox.Tests/TestifyModelsTests.cs"
-      ],
-      "lastVerifierResult": "passed"
+        "install/ WiX source files"
+      ]
     },
     {
       "id": "T16",
-      "title": "Per-user fresh install plugin load proof",
-      "status": "done",
-      "notes": "Re-ran T16 with separate uninstall/install/launch/restart commands, captured per-user runtime evidence under artifacts/t16-per-user-proof-rerun-20260509, confirmed required plugin set on both launches, and verified plugin count parity (5/5). Validation command also passed in explicit build+test steps.",
-      "validation": "dotnet build .\\FoToolbox.sln -c Release && dotnet test .\\FoToolbox.sln -c Release --filter Category=Testify",
-      "priority": "high",
+      "title": "Add signtool integration to install/build.ps1 for MSI and bundle signing",
+      "status": "todo",
+      "dependsOn": [
+        "T15"
+      ],
+      "validation": "powershell -File install/build.ps1 -CertThumbprint <test-thumbprint>",
       "tier": "medium",
       "acceptance": [
-        "Clean uninstall/install in per-user scope completes with exit code 0 and recorded install root",
-        "Launch and restart from installed location shows HelloPlugin, QueryBuilder, TableEntityBrowser, ODataPostBuilder, and DualWriteMapBrowser loaded",
-        "Evidence records observed plugin count and expected bundled plugin count (must match)",
-        "If any plugin is missing, evidence includes plugin name, searched plugin path, and loader/runtime log excerpt"
-      ],
-      "constraints": [
-        "Use a clean per-user install location only",
-        "Run install, launch, and restart as separate commands (no semicolon-combined validation shorthand)",
-        "No code changes unless a blocking defect is found"
+        "Script accepts -CertThumbprint parameter",
+        "Script locates signtool.exe via Windows SDK path",
+        "Script signs MSI, then signs Burn bundle",
+        "Script fails the build (non-zero exit) if signing fails",
+        "Script emits summary of signed artifacts and their thumbprints to stdout",
+        "signtool verify succeeds on both artifacts after script completes"
       ],
       "context": [
-        "install/build.ps1 output artifacts",
-        "installed FoToolbox.Host.exe runtime logs",
-        "bin/plugins and installed plugins directory layout"
-      ],
-      "lastVerifierResult": "passed"
+        "install/build.ps1"
+      ]
     },
     {
       "id": "T17",
-      "title": "Per-machine fresh install plugin load proof",
-      "status": "done",
+      "title": "Chain .NET 8 Desktop Runtime redistributable in Burn bootstrapper with hash verification",
+      "status": "todo",
       "dependsOn": [
-        "T16"
+        "T15"
       ],
-      "notes": "Executed a deterministic per-machine uninstall/install proof attempt and captured evidence under artifacts/t17-per-machine-proof-20260509. Machine install failed with MSI 1603 / Error 1925 due non-elevated shell, so launch/restart plugin-load proof could not be completed.",
-      "validation": "dotnet build .\\FoToolbox.sln -c Release",
-      "blocker": "Per-machine MSI install requires administrator privileges. Current shell is non-elevated (isElevated=false), producing Error 1925 in artifacts/t17-per-machine-proof-20260509/install-machine.log.",
-      "priority": "high",
+      "validation": "dotnet build install/",
       "tier": "medium",
       "acceptance": [
-        "Clean uninstall/install in per-machine scope completes with exit code 0 and recorded Program Files install root",
-        "Launch and restart from machine install path loads all five bundled plugins",
-        "Plugin discovery works without manual folder edits",
-        "Failure evidence includes install root, plugin root, missing plugin names, and loader/runtime log excerpt"
-      ],
-      "constraints": [
-        "Use elevated install for per-machine layout",
-        "Do not rely on artifacts from per-user install"
+        "Burn chain references .NET 8 Desktop Runtime installer by resolved local path or verified download URL",
+        "Download URL path includes hash check",
+        "Version condition is specified in the chain element",
+        "Build succeeds and resulting bundle is accepted by update channel endpoint without modification"
       ],
       "context": [
-        "Program Files install root",
-        "machine-level plugin directory"
-      ],
-      "lastVerifierResult": "failed"
+        "install/ WiX Burn bundle source"
+      ]
     },
     {
       "id": "T18",
-      "title": "Upgrade from flat plugin layout verification",
-      "status": "done",
-      "dependsOn": [
-        "T18.1",
-        "T18.2",
-        "T18.3"
-      ],
-      "notes": "Completed code-level flat-layout migration verification using deterministic fixture coverage and migration diagnostics tests. Live in-place installer upgrade evidence remains tracked by the install reliability evidence pack task.",
-      "validation": "dotnet build .\\FoToolbox.sln -c Release",
-      "priority": "high",
+      "title": "Add interactive auth fallback for MsalUiRequiredException and invalid_grant in auth service",
+      "status": "todo",
+      "validation": "dotnet test --filter AuthFallback",
       "tier": "medium",
       "acceptance": [
-        "Starting from known older flat-layout build, upgrade and restart preserves discovery of all bundled plugins",
-        "Post-upgrade plugin count matches expected bundled count (not just non-zero)",
-        "Canonical subfolder layout exists after upgrade and legacy flat duplicates do not suppress plugin loading",
-        "Any skipped or failed migration is visible in logs or UI with specific plugin/path details"
+        "Auth service catches MsalUiRequiredException and MsalServiceException with error code invalid_grant",
+        "Fallback initiates device code flow when no interactive session is available, browser prompt otherwise",
+        "Fallback strategy is configurable per environment profile (device code preferred / browser preferred / prompt user)",
+        "Silent token failure does not return failure without attempting fallback first"
       ],
       "constraints": [
-        "Start from a known older build using flat plugin DLL placement",
-        "Exercise in-place upgrade path only"
+        "Fallback must be attempted before returning any failure to callers"
       ],
       "context": [
-        "legacy flat plugin folder",
-        "upgrade installer artifacts"
-      ],
-      "lastVerifierResult": "passed"
+        "Auth service source",
+        "Environment profile model"
+      ]
     },
     {
       "id": "T19",
-      "title": "Reinstall same-version resilience check",
-      "status": "done",
+      "title": "Wire auth-required event to host shell re-authentication modal dialog",
+      "status": "todo",
       "dependsOn": [
         "T18"
       ],
-      "notes": "Test Discover_SameVersionReinstall_Loads_All_Bundled_Plugins_Without_Errors already present in PluginManagerTests.cs (lines 344-382). It pre-stages canonical layout via StageCanonical, runs two successive DiscoverAsync invocations (simulating post-reinstall app restart), and asserts: plugin count == ExpectedBundledPluginCount, plugin IDs match, no Error-level log entries, and plugin root is logged",
-      "validation": "dotnet build .\\FoToolbox.sln -c Release",
+      "validation": "dotnet build",
       "tier": "medium",
       "acceptance": [
-        "Same-version reinstall completes successfully without manual plugin-folder intervention",
-        "Restart after reinstall loads all bundled plugins and plugin count matches expected count",
-        "Logs or UI clearly indicate plugin scan result and plugin root used"
-      ],
-      "constraints": [
-        "Use same-version reinstall path",
-        "Do not manually edit plugin folders during validation"
+        "Auth service raises auth-required event when fallback is needed",
+        "Host shell subscribes to event and displays modal re-authentication dialog",
+        "Dialog blocks plugin operations until re-auth completes or user cancels",
+        "No HTTP 401 error surfaces in plugin result output after user completes re-auth"
       ],
       "context": [
-        "installer identity",
-        "plugin staging output"
-      ],
-      "lastVerifierResult": "passed"
+        "Host shell source",
+        "Auth service (T18 output)"
+      ]
     },
     {
       "id": "T20",
-      "title": "Plugin discovery layout matrix tests",
-      "status": "done",
-      "dependsOn": [
-        "T19"
-      ],
-      "notes": "Added Discover_Loads_Mixed_Layout_Canonical_And_FlatOnly test covering criterion 3 (mixed layout). HelloPlugin+QueryBuilder staged canonical, TableEntityBrowser+ODataPostBuilder staged flat (auto-migrated by MigrateLegacyFlatBundledPluginsToCanonicalLayout). All 4 load; no duplicate-skip log emitted. All 175 tests pass.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release",
-      "priority": "high",
+      "title": "Implement per-tenant authority validation against token tid claim",
+      "status": "todo",
+      "validation": "dotnet test --filter TenantValidation",
       "tier": "medium",
       "acceptance": [
-        "Tests assert canonical subfolder discovery",
-        "Tests assert legacy flat DLL fallback discovery",
-        "Tests assert mixed layout behavior",
-        "Tests assert duplicate plugin handling with deterministic winner and clear diagnostics",
-        "New tests fail on pre-fix behavior and pass after implementation"
-      ],
-      "constraints": [
-        "Test only discovery behavior, not unrelated plugin runtime features",
-        "Use deterministic fixture directories"
+        "Auth service compares authority hostname derived from acquired token's tid claim against configured TenantId",
+        "Mismatch produces a named error type (not a generic exception)",
+        "Mismatch is caught before any API call is dispatched",
+        "User-readable error message is surfaced for mismatched tenant",
+        "Unit test covers: matching tenant passes, mismatched tenant produces named error before API call"
       ],
       "context": [
-        "plugin loader",
-        "discovery tests",
-        "fixture plugin layouts"
-      ],
-      "lastVerifierResult": "passed"
+        "Auth service source",
+        "Environment profile model (TenantId field)"
+      ]
     },
     {
       "id": "T21",
-      "title": "Dogfood evidence pack for install reliability",
-      "status": "in_progress",
+      "title": "Write unit tests for auth service fallback paths and tenant validation failure modes",
+      "status": "todo",
       "dependsOn": [
-        "T16",
         "T18",
-        "T19",
-        "T20",
-        "T21.1",
-        "T21.3",
-        "T21.4",
-        "T21.5"
+        "T20"
       ],
-      "notes": "Release readiness needs explicit operator evidence from executed install scenarios plus passing repo validation.",
-      "validation": "npm run validate",
-      "mode": "documentation",
-      "acceptance": [
-        "Notes include install path, plugin path, expected plugin count, and observed plugin count for each scenario",
-        "Notes include failure evidence for any failed scenario",
-        "Evidence covers per-user, upgrade, and reinstall runs",
-        "Evidence references the exact artifact paths for logs and command output used to support conclusions"
-      ],
-      "constraints": [
-        "Record facts only from executed runs",
-        "Do not mark pass without path and count evidence"
-      ],
-      "context": [
-        "dogfood notes file",
-        "validation artifacts"
-      ]
-    },
-    {
-      "id": "T18.1",
-      "title": "Create legacy flat-layout upgrade fixture",
-      "status": "done",
-      "parentId": "T18",
-      "notes": "Added a deterministic legacy flat-layout fixture helper with explicit expected bundled plugin identities and expected count, and wired PluginManager tests to use it for reproducible old-layout staging.",
-      "validation": "dotnet build .\\FoToolbox.sln -c Release",
-      "tier": "simple",
-      "acceptance": [
-        "A reproducible fixture exists that represents a known older flat bundled-plugin layout.",
-        "Fixture includes explicit expected bundled plugin identities and expected count used by later assertions."
-      ],
-      "constraints": [
-        "Keep fixture deterministic and repo-local.",
-        "Do not alter production plugin discovery contract while adding fixture support."
-      ],
-      "context": [
-        "Task T18 acceptance criteria",
-        "Bundled plugin migration and discovery path in FoToolbox",
-        ".ralph/artifacts/plans/T18/plan.md#task-1"
-      ],
-      "lastVerifierResult": "passed"
-    },
-    {
-      "id": "T18.2",
-      "title": "Verify upgrade preserves bundled plugin discovery count",
-      "status": "done",
-      "parentId": "T18",
-      "dependsOn": [
-        "T18.1"
-      ],
-      "notes": "Core regression risk is silent plugin loss after upgrade/restart despite partial loading.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:'XPlat Code Coverage'",
+      "validation": "dotnet test --filter AuthService",
       "tier": "medium",
       "acceptance": [
-        "After upgrade and restart from fixture, discovered plugin count equals expected bundled count exactly.",
-        "Loaded plugin identities match expected bundled set."
-      ],
-      "constraints": [
-        "Count assertion must not pass on non-zero partial discovery.",
-        "Test should be resilient to plugin enumeration order."
-      ],
-      "context": [
-        "Task T18 acceptance criteria",
-        "Existing plugin discovery tests and startup flow",
-        ".ralph/artifacts/plans/T18/plan.md#task-2"
-      ]
-    },
-    {
-      "id": "T18.3",
-      "title": "Verify canonical layout migration diagnostics",
-      "status": "done",
-      "parentId": "T18",
-      "dependsOn": [
-        "T18.2"
-      ],
-      "notes": "Operator trust requires observable detail when migration skips or failures occur.",
-      "validation": "dotnet test .\\FoToolbox.sln -c Release --no-build --collect:'XPlat Code Coverage'",
-      "tier": "medium",
-      "acceptance": [
-        "Canonical subfolder layout exists after upgrade for bundled plugins.",
-        "Legacy flat duplicates do not suppress plugin loading.",
-        "Any skipped or failed migration is surfaced with specific plugin and path details in logs or UI output."
-      ],
-      "constraints": [
-        "Do not hide migration exceptions behind generic error text.",
-        "Preserve backward compatibility fallback behavior where required."
+        "Test: MsalUiRequiredException triggers device code fallback when no interactive session",
+        "Test: invalid_grant error code triggers interactive fallback",
+        "Test: fallback strategy selection matches environment profile configuration",
+        "Test: tenant mismatch produces named error before any API call is made",
+        "Test: successful re-auth after fallback allows operation to proceed",
+        "All tests pass deterministically"
       ],
       "context": [
-        "Task T18 acceptance criteria",
-        "Migration logging/status surface in FoToolbox",
-        ".ralph/artifacts/plans/T18/plan.md#task-3"
+        "Auth service source",
+        "T18 and T20 outputs"
       ]
     }
   ],
-  "mutationCount": 35
+  "mutationCount": 39
 }
