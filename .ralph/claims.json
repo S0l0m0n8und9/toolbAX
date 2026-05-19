@@ -863,6 +863,76 @@
       "claimedAt": "2026-05-18T21:50:09.535Z",
       "provenanceId": "run-i123-cli-20260518T215009Z",
       "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T3",
+      "claimedAt": "2026-05-19T00:06:51.313Z",
+      "provenanceId": "run-i124-cli-20260519T000650Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T3",
+      "claimedAt": "2026-05-19T07:53:34.231Z",
+      "provenanceId": "run-i125-cli-20260519T075334Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T3",
+      "claimedAt": "2026-05-19T07:55:19.996Z",
+      "provenanceId": "run-i126-cli-20260519T075519Z",
+      "status": "released"
+    },
+    {
+      "agentId": "watchdog",
+      "taskId": "T3",
+      "claimedAt": "2026-05-19T07:56:28.980Z",
+      "provenanceId": "run-i127-cli-20260519T075628Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T3",
+      "claimedAt": "2026-05-19T20:08:05.391Z",
+      "provenanceId": "run-i128-cli-20260519T200805Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T3",
+      "claimedAt": "2026-05-19T20:14:17.180Z",
+      "provenanceId": "run-i129-cli-20260519T201417Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T3",
+      "claimedAt": "2026-05-19T20:27:09.190Z",
+      "provenanceId": "run-i130-cli-20260519T202709Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T3",
+      "claimedAt": "2026-05-19T20:31:07.621Z",
+      "provenanceId": "run-i131-cli-20260519T203107Z",
+      "status": "released"
+    },
+    {
+      "agentId": "default",
+      "taskId": "T3",
+      "claimedAt": "2026-05-19T20:44:05.485Z",
+      "provenanceId": "run-i132-cli-20260519T204405Z",
+      "status": "released"
+    },
+    {
+      "taskId": "T3",
+      "agentId": "default",
+      "provenanceId": "run-i133-cli-20260519T205156Z",
+      "claimedAt": "2026-05-19T20:51:56.903Z",
+      "status": "active"
     }
   ]
 }

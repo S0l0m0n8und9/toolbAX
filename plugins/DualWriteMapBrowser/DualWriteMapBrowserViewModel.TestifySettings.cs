@@ -16,9 +16,25 @@ public sealed partial class DualWriteMapBrowserViewModel
     private string _testifyPreferredCreateValuesText = string.Empty;
     private string _testifyCePollTimeoutMinutesText = "5";
     private bool _testifyAllowPartialEnumCoverage;
+    private TestifyConfigurationViewModel? _testifySettingsViewModel;
 
     public RelayCommand OpenTestifySettingsCommand { get; private set; } = null!;
     public AsyncRelayCommand SaveTestifySettingsCommand { get; private set; } = null!;
+
+    internal TestifyConfigurationViewModel? TestifySettingsViewModel
+    {
+        get => _testifySettingsViewModel;
+        private set
+        {
+            if (ReferenceEquals(_testifySettingsViewModel, value))
+            {
+                return;
+            }
+
+            _testifySettingsViewModel = value;
+            OnPropertyChanged();
+        }
+    }
 
     public bool IsTestifySettingsVisible
     {
@@ -148,8 +164,21 @@ public sealed partial class DualWriteMapBrowserViewModel
             return;
         }
 
+        var record = SelectedRecord;
+        TestifySettingsViewModel = new TestifyConfigurationViewModel(
+            _testifyConfigStore,
+            _ctx.CurrentEnv.Id,
+            record.Id,
+            ex => StatusMessage = $"Testify settings error: {ex.Message}",
+            onClose: CloseTestifySettings);
+
         IsTestifySettingsVisible = true;
-        _ = LoadSelectedTestifyConfigurationAsync(CancellationToken.None);
+    }
+
+    private void CloseTestifySettings()
+    {
+        IsTestifySettingsVisible = false;
+        TestifySettingsViewModel = null;
     }
 
     private async Task LoadSelectedTestifyConfigurationAsync(CancellationToken cancellationToken)

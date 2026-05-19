@@ -20,7 +20,8 @@
     "T18.1",
     "T19",
     "T20",
-    "T5"
+    "T5",
+    "T3"
   ],
   "touchedFiles": [
     ".ralph/.gitignore",
@@ -54,6 +55,8 @@
     "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.cs",
     "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.Testify.cs",
     "plugins/DualWriteMapBrowser/DualWriteMapBrowserViewModel.TestifySettings.cs",
+    "plugins/DualWriteMapBrowser/TestifyConfigurationPanel.xaml",
+    "plugins/DualWriteMapBrowser/TestifyConfigurationPanel.xaml.cs",
     "plugins/DualWriteMapBrowser/TestifyConfigurationViewModel.cs",
     "plugins/DualWriteMapBrowser/TestifyModels.cs",
     "plugins/DualWriteMapBrowser/TestifyRunner.cs",

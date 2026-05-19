@@ -29,6 +29,18 @@ dotnet test .\FoToolbox.sln -c Release
 
 Run the host from `src/FoToolbox.Host`.
 
+## Ralph Task Validation Commands
+
+When writing `.ralph/tasks.json` entries, keep `validation` commands in a verifier-safe format:
+
+- Use repo-local validator wrappers as a single command token (for example, `.ralph\validate-build.cmd`).
+- Put real build/test arguments inside the wrapper script, not in the task `validation` value.
+- Do not use shell-chained commands such as `cd ... && dotnet build`.
+- Do not use environment-variable paths such as `%USERPROFILE%\...` in `validation`.
+- Do not use literal drive-letter paths such as `C:\...` in `validation`.
+
+Why: the Ralph validation runner can treat the full validation string as a path-like command token. Wrapper scripts avoid argument parsing, drive-letter colons, shell chaining, and environment-variable expansion issues.
+
 ## Repository Layout
 
 - `src/` - host, core libraries, SDK, updater

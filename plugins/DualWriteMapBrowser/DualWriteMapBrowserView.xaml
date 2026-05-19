@@ -3,6 +3,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:local="clr-namespace:DualWriteMapBrowserPlugin"
              mc:Ignorable="d"
              d:DesignHeight="700"
              d:DesignWidth="1100">
@@ -634,5 +635,17 @@
                 Background="{DynamicResource Fo.SurfaceAltBrush}">
             <TextBlock Text="{Binding StatusMessage}" TextWrapping="Wrap" />
         </Border>
+
+        <Grid Grid.Row="0"
+              Grid.RowSpan="2"
+              Visibility="{Binding IsTestifySettingsVisible, Converter={StaticResource BoolToVisibility}}"
+              Background="#88000000">
+            <local:TestifyConfigurationPanel DataContext="{Binding TestifySettingsViewModel}"
+                                             HorizontalAlignment="Center"
+                                             VerticalAlignment="Center"
+                                             MinWidth="480"
+                                             MaxWidth="560"
+                                             Margin="24" />
+        </Grid>
     </Grid>
 </UserControl>
