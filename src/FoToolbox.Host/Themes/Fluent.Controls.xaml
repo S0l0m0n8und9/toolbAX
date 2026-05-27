@@ -810,4 +810,52 @@
             </Setter.Value>
         </Setter>
     </Style>
+
+    <Style TargetType="{x:Type c:StatusPip}">
+        <Setter Property="VerticalAlignment" Value="Center" />
+        <Setter Property="Foreground" Value="{DynamicResource Fo.SubtleTextBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="{x:Type c:StatusPip}">
+                    <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+                        <Ellipse x:Name="Dot" Width="6" Height="6"
+                                 Fill="{DynamicResource Fo.SubtleTextBrush}"
+                                 VerticalAlignment="Center" />
+                        <TextBlock x:Name="Lbl"
+                                   Margin="6,0,0,0"
+                                   VerticalAlignment="Center"
+                                   FontSize="{DynamicResource Fo.FontSize.Caption}"
+                                   Foreground="{TemplateBinding Foreground}"
+                                   Text="{TemplateBinding Label}" />
+                    </StackPanel>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="State" Value="Busy">
+                            <Setter TargetName="Dot" Property="Fill" Value="{DynamicResource Fo.AccentBrush}" />
+                            <Trigger.EnterActions>
+                                <BeginStoryboard x:Name="PulseStoryboard">
+                                    <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                        <DoubleAnimation Storyboard.TargetName="Dot"
+                                                         Storyboard.TargetProperty="Opacity"
+                                                         From="0.4" To="1.0" Duration="0:0:1" />
+                                    </Storyboard>
+                                </BeginStoryboard>
+                            </Trigger.EnterActions>
+                            <Trigger.ExitActions>
+                                <StopStoryboard BeginStoryboardName="PulseStoryboard" />
+                            </Trigger.ExitActions>
+                        </Trigger>
+                        <Trigger Property="State" Value="Ok">
+                            <Setter TargetName="Dot" Property="Fill" Value="{DynamicResource Fo.SuccessBrush}" />
+                        </Trigger>
+                        <Trigger Property="State" Value="Warning">
+                            <Setter TargetName="Dot" Property="Fill" Value="{DynamicResource Fo.WarningBrush}" />
+                        </Trigger>
+                        <Trigger Property="State" Value="Error">
+                            <Setter TargetName="Dot" Property="Fill" Value="{DynamicResource Fo.ErrorBrush}" />
+                        </Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 </ResourceDictionary>
