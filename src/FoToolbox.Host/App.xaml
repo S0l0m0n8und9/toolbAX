@@ -6,8 +6,8 @@
     <Application.Resources>
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
-                <!-- Fluent-inspired baseline theme (dark). -->
-                <ResourceDictionary Source="Themes/Fluent.Light.xaml" />
+                <!-- Warm-dark terminal theme. -->
+                <ResourceDictionary Source="Themes/Fluent.Theme.xaml" />
                 <ResourceDictionary Source="Themes/Fluent.Controls.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
