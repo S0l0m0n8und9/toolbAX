@@ -61,7 +61,8 @@
                                Profiles="{Binding ProfilesViewModelHost.Profiles}"
                                ActiveProfileName="{Binding Shell.ActiveProfileName, TargetNullValue='No profile'}"
                                ConnectionStatus="{Binding Shell.ConnectionStatus}"
-                               SetActiveProfileCommand="{Binding ProfilesViewModelHost.SetActiveProfileByItemCommand}" />
+                               SetActiveProfileCommand="{Binding ProfilesViewModelHost.SetActiveProfileByItemCommand}"
+                               OpenProfilesCommand="{Binding NavigateToProfilesCommand}" />
 
                 <!-- Plugin count (right) -->
                 <TextBlock DockPanel.Dock="Right"

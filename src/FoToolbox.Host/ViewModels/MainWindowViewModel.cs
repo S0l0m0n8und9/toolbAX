@@ -67,6 +67,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     public ICommand CheckUpdatesCommand { get; }
     public ICommand ApplyUpdateCommand { get; }
     public ICommand RollbackUpdateCommand { get; }
+    public ICommand NavigateToProfilesCommand { get; }
 
     private PluginEntry? _selected;
     private string _updateStatus = "Updates not checked.";
@@ -121,6 +122,11 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         CheckUpdatesCommand = new AsyncCommand(CheckUpdatesAsync);
         ApplyUpdateCommand = new AsyncCommand(ApplyUpdateAsync);
         RollbackUpdateCommand = new AsyncCommand(RollbackUpdateAsync);
+        NavigateToProfilesCommand = new AsyncCommand(() =>
+        {
+            Shell.RaiseNavigateToProfiles();
+            return Task.CompletedTask;
+        });
     }
 
     public void LoadPlugins(IEnumerable<LoadedPlugin> plugins, UserControl? profilesControl = null)
