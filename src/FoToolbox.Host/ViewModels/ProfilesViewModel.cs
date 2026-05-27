@@ -37,6 +37,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     private string? _pendingCeClientSecret;
     private string? _pendingCeBearerToken;
     private string? _activeEnvId;
+    private ProfilesTab _selectedTab = ProfilesTab.FoEnvironment;
 
     public ObservableCollection<ProfileItem> Profiles { get; } = new();
     public Array AuthModeValues { get; } = Enum.GetValues(typeof(AuthMode));
@@ -91,6 +92,19 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             }
         }
     }
+
+    public ProfilesTab SelectedTab
+    {
+        get => _selectedTab;
+        set
+        {
+            if (_selectedTab == value) return;
+            _selectedTab = value;
+            OnPropertyChanged();
+        }
+    }
+
+    public string? ActiveEnvironmentId => _activeEnvId;
 
     public string? PendingFoClientSecret
     {
@@ -199,6 +213,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             Profiles.Clear();
             var envs = await _profiles.GetEnvironmentsAsync();
             _activeEnvId = await _profiles.GetDefaultEnvironmentIdAsync();
+            OnPropertyChanged(nameof(ActiveEnvironmentId));
 
             foreach (var env in envs)
             {
@@ -265,10 +280,12 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
                 {
                     await _profiles.SetDefaultEnvironmentAsync(next.Environment.Id);
                     _activeEnvId = next.Environment.Id;
+                    OnPropertyChanged(nameof(ActiveEnvironmentId));
                 }
                 else
                 {
                     _activeEnvId = null;
+                    OnPropertyChanged(nameof(ActiveEnvironmentId));
                 }
             }
 
@@ -347,6 +364,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             {
                 await _profiles.SetDefaultEnvironmentAsync(env.Id);
                 _activeEnvId = env.Id;
+                OnPropertyChanged(nameof(ActiveEnvironmentId));
             }
 
             if (promptForPluginRefresh && IsSelectedProfileActive(env.Id))
@@ -395,6 +413,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         {
             await _profiles.SetDefaultEnvironmentAsync(env.Id);
             _activeEnvId = env.Id;
+            OnPropertyChanged(nameof(ActiveEnvironmentId));
 
             if (ConfirmRefreshOtherPlugins())
             {
@@ -986,6 +1005,11 @@ try {{
         else if (pad != 0) return Array.Empty<byte>();
         return Convert.FromBase64String(s);
     }
+
+    public bool IsActive(ProfileItem? item) =>
+        item is not null &&
+        !string.IsNullOrWhiteSpace(_activeEnvId) &&
+        string.Equals(_activeEnvId, item.Environment.Id, StringComparison.OrdinalIgnoreCase);
 
     private bool IsSelectedProfileActive(string envId)
     {
