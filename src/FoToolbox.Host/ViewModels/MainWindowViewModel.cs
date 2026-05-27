@@ -69,6 +69,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     public ICommand ApplyUpdateCommand { get; }
     public ICommand RollbackUpdateCommand { get; }
     public ICommand NavigateToProfilesCommand { get; }
+    public ICommand ShowAboutCommand { get; }
 
     private PluginEntry? _selected;
     private string _updateStatus = "Updates not checked.";
@@ -134,6 +135,16 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         NavigateToProfilesCommand = new AsyncCommand(() =>
         {
             Shell.RaiseNavigateToProfiles();
+            return Task.CompletedTask;
+        });
+        ShowAboutCommand = new AsyncCommand(() =>
+        {
+            var version = typeof(MainWindowViewModel).Assembly.GetName().Version?.ToString() ?? "(unknown)";
+            System.Windows.MessageBox.Show(
+                $"toolBax\nversion {version}\nchannel {UpdateChannel}",
+                "About toolBax",
+                System.Windows.MessageBoxButton.OK,
+                System.Windows.MessageBoxImage.Information);
             return Task.CompletedTask;
         });
 

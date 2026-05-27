@@ -161,6 +161,16 @@ public partial class MainWindow : Window
         }
     }
 
+    private void OnOverflowButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement fe && fe.ContextMenu is not null)
+        {
+            fe.ContextMenu.PlacementTarget = fe;
+            fe.ContextMenu.Placement = System.Windows.Controls.Primitives.PlacementMode.Bottom;
+            fe.ContextMenu.IsOpen = true;
+        }
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         _bootstrapper.ReauthCoordinator.ReauthRequired -= OnReauthRequired;
