@@ -236,7 +236,8 @@
                 BorderBrush="{DynamicResource Fo.HairBrush}"
                 BorderThickness="0,1,0,0">
             <DockPanel>
-                <!-- Active plugin (left) -->
+
+                <!-- Active plugin -->
                 <Border DockPanel.Dock="Left"
                         BorderBrush="{DynamicResource Fo.HairBrush}"
                         BorderThickness="0,0,1,0"
@@ -248,7 +249,38 @@
                                Foreground="{DynamicResource Fo.SubtleTextBrush}" />
                 </Border>
 
-                <!-- Update available (right, only shown when updater is configured) -->
+                <!-- Active profile echo with status pip -->
+                <Border DockPanel.Dock="Left"
+                        BorderBrush="{DynamicResource Fo.HairBrush}"
+                        BorderThickness="0,0,1,0"
+                        Padding="10,0">
+                    <c:StatusPip State="{Binding ShellPipState}"
+                                 Label="{Binding Shell.ActiveProfileName, TargetNullValue='No profile'}" />
+                </Border>
+
+                <!-- Busy indicator (only when busy) -->
+                <Border DockPanel.Dock="Left"
+                        BorderBrush="{DynamicResource Fo.HairBrush}"
+                        BorderThickness="0,0,1,0"
+                        Padding="10,0"
+                        Visibility="{Binding Shell.IsBusy, Converter={StaticResource BoolToVis}}">
+                    <c:StatusPip State="Busy" Label="working..." />
+                </Border>
+
+                <!-- Update channel (right, only when updater configured) -->
+                <Border DockPanel.Dock="Right"
+                        BorderBrush="{DynamicResource Fo.HairBrush}"
+                        BorderThickness="1,0,0,0"
+                        Padding="10,0"
+                        Visibility="{Binding ShowUpdaterUi, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="{Binding UpdateChannel}"
+                               VerticalAlignment="Center"
+                               FontFamily="{DynamicResource Fo.FontFamily.Mono}"
+                               FontSize="10.5"
+                               Foreground="{DynamicResource Fo.DimTextBrush}" />
+                </Border>
+
+                <!-- Update staged star -->
                 <Border DockPanel.Dock="Right"
                         BorderBrush="{DynamicResource Fo.HairBrush}"
                         BorderThickness="1,0,0,0"
@@ -258,21 +290,21 @@
                                FontFamily="{DynamicResource Fo.FontFamily.Mono}"
                                FontSize="10.5"
                                Foreground="{DynamicResource Fo.AccentBrush}">
-                        <Run Text="&#x2605;" /><Run Text=" update staged" />
+                        <Run Text="&#x2605; update ready" />
                     </TextBlock>
                 </Border>
 
-                <!-- Update channel (right) -->
+                <!-- Last connection ping -->
                 <Border DockPanel.Dock="Right"
                         BorderBrush="{DynamicResource Fo.HairBrush}"
                         BorderThickness="1,0,0,0"
                         Padding="10,0"
-                        Visibility="{Binding ShowUpdaterUi, Converter={StaticResource BoolToVis}}">
-                    <TextBlock Text="{Binding UpdateChannel, StringFormat='{}{0}'}"
+                        Visibility="{Binding Shell.HasLastPing, Converter={StaticResource BoolToVis}}">
+                    <TextBlock Text="{Binding Shell.LastPingDisplay}"
                                VerticalAlignment="Center"
                                FontFamily="{DynamicResource Fo.FontFamily.Mono}"
                                FontSize="10.5"
-                               Foreground="{DynamicResource Fo.DimTextBrush}" />
+                               Foreground="{DynamicResource Fo.SubtleTextBrush}" />
                 </Border>
 
                 <Grid />

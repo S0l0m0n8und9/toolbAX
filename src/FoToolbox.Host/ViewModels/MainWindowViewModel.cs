@@ -1,3 +1,4 @@
+using FoToolbox.Host.Controls;
 using FoToolbox.Host.Plugins;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
@@ -89,6 +90,14 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     }
 
     public UserControl? ActiveControl => Selected?.Control;
+
+    public PipState ShellPipState => Shell.ConnectionStatus switch
+    {
+        ConnectionStatus.Ok => PipState.Ok,
+        ConnectionStatus.Warning => PipState.Warning,
+        ConnectionStatus.Error => PipState.Error,
+        _ => PipState.Idle,
+    };
     public string? StagedUpdatePath
     {
         get => _stagedUpdatePath;
@@ -127,6 +136,14 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
             Shell.RaiseNavigateToProfiles();
             return Task.CompletedTask;
         });
+
+        Shell.PropertyChanged += (_, e) =>
+        {
+            if (e.PropertyName == nameof(AppShellViewModel.ConnectionStatus))
+            {
+                OnPropertyChanged(nameof(ShellPipState));
+            }
+        };
     }
 
     public void LoadPlugins(IEnumerable<LoadedPlugin> plugins, UserControl? profilesControl = null)

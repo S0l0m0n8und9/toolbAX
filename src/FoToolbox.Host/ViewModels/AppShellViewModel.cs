@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Windows.Threading;
 using FoToolbox.SDK.Plugins;
 
 namespace FoToolbox.Host.ViewModels;
@@ -19,6 +20,14 @@ internal sealed class AppShellViewModel : INotifyPropertyChanged
     private string? _activeProfileName;
     private ConnectionStatus _connectionStatus = ConnectionStatus.Unknown;
     private DateTimeOffset? _lastPingAt;
+    private readonly DispatcherTimer _pingTimer;
+
+    public AppShellViewModel()
+    {
+        _pingTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(30) };
+        _pingTimer.Tick += (_, __) => OnPropertyChanged(nameof(LastPingDisplay));
+        _pingTimer.Start();
+    }
 
     public bool IsBusy
     {
@@ -72,6 +81,24 @@ internal sealed class AppShellViewModel : INotifyPropertyChanged
             if (_lastPingAt == value) return;
             _lastPingAt = value;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(HasLastPing));
+            OnPropertyChanged(nameof(LastPingDisplay));
+        }
+    }
+
+    public bool HasLastPing => _lastPingAt.HasValue;
+
+    public string LastPingDisplay
+    {
+        get
+        {
+            if (!_lastPingAt.HasValue) return string.Empty;
+            var delta = DateTimeOffset.UtcNow - _lastPingAt.Value;
+            if (delta < TimeSpan.FromSeconds(45)) return "conn just now";
+            if (delta < TimeSpan.FromMinutes(1)) return "conn 1m ago";
+            if (delta < TimeSpan.FromHours(1)) return $"conn {(int)delta.TotalMinutes}m ago";
+            if (delta < TimeSpan.FromDays(1)) return $"conn {(int)delta.TotalHours}h ago";
+            return $"conn {(int)delta.TotalDays}d ago";
         }
     }
 
