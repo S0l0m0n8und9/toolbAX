@@ -83,7 +83,7 @@
                             <Viewbox Width="16" Height="16" Stretch="Uniform"
                                      ToolTip="{Binding Name}">
                                 <Canvas Width="24" Height="24">
-                                    <Path Data="{Binding IconPath}"
+                                    <Path Data="{Binding IconGeometry}"
                                           Fill="Transparent"
                                           StrokeThickness="1.5"
                                           StrokeLineJoin="Round"
@@ -133,7 +133,7 @@
                                     <Viewbox Width="12" Height="12" Stretch="Uniform"
                                              Margin="0,0,6,0">
                                         <Canvas Width="24" Height="24">
-                                            <Path Data="{Binding IconPath}"
+                                            <Path Data="{Binding IconGeometry}"
                                                   Fill="Transparent"
                                                   StrokeThickness="1.5"
                                                   StrokeLineJoin="Round"
