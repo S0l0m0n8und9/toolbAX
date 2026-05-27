@@ -33,4 +33,12 @@ public sealed class FoPluginManifest
     /// </summary>
     [JsonPropertyName("capabilities")]
     public IReadOnlyCollection<string> Capabilities { get; init; } = Array.Empty<string>();
+
+    /// <summary>
+    /// Optional icon resource key. Resolved via the host's Icons.xaml resource dictionary
+    /// (key format: "Icon.{value}"). When absent, the host falls back to a name-based
+    /// heuristic. Existing plugins do not need to set this field.
+    /// </summary>
+    [JsonPropertyName("icon")]
+    public string? Icon { get; init; }
 }
