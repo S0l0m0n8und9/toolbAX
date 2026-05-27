@@ -13,6 +13,7 @@ using System.Windows.Media;
 using FoToolbox.Updater;
 using System.Diagnostics;
 using System.Security.Cryptography.X509Certificates;
+using FoToolbox.SDK.Plugins;
 
 namespace FoToolbox.Host.ViewModels;
 
@@ -29,6 +30,7 @@ internal sealed class PluginEntry
 internal sealed class MainWindowViewModel : INotifyPropertyChanged
 {
     public ObservableCollection<PluginEntry> Plugins { get; } = new();
+    public AppShellViewModel Shell { get; } = new();
 
     public string PluginCountDisplay => $"{Plugins.Count} plugins installed";
 
@@ -140,6 +142,14 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         }
 
         Selected = Plugins.FirstOrDefault(p => p.Loaded is not null) ?? Plugins.FirstOrDefault();
+
+        foreach (var entry in Plugins)
+        {
+            if (entry.Loaded?.Instance is IPluginBusyState busy)
+            {
+                Shell.RegisterPluginBusy(busy);
+            }
+        }
     }
 
     private static bool IsHiddenPlugin(LoadedPlugin plugin)
