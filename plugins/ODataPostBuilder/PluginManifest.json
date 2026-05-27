@@ -3,5 +3,6 @@
   "name": "OData API Builder",
   "version": "0.1.0",
   "minSdk": "0.3.0",
+  "icon": "ODataPost",
   "capabilities": [ "OData.Read", "OData.Write" ]
 }
