@@ -70,7 +70,7 @@
                         Height="22"
                         Margin="6,0,0,0"
                         VerticalAlignment="Center"
-                        Style="{StaticResource Fo.Toolbar.Button}"
+                        Style="{DynamicResource Fo.Toolbar.Button}"
                         Click="OnOverflowButtonClick">
                     <Button.ContextMenu>
                         <ContextMenu>
