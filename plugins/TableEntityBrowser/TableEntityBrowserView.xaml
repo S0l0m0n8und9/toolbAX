@@ -67,7 +67,7 @@
                     Background="{DynamicResource Fo.SurfaceAltBrush}"
                     BorderBrush="{DynamicResource Fo.BorderBrush}"
                     BorderThickness="1"
-                    CornerRadius="6"
+                    CornerRadius="{DynamicResource Fo.CornerRadius.Card}"
                     Padding="10">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top">
@@ -141,7 +141,7 @@
                     Background="{DynamicResource Fo.SurfaceBrush}"
                     BorderBrush="{DynamicResource Fo.BorderBrush}"
                     BorderThickness="1"
-                    CornerRadius="6"
+                    CornerRadius="{DynamicResource Fo.CornerRadius.Card}"
                     Padding="10">
                 <Grid>
                     <Grid.RowDefinitions>
