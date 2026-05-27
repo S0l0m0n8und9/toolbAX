@@ -60,7 +60,7 @@ src/FoToolbox.Host/
                                  connection status, navigation requests)
     MainWindowViewModel.cs     (refactored — thinner; composes AppShellVM and
                                  plugin list; no more IconPathFor)
-    ProfilesViewModel.cs       (NEW — extracted from ProfilesView code-behind)
+    ProfilesViewModel.cs       (EXISTS — extended with TabSelection + active-marker)
     IconResourceResolver.cs    (NEW — static helper: manifest key → Geometry)
   Views/
     ProfilesView.xaml          (rewritten — list + tabbed detail + sticky toolbar)
@@ -83,7 +83,7 @@ Today `MainWindowViewModel` carries three responsibilities: plugin discovery + s
 
 - **`AppShellViewModel`** — cross-cutting shell state. Single source of truth for: `ActiveProfile`, `Profiles` (read-only projection), `IsBusy` (aggregate), `ConnectionStatus` (`Unknown`/`Ok`/`Warning`/`Error`), `LastPingAt` (nullable timestamp). Raises `NavigateToProfilesRequested` event for the title-bar chip to drive plugin switching without coupling to the plugin collection.
 - **`MainWindowViewModel`** — composition. Holds the plugin collection, the active control, the updater pieces, and exposes `Shell` (the `AppShellViewModel` instance) for view binding.
-- **`ProfilesViewModel`** — the existing Profiles concerns lifted out of code-behind into a proper VM so the rewritten `ProfilesView.xaml` can data-bind cleanly.
+- **`ProfilesViewModel`** — already exists; we extend it with a `TabSelection` enum property and an `IsActive(profile)` helper for the active-profile marker in the list. No structural lift required.
 
 ### 4.3 Icon system
 
