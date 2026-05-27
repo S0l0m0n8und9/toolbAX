@@ -73,6 +73,11 @@ public partial class MainWindow : Window
             ProfilePaths.ResolveProfileDbPath(), _logger, ApplyProfile));
         _vm.ProfilesViewModelHost = (ProfilesViewModel)_profilesView.DataContext;
 
+        if (_profilesView.DataContext is ProfilesViewModel profilesVm)
+        {
+            profilesVm.ConnectionTested += (_, args) => Dispatcher.Invoke(() => _vm.Shell.OnConnectionTested(args));
+        }
+
         if (bundle is null)
         {
             // No profile yet - show the Profiles tab so the user can configure an environment.
