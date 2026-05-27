@@ -42,6 +42,7 @@ public partial class MainWindow : Window
 
         _vm = new MainWindowViewModel();
         DataContext = _vm;
+        _vm.Shell.NavigateToProfilesRequested += (_, __) => Dispatcher.Invoke(EnsureProfilesTabVisible);
 
         Loaded += MainWindow_Loaded;
     }
