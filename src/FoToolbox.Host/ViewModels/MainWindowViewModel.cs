@@ -32,6 +32,18 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
     public ObservableCollection<PluginEntry> Plugins { get; } = new();
     public AppShellViewModel Shell { get; } = new();
 
+    private ProfilesViewModel? _profilesViewModelHost;
+    public ProfilesViewModel? ProfilesViewModelHost
+    {
+        get => _profilesViewModelHost;
+        set
+        {
+            if (_profilesViewModelHost == value) return;
+            _profilesViewModelHost = value;
+            OnPropertyChanged();
+        }
+    }
+
     public string PluginCountDisplay => $"{Plugins.Count} plugins installed";
 
     // Updater UI should not be shown unless updates are explicitly configured.

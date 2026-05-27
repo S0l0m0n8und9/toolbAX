@@ -70,6 +70,7 @@ public partial class MainWindow : Window
 
         _profilesView ??= new ProfilesView(new ProfilesViewModel(
             ProfilePaths.ResolveProfileDbPath(), _logger, ApplyProfile));
+        _vm.ProfilesViewModelHost = (ProfilesViewModel)_profilesView.DataContext;
 
         if (bundle is null)
         {
@@ -94,6 +95,9 @@ public partial class MainWindow : Window
         try
         {
             var result = await _bootstrapper.ApplyProfileAsync(bundle, _cts.Token);
+            _vm.Shell.SetActiveProfile(
+                bundle.FoEnvironment.Id,
+                bundle.FoEnvironment.Name);
             _vm.LoadPlugins(result.Plugins, _profilesView);
 
             result.NavigationBus.PluginActivationRequested += loaded =>

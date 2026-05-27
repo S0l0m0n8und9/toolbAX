@@ -156,6 +156,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     public ICommand DeleteProfileCommand { get; }
     public ICommand SaveCommand { get; }
     public ICommand SetActiveCommand { get; }
+    public ICommand SetActiveProfileByItemCommand { get; }
     public ICommand TestFoConnectionCommand { get; }
     public ICommand TestCeConnectionCommand { get; }
     public ICommand AcquireFoBearerTokenCommand { get; }
@@ -176,6 +177,12 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         DeleteProfileCommand = new AsyncCommand(DeleteAsync);
         SaveCommand = new AsyncCommand(async () => { await SaveAsync(promptForPluginRefresh: true); });
         SetActiveCommand = new AsyncCommand(SetActiveAsync);
+        SetActiveProfileByItemCommand = new RelayProfileCommand(async item =>
+        {
+            if (item is null) return;
+            Selected = item;
+            await SetActiveAsync();
+        });
         TestFoConnectionCommand = new AsyncCommand(TestFoConnectionAsync);
         TestCeConnectionCommand = new AsyncCommand(TestCeConnectionAsync);
         AcquireFoBearerTokenCommand = new AsyncCommand(AcquireFoBearerTokenAsync);
@@ -1185,4 +1192,13 @@ internal sealed class ServicePrincipalEditor : INotifyPropertyChanged
 
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}
+
+internal sealed class RelayProfileCommand : ICommand
+{
+    private readonly Func<ProfileItem?, Task> _execute;
+    public RelayProfileCommand(Func<ProfileItem?, Task> execute) => _execute = execute;
+    public bool CanExecute(object? parameter) => true;
+    public async void Execute(object? parameter) => await _execute(parameter as ProfileItem);
+    public event EventHandler? CanExecuteChanged { add { } remove { } }
 }
