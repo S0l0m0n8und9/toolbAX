@@ -9,6 +9,7 @@
                 <!-- Warm-dark terminal theme. -->
                 <ResourceDictionary Source="Themes/Fluent.Theme.xaml" />
                 <ResourceDictionary Source="Themes/Spacing.xaml" />
+                <ResourceDictionary Source="Themes/Icons.xaml" />
                 <ResourceDictionary Source="Themes/Fluent.Controls.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
