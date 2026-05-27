@@ -20,8 +20,7 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="32" />   <!-- 00 title bar  -->
             <RowDefinition Height="*" />    <!-- 01 content    -->
-            <RowDefinition Height="Auto" /> <!-- 02 update bar -->
-            <RowDefinition Height="22" />   <!-- 03 status bar -->
+            <RowDefinition Height="22" />   <!-- 02 status bar -->
         </Grid.RowDefinitions>
 
         <!-- ── 00 · Title bar ──────────────────────────────────────────── -->
@@ -54,7 +53,46 @@
                     </TextBlock>
                 </StackPanel>
 
-                <!-- Profile chip (right, inside plugin count) -->
+                <!-- Plugin count (far right) -->
+                <TextBlock DockPanel.Dock="Right"
+                           Text="{Binding PluginCountDisplay}"
+                           VerticalAlignment="Center"
+                           FontFamily="{DynamicResource Fo.FontFamily.Mono}"
+                           FontSize="11"
+                           Foreground="{DynamicResource Fo.DimTextBrush}" />
+
+                <!-- Overflow menu button (right, between chip and count) -->
+                <Button DockPanel.Dock="Right"
+                        Content="&#x22EF;"
+                        FontFamily="{DynamicResource Fo.FontFamily.Mono}"
+                        FontSize="14"
+                        Width="28"
+                        Height="22"
+                        Margin="6,0,0,0"
+                        VerticalAlignment="Center"
+                        Style="{StaticResource Fo.Toolbar.Button}"
+                        Click="OnOverflowButtonClick">
+                    <Button.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="Check updates"
+                                      Command="{Binding CheckUpdatesCommand}"
+                                      Visibility="{Binding ShowUpdaterUi, Converter={StaticResource BoolToVis}}"
+                                      IsEnabled="{Binding CanCheckUpdates}" />
+                            <MenuItem Header="Apply update"
+                                      Command="{Binding ApplyUpdateCommand}"
+                                      Visibility="{Binding ShowUpdaterUi, Converter={StaticResource BoolToVis}}"
+                                      IsEnabled="{Binding HasStagedUpdate}" />
+                            <MenuItem Header="Rollback to previous"
+                                      Command="{Binding RollbackUpdateCommand}"
+                                      Visibility="{Binding ShowUpdaterUi, Converter={StaticResource BoolToVis}}"
+                                      IsEnabled="{Binding HasRollbackUpdate}" />
+                            <Separator Visibility="{Binding ShowUpdaterUi, Converter={StaticResource BoolToVis}}" />
+                            <MenuItem Header="About toolBax" Command="{Binding ShowAboutCommand}" />
+                        </ContextMenu>
+                    </Button.ContextMenu>
+                </Button>
+
+                <!-- Profile chip (right, leftmost of chip/button/count trio) -->
                 <c:ProfileChip DockPanel.Dock="Right"
                                VerticalAlignment="Center"
                                Margin="0,0,12,0"
@@ -63,14 +101,6 @@
                                ConnectionStatus="{Binding Shell.ConnectionStatus}"
                                SetActiveProfileCommand="{Binding ProfilesViewModelHost.SetActiveProfileByItemCommand}"
                                OpenProfilesCommand="{Binding NavigateToProfilesCommand}" />
-
-                <!-- Plugin count (right) -->
-                <TextBlock DockPanel.Dock="Right"
-                           Text="{Binding PluginCountDisplay}"
-                           VerticalAlignment="Center"
-                           FontFamily="{DynamicResource Fo.FontFamily.Mono}"
-                           FontSize="11"
-                           Foreground="{DynamicResource Fo.DimTextBrush}" />
             </DockPanel>
         </Border>
 
@@ -200,38 +230,8 @@
             </Grid>
         </Grid>
 
-        <!-- ── 02 · Update bar (hidden unless update env-var is set) ───── -->
+        <!-- ── 02 · Status bar ─────────────────────────────────────────── -->
         <Border Grid.Row="2"
-                Background="{DynamicResource Fo.Ink2Brush}"
-                Padding="10,6"
-                BorderThickness="0,1,0,0"
-                BorderBrush="{DynamicResource Fo.HairBrush}"
-                Visibility="{Binding ShowUpdaterUi, Converter={StaticResource BoolToVis}}">
-            <DockPanel LastChildFill="True">
-                <WrapPanel DockPanel.Dock="Right" HorizontalAlignment="Right">
-                    <Button Content="Check updates"
-                            Command="{Binding CheckUpdatesCommand}"
-                            IsEnabled="{Binding CanCheckUpdates}"
-                            Margin="0,0,6,0" />
-                    <Button Content="Apply update"
-                            Command="{Binding ApplyUpdateCommand}"
-                            IsEnabled="{Binding HasStagedUpdate}"
-                            Margin="0,0,6,0" />
-                    <Button Content="Rollback"
-                            Command="{Binding RollbackUpdateCommand}"
-                            IsEnabled="{Binding HasRollbackUpdate}" />
-                </WrapPanel>
-                <TextBlock Text="{Binding UpdateStatus}"
-                           TextWrapping="Wrap"
-                           VerticalAlignment="Center"
-                           FontFamily="{DynamicResource Fo.FontFamily.Mono}"
-                           FontSize="11"
-                           Foreground="{DynamicResource Fo.SubtleTextBrush}" />
-            </DockPanel>
-        </Border>
-
-        <!-- ── 03 · Status bar ─────────────────────────────────────────── -->
-        <Border Grid.Row="3"
                 Background="{DynamicResource Fo.Ink0Brush}"
                 BorderBrush="{DynamicResource Fo.HairBrush}"
                 BorderThickness="0,1,0,0">
