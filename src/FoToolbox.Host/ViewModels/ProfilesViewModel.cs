@@ -163,6 +163,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     public ICommand AcquireCeBearerTokenCommand { get; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
+    public event EventHandler<ConnectionTestedEventArgs>? ConnectionTested;
 
     public ProfilesViewModel(string dbPath, ILogger logger, Action<ProfileBundle> applyProfile)
     {
@@ -425,6 +426,9 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             return;
         }
 
+        var envId = env.Id;
+        var success = false;
+        string? detail = null;
         try
         {
             Status = "Testing FO connection...";
@@ -439,17 +443,31 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             if (resp.IsSuccessStatusCode)
             {
                 Status = "FO connection OK.";
+                success = true;
             }
             else
             {
                 var body = await resp.Content.ReadAsStringAsync(CancellationToken.None);
-                Status = $"FO connection failed: {(int)resp.StatusCode} {resp.ReasonPhrase}\n{body}";
+                detail = $"{(int)resp.StatusCode} {resp.ReasonPhrase}";
+                Status = $"FO connection failed: {detail}\n{body}";
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "FO connection test failed for {Env}", env.Name);
+            detail = ex.Message;
             Status = $"FO connection test failed: {ex.Message}";
+        }
+        finally
+        {
+            ConnectionTested?.Invoke(this, new ConnectionTestedEventArgs
+            {
+                EnvironmentId = envId,
+                Scope = ConnectionScope.FinanceAndOperations,
+                Success = success,
+                TestedAt = DateTimeOffset.UtcNow,
+                Detail = detail,
+            });
         }
     }
 
@@ -466,6 +484,9 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             return;
         }
 
+        var envId = env.ProfileId;
+        var success = false;
+        string? detail = null;
         try
         {
             Status = "Testing CE connection...";
@@ -480,17 +501,31 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             if (resp.IsSuccessStatusCode)
             {
                 Status = "CE connection OK.";
+                success = true;
             }
             else
             {
                 var body = await resp.Content.ReadAsStringAsync(CancellationToken.None);
-                Status = $"CE connection failed: {(int)resp.StatusCode} {resp.ReasonPhrase}\n{body}";
+                detail = $"{(int)resp.StatusCode} {resp.ReasonPhrase}";
+                Status = $"CE connection failed: {detail}\n{body}";
             }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "CE connection test failed for {Env}", env.ProfileId);
+            detail = ex.Message;
             Status = $"CE connection test failed: {ex.Message}";
+        }
+        finally
+        {
+            ConnectionTested?.Invoke(this, new ConnectionTestedEventArgs
+            {
+                EnvironmentId = envId,
+                Scope = ConnectionScope.Dataverse,
+                Success = success,
+                TestedAt = DateTimeOffset.UtcNow,
+                Detail = detail,
+            });
         }
     }
 
