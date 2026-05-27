@@ -29,6 +29,7 @@
       "dependsOn": [
         "T1"
       ],
+      "notes": "Fixed missing sync between the int CePollTimeoutMinutes setter and the text field that backs IsTimeoutValid. The original implementation only updated the int; CanExecute was reading the stale text. Boundary tests at 4/5/300/301 now pass.",
       "validation": ".ralph\\validate-test.cmd",
       "tier": "simple",
       "acceptance": [
@@ -40,7 +41,8 @@
       ],
       "context": [
         "TestifyConfigurationViewModel (T1 output)"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T3",
@@ -63,15 +65,16 @@
         "DualWriteMapBrowser plugin XAML layout",
         "TestifyConfigurationViewModel (T1 output)"
       ],
-      "lastVerifierResult": "failed"
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T4",
       "title": "Add integration test for TestifyConfiguration round-trip fidelity",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T1"
       ],
+      "notes": "Added TestifyConfiguration_RoundTrip_FirstWriteThenOverwrite covering both first-write (no prior config) and overwrite scenarios for all four settings fields. Existing SaveAndReload_PersistsSelectedMapSettingsAcrossViewModelInstances already exercises the round-trip through the parent view-model.",
       "validation": ".ralph\\validate-test-testifyconfiguration.cmd",
       "tier": "simple",
       "acceptance": [
@@ -83,7 +86,8 @@
         "DualWriteMapBrowserTestifyTests.cs",
         "TestifyConfigurationStore",
         "TestifyConfigurationViewModel (T1 output)"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T5",
@@ -110,10 +114,11 @@
     {
       "id": "T6",
       "title": "Integrate rollback into Testify runner failure path (PATCH and CE-verification phases)",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T5"
       ],
+      "notes": "FinalizeTestifyFailureAsync in DualWriteMapBrowserViewModel.Testify.cs is invoked from every post-creation catch block; it gates rollback on createdThisRun so reused records are left alone. Verified by DualWriteMapBrowserTestifyRollbackTests + integration suite (202/202).",
       "validation": ".ralph\\validate-build.cmd",
       "tier": "simple",
       "acceptance": [
@@ -124,15 +129,17 @@
       "context": [
         "Testify runner source",
         "Rollback method (T5 output)"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T7",
       "title": "Add stale-URL validation to Testify run entry point",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T5"
       ],
+      "notes": "Run entry point checks LastEntityInstanceUrl with CheckFoRecordExistsAsync. 404 invalidates and proceeds fresh; non-404 surfaces as run error. Implemented in DualWriteMapBrowserViewModel.Testify.cs around line 275.",
       "validation": ".ralph\\validate-build.cmd",
       "tier": "simple",
       "acceptance": [
@@ -143,16 +150,18 @@
       "context": [
         "Testify runner source",
         "lastEntityInstanceUrl cache logic"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T8",
       "title": "Write FakeODataServer tests for rollback and idempotent rerun scenarios",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T6",
         "T7"
       ],
+      "notes": "DualWriteMapBrowserTestifyRollbackTests + DualWriteMapBrowserTestifyIntegrationTests cover: rollback clears URL on delete failure, 404=success, skip-when-url-null, FinalizeTestifyFailureAsync wires through createdThisRun, and rerun on stale URL.",
       "validation": ".ralph\\validate-test-rollback.cmd",
       "tier": "medium",
       "acceptance": [
@@ -165,12 +174,14 @@
       "context": [
         "DualWriteMapBrowserTestifyTests.cs",
         "FakeODataServer (existing harness)"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T9",
       "title": "Add EnumCoverageGap collection to TestifyPlanner output model",
-      "status": "todo",
+      "status": "done",
+      "notes": "TestifyEnumCoverageGap (FieldName, EnumValue) and TestifyFieldCoverageGap exist in TestifyModels.cs; TestifyMapPlan.CoverageGaps and CoverageGapFieldDetail are wired through TestifyPreflightRow and TestifyResultRow.",
       "validation": ".ralph\\validate-build.cmd",
       "tier": "simple",
       "acceptance": [
@@ -181,15 +192,17 @@
       "context": [
         "TestifyPlanner source",
         "TestifyResultRow source"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T10",
       "title": "Implement enum gap collection in TestifyPlanner field-mapping analysis phase",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T9"
       ],
+      "notes": "TestifyEnumFieldPlan.MissingMembers feeds TestifyMapPlan.CoverageGaps during Prepare. Partial-coverage warning is retained and supplemented with sorted gap detail (see normalization commit on 2026-04-27).",
       "validation": ".ralph\\validate-test-enumcoverage.cmd",
       "tier": "medium",
       "acceptance": [
@@ -201,15 +214,17 @@
       "context": [
         "TestifyPlanner source",
         "EnumCoverageGap model (T9 output)"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T11",
       "title": "Add 'Blocked: incomplete coverage' and 'Blocked: missing entity' discrete states to TestifyResultRow",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T9"
       ],
+      "notes": "Status strings 'Blocked: missing entity' and 'Blocked: incomplete coverage' are emitted by DualWriteMapBrowserViewModel.Testify.cs; CoverageGaps + CoverageGapFieldDetail provide structured detail.",
       "validation": ".ralph\\validate-build.cmd",
       "tier": "simple",
       "acceptance": [
@@ -220,15 +235,17 @@
       ],
       "context": [
         "TestifyResultRow source"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T12",
       "title": "Update result grid renderer to display enum gap detail inline for coverage-blocked rows",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T11"
       ],
+      "notes": "Result grid binds CoverageGapFieldDetail and WarningDetail columns; preflight grid binds the same coverage detail. Verified by existing DualWriteMapBrowserTestifyResultTests gap-state coverage.",
       "validation": ".ralph\\validate-build.cmd",
       "tier": "simple",
       "acceptance": [
@@ -239,16 +256,18 @@
       "context": [
         "DualWriteMapBrowser result grid XAML/code-behind",
         "TestifyResultRow (T11 output)"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T13",
       "title": "Write FakeODataServer tests for enum gap reporting and payload trimming edge cases",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T10",
         "T11"
       ],
+      "notes": "DualWriteMapBrowserTestifyResultTests covers blocked-state behaviour for coverage gaps (allow vs disallow partial coverage) and the planner/result models; TestifyPayloadBuilderTests covers null/empty/omit payload trimming.",
       "validation": ".ralph\\validate-test-enumcoverage.cmd",
       "tier": "medium",
       "acceptance": [
@@ -263,12 +282,14 @@
         "FakeODataServer (existing harness)",
         "TestifyPlanner (T10 output)",
         "TestifyResultRow (T11 output)"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T14",
       "title": "Write deterministic FakeODataServer test for CE poll timeout expiry",
-      "status": "todo",
+      "status": "done",
+      "notes": "WaitForCeCorrelationAsync_PollTimeout_ThrowsTimeout_WhenCorrelatedRowDoesNotAppear in DualWriteMapBrowserTestifyIntegrationTests.cs uses TestifyDelayAsync + TestifyUtcNow injection (no real wall-time) to force timeout deterministically. Renamed test method to include PollTimeout for filter discovery.",
       "validation": ".ralph\\validate-test-polltimeout.cmd",
       "tier": "medium",
       "acceptance": [
@@ -284,12 +305,14 @@
         "DualWriteMapBrowserTestifyTests.cs",
         "FakeODataServer (existing harness)",
         "CE poll implementation"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T15",
       "title": "Lock ProductCode, UpgradeCode, and Bundle GUIDs in WiX/Burn installer source",
-      "status": "todo",
+      "status": "done",
+      "notes": "ProductCodeUser and ProductCodeMachine pinned to stable GUIDs in install/FoToolbox.wxs and the matching defaults in install/build.ps1. UpgradeCode and BundleUpgradeCode were already locked.",
       "validation": ".ralph\\validate-install-build.cmd",
       "tier": "simple",
       "acceptance": [
@@ -303,15 +326,17 @@
       ],
       "context": [
         "install/ WiX source files"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T16",
       "title": "Add signtool integration to install/build.ps1 for MSI and bundle signing",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T15"
       ],
+      "notes": "Added -CertThumbprint alias on -SignCertificateThumbprint, plus a Write-SignedArtifactsSummary block that prints the file path, thumbprint, and description of every signed artifact at the end of the build.",
       "validation": ".ralph\\validate-install-signing.cmd",
       "tier": "medium",
       "acceptance": [
@@ -324,15 +349,17 @@
       ],
       "context": [
         "install/build.ps1"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T17",
       "title": "Chain .NET 8 Desktop Runtime redistributable in Burn bootstrapper with hash verification",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T15"
       ],
+      "notes": "Bundle.wxs now declares an ExePackagePayload child with SHA-512 Hash, Size, Version, ProductName, Description, and DownloadUrl. install/build.ps1 computes the hash and size of the local runtime exe at build time and passes them to wix build, so downloaded payloads are verified by SHA-512 before install.",
       "validation": ".ralph\\validate-install-build.cmd",
       "tier": "medium",
       "acceptance": [
@@ -343,12 +370,14 @@
       ],
       "context": [
         "install/ WiX Burn bundle source"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T18",
       "title": "Add interactive auth fallback for MsalUiRequiredException and invalid_grant in auth service",
-      "status": "todo",
+      "status": "done",
+      "notes": "AuthService catches MsalUiRequiredException, MsalClaimsChallengeException, and MsalServiceException with invalid_grant/interaction_required/invalid_client (plus message heuristics) and raises an AuthRecoveryException through the constructor-supplied fallback delegate before returning failure. AuthFallback_* tests cover invalid_grant, ui_required, and successful re-auth.",
       "validation": ".ralph\\validate-test-authfallback.cmd",
       "tier": "medium",
       "acceptance": [
@@ -363,15 +392,17 @@
       "context": [
         "Auth service source",
         "Environment profile model"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T19",
       "title": "Wire auth-required event to host shell re-authentication modal dialog",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T18"
       ],
+      "notes": "AuthReauthCoordinator exposes a ReauthRequired event consumed by the host shell; AuthenticatedHandler surfaces 401s as AuthRecoveryException so plugin operations route through the same modal recovery path. Existing AuthReauthCoordinatorTests cover the deduplicated event flow.",
       "validation": ".ralph\\validate-build.cmd",
       "tier": "medium",
       "acceptance": [
@@ -383,12 +414,14 @@
       "context": [
         "Host shell source",
         "Auth service (T18 output)"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T20",
       "title": "Implement per-tenant authority validation against token tid claim",
-      "status": "todo",
+      "status": "done",
+      "notes": "Added TenantMismatchException + AuthService.ValidateTokenTenant that decodes the JWT payload's tid claim and throws before the token is returned. Mismatch never reaches an API call. TenantValidation_* tests cover matching/mismatched tokens and the direct validator's missing-tenant + opaque-token tolerance.",
       "validation": ".ralph\\validate-test-tenantvalidation.cmd",
       "tier": "medium",
       "acceptance": [
@@ -401,16 +434,18 @@
       "context": [
         "Auth service source",
         "Environment profile model (TenantId field)"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     },
     {
       "id": "T21",
       "title": "Write unit tests for auth service fallback paths and tenant validation failure modes",
-      "status": "todo",
+      "status": "done",
       "dependsOn": [
         "T18",
         "T20"
       ],
+      "notes": "AuthServiceTests now contains AuthFallback_InvalidGrant_TriggersInteractiveRecoveryEvent, AuthFallback_UiRequired_RaisesRecoveryEventBeforeReturningFailure, AuthFallback_SuccessfulReauthAfterRecovery_AllowsOperationToProceed, TenantValidation_MatchingTokenTid_AllowsTokenReturn, TenantValidation_MismatchedTokenTid_ThrowsNamedErrorBeforeApiCall, plus direct-validator tolerance checks. All pass under .ralph\\validate-test-authservice.cmd.",
       "validation": ".ralph\\validate-test-authservice.cmd",
       "tier": "medium",
       "acceptance": [
@@ -424,8 +459,9 @@
       "context": [
         "Auth service source",
         "T18 and T20 outputs"
-      ]
+      ],
+      "lastVerifierResult": "passed"
     }
   ],
-  "mutationCount": 42
+  "mutationCount": 43
 }

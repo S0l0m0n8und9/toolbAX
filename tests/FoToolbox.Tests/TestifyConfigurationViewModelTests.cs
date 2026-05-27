@@ -160,4 +160,58 @@ public sealed class TestifyConfigurationViewModelTests
             }
         }
     }
+
+    [Fact]
+    public async Task TestifyConfiguration_RoundTrip_FirstWriteThenOverwrite()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-roundtrip.json");
+
+        try
+        {
+            // First write: no prior config exists. Set all four fields and save.
+            var store = new TestifyConfigurationStore(path);
+            var first = new TestifyConfigurationViewModel(store, "env-1", "map-rt", _ => { });
+            await WaitForLoadAsync();
+
+            first.OmitCreateFieldsText = "FieldA\nFieldB";
+            first.PreferredCreateValuesText = "CurrencyCode=USD\nNumberSequenceGroup=STD";
+            first.CePollTimeoutMinutes = 42;
+            first.AllowPartialEnumCoverage = true;
+            await first.SaveCommand.ExecuteAsync();
+
+            // Reload via fresh view-model and assert all four values match.
+            var reloaded = new TestifyConfigurationViewModel(store, "env-1", "map-rt", _ => { });
+            await WaitForLoadAsync();
+
+            Assert.Equal(new HashSet<string>(new[] { "FieldA", "FieldB" }, StringComparer.OrdinalIgnoreCase), reloaded.OmitCreateFields);
+            Assert.Equal("USD", reloaded.PreferredCreateValues["CurrencyCode"]);
+            Assert.Equal("STD", reloaded.PreferredCreateValues["NumberSequenceGroup"]);
+            Assert.Equal(42, reloaded.CePollTimeoutMinutes);
+            Assert.True(reloaded.AllowPartialEnumCoverage);
+
+            // Overwrite scenario: replace every field with new values and save again.
+            reloaded.OmitCreateFieldsText = "FieldC";
+            reloaded.PreferredCreateValuesText = "Country=NZ";
+            reloaded.CePollTimeoutMinutes = 17;
+            reloaded.AllowPartialEnumCoverage = false;
+            await reloaded.SaveCommand.ExecuteAsync();
+
+            var afterOverwrite = new TestifyConfigurationViewModel(store, "env-1", "map-rt", _ => { });
+            await WaitForLoadAsync();
+
+            Assert.Equal(new HashSet<string>(new[] { "FieldC" }, StringComparer.OrdinalIgnoreCase), afterOverwrite.OmitCreateFields);
+            Assert.Single(afterOverwrite.PreferredCreateValues);
+            Assert.Equal("NZ", afterOverwrite.PreferredCreateValues["Country"]);
+            Assert.Equal(17, afterOverwrite.CePollTimeoutMinutes);
+            Assert.False(afterOverwrite.AllowPartialEnumCoverage);
+        }
+        finally
+        {
+            await WaitForLoadAsync();
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
 }

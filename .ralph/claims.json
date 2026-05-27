@@ -928,11 +928,11 @@
       "status": "released"
     },
     {
-      "taskId": "T3",
       "agentId": "default",
-      "provenanceId": "run-i133-cli-20260519T205156Z",
+      "taskId": "T3",
       "claimedAt": "2026-05-19T20:51:56.903Z",
-      "status": "active"
+      "provenanceId": "run-i133-cli-20260519T205156Z",
+      "status": "released"
     }
   ]
 }

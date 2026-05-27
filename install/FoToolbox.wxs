@@ -12,13 +12,13 @@
     <?define InstallScope="perUserOrMachine" ?>
   <?endif?>
   <?ifndef ProductCode?>
-    <?define ProductCode="*" ?>
+    <?define ProductCode="{CE886CFF-6D3A-4ABE-BEA8-56444B3C6FB5}" ?>
   <?endif?>
   <?ifndef ProductCodeUser?>
-    <?define ProductCodeUser="*" ?>
+    <?define ProductCodeUser="{CE886CFF-6D3A-4ABE-BEA8-56444B3C6FB5}" ?>
   <?endif?>
   <?ifndef ProductCodeMachine?>
-    <?define ProductCodeMachine="*" ?>
+    <?define ProductCodeMachine="{F9FE1558-8DCD-48F2-B208-12052B157604}" ?>
   <?endif?>
   <?ifndef UpgradeCode?>
     <?define UpgradeCode="{5E38A1ED-8CDD-4069-81F2-04C4DF076C11}" ?>

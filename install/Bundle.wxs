@@ -8,6 +8,12 @@
   <?ifndef NetDesktopRuntimeUrl?>
     <?define NetDesktopRuntimeUrl="https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe" ?>
   <?endif?>
+  <?ifndef NetDesktopRuntimeHash?>
+    <?define NetDesktopRuntimeHash="" ?>
+  <?endif?>
+  <?ifndef NetDesktopRuntimeSize?>
+    <?define NetDesktopRuntimeSize="0" ?>
+  <?endif?>
   <?ifndef FoToolboxUserMsiPath?>
     <?define FoToolboxUserMsiPath="FoToolbox.User.msi" ?>
   <?endif?>
@@ -61,7 +67,6 @@
     <PackageGroup Id="NetDesktopRuntime80">
       <ExePackage Id="NetDesktopRuntime80x64"
                   SourceFile="$(var.NetDesktopRuntimeExe)"
-                  DownloadUrl="$(var.NetDesktopRuntimeUrl)"
                   Compressed="yes"
                   Cache="keep"
                   PerMachine="yes"
@@ -69,7 +74,17 @@
                   DetectCondition="NetDesktopRuntime80Version AND NetDesktopRuntime80Version &gt;= v$(var.NetDesktopRuntimeVersion)"
                   InstallArguments="/install /quiet /norestart"
                   RepairArguments="/repair /quiet /norestart"
-                  UninstallArguments="/uninstall /quiet /norestart" />
+                  UninstallArguments="/uninstall /quiet /norestart">
+        <?if $(var.NetDesktopRuntimeHash) != "" ?>
+        <ExePackagePayload Name="windowsdesktop-runtime-$(var.NetDesktopRuntimeVersion)-win-x64.exe"
+                           ProductName=".NET Desktop Runtime 8 (x64)"
+                           Description=".NET Desktop Runtime $(var.NetDesktopRuntimeVersion) x64 redistributable"
+                           Version="$(var.NetDesktopRuntimeVersion).0"
+                           Hash="$(var.NetDesktopRuntimeHash)"
+                           Size="$(var.NetDesktopRuntimeSize)"
+                           DownloadUrl="$(var.NetDesktopRuntimeUrl)" />
+        <?endif?>
+      </ExePackage>
     </PackageGroup>
   </Fragment>
 </Wix>

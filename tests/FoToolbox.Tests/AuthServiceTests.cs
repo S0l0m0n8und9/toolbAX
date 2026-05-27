@@ -2,6 +2,9 @@ using FoToolbox.Core.Auth;
 using FoToolbox.Core.Models;
 using Microsoft.Identity.Client;
 using System;
+using System.Collections.Generic;
+using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
@@ -155,4 +158,127 @@ public class AuthServiceTests
         Assert.Contains("interactive sign-in", failure.Message, StringComparison.OrdinalIgnoreCase);
         Assert.IsType<MsalServiceException>(failure.InnerException);
     }
+
+    [Trait("Category", "AuthFallback")]
+    [Fact]
+    public async Task AuthFallback_InvalidGrant_TriggersInteractiveRecoveryEvent()
+    {
+        var sp = new ServicePrincipal("sp", "env", "client", AuthMode.ClientSecret, "secretRef", null);
+        var provider = new FailingTokenProvider(new MsalServiceException("invalid_grant", "refresh token expired"));
+        AuthRecoveryException? prompted = null;
+        var svc = new AuthService(provider, "Finance and Operations", ex => prompted = ex);
+
+        var failure = await Assert.ThrowsAsync<AuthRecoveryException>(() => svc.AcquireTokenAsync("https://org.crm.dynamics.com", "tenant", sp));
+
+        Assert.NotNull(prompted);
+        Assert.Same(failure, prompted);
+        Assert.True(failure.RequiresInteractiveReauth);
+        Assert.IsType<MsalServiceException>(failure.InnerException);
+    }
+
+    [Trait("Category", "AuthFallback")]
+    [Fact]
+    public async Task AuthFallback_UiRequired_RaisesRecoveryEventBeforeReturningFailure()
+    {
+        var sp = new ServicePrincipal("sp", "env", "client", AuthMode.ClientSecret, "secretRef", null);
+        var provider = new FailingTokenProvider(new MsalUiRequiredException("user_null", "user interaction required"));
+        AuthRecoveryException? prompted = null;
+        var svc = new AuthService(provider, "Dataverse", ex => prompted = ex);
+
+        var failure = await Assert.ThrowsAsync<AuthRecoveryException>(() => svc.AcquireTokenAsync("https://org.crm.dynamics.com", "tenant", sp));
+
+        Assert.NotNull(prompted);
+        Assert.Same(failure, prompted);
+        Assert.IsType<MsalUiRequiredException>(failure.InnerException);
+    }
+
+    [Trait("Category", "AuthFallback")]
+    [Fact]
+    public async Task AuthFallback_SuccessfulReauthAfterRecovery_AllowsOperationToProceed()
+    {
+        // Simulate the silent path failing once, then after the host completes interactive
+        // re-auth the operation retries against a fresh provider that succeeds.
+        var sp = new ServicePrincipal("sp", "env", "client", AuthMode.ClientSecret, "secretRef", null);
+        var failing = new FailingTokenProvider(new MsalUiRequiredException("user_null", "user interaction required"));
+        var failingSvc = new AuthService(failing, "Finance and Operations");
+
+        await Assert.ThrowsAsync<AuthRecoveryException>(() =>
+            failingSvc.AcquireTokenAsync("https://org.crm.dynamics.com", "tenant", sp));
+
+        var freshProvider = new FakeTokenProvider(BuildJwtWithTid("tenant"));
+        var freshSvc = new AuthService(freshProvider, "Finance and Operations");
+        var token = await freshSvc.AcquireTokenAsync("https://org.crm.dynamics.com", "tenant", sp);
+
+        Assert.False(string.IsNullOrWhiteSpace(token));
+    }
+
+    [Trait("Category", "TenantValidation")]
+    [Fact]
+    public async Task TenantValidation_MatchingTokenTid_AllowsTokenReturn()
+    {
+        var sp = new ServicePrincipal("sp", "env", "client", AuthMode.ClientSecret, "secretRef", null);
+        var provider = new FakeTokenProvider(BuildJwtWithTid("11111111-1111-1111-1111-111111111111"));
+        var svc = new AuthService(provider);
+
+        var token = await svc.AcquireTokenAsync(
+            "https://org.crm.dynamics.com",
+            "11111111-1111-1111-1111-111111111111",
+            sp);
+
+        Assert.False(string.IsNullOrWhiteSpace(token));
+    }
+
+    [Trait("Category", "TenantValidation")]
+    [Fact]
+    public async Task TenantValidation_MismatchedTokenTid_ThrowsNamedErrorBeforeApiCall()
+    {
+        var sp = new ServicePrincipal("sp", "env", "client", AuthMode.ClientSecret, "secretRef", null);
+        var provider = new FakeTokenProvider(BuildJwtWithTid("22222222-2222-2222-2222-222222222222"));
+        var svc = new AuthService(provider);
+
+        var ex = await Assert.ThrowsAsync<TenantMismatchException>(() =>
+            svc.AcquireTokenAsync(
+                "https://org.crm.dynamics.com",
+                "11111111-1111-1111-1111-111111111111",
+                sp));
+
+        Assert.Equal("11111111-1111-1111-1111-111111111111", ex.ExpectedTenantId);
+        Assert.Equal("22222222-2222-2222-2222-222222222222", ex.ActualTenantId);
+        Assert.Contains("11111111", ex.Message, StringComparison.Ordinal);
+    }
+
+    [Trait("Category", "TenantValidation")]
+    [Fact]
+    public void TenantValidation_DirectValidator_IgnoresMissingExpectedTenant()
+    {
+        // When the environment has no configured TenantId we cannot detect a misroute —
+        // do not throw; defer to other checks. This keeps test-only scenarios working
+        // without papering over real environment configuration gaps.
+        AuthService.ValidateTokenTenant(BuildJwtWithTid("aaaa"), string.Empty);
+    }
+
+    [Trait("Category", "TenantValidation")]
+    [Fact]
+    public void TenantValidation_DirectValidator_IgnoresUnparseableToken()
+    {
+        // Opaque/non-JWT tokens are tolerated (e.g. AAD v1 tokens, test fixtures).
+        // The provider-level tests already cover the misroute path with a real JWT.
+        AuthService.ValidateTokenTenant("not-a-jwt", "tenant-x");
+    }
+
+    private static string BuildJwtWithTid(string tid)
+    {
+        var header = Base64UrlEncode(Encoding.UTF8.GetBytes("""{"alg":"none","typ":"JWT"}"""));
+        var payloadObj = new Dictionary<string, object?>
+        {
+            ["aud"] = "https://org.crm.dynamics.com",
+            ["tid"] = tid,
+            ["iss"] = $"https://sts.windows.net/{tid}/"
+        };
+        var payload = Base64UrlEncode(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(payloadObj)));
+        return $"{header}.{payload}.signature";
+    }
+
+    private static string Base64UrlEncode(byte[] bytes) =>
+        Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
 }

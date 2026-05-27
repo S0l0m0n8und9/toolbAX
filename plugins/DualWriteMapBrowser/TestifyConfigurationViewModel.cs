@@ -70,7 +70,11 @@ internal sealed class TestifyConfigurationViewModel : INotifyPropertyChanged
             }
 
             _cePollTimeoutMinutes = value;
+            _cePollTimeoutMinutesText = value.ToString(CultureInfo.InvariantCulture);
+            _confirmationMessage = string.Empty;
             OnPropertyChanged();
+            OnPropertyChanged(nameof(CePollTimeoutMinutesText));
+            OnPropertyChanged(nameof(ConfirmationMessage));
         }
     }
 

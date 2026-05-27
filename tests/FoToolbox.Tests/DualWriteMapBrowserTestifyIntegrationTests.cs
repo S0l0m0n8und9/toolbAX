@@ -155,7 +155,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
     }
 
     [Fact]
-    public async Task WaitForCeCorrelationAsync_ThrowsTimeout_WhenCorrelatedRowDoesNotAppear()
+    public async Task WaitForCeCorrelationAsync_PollTimeout_ThrowsTimeout_WhenCorrelatedRowDoesNotAppear()
     {
         var originalDelay = DualWriteMapBrowserViewModel.TestifyDelayAsync;
         var originalUtcNow = DualWriteMapBrowserViewModel.TestifyUtcNow;

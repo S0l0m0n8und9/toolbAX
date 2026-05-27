@@ -23,6 +23,7 @@ param(
     [string]$BundleId = "",
     [string]$LicenseUrl = "",
     [string]$SignToolPath = "",
+    [Alias("CertThumbprint")]
     [string]$SignCertificateThumbprint = "",
     [string]$SignCertificateFile = "",
     [string]$SignCertificatePassword = "",
@@ -71,8 +72,8 @@ function New-DevVersion {
 
 $installDir = Split-Path -Parent $PSCommandPath
 $repoRoot = Resolve-Path (Join-Path $installDir "..") | Select-Object -ExpandProperty Path
-$defaultProductCodeUser = "*"
-$defaultProductCodeMachine = "*"
+$defaultProductCodeUser = "{CE886CFF-6D3A-4ABE-BEA8-56444B3C6FB5}"
+$defaultProductCodeMachine = "{F9FE1558-8DCD-48F2-B208-12052B157604}"
 $defaultUpgradeCode = "{5E38A1ED-8CDD-4069-81F2-04C4DF076C11}"
 $defaultBundleUpgradeCode = "{ED449692-157D-46FC-A96D-AFB178DF60F1}"
 $defaultBundleId = "BenJones.FOtoolbox.Bundle"
@@ -259,6 +260,8 @@ function Assert-SigningConfiguration {
     }
 }
 
+$script:SignedArtifacts = New-Object System.Collections.Generic.List[object]
+
 function Sign-Output {
     param(
         [string]$FilePath,
@@ -280,10 +283,14 @@ function Sign-Output {
         "/d", $Description
     )
 
+    $thumbprintForLog = $SignCertificateThumbprint
     if (-not [string]::IsNullOrWhiteSpace($SignCertificateFile)) {
         $signArgs += @("/f", $SignCertificateFile)
         if (-not [string]::IsNullOrWhiteSpace($SignCertificatePassword)) {
             $signArgs += @("/p", $SignCertificatePassword)
+        }
+        if ([string]::IsNullOrWhiteSpace($thumbprintForLog)) {
+            $thumbprintForLog = "<from PFX: $SignCertificateFile>"
         }
     } else {
         $signArgs += @("/sha1", $SignCertificateThumbprint)
@@ -295,6 +302,24 @@ function Sign-Output {
     & $signTool @signArgs | Out-Host
     if ($LASTEXITCODE -ne 0) {
         throw "signtool failed for $FilePath with exit code $LASTEXITCODE."
+    }
+
+    $script:SignedArtifacts.Add([PSCustomObject]@{
+        File        = $FilePath
+        Description = $Description
+        Thumbprint  = $thumbprintForLog
+    })
+}
+
+function Write-SignedArtifactsSummary {
+    if ($script:SignedArtifacts.Count -eq 0) {
+        Write-Host "`nNo artifacts were signed during this build."
+        return
+    }
+
+    Write-Host "`nSigned artifact summary:"
+    foreach ($entry in $script:SignedArtifacts) {
+        Write-Host (" - {0} (Thumbprint: {1}) [{2}]" -f $entry.File, $entry.Thumbprint, $entry.Description)
     }
 }
 
@@ -427,12 +452,22 @@ if ([string]::IsNullOrWhiteSpace($balExtensionDll) -or [string]::IsNullOrWhiteSp
     throw "Required WiX bundle extensions were not found in $wixExtensionRoot. Install WixToolset.Bal.wixext and WixToolset.Util.wixext for WiX 6."
 }
 
+Write-Host "`nComputing runtime payload hash and size for download verification..."
+$runtimeFileInfo = Get-Item -LiteralPath $RuntimeExe
+$runtimeSize = $runtimeFileInfo.Length
+$runtimeHash = (Get-FileHash -Algorithm SHA512 -LiteralPath $RuntimeExe).Hash
+Write-Host (" - RuntimeExe: {0}" -f $RuntimeExe)
+Write-Host (" - Size: {0} bytes" -f $runtimeSize)
+Write-Host (" - SHA-512: {0}" -f $runtimeHash)
+
 Write-Host "`nBuilding bundle..."
 $bundleArgs = @(
     (Join-Path $installDir "Bundle.wxs"),
     "-d", "FoToolboxUserMsiPath=$UserMsiPath",
     "-d", "FoToolboxMachineMsiPath=$MachineMsiPath",
-    "-d", "NetDesktopRuntimeExe=$RuntimeExe"
+    "-d", "NetDesktopRuntimeExe=$RuntimeExe",
+    "-d", "NetDesktopRuntimeHash=$runtimeHash",
+    "-d", "NetDesktopRuntimeSize=$runtimeSize"
 )
 if (-not [string]::IsNullOrWhiteSpace($RuntimeVersion)) { $bundleArgs += @("-d", "NetDesktopRuntimeVersion=$RuntimeVersion") }
 if (-not [string]::IsNullOrWhiteSpace($BundleName)) { $bundleArgs += @("-d", "BundleName=$BundleName") }
@@ -450,5 +485,7 @@ $bundleArgs += @(
 
 wix build @bundleArgs | Out-Host
 Sign-Output -FilePath $BundlePath -Description "FOtoolbox bootstrapper bundle"
+
+Write-SignedArtifactsSummary
 
 Write-Host "`nDone."
