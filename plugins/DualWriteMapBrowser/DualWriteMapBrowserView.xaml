@@ -24,7 +24,7 @@
                 Background="{DynamicResource Fo.SurfaceAltBrush}"
                 BorderBrush="{DynamicResource Fo.BorderBrush}"
                 BorderThickness="1"
-                CornerRadius="6">
+                CornerRadius="{DynamicResource Fo.CornerRadius.Card}">
             <StackPanel>
                 <DockPanel>
                     <WrapPanel DockPanel.Dock="Left">
@@ -140,7 +140,7 @@
                     Background="{DynamicResource Fo.SurfaceBrush}"
                     BorderBrush="{DynamicResource Fo.BorderBrush}"
                     BorderThickness="1"
-                    CornerRadius="6">
+                    CornerRadius="{DynamicResource Fo.CornerRadius.Card}">
                 <DockPanel>
                     <StackPanel DockPanel.Dock="Top">
                         <TextBlock Text="Dual-write Entity Maps"
@@ -198,7 +198,7 @@
                     Background="{DynamicResource Fo.SurfaceAltBrush}"
                     BorderBrush="{DynamicResource Fo.BorderBrush}"
                     BorderThickness="1"
-                    CornerRadius="6">
+                    CornerRadius="{DynamicResource Fo.CornerRadius.Card}">
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
                     <StackPanel>
                         <TextBlock Text="Selected Map Details"
