@@ -6,7 +6,10 @@
     <?define NetDesktopRuntimeExe="redist\windowsdesktop-runtime-$(var.NetDesktopRuntimeVersion)-win-x64.exe" ?>
   <?endif?>
   <?ifndef NetDesktopRuntimeUrl?>
-    <?define NetDesktopRuntimeUrl="https://aka.ms/dotnet/8.0/windowsdesktop-runtime-win-x64.exe" ?>
+    <!-- Version-pinned. aka.ms/dotnet/8.0/... is a floating alias that rolls forward to the
+         latest 8.x servicing release, which breaks our hash/size check and triggers the
+         WixStdBA "Browse for source file" dialog with no explanation to the user. -->
+    <?define NetDesktopRuntimeUrl="https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/$(var.NetDesktopRuntimeVersion)/windowsdesktop-runtime-$(var.NetDesktopRuntimeVersion)-win-x64.exe" ?>
   <?endif?>
   <?ifndef NetDesktopRuntimeHash?>
     <?define NetDesktopRuntimeHash="" ?>
@@ -66,8 +69,6 @@
   <Fragment>
     <PackageGroup Id="NetDesktopRuntime80">
       <ExePackage Id="NetDesktopRuntime80x64"
-                  SourceFile="$(var.NetDesktopRuntimeExe)"
-                  Compressed="yes"
                   Cache="keep"
                   PerMachine="yes"
                   Vital="yes"
@@ -75,7 +76,6 @@
                   InstallArguments="/install /quiet /norestart"
                   RepairArguments="/repair /quiet /norestart"
                   UninstallArguments="/uninstall /quiet /norestart">
-        <?if $(var.NetDesktopRuntimeHash) != "" ?>
         <ExePackagePayload Name="windowsdesktop-runtime-$(var.NetDesktopRuntimeVersion)-win-x64.exe"
                            ProductName=".NET Desktop Runtime 8 (x64)"
                            Description=".NET Desktop Runtime $(var.NetDesktopRuntimeVersion) x64 redistributable"
@@ -83,7 +83,6 @@
                            Hash="$(var.NetDesktopRuntimeHash)"
                            Size="$(var.NetDesktopRuntimeSize)"
                            DownloadUrl="$(var.NetDesktopRuntimeUrl)" />
-        <?endif?>
       </ExePackage>
     </PackageGroup>
   </Fragment>

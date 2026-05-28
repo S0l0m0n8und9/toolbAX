@@ -311,6 +311,41 @@ function Sign-Output {
     })
 }
 
+function Sign-BurnBundle {
+    param(
+        [string]$BundlePath,
+        [string]$Description
+    )
+
+    if (-not (Test-SigningRequested)) {
+        Write-Host "Skipping signing for $Description; no signing certificate was configured."
+        return
+    }
+
+    # Burn bundles require a detach -> sign engine -> reattach -> sign bundle
+    # sequence so the bundle's attached container offset survives signtool's PE rewrite.
+    # Signing the bundle directly corrupts the container and breaks payload extraction
+    # at install time (Burn falls back to "Browse for source" with no guidance).
+    $detachedEngine = [System.IO.Path]::ChangeExtension($BundlePath, ".engine.exe")
+    Write-Host "Detaching bundle engine for $Description..."
+    wix burn detach $BundlePath -engine $detachedEngine | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "wix burn detach failed for $BundlePath (exit $LASTEXITCODE)."
+    }
+
+    Sign-Output -FilePath $detachedEngine -Description "$Description (detached engine)"
+
+    Write-Host "Reattaching signed engine to bundle..."
+    wix burn reattach $BundlePath -engine $detachedEngine -o $BundlePath | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "wix burn reattach failed for $BundlePath (exit $LASTEXITCODE)."
+    }
+
+    Sign-Output -FilePath $BundlePath -Description $Description
+
+    Remove-Item $detachedEngine -Force -ErrorAction SilentlyContinue
+}
+
 function Write-SignedArtifactsSummary {
     if ($script:SignedArtifacts.Count -eq 0) {
         Write-Host "`nNo artifacts were signed during this build."
@@ -426,6 +461,9 @@ if (-not [string]::IsNullOrWhiteSpace($ProductName)) { $wixArgs += @("-d", "Prod
 
     $wixArgs += @("-o", $OutputPath)
     wix build @wixArgs | Out-Host
+    if ($LASTEXITCODE -ne 0) {
+        throw "wix build failed for $OutputPath (exit code $LASTEXITCODE)."
+    }
 }
 
 Write-Host "`nBuilding user MSI..."
@@ -478,13 +516,17 @@ if (-not [string]::IsNullOrWhiteSpace($BundleId)) { $bundleArgs += @("-d", "Bund
 if (-not [string]::IsNullOrWhiteSpace($LicenseUrl)) { $bundleArgs += @("-d", "LicenseUrl=$LicenseUrl") }
 
 $bundleArgs += @(
+    "-bindpath", $installDir,
     "-o", $BundlePath,
     "-ext", $balExtensionDll,
     "-ext", $utilExtensionDll
 )
 
 wix build @bundleArgs | Out-Host
-Sign-Output -FilePath $BundlePath -Description "FOtoolbox bootstrapper bundle"
+if ($LASTEXITCODE -ne 0) {
+    throw "wix build failed for bundle $BundlePath (exit code $LASTEXITCODE)."
+}
+Sign-BurnBundle -BundlePath $BundlePath -Description "FOtoolbox bootstrapper bundle"
 
 Write-SignedArtifactsSummary
 
