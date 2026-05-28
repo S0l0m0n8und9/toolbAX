@@ -20,6 +20,11 @@ env:
 jobs:
   build:
     runs-on: windows-latest
+    env:
+      # Job-level boolean derived from the presence of signing secrets. GitHub Actions does
+      # not allow `secrets.X != ''` directly inside step `if:` expressions; lifting it into
+      # an env var is the standard workaround.
+      HAS_SIGNING_CERT: ${{ secrets.SIGN_CERT_FILE_BASE64 != '' && secrets.SIGN_CERT_PASSWORD != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -45,9 +50,39 @@ jobs:
           New-Item -ItemType Directory -Force -Path "install/redist" | Out-Null
           Invoke-WebRequest -Uri "${{ env.RUNTIME_URL }}" -OutFile $dest
 
-      - name: Build installer bundle (Debug, unsigned)
+      - name: Materialise signing cert from secret
+        if: env.HAS_SIGNING_CERT == 'true'
+        shell: pwsh
+        env:
+          CERT_BASE64: ${{ secrets.SIGN_CERT_FILE_BASE64 }}
+        run: |
+          $pfxPath = Join-Path $env:RUNNER_TEMP "sign.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:CERT_BASE64))
+          "SIGN_PFX_PATH=$pfxPath" | Out-File -Append $env:GITHUB_ENV
+
+      - name: Build installer bundle (signed Release)
+        if: env.HAS_SIGNING_CERT == 'true'
+        shell: pwsh
+        env:
+          SIGN_CERT_PASSWORD: ${{ secrets.SIGN_CERT_PASSWORD }}
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File install/build.ps1 `
+            -Configuration Release `
+            -SignCertificateFile $env:SIGN_PFX_PATH `
+            -SignCertificatePassword $env:SIGN_CERT_PASSWORD
+
+      - name: Build installer bundle (unsigned Debug fallback)
+        if: env.HAS_SIGNING_CERT != 'true'
         shell: pwsh
         run: pwsh -NoProfile -ExecutionPolicy Bypass -File install/build.ps1 -Configuration Debug
+
+      - name: Wipe signing cert from runner
+        if: always() && env.HAS_SIGNING_CERT == 'true' && env.SIGN_PFX_PATH != ''
+        shell: pwsh
+        run: |
+          if (Test-Path $env:SIGN_PFX_PATH) {
+            Remove-Item $env:SIGN_PFX_PATH -Force
+          }
 
       - name: Verify bundle was produced
         shell: pwsh
@@ -57,18 +92,39 @@ jobs:
           }
           Get-Item install/FoToolboxBundle.exe | Select-Object Name, Length, LastWriteTime
 
+      - name: Compose signed release notes
+        if: env.HAS_SIGNING_CERT == 'true'
+        shell: pwsh
+        run: |
+          @'
+          ## FOtoolbox installer bundle
+
+          Downloads the .NET 10 Desktop Runtime if missing, then installs the app to `%LOCALAPPDATA%\FoToolbox\` (per-user).
+
+          Signed with the FOtoolbox code-signing certificate. If your machine doesn't trust the issuer, Windows may still prompt — this is normal for newer/less-established publishers and resolves once SmartScreen accumulates download reputation.
+
+          See the auto-generated change log below for what's new.
+          '@ | Out-File -Encoding utf8 release-notes.md
+
+      - name: Compose unsigned release notes
+        if: env.HAS_SIGNING_CERT != 'true'
+        shell: pwsh
+        run: |
+          @'
+          ## FOtoolbox installer bundle
+
+          Downloads the .NET 10 Desktop Runtime if missing, then installs the app to `%LOCALAPPDATA%\FoToolbox\` (per-user).
+
+          > ⚠️ **Unsigned bundle.** Windows SmartScreen will show "Windows protected your PC" — click **More info** → **Run anyway**. A signed release path is on the roadmap.
+
+          See the auto-generated change log below for what's new.
+          '@ | Out-File -Encoding utf8 release-notes.md
+
       - name: Publish release with bundle asset
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
           files: install/FoToolboxBundle.exe
           generate_release_notes: true
+          body_path: release-notes.md
           prerelease: ${{ startsWith(github.event.inputs.tag || github.ref_name, 'v0.') || contains(github.event.inputs.tag || github.ref_name, '-') }}
-          body: |
-            ## FOtoolbox installer bundle
-
-            Downloads the .NET 10 Desktop Runtime if missing, then installs the app to `%LOCALAPPDATA%\FoToolbox\` (per-user).
-
-            > ⚠️ **Unsigned bundle.** Windows SmartScreen will show "Windows protected your PC" — click **More info** → **Run anyway**. A signed release path is on the roadmap.
-
-            See the auto-generated change log below for what's new.
