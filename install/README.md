@@ -65,13 +65,11 @@ Optional overrides for branding/codes (examples):
 
 Only override these identifiers when intentionally creating a new product line or update channel. The repository defaults are locked for deterministic upgrades.
 
-Optional signing inputs:
+Signing inputs:
 ```powershell
 .\build.ps1 `
   -SignCertificateThumbprint "ABCDEF1234567890ABCDEF1234567890ABCDEF12"
 ```
-
-`install/build.ps1 -Configuration Release` now requires one of these signing inputs and a resolvable `signtool.exe`; it fails before packaging if either prerequisite is absent.
 
 or
 
@@ -79,6 +77,16 @@ or
 .\build.ps1 `
   -SignCertificateFile "C:\certs\footoolbox.pfx" `
   -SignCertificatePassword "<secret>"
+```
+
+`-Configuration Release` requires one of these inputs (and a resolvable `signtool.exe`) and fails before packaging if either is absent.
+
+`-Configuration Debug` does not require signing, but **strongly prefers it**: an unsigned Debug bundle cannot upgrade-install over a previously-installed signed bundle — Windows Installer's SecureRepair rejects the MinorUpgrade with `0x80070643`. The workaround is to uninstall the older bundle first. To avoid this rinse-and-repeat, set `$env:FOTOOLBOX_SIGN_THUMBPRINT` (or `$env:FOTOOLBOX_SIGN_CERT_FILE`) once and `build.ps1` will pick it up automatically on every run, keeping signature continuity across builds.
+
+```powershell
+# Persist for your shell session (or add to $PROFILE for permanence):
+$env:FOTOOLBOX_SIGN_THUMBPRINT = "ABCDEF1234567890ABCDEF1234567890ABCDEF12"
+.\build.ps1 -Configuration Debug   # now signs without passing -SignCertificateThumbprint
 ```
 
 1. Install the tool once: `dotnet tool install --global wix` (or update with `dotnet tool update --global wix`).

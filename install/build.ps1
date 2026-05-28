@@ -35,6 +35,17 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
+# Fall back to environment variables so developers don't have to pass -SignCertificateThumbprint
+# on every Debug invocation. Setting $env:FOTOOLBOX_SIGN_THUMBPRINT once in your profile is
+# enough to keep dev builds signature-continuous with installed signed predecessors, which is
+# what SecureRepair requires to allow MinorUpgrade installs over an existing signed package.
+if ([string]::IsNullOrWhiteSpace($SignCertificateThumbprint) -and -not [string]::IsNullOrWhiteSpace($env:FOTOOLBOX_SIGN_THUMBPRINT)) {
+    $SignCertificateThumbprint = $env:FOTOOLBOX_SIGN_THUMBPRINT
+}
+if ([string]::IsNullOrWhiteSpace($SignCertificateFile) -and -not [string]::IsNullOrWhiteSpace($env:FOTOOLBOX_SIGN_CERT_FILE)) {
+    $SignCertificateFile = $env:FOTOOLBOX_SIGN_CERT_FILE
+}
+
 $devVersionHelp = @"
 MSI version constraints (Windows Installer):
 - ProductVersion is 3-part: major.minor.build
@@ -242,22 +253,34 @@ function Test-SigningRequested {
 }
 
 function Assert-SigningConfiguration {
-    if ($Configuration -ne "Release") {
+    if (Test-SigningRequested) {
+        # Always validate the inputs when signing is requested, regardless of configuration —
+        # a dev build that claims to sign should actually be able to.
+        if (-not [string]::IsNullOrWhiteSpace($SignCertificateFile) -and -not (Test-Path $SignCertificateFile)) {
+            throw "Signing certificate file was not found at $SignCertificateFile."
+        }
+
+        $signTool = Get-SignToolPath -ExplicitPath $SignToolPath
+        if ([string]::IsNullOrWhiteSpace($signTool)) {
+            throw "signtool.exe was not found. Install the Windows SDK or pass -SignToolPath."
+        }
         return
     }
 
-    if (-not (Test-SigningRequested)) {
-        throw "Signing is required for release installer outputs. Pass -SignCertificateThumbprint or -SignCertificateFile before running install/build.ps1 -Configuration Release."
+    # No signing configured.
+    if ($Configuration -eq "Release") {
+        throw "Signing is required for release installer outputs. Pass -SignCertificateThumbprint or -SignCertificateFile, or set `$env:FOTOOLBOX_SIGN_THUMBPRINT before running install/build.ps1 -Configuration Release."
     }
 
-    if (-not [string]::IsNullOrWhiteSpace($SignCertificateFile) -and -not (Test-Path $SignCertificateFile)) {
-        throw "Signing certificate file was not found at $SignCertificateFile."
-    }
-
-    $signTool = Get-SignToolPath -ExplicitPath $SignToolPath
-    if ([string]::IsNullOrWhiteSpace($signTool)) {
-        throw "signtool.exe was not found. Install the Windows SDK or pass -SignToolPath before running install/build.ps1 -Configuration Release."
-    }
+    # Debug builds without a cert are allowed, but warn loudly — an unsigned upgrade over a
+    # signed installed predecessor will be rejected by Windows Installer's SecureRepair check
+    # with 0x80070643. Set `$env:FOTOOLBOX_SIGN_THUMBPRINT to your dev cert to make this go away
+    # for every subsequent build.
+    Write-Warning "Building unsigned installer artifacts (Configuration=Debug, no signing cert configured)."
+    Write-Warning "  These artifacts CANNOT upgrade-install over a previously-installed signed bundle:"
+    Write-Warning "  SecureRepair will refuse the MinorUpgrade with 0x80070643."
+    Write-Warning "  Set `$env:FOTOOLBOX_SIGN_THUMBPRINT to your dev cert thumbprint to sign dev builds too,"
+    Write-Warning "  or uninstall any existing FOtoolbox bundle before running the unsigned bundle."
 }
 
 $script:SignedArtifacts = New-Object System.Collections.Generic.List[object]
@@ -269,7 +292,7 @@ function Sign-Output {
     )
 
     if (-not (Test-SigningRequested)) {
-        Write-Host "Skipping signing for $Description; no signing certificate was configured."
+        Write-Host "Skipping signing for $Description; no signing certificate was configured (Debug build)."
         return
     }
 
@@ -318,7 +341,7 @@ function Sign-BurnBundle {
     )
 
     if (-not (Test-SigningRequested)) {
-        Write-Host "Skipping signing for $Description; no signing certificate was configured."
+        Write-Host "Skipping signing for $Description; no signing certificate was configured (Debug build)."
         return
     }
 
