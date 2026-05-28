@@ -154,6 +154,7 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
     public ReadOnlyObservableCollection<FoEntityOption> FoEntities => _foEntitiesReadOnly;
     public ReadOnlyObservableCollection<CountLegConfigRow> CountLegConfigs => _countLegConfigsReadOnly;
     public ReadOnlyObservableCollection<CountValidationRow> CountResults => _countResultsReadOnly;
+    internal ObservableCollection<DualWriteMapRecord> Records => _records;
 
     public bool IsLoading
     {
@@ -525,13 +526,44 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
 
     private async Task ExportSelectedMarkdownAsync(CancellationToken cancellationToken)
     {
-        var record = SelectedRecord;
-        if (record is null)
+        var selectedMaps = GetSelectedMapsForExport();
+        if (selectedMaps.Count == 0)
         {
             StatusMessage = "Select a dual-write map before exporting markdown.";
             return;
         }
 
+        if (selectedMaps.Count == 1)
+        {
+            await ExportSingleMarkdownAsync(selectedMaps[0], cancellationToken);
+            return;
+        }
+
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export selected dual-write maps",
+            Filter = "Markdown files (*.md)|*.md|All files (*.*)|*.*",
+            FileName = BuildMarkdownFileName(selectedMaps[0]),
+            OverwritePrompt = false
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            StatusMessage = "Markdown export cancelled.";
+            return;
+        }
+
+        var exportDirectory = Path.GetDirectoryName(dialog.FileName);
+        if (string.IsNullOrWhiteSpace(exportDirectory))
+        {
+            throw new InvalidOperationException("A valid export directory is required.");
+        }
+
+        await ExportMarkdownFilesAsync(selectedMaps, exportDirectory, cancellationToken);
+    }
+
+    private async Task ExportSingleMarkdownAsync(DualWriteMapRecord record, CancellationToken cancellationToken)
+    {
         var dialog = new SaveFileDialog
         {
             Title = "Export dual-write map markdown",
@@ -551,7 +583,23 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
         StatusMessage = $"Exported markdown to {Path.GetFileName(dialog.FileName)}.";
     }
 
-    private static string BuildMarkdownFileName(DualWriteMapRecord record)
+    internal async Task ExportMarkdownFilesAsync(IReadOnlyList<DualWriteMapRecord> records, string exportDirectory, CancellationToken cancellationToken)
+    {
+        Directory.CreateDirectory(exportDirectory);
+
+        var usedNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var record in records)
+        {
+            var fileName = BuildUniqueMarkdownFileName(record, usedNames);
+            var filePath = Path.Combine(exportDirectory, fileName);
+            var markdown = DualWriteMapMarkdownExporter.Export(record);
+            await File.WriteAllTextAsync(filePath, markdown, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
+        }
+
+        StatusMessage = $"Exported {records.Count} markdown files to {exportDirectory}.";
+    }
+
+    internal static string BuildMarkdownFileName(DualWriteMapRecord record)
     {
         var baseName = string.IsNullOrWhiteSpace(record.DisplayName)
             ? record.Name
@@ -564,6 +612,22 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
         }
 
         return $"{sanitized}.md";
+    }
+
+    internal static string BuildUniqueMarkdownFileName(DualWriteMapRecord record, ISet<string> usedNames)
+    {
+        var baseFileName = Path.GetFileNameWithoutExtension(BuildMarkdownFileName(record));
+        var extension = ".md";
+        var candidate = $"{baseFileName}{extension}";
+        var suffix = 2;
+
+        while (!usedNames.Add(candidate))
+        {
+            candidate = $"{baseFileName}-{suffix}{extension}";
+            suffix++;
+        }
+
+        return candidate;
     }
 
     private async Task LoadSolutionsAsync(CancellationToken cancellationToken)
@@ -1024,6 +1088,11 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
     }
 
     private List<DualWriteMapRecord> GetMapsForCounting()
+    {
+        return GetSelectedMapsForExport();
+    }
+
+    internal List<DualWriteMapRecord> GetSelectedMapsForExport()
     {
         var selectedMaps = _records.Where(r => r.IsSelected).ToList();
         if (selectedMaps.Count == 0 && SelectedRecord is not null)
