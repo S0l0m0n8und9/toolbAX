@@ -1433,7 +1433,7 @@ public sealed partial class DualWriteMapBrowserViewModel
             return value;
         }
 
-        return numeric.ToString(CultureInfo.InvariantCulture);
+        return numeric.ToString("G29", CultureInfo.InvariantCulture);
     }
 
     private static string? NormalizeGuidString(string? value)
