@@ -39,7 +39,10 @@ jobs:
       - name: Install WiX CLI + extensions
         shell: pwsh
         run: |
-          dotnet tool install --global wix
+          # Pin to WiX 6.x — v7 (default since late 2026) requires accepting the OSMF EULA
+          # and gates dotnet tool exec behind it. The repo's bundle theme + extensions target
+          # WiX 6.0.2 schemas; keep CI on the same major.
+          dotnet tool install --global wix --version 6.0.2
           wix extension add -g WixToolset.Bal.wixext/6.0.2
           wix extension add -g WixToolset.Util.wixext/6.0.2
 
