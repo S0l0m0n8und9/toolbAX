@@ -1,0 +1,74 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to publish (e.g. v0.1.1). Must already exist on the repo."
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  RUNTIME_VERSION: "10.0.8"
+  RUNTIME_URL: "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/10.0.8/windowsdesktop-runtime-10.0.8-win-x64.exe"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Install WiX CLI + extensions
+        shell: pwsh
+        run: |
+          dotnet tool install --global wix
+          wix extension add -g WixToolset.Bal.wixext/6.0.2
+          wix extension add -g WixToolset.Util.wixext/6.0.2
+
+      - name: Stage .NET Desktop Runtime payload
+        shell: pwsh
+        run: |
+          $dest = "install/redist/windowsdesktop-runtime-${{ env.RUNTIME_VERSION }}-win-x64.exe"
+          New-Item -ItemType Directory -Force -Path "install/redist" | Out-Null
+          Invoke-WebRequest -Uri "${{ env.RUNTIME_URL }}" -OutFile $dest
+
+      - name: Build installer bundle (Debug, unsigned)
+        shell: pwsh
+        run: pwsh -NoProfile -ExecutionPolicy Bypass -File install/build.ps1 -Configuration Debug
+
+      - name: Verify bundle was produced
+        shell: pwsh
+        run: |
+          if (-not (Test-Path install/FoToolboxBundle.exe)) {
+            throw "install/FoToolboxBundle.exe was not produced by build.ps1."
+          }
+          Get-Item install/FoToolboxBundle.exe | Select-Object Name, Length, LastWriteTime
+
+      - name: Publish release with bundle asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          files: install/FoToolboxBundle.exe
+          generate_release_notes: true
+          prerelease: ${{ startsWith(github.event.inputs.tag || github.ref_name, 'v0.') || contains(github.event.inputs.tag || github.ref_name, '-') }}
+          body: |
+            ## FOtoolbox installer bundle
+
+            Downloads the .NET 10 Desktop Runtime if missing, then installs the app to `%LOCALAPPDATA%\FoToolbox\` (per-user).
+
+            > ⚠️ **Unsigned bundle.** Windows SmartScreen will show "Windows protected your PC" — click **More info** → **Run anyway**. A signed release path is on the roadmap.
+
+            See the auto-generated change log below for what's new.

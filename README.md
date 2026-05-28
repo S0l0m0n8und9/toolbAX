@@ -13,6 +13,18 @@ It provides:
 
 This repository is in active development. APIs, plugin contracts, and installer/update behavior may change.
 
+## Download
+
+Pre-built installer bundles are published as GitHub Releases:
+
+**[→ Latest release](https://github.com/S0l0m0n8und9/toolbAX/releases/latest)** · **[All releases](https://github.com/S0l0m0n8und9/toolbAX/releases)**
+
+Download `FoToolboxBundle.exe` from the assets, run it, and follow the prompts. The bundle downloads the .NET 10 Desktop Runtime on first install if missing, then installs FOtoolbox to `%LOCALAPPDATA%\FoToolbox\` (per-user).
+
+> ⚠️ Releases are currently **unsigned**. Windows SmartScreen will show "Windows protected your PC" — click **More info** → **Run anyway** to proceed. A signed release path is on the roadmap.
+
+If you want to build the bundle yourself instead of downloading, see [`install/README.md`](install/README.md).
+
 ## Requirements
 
 - Windows 10/11
