@@ -190,6 +190,36 @@ Versioning note
 - `install/build.ps1` will trim a four-part `-Version` to three-part for MSI and reuse the original as `BundleVersion` if none is provided.
 - To upgrade in-place (no uninstall), keep `UpgradeCode` stable and increase MSI `Version`. This repo now locks installer GUIDs in source for deterministic release packaging.
 
+## Releases (CI)
+
+`.github/workflows/release.yml` runs on every `v*` tag push and publishes the bundle as a GitHub Release asset. Local-build flow above is for testing; tag-driven CI is the publishing flow.
+
+```bash
+git tag v0.1.1
+git push origin v0.1.1
+# workflow builds + uploads FoToolboxBundle.exe and creates the release
+```
+
+The workflow chooses signed vs unsigned automatically based on whether two repo secrets are populated:
+
+| Secret | What it is | When the workflow uses it |
+|---|---|---|
+| `SIGN_CERT_FILE_BASE64` | Base64-encoded PFX containing the code-signing cert | Both must be set for signed releases. CI decodes the PFX into `$RUNNER_TEMP`, runs `install/build.ps1 -Configuration Release -SignCertificateFile … -SignCertificatePassword …`, then deletes the PFX. |
+| `SIGN_CERT_PASSWORD` | Password protecting the PFX | (same) |
+
+When either secret is empty, CI falls back to `-Configuration Debug` and publishes the bundle unsigned with a SmartScreen disclaimer in the release notes.
+
+To populate the secrets locally and push them to the repo:
+
+```powershell
+$pfxBytes = [IO.File]::ReadAllBytes("C:\path\to\sign.pfx")
+$pfxBase64 = [Convert]::ToBase64String($pfxBytes)
+gh secret set SIGN_CERT_FILE_BASE64 --body $pfxBase64
+gh secret set SIGN_CERT_PASSWORD    --body "<password>"
+```
+
+Cert lifecycle hygiene: rotate the secret when the cert expires or is reissued; the PFX file written into `$RUNNER_TEMP` is wiped at the end of each workflow run, but base64-encoded PFX in a repo secret is still a sensitive artifact — manage repo collaborator access accordingly.
+
 ## Packaging notes
 
 - ProductCode values, UpgradeCode, Bundle Id, and Bundle UpgradeCode are locked in source for deterministic packaging; only override them intentionally for a new product line.
