@@ -109,6 +109,157 @@ public sealed class DualWriteMapBrowserMarkdownExportWorkflowTests
         }
     }
 
+    [Fact]
+    public async Task ExportMarkdownFilesAsync_ThrowsForMissingDestination()
+    {
+        var storePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-noop.json");
+        var viewModel = new DualWriteMapBrowserViewModel(new FakeContext(), new TestifyConfigurationStore(storePath));
+        var record = CreateRecord("map-1", "Customer Map");
+
+        try
+        {
+            var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                viewModel.ExportMarkdownFilesAsync(new[] { record }, string.Empty, CancellationToken.None));
+
+            Assert.Equal("A valid export directory is required.", exception.Message);
+        }
+        finally
+        {
+            if (File.Exists(storePath))
+            {
+                File.Delete(storePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ExportSelectedMarkdownCommand_SurfacesInvalidDestinationErrors()
+    {
+        var storePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-noop.json");
+        var viewModel = new DualWriteMapBrowserViewModel(new FakeContext(), new TestifyConfigurationStore(storePath));
+        var first = CreateRecord("map-1", "Customer Map");
+        var second = CreateRecord("map-2", "Customer Map");
+        first.IsSelected = true;
+        second.IsSelected = true;
+        viewModel.SelectedRecord = first;
+        viewModel.Records.Add(first);
+        viewModel.Records.Add(second);
+        viewModel.ChooseMarkdownExportDirectory = static () => string.Empty;
+
+        try
+        {
+            await viewModel.ExportSelectedMarkdownCommand.ExecuteAsync(CancellationToken.None);
+
+            Assert.Equal("Markdown export cancelled.", viewModel.StatusMessage);
+        }
+        finally
+        {
+            if (File.Exists(storePath))
+            {
+                File.Delete(storePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ExportMarkdownFilesAsync_ThrowsForUnwritableDestination()
+    {
+        var storePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-noop.json");
+        var exportFile = Path.Combine(Path.GetTempPath(), $"toolbax-export-file-{Guid.NewGuid():N}.tmp");
+        await File.WriteAllTextAsync(exportFile, "not a directory");
+
+        var viewModel = new DualWriteMapBrowserViewModel(new FakeContext(), new TestifyConfigurationStore(storePath));
+        var first = CreateRecord("map-1", "Customer Map");
+        var second = CreateRecord("map-2", "Customer Map");
+
+        try
+        {
+            var exception = await Assert.ThrowsAsync<IOException>(() =>
+                viewModel.ExportMarkdownFilesAsync(new[] { first, second }, exportFile, CancellationToken.None));
+
+            Assert.Equal($"The export destination '{exportFile}' is not a folder.", exception.Message);
+        }
+        finally
+        {
+            if (File.Exists(exportFile))
+            {
+                File.Delete(exportFile);
+            }
+
+            if (File.Exists(storePath))
+            {
+                File.Delete(storePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ExportMarkdownFilesAsync_ThrowsWhenDestinationAlreadyContainsGeneratedFile()
+    {
+        var storePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-noop.json");
+        var exportDirectory = Path.Combine(Path.GetTempPath(), $"toolbax-export-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(exportDirectory);
+        await File.WriteAllTextAsync(Path.Combine(exportDirectory, "Customer Map.md"), "existing");
+
+        var viewModel = new DualWriteMapBrowserViewModel(new FakeContext(), new TestifyConfigurationStore(storePath));
+        var record = CreateRecord("map-1", "Customer Map");
+
+        try
+        {
+            await Assert.ThrowsAsync<IOException>(() =>
+                viewModel.ExportMarkdownFilesAsync(new[] { record }, exportDirectory, CancellationToken.None));
+        }
+        finally
+        {
+            if (Directory.Exists(exportDirectory))
+            {
+                Directory.Delete(exportDirectory, recursive: true);
+            }
+
+            if (File.Exists(storePath))
+            {
+                File.Delete(storePath);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task ExportSelectedMarkdownCommand_SurfacesDestinationWriteErrors()
+    {
+        var storePath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-noop.json");
+        var exportFile = Path.Combine(Path.GetTempPath(), $"toolbax-export-file-{Guid.NewGuid():N}.tmp");
+        await File.WriteAllTextAsync(exportFile, "not a directory");
+
+        var viewModel = new DualWriteMapBrowserViewModel(new FakeContext(), new TestifyConfigurationStore(storePath));
+        var first = CreateRecord("map-1", "Customer Map");
+        var second = CreateRecord("map-2", "Customer Map");
+        first.IsSelected = true;
+        second.IsSelected = true;
+        viewModel.SelectedRecord = first;
+        viewModel.Records.Add(first);
+        viewModel.Records.Add(second);
+        viewModel.ChooseMarkdownExportDirectory = () => exportFile;
+
+        try
+        {
+            await viewModel.ExportSelectedMarkdownCommand.ExecuteAsync(CancellationToken.None);
+
+            Assert.Equal($"Markdown export failed: The export destination '{exportFile}' is not a folder.", viewModel.StatusMessage);
+        }
+        finally
+        {
+            if (File.Exists(exportFile))
+            {
+                File.Delete(exportFile);
+            }
+
+            if (File.Exists(storePath))
+            {
+                File.Delete(storePath);
+            }
+        }
+    }
+
     private static DualWriteMapRecord CreateRecord(string id, string displayName) =>
         new(
             id,
