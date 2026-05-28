@@ -15,6 +15,7 @@ internal sealed class TestifyConfigurationViewModel : INotifyPropertyChanged
     private readonly string _envId;
     private readonly string _mapId;
     private readonly Action? _onClose;
+    private readonly Action<TestifyMapConfiguration>? _onSaved;
     private TestifyMapConfiguration? _configuration;
 
     private HashSet<string> _omitCreateFields = new(StringComparer.OrdinalIgnoreCase);
@@ -189,12 +190,19 @@ internal sealed class TestifyConfigurationViewModel : INotifyPropertyChanged
     public AsyncRelayCommand SaveCommand { get; }
     public RelayCommand CloseCommand { get; }
 
-    public TestifyConfigurationViewModel(TestifyConfigurationStore store, string envId, string mapId, Action<Exception> onError, Action? onClose = null)
+    public TestifyConfigurationViewModel(
+        TestifyConfigurationStore store,
+        string envId,
+        string mapId,
+        Action<Exception> onError,
+        Action? onClose = null,
+        Action<TestifyMapConfiguration>? onSaved = null)
     {
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _envId = envId ?? throw new ArgumentNullException(nameof(envId));
         _mapId = mapId ?? throw new ArgumentNullException(nameof(mapId));
         _onClose = onClose;
+        _onSaved = onSaved;
 
         SaveCommand = new AsyncRelayCommand(SaveAsync, IsTimeoutValid, onError);
         CloseCommand = new RelayCommand(_ => _onClose?.Invoke());
@@ -262,6 +270,7 @@ internal sealed class TestifyConfigurationViewModel : INotifyPropertyChanged
 
             await _store.SaveAsync(_configuration, cancellationToken);
             ConfirmationMessage = "Settings saved.";
+            _onSaved?.Invoke(_configuration);
         }
         finally
         {
