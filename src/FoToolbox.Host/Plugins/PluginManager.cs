@@ -273,7 +273,11 @@ public sealed class PluginManager
         X509Certificate2? signer = null;
         try
         {
+            // CreateFromSignedFile extracts the Authenticode signer from a PE. X509CertificateLoader
+            // only loads raw cert files; there is no direct net9+ replacement for this use case.
+#pragma warning disable SYSLIB0057
             signer = new X509Certificate2(X509Certificate.CreateFromSignedFile(assemblyPath));
+#pragma warning restore SYSLIB0057
         }
         catch (CryptographicException)
         {

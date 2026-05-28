@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net8.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
@@ -24,7 +24,7 @@
       <PluginOutput Include="$(TargetDir)**\*.*" />
     </ItemGroup>
     <Copy SourceFiles="@(PluginOutput)"
-          DestinationFiles="@(PluginOutput->'$(RepoRoot)src\\FoToolbox.Host\\bin\\$(Configuration)\\net8.0-windows\\plugins\\QueryBuilder\\%(RecursiveDir)%(Filename)%(Extension)')"
+          DestinationFiles="@(PluginOutput->'$(RepoRoot)src\\FoToolbox.Host\\bin\\$(Configuration)\\$(TargetFramework)\\plugins\\QueryBuilder\\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
 
