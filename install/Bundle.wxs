@@ -1,6 +1,6 @@
 ﻿<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal" xmlns:util="http://wixtoolset.org/schemas/v4/wxs/util">
   <?ifndef NetDesktopRuntimeVersion?>
-    <?define NetDesktopRuntimeVersion="8.0.22" ?>
+    <?define NetDesktopRuntimeVersion="10.0.8" ?>
   <?endif?>
   <?ifndef NetDesktopRuntimeExe?>
     <?define NetDesktopRuntimeExe="redist\windowsdesktop-runtime-$(var.NetDesktopRuntimeVersion)-win-x64.exe" ?>
@@ -52,32 +52,32 @@
                                               LogoFile="theme\logo.png" />
     </BootstrapperApplication>
 
-    <Variable Name="NetDesktopRuntime80Version" Type="version" Value="0.0.0" />
-    <util:RegistrySearch Id="NetDesktopRuntime80"
+    <Variable Name="NetDesktopRuntime100Version" Type="version" Value="0.0.0" />
+    <util:RegistrySearch Id="NetDesktopRuntime100"
                          Root="HKLM"
                          Key="SOFTWARE\dotnet\Setup\InstalledVersions\x64\sharedfx\Microsoft.WindowsDesktop.App"
                          Value="Version"
-                         Variable="NetDesktopRuntime80Version" />
+                         Variable="NetDesktopRuntime100Version" />
 
     <Chain>
-      <PackageGroupRef Id="NetDesktopRuntime80" />
+      <PackageGroupRef Id="NetDesktopRuntime100" />
       <MsiPackage Id="FoToolboxMsiUser" SourceFile="$(var.FoToolboxUserMsiPath)" InstallCondition="InstallPerMachine = 0" />
       <MsiPackage Id="FoToolboxMsiMachine" SourceFile="$(var.FoToolboxMachineMsiPath)" InstallCondition="InstallPerMachine = 1" />
     </Chain>
   </Bundle>
 
   <Fragment>
-    <PackageGroup Id="NetDesktopRuntime80">
-      <ExePackage Id="NetDesktopRuntime80x64"
+    <PackageGroup Id="NetDesktopRuntime100">
+      <ExePackage Id="NetDesktopRuntime100x64"
                   Cache="keep"
                   PerMachine="yes"
                   Vital="yes"
-                  DetectCondition="NetDesktopRuntime80Version AND NetDesktopRuntime80Version &gt;= v$(var.NetDesktopRuntimeVersion)"
+                  DetectCondition="NetDesktopRuntime100Version AND NetDesktopRuntime100Version &gt;= v$(var.NetDesktopRuntimeVersion)"
                   InstallArguments="/install /quiet /norestart"
                   RepairArguments="/repair /quiet /norestart"
                   UninstallArguments="/uninstall /quiet /norestart">
         <ExePackagePayload Name="windowsdesktop-runtime-$(var.NetDesktopRuntimeVersion)-win-x64.exe"
-                           ProductName=".NET Desktop Runtime 8 (x64)"
+                           ProductName=".NET Desktop Runtime 10 (x64)"
                            Description=".NET Desktop Runtime $(var.NetDesktopRuntimeVersion) x64 redistributable"
                            Version="$(var.NetDesktopRuntimeVersion).0"
                            Hash="$(var.NetDesktopRuntimeHash)"
