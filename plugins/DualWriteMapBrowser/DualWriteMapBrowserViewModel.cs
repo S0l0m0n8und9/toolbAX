@@ -10,15 +10,18 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Data;
+using Microsoft.Win32;
 
 namespace DualWriteMapBrowserPlugin;
 
@@ -114,6 +117,7 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
         LoadSolutionsCommand = new AsyncRelayCommand(LoadSolutionsAsync, onError);
         RefreshCountSetupCommand = new AsyncRelayCommand(RefreshCountSetupAsync, onError);
         ValidateCountsCommand = new AsyncRelayCommand(ValidateCountsAsync, onError);
+        ExportSelectedMarkdownCommand = new AsyncRelayCommand(ExportSelectedMarkdownAsync, onError);
         PrepareTestifyCommand = new AsyncRelayCommand(PrepareTestifyAsync, onError);
         RunTestifyCommand = new AsyncRelayCommand(RunTestifyAsync, onError);
         CleanupTestifyCommand = new AsyncRelayCommand(CleanupTestifyAsync, onError);
@@ -142,6 +146,7 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
     public AsyncRelayCommand LoadSolutionsCommand { get; }
     public AsyncRelayCommand RefreshCountSetupCommand { get; }
     public AsyncRelayCommand ValidateCountsCommand { get; }
+    public AsyncRelayCommand ExportSelectedMarkdownCommand { get; }
     public RelayCommand ClearCommand { get; }
     public string DataverseEndpoint { get; }
     public ReadOnlyObservableCollection<PublisherOption> Publishers => _publishersReadOnly;
@@ -515,6 +520,49 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
         {
             IsLoading = false;
         }
+    }
+
+    private async Task ExportSelectedMarkdownAsync(CancellationToken cancellationToken)
+    {
+        var record = SelectedRecord;
+        if (record is null)
+        {
+            StatusMessage = "Select a dual-write map before exporting markdown.";
+            return;
+        }
+
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export dual-write map markdown",
+            Filter = "Markdown files (*.md)|*.md|All files (*.*)|*.*",
+            FileName = BuildMarkdownFileName(record),
+            OverwritePrompt = true
+        };
+
+        if (dialog.ShowDialog() != true)
+        {
+            StatusMessage = "Markdown export cancelled.";
+            return;
+        }
+
+        var markdown = DualWriteMapMarkdownExporter.Export(record);
+        await File.WriteAllTextAsync(dialog.FileName, markdown, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), cancellationToken);
+        StatusMessage = $"Exported markdown to {Path.GetFileName(dialog.FileName)}.";
+    }
+
+    private static string BuildMarkdownFileName(DualWriteMapRecord record)
+    {
+        var baseName = string.IsNullOrWhiteSpace(record.DisplayName)
+            ? record.Name
+            : record.DisplayName;
+        var invalidChars = Path.GetInvalidFileNameChars();
+        var sanitized = new string(baseName.Select(ch => invalidChars.Contains(ch) ? '-' : ch).ToArray()).Trim();
+        if (string.IsNullOrWhiteSpace(sanitized))
+        {
+            sanitized = "dual-write-map";
+        }
+
+        return $"{sanitized}.md";
     }
 
     private async Task LoadSolutionsAsync(CancellationToken cancellationToken)
@@ -2704,6 +2752,208 @@ public sealed class PropertyTableRow
     public string Key { get; }
     public string Type { get; }
     public string Value { get; }
+}
+
+public static class DualWriteMapMarkdownExporter
+{
+    private const string MissingValue = "(not set)";
+
+    public static string Export(DualWriteMapRecord record)
+    {
+        ArgumentNullException.ThrowIfNull(record);
+
+        var builder = new StringBuilder();
+        builder.AppendLine($"# {MarkdownEscape(ValueOrPlaceholder(record.DisplayName))}");
+        builder.AppendLine();
+        builder.AppendLine("## Map Details");
+        builder.AppendLine();
+        AppendKeyValue(builder, "Display Name", record.DisplayName);
+        AppendKeyValue(builder, "Name", record.Name);
+        AppendKeyValue(builder, "Map ID", record.Id);
+        AppendKeyValue(builder, "Solution ID", record.SolutionId);
+        AppendKeyValue(builder, "Version", record.Version);
+        AppendKeyValue(builder, "State", record.State);
+        AppendKeyValue(builder, "Status", record.Status);
+        AppendKeyValue(builder, "Owner", record.Owner);
+        AppendKeyValue(builder, "Created", record.CreatedOnDisplay);
+        AppendKeyValue(builder, "Modified", record.ModifiedOnDisplay);
+        builder.AppendLine();
+
+        AppendJsonRowsTable(builder, "Mapping Data", record.MappingRows);
+        AppendTwoColumnTable(builder, "Mapping Summary", "Key", "Value", record.MappingSummaryRows, row => row.Key, row => row.Value);
+        AppendMappingLegs(builder, record.MappingLegRows);
+        AppendMappingFields(builder, record.MappingFieldRows);
+        AppendValueTransforms(builder, record.MappingValueTransformRows);
+        AppendProperties(builder, record.PropertiesRows);
+        AppendCodeBlock(builder, "Raw Mapping JSON", record.MappingRaw);
+        AppendCodeBlock(builder, "Raw Properties JSON", record.PropertiesRaw);
+
+        return builder.ToString();
+    }
+
+    private static void AppendJsonRowsTable(StringBuilder builder, string title, IReadOnlyList<JsonTableRow> rows)
+    {
+        AppendSectionHeader(builder, title);
+        builder.AppendLine("| Path | Type | Value |");
+        builder.AppendLine("| --- | --- | --- |");
+        if (rows.Count == 0)
+        {
+            builder.AppendLine($"| {MissingValue} | {MissingValue} | {MissingValue} |");
+        }
+        else
+        {
+            foreach (var row in rows)
+            {
+                builder.AppendLine($"| {Cell(row.Path)} | {Cell(row.Type)} | {Cell(row.Value)} |");
+            }
+        }
+
+        builder.AppendLine();
+    }
+
+    private static void AppendMappingLegs(StringBuilder builder, IReadOnlyList<MappingLegRow> rows)
+    {
+        AppendSectionHeader(builder, "Mapping Legs");
+        builder.AppendLine("| Leg | Source Schema | Source Distinct Name | Destination Schema | Source Env | Destination Env | Source Filter | Reversed Filter | Field Mappings |");
+        builder.AppendLine("| --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+        if (rows.Count == 0)
+        {
+            builder.AppendLine($"| {MissingValue} | {MissingValue} | {MissingValue} | {MissingValue} | {MissingValue} | {MissingValue} | {MissingValue} | {MissingValue} | 0 |");
+        }
+        else
+        {
+            foreach (var row in rows)
+            {
+                builder.AppendLine($"| {Cell(row.LegId)} | {Cell(row.SourceSchema)} | {Cell(row.SourceSchemaDistinctName)} | {Cell(row.DestinationSchema)} | {Cell(row.SourceEnvironmentType)} | {Cell(row.DestinationEnvironmentType)} | {Cell(row.SourceFilter)} | {Cell(row.ReversedSourceFilter)} | {row.FieldMappings.ToString(CultureInfo.InvariantCulture)} |");
+            }
+        }
+
+        builder.AppendLine();
+    }
+
+    private static void AppendMappingFields(StringBuilder builder, IReadOnlyList<MappingFieldRow> rows)
+    {
+        AppendSectionHeader(builder, "Mapping Fields");
+        builder.AppendLine("| Leg | Sync Direction | Source Field | Destination Field | Lookup Entity | System Generated | Value Transforms | Source Schema | Destination Schema |");
+        builder.AppendLine("| --- | --- | --- | --- | --- | --- | --- | --- | --- |");
+        if (rows.Count == 0)
+        {
+            builder.AppendLine($"| {MissingValue} | {MissingValue} | {MissingValue} | {MissingValue} | {MissingValue} | {MissingValue} | 0 | {MissingValue} | {MissingValue} |");
+        }
+        else
+        {
+            foreach (var row in rows)
+            {
+                builder.AppendLine($"| {Cell(row.LegId)} | {Cell(row.SyncDirection)} | {Cell(row.SourceField)} | {Cell(row.DestinationField)} | {Cell(row.DestinationLookupEntity)} | {Cell(FormatNullableBool(row.IsSystemGenerated))} | {row.ValueTransforms.ToString(CultureInfo.InvariantCulture)} | {Cell(row.SourceSchema)} | {Cell(row.DestinationSchema)} |");
+            }
+        }
+
+        builder.AppendLine();
+    }
+
+    private static void AppendValueTransforms(StringBuilder builder, IReadOnlyList<MappingValueTransformRow> rows)
+    {
+        AppendSectionHeader(builder, "Value Transforms");
+        builder.AppendLine("| Leg | Source Field | Destination Field | Transform Type | Default Value | Value Map | Create Values On Destination |");
+        builder.AppendLine("| --- | --- | --- | --- | --- | --- | --- |");
+        if (rows.Count == 0)
+        {
+            builder.AppendLine($"| {MissingValue} | {MissingValue} | {MissingValue} | {MissingValue} | {MissingValue} | {MissingValue} | {MissingValue} |");
+        }
+        else
+        {
+            foreach (var row in rows)
+            {
+                builder.AppendLine($"| {Cell(row.LegId)} | {Cell(row.SourceField)} | {Cell(row.DestinationField)} | {Cell(row.TransformType)} | {Cell(row.DefaultValue)} | {Cell(row.ValueMap)} | {Cell(FormatNullableBool(row.CreateValuesOnDestination))} |");
+            }
+        }
+
+        builder.AppendLine();
+    }
+
+    private static void AppendProperties(StringBuilder builder, IReadOnlyList<PropertyTableRow> rows)
+    {
+        AppendSectionHeader(builder, "Properties");
+        builder.AppendLine("| Key | Type | Value |");
+        builder.AppendLine("| --- | --- | --- |");
+        if (rows.Count == 0)
+        {
+            builder.AppendLine($"| {MissingValue} | {MissingValue} | {MissingValue} |");
+        }
+        else
+        {
+            foreach (var row in rows)
+            {
+                builder.AppendLine($"| {Cell(row.Key)} | {Cell(row.Type)} | {Cell(row.Value)} |");
+            }
+        }
+
+        builder.AppendLine();
+    }
+
+    private static void AppendTwoColumnTable<T>(StringBuilder builder, string title, string firstColumn, string secondColumn, IReadOnlyList<T> rows, Func<T, string> firstSelector, Func<T, string> secondSelector)
+    {
+        AppendSectionHeader(builder, title);
+        builder.AppendLine($"| {firstColumn} | {secondColumn} |");
+        builder.AppendLine("| --- | --- |");
+        if (rows.Count == 0)
+        {
+            builder.AppendLine($"| {MissingValue} | {MissingValue} |");
+        }
+        else
+        {
+            foreach (var row in rows)
+            {
+                builder.AppendLine($"| {Cell(firstSelector(row))} | {Cell(secondSelector(row))} |");
+            }
+        }
+
+        builder.AppendLine();
+    }
+
+    private static void AppendCodeBlock(StringBuilder builder, string title, string? value)
+    {
+        AppendSectionHeader(builder, title);
+        builder.AppendLine("```json");
+        builder.AppendLine(ValueOrPlaceholder(value));
+        builder.AppendLine("```");
+        builder.AppendLine();
+    }
+
+    private static void AppendSectionHeader(StringBuilder builder, string title)
+    {
+        builder.AppendLine($"## {title}");
+        builder.AppendLine();
+    }
+
+    private static void AppendKeyValue(StringBuilder builder, string key, string? value)
+    {
+        builder.AppendLine($"- **{MarkdownEscape(key)}:** {MarkdownEscape(ValueOrPlaceholder(value))}");
+    }
+
+    private static string Cell(string? value)
+    {
+        return MarkdownEscape(ValueOrPlaceholder(value));
+    }
+
+    private static string ValueOrPlaceholder(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? MissingValue : value;
+    }
+
+    private static string FormatNullableBool(bool? value)
+    {
+        return value.HasValue ? (value.Value ? "true" : "false") : MissingValue;
+    }
+
+    private static string MarkdownEscape(string value)
+    {
+        return value
+            .Replace("|", "\\|", StringComparison.Ordinal)
+            .Replace("\r\n", "<br>", StringComparison.Ordinal)
+            .Replace("\n", "<br>", StringComparison.Ordinal)
+            .Replace("\r", "<br>", StringComparison.Ordinal);
+    }
 }
 
 public sealed class FoEntityOption
