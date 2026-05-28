@@ -59,6 +59,15 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            for (var cur = ex; cur is not null; cur = cur.InnerException)
+            {
+                if (cur is System.Windows.Markup.XamlParseException xpe)
+                {
+                    _logger.LogError(
+                        "XAML parse error at line {Line}, position {Pos}. BaseUri={BaseUri}, Key={Key}, Name={Name}, Uid={Uid}. Inner: {Inner}",
+                        xpe.LineNumber, xpe.LinePosition, xpe.BaseUri, xpe.KeyContext, xpe.NameContext, xpe.UidContext, xpe.InnerException);
+                }
+            }
             _logger.LogError(ex, "Failed during startup plugin load.");
             MessageBox.Show($"Startup failed: {ex.Message}", "FOtoolbox", MessageBoxButton.OK, MessageBoxImage.Error);
         }
