@@ -94,7 +94,7 @@ if ([string]::IsNullOrWhiteSpace($BundlePath)) {
     $BundlePath = Join-Path $installDir "FoToolboxBundle.exe"
 }
 if ([string]::IsNullOrWhiteSpace($RuntimeExe)) {
-    $RuntimeExe = Join-Path $installDir "redist\\windowsdesktop-runtime-8.0.22-win-x64.exe"
+    $RuntimeExe = Join-Path $installDir "redist\\windowsdesktop-runtime-10.0.8-win-x64.exe"
 }
 
 if ([string]::IsNullOrWhiteSpace($ProductCodeUser)) {
@@ -411,7 +411,7 @@ foreach ($pluginName in $bundledPlugins) {
     $pluginDirectory = Join-Path $pluginsOut $pluginName
     New-Item -ItemType Directory -Force -Path $pluginDirectory | Out-Null
 
-    $source = Join-Path $repoRoot "plugins\\$pluginName\\bin\\$Configuration\\net8.0-windows\\$pluginName.dll"
+    $source = Join-Path $repoRoot "plugins\\$pluginName\\bin\\$Configuration\\net10.0-windows\\$pluginName.dll"
     $destination = Join-Path $pluginDirectory "$pluginName.dll"
     Copy-Item $source -Destination $destination -Force
 }

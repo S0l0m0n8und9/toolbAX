@@ -11,10 +11,10 @@ Current state
 - `profile.db` is created on first run under `%LOCALAPPDATA%\FoToolbox\profile.db` and is preserved on uninstall/upgrade (not packaged into the MSI).
 - Profiles can be managed in-app via the built-in **Profiles** tool; client secrets are stored via DPAPI in `profile.db` (`SecretVault`).
 - Start menu shortcut (Program Menu\FOtoolbox\FOtoolbox) launches `%LOCALAPPDATA%\FoToolbox\bin\FoToolbox.Host.exe`.
-- Burn bootstrapper (`Bundle.wxs`) chains .NET Desktop Runtime 8.0 (registry-detected) with silent install arguments, then either `FoToolbox.User.msi` or `FoToolbox.Machine.msi` based on the install-scope checkbox.
+- Burn bootstrapper (`Bundle.wxs`) chains .NET Desktop Runtime 10.0 (registry-detected) with silent install arguments, then either `FoToolbox.User.msi` or `FoToolbox.Machine.msi` based on the install-scope checkbox.
 - Runtime bootstrapper uses variables:
-  - `NetDesktopRuntimeVersion` (default `8.0.22`)
-  - `NetDesktopRuntimeExe` (path to the runtime installer, default `redist/windowsdesktop-runtime-8.0.22-win-x64.exe` when building from `install/`)
+  - `NetDesktopRuntimeVersion` (default `10.0.8`)
+  - `NetDesktopRuntimeExe` (path to the runtime installer, default `redist/windowsdesktop-runtime-10.0.8-win-x64.exe` when building from `install/`)
   - `NetDesktopRuntimeUrl` (fallback download URL; default aka.ms alias)
   - `FoToolboxUserMsiPath` (path to the per-user MSI; default `FoToolbox.User.msi`)
   - `FoToolboxMachineMsiPath` (path to the per-machine MSI; default `FoToolbox.Machine.msi`)
@@ -126,7 +126,7 @@ If you prefer building from the repo root (instead of `cd install`), override th
 wix build install/Bundle.wxs `
   -d FoToolboxUserMsiPath=install/FoToolbox.User.msi `
   -d FoToolboxMachineMsiPath=install/FoToolbox.Machine.msi `
-  -d NetDesktopRuntimeExe=install/redist/windowsdesktop-runtime-8.0.22-win-x64.exe `
+  -d NetDesktopRuntimeExe=install/redist/windowsdesktop-runtime-10.0.8-win-x64.exe `
   -o install/FoToolboxBundle.exe `
   -ext WixToolset.Bal.wixext `
   -ext WixToolset.Util.wixext

@@ -342,7 +342,12 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         expected = expected.Replace(" ", string.Empty, StringComparison.OrdinalIgnoreCase).ToUpperInvariant();
         try
         {
+            // X509Certificate2(string) extracts the Authenticode signer from a signed binary.
+            // X509CertificateLoader.LoadCertificateFromFile only handles raw .cer/.pem, not embedded
+            // PE signatures — no direct net9+ replacement; suppression is the documented stance.
+#pragma warning disable SYSLIB0057
             var cert = new X509Certificate2(path);
+#pragma warning restore SYSLIB0057
             var thumb = (cert.Thumbprint ?? string.Empty).Replace(" ", string.Empty, StringComparison.OrdinalIgnoreCase).ToUpperInvariant();
             if (!string.Equals(thumb, expected, StringComparison.OrdinalIgnoreCase))
             {
