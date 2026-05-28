@@ -12,7 +12,32 @@ namespace FoToolbox.Tests;
 public sealed class DualWriteMapBrowserViewModelTestifySettingsTests
 {
     [Fact]
-    public async Task SaveAndReload_PersistsSelectedMapSettingsAcrossViewModelInstances()
+    public void OpenTestifySettings_WithoutSelectedRecord_ShowsStatusMessageAndStaysHidden()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-settings.json");
+
+        try
+        {
+            var store = new TestifyConfigurationStore(path);
+            var viewModel = new DualWriteMapBrowserViewModel(new FakeContext(), store);
+
+            viewModel.OpenTestifySettingsCommand.Execute(null);
+
+            Assert.False(viewModel.IsTestifySettingsVisible);
+            Assert.Null(viewModel.TestifySettingsViewModel);
+            Assert.Equal("Select a dual-write map before opening Testify settings.", viewModel.StatusMessage);
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Fact]
+    public async Task OpenTestifySettings_WithSelectedRecord_CreatesModalViewModelLoadedFromStore()
     {
         var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-settings.json");
 
@@ -30,37 +55,63 @@ public sealed class DualWriteMapBrowserViewModelTestifySettingsTests
             await store.SaveAsync(seeded, CancellationToken.None);
 
             var viewModel = new DualWriteMapBrowserViewModel(new FakeContext(), store);
-
             viewModel.SelectedRecord = CreateRecord("map-a", "Map A");
-            await WaitForAsync(() => viewModel.TestifyCePollTimeoutMinutesText == "7");
 
-            Assert.Equal("FieldA", viewModel.TestifyOmitCreateFieldsText);
-            Assert.Equal("CurrencyCode=USD", viewModel.TestifyPreferredCreateValuesText);
-            Assert.Equal("7", viewModel.TestifyCePollTimeoutMinutesText);
-            Assert.True(viewModel.TestifyAllowPartialEnumCoverage);
+            viewModel.OpenTestifySettingsCommand.Execute(null);
 
-            viewModel.SelectedRecord = CreateRecord("map-b", "Map B");
-            await WaitForAsync(() => viewModel.TestifyCePollTimeoutMinutesText == "5");
+            Assert.True(viewModel.IsTestifySettingsVisible);
+            Assert.NotNull(viewModel.TestifySettingsViewModel);
 
-            Assert.Equal(string.Empty, viewModel.TestifyOmitCreateFieldsText);
-            Assert.Equal(string.Empty, viewModel.TestifyPreferredCreateValuesText);
-            Assert.False(viewModel.TestifyAllowPartialEnumCoverage);
+            var modal = viewModel.TestifySettingsViewModel!;
+            await WaitForAsync(() => modal.CePollTimeoutMinutes == 7);
 
-            viewModel.TestifyOmitCreateFieldsText = "FieldB\r\nFieldC";
-            viewModel.TestifyPreferredCreateValuesText = "NumberSequenceGroup=STD";
-            viewModel.TestifyCePollTimeoutMinutesText = "11";
-            viewModel.TestifyAllowPartialEnumCoverage = true;
+            Assert.Equal("FieldA", modal.OmitCreateFieldsText);
+            Assert.Equal("CurrencyCode=USD", modal.PreferredCreateValuesText);
+            Assert.Equal(7, modal.CePollTimeoutMinutes);
+            Assert.True(modal.AllowPartialEnumCoverage);
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
 
-            await viewModel.SaveTestifySettingsCommand.ExecuteAsync();
+    [Fact]
+    public async Task ModalSave_PersistsThroughStore_AndCloseCommandClearsViewModel()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-settings.json");
 
-            var reloadedViewModel = new DualWriteMapBrowserViewModel(new FakeContext(), store);
-            reloadedViewModel.SelectedRecord = CreateRecord("map-b", "Map B");
-            await WaitForAsync(() => reloadedViewModel.TestifyCePollTimeoutMinutesText == "11");
+        try
+        {
+            var store = new TestifyConfigurationStore(path);
+            var viewModel = new DualWriteMapBrowserViewModel(new FakeContext(), store);
+            viewModel.SelectedRecord = CreateRecord("map-a", "Map A");
+            viewModel.OpenTestifySettingsCommand.Execute(null);
 
-            Assert.Equal("FieldB\r\nFieldC", reloadedViewModel.TestifyOmitCreateFieldsText);
-            Assert.Equal("NumberSequenceGroup=STD", reloadedViewModel.TestifyPreferredCreateValuesText);
-            Assert.Equal("11", reloadedViewModel.TestifyCePollTimeoutMinutesText);
-            Assert.True(reloadedViewModel.TestifyAllowPartialEnumCoverage);
+            var modal = viewModel.TestifySettingsViewModel!;
+            await Task.Delay(150);
+
+            modal.OmitCreateFieldsText = "FieldB\r\nFieldC";
+            modal.PreferredCreateValuesText = "NumberSequenceGroup=STD";
+            modal.CePollTimeoutMinutes = 11;
+            modal.AllowPartialEnumCoverage = true;
+
+            await modal.SaveCommand.ExecuteAsync();
+
+            Assert.Contains("Saved Testify settings for 'Map A'", viewModel.StatusMessage);
+
+            modal.CloseCommand.Execute(null);
+            Assert.False(viewModel.IsTestifySettingsVisible);
+            Assert.Null(viewModel.TestifySettingsViewModel);
+
+            var reloaded = await store.GetOrCreateAsync("env-1", "map-a", CancellationToken.None);
+            Assert.Equal(new HashSet<string>(new[] { "FieldB", "FieldC" }, StringComparer.OrdinalIgnoreCase), reloaded.OmitCreateFields);
+            Assert.Equal("STD", reloaded.PreferredCreateValues["NumberSequenceGroup"]);
+            Assert.Equal(11, reloaded.CePollTimeoutMinutes);
+            Assert.True(reloaded.AllowPartialEnumCoverage);
         }
         finally
         {

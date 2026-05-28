@@ -203,7 +203,7 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
         }
     }
 
-    public bool IsBusy => IsLoading || IsLoadingSolutions || IsCounting || IsPreparingTestify || IsRunningTestify || IsLoadingTestifySettings || IsSavingTestifySettings;
+    public bool IsBusy => IsLoading || IsLoadingSolutions || IsCounting || IsPreparingTestify || IsRunningTestify;
 
     public bool FilterBySolution
     {
@@ -267,7 +267,6 @@ public sealed partial class DualWriteMapBrowserViewModel : INotifyPropertyChange
 
             _selectedRecord = value;
             OnPropertyChanged();
-            OnSelectedRecordChanged();
         }
     }
 
