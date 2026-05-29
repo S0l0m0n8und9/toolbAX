@@ -5,6 +5,8 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>$(MSBuildProjectDirectory)\..\..\build\fotoolbox.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
 
   <ItemGroup>

@@ -8,6 +8,8 @@
     <CopyLocalLockFileAssemblies>true</CopyLocalLockFileAssemblies>
     <RepoRoot Condition="'$(RepoRoot)' == '' and '$(SolutionDir)' != ''">$(SolutionDir)</RepoRoot>
     <RepoRoot Condition="'$(RepoRoot)' == ''">$(MSBuildProjectDirectory)\..\..\</RepoRoot>
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>$(MSBuildProjectDirectory)\..\..\build\fotoolbox.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>
 
   <ItemGroup>
