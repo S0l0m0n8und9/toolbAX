@@ -1,0 +1,281 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
+using DualWriteOperationsPlugin;
+using FoToolbox.Core.Catalog;
+using FoToolbox.Core.DualWrite;
+using FoToolbox.Core.Models;
+using FoToolbox.Core.OData;
+using FoToolbox.SDK.Plugins;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
+
+namespace FoToolbox.Tests;
+
+public class DualWriteOperationsViewModelTests
+{
+    private sealed class PassthroughProtector : ITokenProtector
+    {
+        public string Protect(string plaintext) => plaintext;
+        public string? Unprotect(string protectedValue) => protectedValue;
+    }
+
+    private sealed class FakeGateway : IDualWriteGateway
+    {
+        public DualWriteEnvironment Environment { get; set; } = new("C1", "contoso-link", "id");
+        public List<DualWriteMap> MapsList { get; } = new();
+        public List<(DualWriteActionType Action, int MapCount, string Cid)> Actions { get; } = new();
+        public DualWriteActionResponse ActionResponse { get; set; } = new("req-1", "1");
+        public Queue<DualWriteRequestStatus> StatusQueue { get; } = new();
+        public int GetMapsCalls { get; private set; }
+
+        public Task<DualWriteEnvironment> GetEnvironmentAsync(string foIdentifier, CancellationToken ct = default) =>
+            Task.FromResult(Environment);
+
+        public Task<IReadOnlyList<DualWriteMap>> GetMapsAsync(string cid, CancellationToken ct = default)
+        {
+            GetMapsCalls++;
+            return Task.FromResult<IReadOnlyList<DualWriteMap>>(MapsList.ToList());
+        }
+
+        public Task<DualWriteActionResponse> StartActionAsync(DualWriteActionType action, IReadOnlyList<DualWriteMap> maps, string cid, CancellationToken ct = default)
+        {
+            Actions.Add((action, maps.Count, cid));
+            return Task.FromResult(ActionResponse);
+        }
+
+        public Task<DualWriteRequestStatus> GetStatusAsync(string requestId, CancellationToken ct = default) =>
+            Task.FromResult(StatusQueue.Count > 0
+                ? StatusQueue.Dequeue()
+                : new DualWriteRequestStatus(requestId, "2", true, true, null));
+    }
+
+    private sealed class FakeFactory : IDualWriteGatewayFactory
+    {
+        private readonly IDualWriteGateway _gateway;
+        public FakeFactory(IDualWriteGateway gateway) => _gateway = gateway;
+        public IDualWriteGateway Create(DualWriteConnectionSettings settings) => _gateway;
+    }
+
+    private sealed class FakeContext : IPluginContext
+    {
+        public FoEnvironment CurrentEnv { get; set; } =
+            new("env-1", "UAT", "https://uat.operations.dynamics.com", "tenant-1", null);
+        public IODataClient OData => null!;
+        public ICatalogService Catalog => null!;
+        public Microsoft.Extensions.Logging.ILogger Logger => NullLogger.Instance;
+    }
+
+    private static DualWriteMap Map(string id, string name = "Map") =>
+        new(id, name, name, $"pid-{id}", "Stopped", new DualWriteTemplate($"t-{id}", "1.0", "MS"), Array.Empty<DualWriteTemplate>());
+
+    private static async Task<DualWriteConnectionStore> SeededStoreAsync(string path)
+    {
+        var store = new DualWriteConnectionStore(path, new PassthroughProtector());
+        await store.SaveAsync(new DualWriteConnectionSettings("env-1", "https://gw.example", "uat-fo", "tok-123"), CancellationToken.None);
+        return store;
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task LoadMaps_ResolvesEnvironmentAndPopulatesMaps()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway();
+            gateway.MapsList.Add(Map("a", "Customers"));
+            gateway.MapsList.Add(Map("b", "Vendors"));
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway));
+
+            await vm.LoadMapsCommand.ExecuteAsync();
+
+            Assert.Equal(2, vm.Maps.Count);
+            Assert.Contains(vm.Maps, m => m.Name == "Customers");
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task StartAction_WithoutSelection_DoesNotCallGateway()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway();
+            gateway.MapsList.Add(Map("a"));
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
+            {
+                ConfirmAction = (_, _) => true
+            };
+            await vm.LoadMapsCommand.ExecuteAsync();
+
+            await vm.StartCommand.ExecuteAsync();
+
+            Assert.Empty(gateway.Actions);
+            Assert.Contains("Select at least one map", vm.StatusMessage);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task StartAction_Confirmed_SubmitsActionAndPollsToCompletion()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway();
+            gateway.MapsList.Add(Map("a"));
+            gateway.StatusQueue.Enqueue(new DualWriteRequestStatus("req-1", "running", false, false, null));
+            gateway.StatusQueue.Enqueue(new DualWriteRequestStatus("req-1", "2", true, true, null));
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
+            {
+                ConfirmAction = (_, _) => true,
+                PollInterval = TimeSpan.Zero
+            };
+            await vm.LoadMapsCommand.ExecuteAsync();
+            vm.Maps[0].IsSelected = true;
+
+            await vm.StartCommand.ExecuteAsync();
+
+            var action = Assert.Single(gateway.Actions);
+            Assert.Equal(DualWriteActionType.Start, action.Action);
+            Assert.Equal(1, action.MapCount);
+            Assert.Equal("C1", action.Cid);
+            Assert.Contains("completed", vm.StatusMessage, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task Action_Declined_DoesNotSubmit()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway();
+            gateway.MapsList.Add(Map("a"));
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
+            {
+                ConfirmAction = (_, _) => false
+            };
+            await vm.LoadMapsCommand.ExecuteAsync();
+            vm.Maps[0].IsSelected = true;
+
+            await vm.StopCommand.ExecuteAsync();
+
+            Assert.Empty(gateway.Actions);
+            Assert.Contains("cancelled", vm.StatusMessage, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+}
+
+public class DualWriteConnectionStoreTests
+{
+    private sealed class PassthroughProtector : ITokenProtector
+    {
+        public string Protect(string plaintext) => "P:" + plaintext;
+        public string? Unprotect(string protectedValue) => protectedValue.StartsWith("P:") ? protectedValue[2..] : protectedValue;
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task SaveThenGet_RoundTripsAllFields_AndDecryptsToken()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = new DualWriteConnectionStore(path, new PassthroughProtector());
+            await store.SaveAsync(new DualWriteConnectionSettings("env-1", "https://gw", "uat-fo", "secret"), CancellationToken.None);
+
+            var reloaded = new DualWriteConnectionStore(path, new PassthroughProtector());
+            var settings = await reloaded.GetAsync("env-1", CancellationToken.None);
+
+            Assert.Equal("https://gw", settings.GatewayBaseUrl);
+            Assert.Equal("uat-fo", settings.FoIdentifier);
+            Assert.Equal("secret", settings.BearerToken);
+            Assert.True(settings.IsComplete);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task TokenIsNotStoredInPlaintext()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = new DualWriteConnectionStore(path, new PassthroughProtector());
+            await store.SaveAsync(new DualWriteConnectionSettings("env-1", "https://gw", "uat-fo", "secret"), CancellationToken.None);
+
+            var raw = await File.ReadAllTextAsync(path);
+            Assert.DoesNotContain("\"secret\"", raw);
+            Assert.Contains("P:secret", raw);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task Connections_AreIsolatedPerEnvironment()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = new DualWriteConnectionStore(path, new PassthroughProtector());
+            await store.SaveAsync(new DualWriteConnectionSettings("env-a", "https://a", "id-a", "tok-a"), CancellationToken.None);
+            await store.SaveAsync(new DualWriteConnectionSettings("env-b", "https://b", "id-b", "tok-b"), CancellationToken.None);
+
+            var a = await store.GetAsync("env-a", CancellationToken.None);
+            var b = await store.GetAsync("env-b", CancellationToken.None);
+
+            Assert.Equal("https://a", a.GatewayBaseUrl);
+            Assert.Equal("tok-b", b.BearerToken);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task DpapiProtector_RoundTrips()
+    {
+        var protector = new DpapiTokenProtector();
+        var protectedValue = protector.Protect("super-secret-token");
+        Assert.NotEqual("super-secret-token", protectedValue);
+        Assert.Equal("super-secret-token", protector.Unprotect(protectedValue));
+        await Task.CompletedTask;
+    }
+}

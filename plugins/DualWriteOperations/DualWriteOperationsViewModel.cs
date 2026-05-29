@@ -1,0 +1,315 @@
+using FoToolbox.Core.DualWrite;
+using FoToolbox.SDK.Commands;
+using FoToolbox.SDK.Plugins;
+using Microsoft.Extensions.Logging;
+using System;
+using System.Collections.ObjectModel;
+using System.ComponentModel;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using System.Threading;
+using System.Threading.Tasks;
+using System.Windows;
+
+namespace DualWriteOperationsPlugin;
+
+/// <summary>
+/// Drives the Dual-write Management gateway: resolve environment, list maps, and run
+/// lifecycle actions (start/stop/pause/resume/initial-sync) with live status polling.
+/// Connection settings (gateway URL, F&amp;O identifier, bearer token) are owned by the
+/// plugin via <see cref="DualWriteConnectionStore"/> — the host auth/profile schema is
+/// untouched for this bearer-token-now v1.
+/// </summary>
+public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
+{
+    private readonly IPluginContext _ctx;
+    private readonly DualWriteConnectionStore _store;
+    private readonly IDualWriteGatewayFactory _factory;
+    private readonly string _envId;
+
+    private IDualWriteGateway? _gateway;
+    private string? _cid;
+    private string _gatewayBaseUrl = string.Empty;
+    private string _foIdentifier = string.Empty;
+    private string _bearerToken = string.Empty;
+    private string _statusMessage = "Configure the connection, then Load Maps.";
+    private string _connectionSummary = "Not connected.";
+    private bool _isBusy;
+
+    /// <summary>Confirmation gate for mutating actions. Overridable for tests.</summary>
+    internal Func<string, string, bool> ConfirmAction { get; set; } = DefaultConfirm;
+
+    /// <summary>Status poll cadence; small in tests.</summary>
+    internal TimeSpan PollInterval { get; set; } = TimeSpan.FromSeconds(3);
+
+    /// <summary>Maximum status polls before giving up and telling the user to check the portal.</summary>
+    internal int MaxPollAttempts { get; set; } = 40;
+
+    public DualWriteOperationsViewModel(IPluginContext ctx)
+        : this(ctx, new DualWriteConnectionStore(), new DualWriteGatewayFactory())
+    {
+    }
+
+    internal DualWriteOperationsViewModel(IPluginContext ctx, DualWriteConnectionStore store, IDualWriteGatewayFactory factory)
+    {
+        _ctx = ctx ?? throw new ArgumentNullException(nameof(ctx));
+        _store = store ?? throw new ArgumentNullException(nameof(store));
+        _factory = factory ?? throw new ArgumentNullException(nameof(factory));
+        _envId = ctx.CurrentEnv.Id;
+
+        Action<Exception> onError = ex =>
+        {
+            _ctx.Logger.LogError(ex, "DualWriteOperations command failed.");
+            StatusMessage = $"Command failed: {ex.Message}";
+            IsBusy = false;
+        };
+
+        SaveConnectionCommand = new AsyncRelayCommand(SaveConnectionAsync, onError);
+        LoadMapsCommand = new AsyncRelayCommand(LoadMapsAsync, onError);
+        StartCommand = new AsyncRelayCommand(ct => ExecuteActionAsync(DualWriteActionType.Start, ct), onError);
+        StopCommand = new AsyncRelayCommand(ct => ExecuteActionAsync(DualWriteActionType.Stop, ct), onError);
+        PauseCommand = new AsyncRelayCommand(ct => ExecuteActionAsync(DualWriteActionType.Pause, ct), onError);
+        ResumeCommand = new AsyncRelayCommand(ct => ExecuteActionAsync(DualWriteActionType.Resume, ct), onError);
+        InitialSyncCommand = new AsyncRelayCommand(ct => ExecuteActionAsync(DualWriteActionType.InitialSync, ct), onError);
+
+        _ = InitializeAsync();
+    }
+
+    public ObservableCollection<DualWriteMapRow> Maps { get; } = new();
+
+    public AsyncRelayCommand SaveConnectionCommand { get; }
+    public AsyncRelayCommand LoadMapsCommand { get; }
+    public AsyncRelayCommand StartCommand { get; }
+    public AsyncRelayCommand StopCommand { get; }
+    public AsyncRelayCommand PauseCommand { get; }
+    public AsyncRelayCommand ResumeCommand { get; }
+    public AsyncRelayCommand InitialSyncCommand { get; }
+
+    public string EnvironmentName => _ctx.CurrentEnv.Name;
+
+    public string GatewayBaseUrl
+    {
+        get => _gatewayBaseUrl;
+        set { if (_gatewayBaseUrl != value) { _gatewayBaseUrl = value; OnPropertyChanged(); } }
+    }
+
+    public string FoIdentifier
+    {
+        get => _foIdentifier;
+        set { if (_foIdentifier != value) { _foIdentifier = value; OnPropertyChanged(); } }
+    }
+
+    public string BearerToken
+    {
+        get => _bearerToken;
+        set { if (_bearerToken != value) { _bearerToken = value; OnPropertyChanged(); } }
+    }
+
+    public string StatusMessage
+    {
+        get => _statusMessage;
+        set { _statusMessage = value; OnPropertyChanged(); }
+    }
+
+    public string ConnectionSummary
+    {
+        get => _connectionSummary;
+        set { _connectionSummary = value; OnPropertyChanged(); }
+    }
+
+    public bool IsBusy
+    {
+        get => _isBusy;
+        set { if (_isBusy != value) { _isBusy = value; OnPropertyChanged(); OnPropertyChanged(nameof(IsNotBusy)); } }
+    }
+
+    public bool IsNotBusy => !IsBusy;
+
+    private async Task InitializeAsync()
+    {
+        try
+        {
+            var settings = await _store.GetAsync(_envId, CancellationToken.None);
+            GatewayBaseUrl = settings.GatewayBaseUrl;
+            FoIdentifier = string.IsNullOrWhiteSpace(settings.FoIdentifier)
+                ? _ctx.CurrentEnv.BaseUrl
+                : settings.FoIdentifier;
+            UpdateConnectionSummary(settings);
+        }
+        catch (Exception ex)
+        {
+            _ctx.Logger.LogError(ex, "Failed loading saved dual-write connection.");
+        }
+    }
+
+    private async Task SaveConnectionAsync(CancellationToken ct)
+    {
+        // Preserve a previously stored token when the box is left blank (so users don't
+        // have to re-paste the secret just to tweak the URL or identifier).
+        var token = BearerToken;
+        if (string.IsNullOrWhiteSpace(token))
+        {
+            var existing = await _store.GetAsync(_envId, ct);
+            token = existing.BearerToken ?? string.Empty;
+        }
+
+        var settings = new DualWriteConnectionSettings(
+            _envId,
+            GatewayBaseUrl?.Trim() ?? string.Empty,
+            FoIdentifier?.Trim() ?? string.Empty,
+            token);
+
+        await _store.SaveAsync(settings, ct);
+        BearerToken = string.Empty;
+        _gateway = null;
+        _cid = null;
+        UpdateConnectionSummary(settings);
+        StatusMessage = settings.IsComplete
+            ? "Connection saved. Click Load Maps."
+            : "Saved. Provide the gateway URL, F&O identifier and bearer token to enable operations.";
+    }
+
+    private async Task LoadMapsAsync(CancellationToken ct)
+    {
+        var settings = await _store.GetAsync(_envId, ct);
+        if (!settings.IsComplete)
+        {
+            StatusMessage = "Configure the gateway URL, F&O identifier and bearer token, then Save.";
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            _gateway = _factory.Create(settings);
+            StatusMessage = "Resolving dual-write environment...";
+            var env = await _gateway.GetEnvironmentAsync(settings.FoIdentifier, ct);
+            _cid = env.Cid;
+            if (string.IsNullOrWhiteSpace(_cid))
+            {
+                StatusMessage = "Environment resolved but no connection id (cid) was returned. Check the identifier and token.";
+                return;
+            }
+
+            StatusMessage = $"Loading maps for {DescribeEnv(env)}...";
+            var maps = await _gateway.GetMapsAsync(_cid, ct);
+            Maps.Clear();
+            foreach (var map in maps)
+            {
+                Maps.Add(new DualWriteMapRow(map));
+            }
+
+            ConnectionSummary = $"Connected to {DescribeEnv(env)} — {maps.Count} map(s).";
+            StatusMessage = $"Loaded {maps.Count} map(s).";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task ExecuteActionAsync(DualWriteActionType action, CancellationToken ct)
+    {
+        if (_gateway is null || string.IsNullOrWhiteSpace(_cid))
+        {
+            StatusMessage = "Load maps before running an action.";
+            return;
+        }
+
+        var selected = Maps.Where(r => r.IsSelected).Select(r => r.Map).ToList();
+        if (selected.Count == 0)
+        {
+            StatusMessage = "Select at least one map (checkbox) before running an action.";
+            return;
+        }
+
+        var names = string.Join(", ", selected.Select(m => string.IsNullOrWhiteSpace(m.DisplayName) ? m.Name : m.DisplayName));
+        var detail = $"{action.ToDisplayName()} the following map(s) on the LIVE environment '{EnvironmentName}'?\n\n{names}";
+        if (action == DualWriteActionType.InitialSync)
+        {
+            detail += "\n\nInitial sync re-synchronises data and can be long-running.";
+        }
+
+        if (!ConfirmAction($"{action.ToDisplayName()} dual-write map(s)", detail))
+        {
+            StatusMessage = $"{action.ToDisplayName()} cancelled.";
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            StatusMessage = $"Submitting {action.ToDisplayName()} for {selected.Count} map(s)...";
+            var response = await _gateway.StartActionAsync(action, selected, _cid!, ct);
+            if (string.IsNullOrWhiteSpace(response.RequestId))
+            {
+                StatusMessage = $"{action.ToDisplayName()} submitted (gateway returned no request id to poll).";
+            }
+            else
+            {
+                await PollUntilTerminalAsync(action, response.RequestId, ct);
+            }
+
+            await RefreshMapStatesAsync(ct);
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task PollUntilTerminalAsync(DualWriteActionType action, string requestId, CancellationToken ct)
+    {
+        for (var attempt = 0; attempt < MaxPollAttempts; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var status = await _gateway!.GetStatusAsync(requestId, ct);
+            if (status.IsTerminal)
+            {
+                StatusMessage = status.IsSuccess
+                    ? $"{action.ToDisplayName()} completed."
+                    : $"{action.ToDisplayName()} failed: {status.Message ?? status.State}";
+                return;
+            }
+
+            StatusMessage = $"{action.ToDisplayName()} in progress ({status.State})...";
+            await Task.Delay(PollInterval, ct);
+        }
+
+        StatusMessage = $"{action.ToDisplayName()} still running after timeout; check the Power Platform portal.";
+    }
+
+    private async Task RefreshMapStatesAsync(CancellationToken ct)
+    {
+        if (_gateway is null || string.IsNullOrWhiteSpace(_cid))
+        {
+            return;
+        }
+
+        var maps = await _gateway.GetMapsAsync(_cid!, ct);
+        var selectedNames = Maps.Where(r => r.IsSelected).Select(r => r.Map.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        Maps.Clear();
+        foreach (var map in maps)
+        {
+            Maps.Add(new DualWriteMapRow(map) { IsSelected = selectedNames.Contains(map.Id) });
+        }
+    }
+
+    private void UpdateConnectionSummary(DualWriteConnectionSettings settings)
+    {
+        ConnectionSummary = settings.IsComplete
+            ? $"Configured for {settings.GatewayBaseUrl} (identifier: {settings.FoIdentifier})."
+            : "Not connected — gateway URL, identifier and token required.";
+    }
+
+    private static string DescribeEnv(DualWriteEnvironment env) =>
+        string.IsNullOrWhiteSpace(env.Cname) ? env.Cid : env.Cname;
+
+    private static bool DefaultConfirm(string title, string message) =>
+        MessageBox.Show(message, title, MessageBoxButton.OKCancel, MessageBoxImage.Warning) == MessageBoxResult.OK;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private void OnPropertyChanged([CallerMemberName] string? name = null) =>
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+}

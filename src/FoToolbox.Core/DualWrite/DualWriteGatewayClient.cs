@@ -15,7 +15,7 @@ namespace FoToolbox.Core.DualWrite;
 /// responsible for attaching the bearer token — the client itself is auth-agnostic, so the
 /// host can wire whatever token strategy it likes (pasted bearer now, delegated MSAL later).
 /// </summary>
-public sealed class DualWriteGatewayClient
+public sealed class DualWriteGatewayClient : IDualWriteGateway
 {
     public const string ApiBasePath = "api/DualWriteManagement/1.0/";
 
