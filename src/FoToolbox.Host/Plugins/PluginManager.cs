@@ -41,6 +41,7 @@ public sealed class PluginManager
     private readonly PluginTrustOptions _trustOptions;
     private readonly PluginTrustStore? _trustStore;
     private readonly IPluginConsentPrompt? _consentPrompt;
+    // Session-only "load once" trust, keyed by SHA-256 alone (identical bytes = same plugin file).
     private readonly HashSet<string> _sessionTrusted = new(StringComparer.OrdinalIgnoreCase);
 
     private static readonly byte[] PinnedPublicKeyToken =
@@ -411,7 +412,7 @@ public sealed class PluginManager
     private static string ComputeSha256(string path)
     {
         using var stream = File.OpenRead(path);
-        using var sha = System.Security.Cryptography.SHA256.Create();
+        using var sha = SHA256.Create();
         return Convert.ToHexString(sha.ComputeHash(stream));
     }
 

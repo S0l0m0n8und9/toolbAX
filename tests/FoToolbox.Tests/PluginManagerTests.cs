@@ -637,6 +637,35 @@ public sealed class PluginManagerTests
         });
     }
 
+    [Fact]
+    public void Unsigned_ThirdParty_PreTrusted_Loads_Without_Prompting()
+    {
+        RunSta(async () =>
+        {
+            var pluginRoot = Directory.CreateTempSubdirectory("plugins-pretrusted").FullName;
+            var stagedPath = StageUnsigned(pluginRoot, "UnsignedTestPlugin.dll");
+            var storePath = Path.Combine(Directory.CreateTempSubdirectory("ts-pretrusted").FullName, "trusted.json");
+
+            // Pre-seed the trust store with this exact assembly name + SHA-256, as a prior
+            // "Always trust" decision would have.
+            var sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(File.ReadAllBytes(stagedPath)));
+            var store = new FoToolbox.Core.Profiles.PluginTrustStore(storePath);
+            store.Add("UnsignedTestPlugin", sha);
+
+            var prompt = new FakeConsentPrompt(PluginConsentDecision.Deny); // would block the load if ever called
+            var logger = new CapturingLogger();
+            var manager = new PluginManager(
+                pluginRoot, CreateEnv(), new StubODataClient(), new StubODataWriteClient(), new StubCatalogService(),
+                logger, trustOptions: new PluginTrustOptions(false, Array.Empty<string>()),
+                trustStore: store, consentPrompt: prompt);
+
+            var plugins = await manager.DiscoverAsync();
+
+            Assert.Single(plugins, p => p.Manifest.Id == "test.unsigned");
+            Assert.Equal(0, prompt.Calls);
+        });
+    }
+
     private static void RunSta(Func<Task> action)
     {
         Exception? failure = null;
