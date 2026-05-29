@@ -5,6 +5,7 @@ using FoToolbox.Core.OData;
 using FoToolbox.Core.Catalog;
 using FoToolbox.SDK.Plugins;
 using HelloPlugin;
+using UnsignedTestPlugin;
 using ODataPostBuilderPlugin;
 using QueryBuilderPlugin;
 using TableEntityBrowserPlugin;
@@ -83,6 +84,29 @@ public sealed class PluginManagerTests
             public static NullScope Instance { get; } = new();
             public void Dispose() { }
         }
+    }
+
+    private sealed class FakeConsentPrompt : IPluginConsentPrompt
+    {
+        private readonly PluginConsentDecision _decision;
+        public int Calls { get; private set; }
+        public FakeConsentPrompt(PluginConsentDecision decision) => _decision = decision;
+        public PluginConsentDecision RequestConsent(PluginConsentRequest request)
+        {
+            Calls++;
+            return _decision;
+        }
+    }
+
+    private static string UnsignedPluginAssemblyPath() =>
+        typeof(UnsignedTestPlugin.UnsignedTestPlugin).Assembly.Location;
+
+    private static string StageUnsigned(string pluginRoot, string fileName)
+    {
+        Directory.CreateDirectory(pluginRoot);
+        var dest = Path.Combine(pluginRoot, fileName);
+        File.Copy(UnsignedPluginAssemblyPath(), dest, overwrite: true);
+        return dest;
     }
 
     private static FoEnvironment CreateEnv() =>
@@ -486,16 +510,130 @@ public sealed class PluginManagerTests
     {
         RunSta(async () =>
         {
-            var helloAssembly = typeof(HelloFoToolPlugin).Assembly.Location;
-            var pluginDir = Directory.CreateTempSubdirectory("helloplugin").FullName;
-            File.Copy(helloAssembly, Path.Combine(pluginDir, Path.GetFileName(helloAssembly)), overwrite: true);
+            var pluginDir = Directory.CreateTempSubdirectory("unsigned-blocked").FullName;
+            StageUnsigned(pluginDir, "UnsignedTestPlugin.dll");
 
             var logger = new CapturingLogger();
-            var manager = new PluginManager(pluginDir, CreateEnv(), new StubODataClient(), new StubODataWriteClient(), new StubCatalogService(), logger, trustOptions: new PluginTrustOptions(false, Array.Empty<string>()));
+            var manager = new PluginManager(
+                pluginDir, CreateEnv(), new StubODataClient(), new StubODataWriteClient(), new StubCatalogService(),
+                logger, trustOptions: new PluginTrustOptions(false, Array.Empty<string>()));
             var plugins = await manager.DiscoverAsync();
 
             Assert.Empty(plugins);
-            Assert.NotNull(logger.LastException);
+            Assert.Contains(logger.Entries, e => e.Level == Microsoft.Extensions.Logging.LogLevel.Warning);
+        });
+    }
+
+    [Fact]
+    public void Unsigned_ThirdParty_AlwaysTrust_Loads_And_Persists()
+    {
+        RunSta(async () =>
+        {
+            var pluginRoot = Directory.CreateTempSubdirectory("plugins-consent-always").FullName;
+            StageUnsigned(pluginRoot, "UnsignedTestPlugin.dll");
+            var storePath = Path.Combine(Directory.CreateTempSubdirectory("ts-always").FullName, "trusted.json");
+            var store = new FoToolbox.Core.Profiles.PluginTrustStore(storePath);
+            var prompt = new FakeConsentPrompt(PluginConsentDecision.AlwaysTrust);
+
+            var logger = new CapturingLogger();
+            var manager = new PluginManager(
+                pluginRoot, CreateEnv(), new StubODataClient(), new StubODataWriteClient(), new StubCatalogService(),
+                logger, trustOptions: new PluginTrustOptions(false, Array.Empty<string>()),
+                trustStore: store, consentPrompt: prompt);
+
+            var plugins = await manager.DiscoverAsync();
+
+            Assert.Single(plugins, p => p.Manifest.Id == "test.unsigned");
+            Assert.Equal(1, prompt.Calls);
+            Assert.True(File.Exists(storePath));
+        });
+    }
+
+    [Fact]
+    public void Unsigned_ThirdParty_LoadOnce_Loads_Without_Persisting()
+    {
+        RunSta(async () =>
+        {
+            var pluginRoot = Directory.CreateTempSubdirectory("plugins-consent-once").FullName;
+            StageUnsigned(pluginRoot, "UnsignedTestPlugin.dll");
+            var storePath = Path.Combine(Directory.CreateTempSubdirectory("ts-once").FullName, "trusted.json");
+            var store = new FoToolbox.Core.Profiles.PluginTrustStore(storePath);
+
+            var logger = new CapturingLogger();
+            var manager = new PluginManager(
+                pluginRoot, CreateEnv(), new StubODataClient(), new StubODataWriteClient(), new StubCatalogService(),
+                logger, trustOptions: new PluginTrustOptions(false, Array.Empty<string>()),
+                trustStore: store, consentPrompt: new FakeConsentPrompt(PluginConsentDecision.LoadOnce));
+
+            var plugins = await manager.DiscoverAsync();
+
+            Assert.Single(plugins, p => p.Manifest.Id == "test.unsigned");
+            Assert.False(File.Exists(storePath));
+        });
+    }
+
+    [Fact]
+    public void Unsigned_ThirdParty_Deny_Skips_Plugin()
+    {
+        RunSta(async () =>
+        {
+            var pluginRoot = Directory.CreateTempSubdirectory("plugins-consent-deny").FullName;
+            StageUnsigned(pluginRoot, "UnsignedTestPlugin.dll");
+
+            var logger = new CapturingLogger();
+            var manager = new PluginManager(
+                pluginRoot, CreateEnv(), new StubODataClient(), new StubODataWriteClient(), new StubCatalogService(),
+                logger, trustOptions: new PluginTrustOptions(false, Array.Empty<string>()),
+                consentPrompt: new FakeConsentPrompt(PluginConsentDecision.Deny));
+
+            var plugins = await manager.DiscoverAsync();
+
+            Assert.DoesNotContain(plugins, p => p.Manifest.Id == "test.unsigned");
+        });
+    }
+
+    [Fact]
+    public void Unsigned_ThirdParty_Denied_When_No_ConsentPrompt()
+    {
+        RunSta(async () =>
+        {
+            var pluginRoot = Directory.CreateTempSubdirectory("plugins-headless-deny").FullName;
+            StageUnsigned(pluginRoot, "UnsignedTestPlugin.dll");
+
+            var logger = new CapturingLogger();
+            var manager = new PluginManager(
+                pluginRoot, CreateEnv(), new StubODataClient(), new StubODataWriteClient(), new StubCatalogService(),
+                logger, trustOptions: new PluginTrustOptions(false, Array.Empty<string>()));
+
+            var plugins = await manager.DiscoverAsync();
+
+            Assert.Empty(plugins);
+            Assert.Contains(logger.Entries, e => e.Level == Microsoft.Extensions.Logging.LogLevel.Warning);
+        });
+    }
+
+    [Fact]
+    public void Bundled_Plugin_With_Wrong_Token_Is_Rejected()
+    {
+        RunSta(async () =>
+        {
+            // Stage the unsigned (no-token) assembly under a bundled assembly file name so the
+            // strong-name pin check runs and fails (token absent != pinned token).
+            var pluginRoot = Directory.CreateTempSubdirectory("plugins-pin-mismatch").FullName;
+            var bundledDir = Path.Combine(pluginRoot, "HelloPlugin");
+            Directory.CreateDirectory(bundledDir);
+            File.Copy(UnsignedPluginAssemblyPath(), Path.Combine(bundledDir, "HelloPlugin.dll"), overwrite: true);
+
+            var logger = new CapturingLogger();
+            var manager = new PluginManager(
+                pluginRoot, CreateEnv(), new StubODataClient(), new StubODataWriteClient(), new StubCatalogService(),
+                logger, trustOptions: new PluginTrustOptions(true, Array.Empty<string>()));
+
+            var plugins = await manager.DiscoverAsync();
+
+            Assert.Empty(plugins);
+            Assert.Contains(logger.Entries, e => e.Level == Microsoft.Extensions.Logging.LogLevel.Error &&
+                e.Message.Contains("strong-name", StringComparison.OrdinalIgnoreCase));
         });
     }
 

@@ -1,4 +1,5 @@
 using FoToolbox.Core.Models;
+using FoToolbox.Core.Profiles;
 using FoToolbox.SDK;
 using FoToolbox.Core.OData;
 using FoToolbox.Core.Catalog;
@@ -38,6 +39,12 @@ public sealed class PluginManager
     private readonly ICatalogService _catalog;
     private readonly ILogger _logger;
     private readonly PluginTrustOptions _trustOptions;
+    private readonly PluginTrustStore? _trustStore;
+    private readonly IPluginConsentPrompt? _consentPrompt;
+    private readonly HashSet<string> _sessionTrusted = new(StringComparer.OrdinalIgnoreCase);
+
+    private static readonly byte[] PinnedPublicKeyToken =
+        typeof(FoToolbox.SDK.Plugins.IFoToolPlugin).Assembly.GetName().GetPublicKeyToken() ?? Array.Empty<byte>();
     private readonly DataverseEnvironment? _dataverseEnv;
     private readonly HttpClient? _dataverseHttp;
     private readonly PluginNavigationBus _navBus = new();
@@ -58,7 +65,9 @@ public sealed class PluginManager
         ILogger logger,
         DataverseEnvironment? dataverseEnv = null,
         HttpClient? dataverseHttp = null,
-        PluginTrustOptions? trustOptions = null)
+        PluginTrustOptions? trustOptions = null,
+        PluginTrustStore? trustStore = null,
+        IPluginConsentPrompt? consentPrompt = null)
     {
         _pluginRoot = pluginRoot;
         _env = env;
@@ -69,6 +78,8 @@ public sealed class PluginManager
         _dataverseEnv = dataverseEnv;
         _dataverseHttp = dataverseHttp;
         _trustOptions = trustOptions ?? PluginTrustOptions.Default;
+        _trustStore = trustStore;
+        _consentPrompt = consentPrompt;
     }
 
     public async Task<IReadOnlyList<LoadedPlugin>> DiscoverAsync(CancellationToken cancellationToken = default)
@@ -221,7 +232,10 @@ public sealed class PluginManager
 
     private async Task<LoadedPlugin?> LoadPluginAsync(string assemblyPath, CancellationToken cancellationToken)
     {
-        ValidateSignatureOrThrow(assemblyPath);
+        if (!ResolvePluginTrust(assemblyPath))
+        {
+            return null;
+        }
 
         var loadContext = new PluginLoadContext(Path.GetDirectoryName(assemblyPath)!);
         var assembly = loadContext.LoadFromAssemblyPath(assemblyPath);
@@ -268,37 +282,111 @@ public sealed class PluginManager
         }
     }
 
-    private void ValidateSignatureOrThrow(string assemblyPath)
+    private bool ResolvePluginTrust(string assemblyPath)
     {
-        X509Certificate2? signer = null;
+        var assemblyName = Path.GetFileNameWithoutExtension(assemblyPath);
+
+        // 1. Bundled plugins: must carry the pinned strong-name token. No prompt; mismatch = refuse.
+        if (BundledPluginAssemblyNames.Contains(assemblyName))
+        {
+            if (IsBundledTokenValid(assemblyPath))
+            {
+                return true;
+            }
+
+            _logger.LogError("Bundled plugin {Path} failed strong-name validation; refusing to load.", assemblyPath);
+            return false;
+        }
+
+        // 2. Authenticode-signed third-party plugins keep the existing thumbprint + chain checks.
+        var signer = TryGetAuthenticodeSigner(assemblyPath);
+        if (signer is not null)
+        {
+            return ValidateAuthenticodeSigner(assemblyPath, signer);
+        }
+
+        // 3. Unsigned third-party plugins.
+        if (_trustOptions.AllowUnsigned)
+        {
+            _logger.LogWarning("Plugin {Path} is unsigned. Allowed by FOTOOLBOX_ALLOW_UNSIGNED_PLUGINS.", assemblyPath);
+            return true;
+        }
+
+        var sha = ComputeSha256(assemblyPath);
+        if (_trustStore is not null && _trustStore.IsTrusted(assemblyName, sha))
+        {
+            return true;
+        }
+
+        if (_sessionTrusted.Contains(sha))
+        {
+            return true;
+        }
+
+        if (_consentPrompt is not null)
+        {
+            var decision = _consentPrompt.RequestConsent(new PluginConsentRequest(assemblyName, assemblyPath, sha));
+            switch (decision)
+            {
+                case PluginConsentDecision.AlwaysTrust:
+                    _trustStore?.Add(assemblyName, sha);
+                    _logger.LogInformation("User granted persistent trust to unsigned plugin {Path}.", assemblyPath);
+                    return true;
+                case PluginConsentDecision.LoadOnce:
+                    _sessionTrusted.Add(sha);
+                    _logger.LogInformation("User granted session trust to unsigned plugin {Path}.", assemblyPath);
+                    return true;
+                default:
+                    _logger.LogWarning("User denied loading unsigned plugin {Path}.", assemblyPath);
+                    return false;
+            }
+        }
+
+        _logger.LogWarning("Unsigned plugin {Path} denied: no consent prompt available and AllowUnsigned=false.", assemblyPath);
+        return false;
+    }
+
+    private bool IsBundledTokenValid(string assemblyPath)
+    {
+        if (PinnedPublicKeyToken.Length == 0)
+        {
+            _logger.LogError("Host SDK assembly is not strong-named; cannot validate bundled plugin {Path}.", assemblyPath);
+            return false;
+        }
+
         try
         {
-            // CreateFromSignedFile extracts the Authenticode signer from a PE. X509CertificateLoader
-            // only loads raw cert files; there is no direct net9+ replacement for this use case.
+            var token = AssemblyName.GetAssemblyName(assemblyPath).GetPublicKeyToken();
+            return token is { Length: > 0 } && token.SequenceEqual(PinnedPublicKeyToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed reading strong-name token from {Path}.", assemblyPath);
+            return false;
+        }
+    }
+
+    private static X509Certificate2? TryGetAuthenticodeSigner(string assemblyPath)
+    {
+        try
+        {
 #pragma warning disable SYSLIB0057
-            signer = new X509Certificate2(X509Certificate.CreateFromSignedFile(assemblyPath));
+            return new X509Certificate2(X509Certificate.CreateFromSignedFile(assemblyPath));
 #pragma warning restore SYSLIB0057
         }
         catch (CryptographicException)
         {
-            signer = null;
+            return null;
         }
+    }
 
-        if (signer is null)
-        {
-            if (_trustOptions.AllowUnsigned)
-            {
-                _logger.LogWarning("Plugin {Path} is unsigned. Allowed by configuration.", assemblyPath);
-                return;
-            }
-
-            throw new InvalidOperationException($"Plugin {assemblyPath} is unsigned and AllowUnsigned=false.");
-        }
-
+    private bool ValidateAuthenticodeSigner(string assemblyPath, X509Certificate2 signer)
+    {
         var thumbprint = signer.Thumbprint?.Replace(" ", string.Empty, StringComparison.OrdinalIgnoreCase)?.ToUpperInvariant() ?? string.Empty;
         if (_trustOptions.AllowedThumbprints.Count > 0 && !_trustOptions.AllowedThumbprints.Contains(thumbprint))
         {
-            throw new InvalidOperationException($"Plugin {assemblyPath} signed with thumbprint {thumbprint}, not in allowlist.");
+            _logger.LogError("Plugin {Path} signed with thumbprint {Thumbprint}, not in allowlist; refusing to load.", assemblyPath, thumbprint);
+            return false;
         }
 
         var chain = new X509Chain
@@ -313,8 +401,18 @@ public sealed class PluginManager
         if (!chain.Build(signer))
         {
             var statuses = string.Join("; ", chain.ChainStatus.Select(s => s.StatusInformation.Trim()));
-            throw new InvalidOperationException($"Plugin {assemblyPath} failed signature trust validation: {statuses}");
+            _logger.LogError("Plugin {Path} failed signature trust validation: {Statuses}", assemblyPath, statuses);
+            return false;
         }
+
+        return true;
+    }
+
+    private static string ComputeSha256(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        return Convert.ToHexString(sha.ComputeHash(stream));
     }
 
     private static X509RevocationMode GetRevocationModeFromEnvironment()
