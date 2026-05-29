@@ -23,6 +23,8 @@
     <ProjectReference Include="..\\..\\plugins\\TableEntityBrowser\\TableEntityBrowser.csproj" />
     <ProjectReference Include="..\\..\\plugins\\ODataPostBuilder\\ODataPostBuilder.csproj" />
     <ProjectReference Include="..\\..\\plugins\\DualWriteMapBrowser\\DualWriteMapBrowser.csproj" />
+    <ProjectReference Include="..\\..\\plugins\\DualWriteOperations\\DualWriteOperations.csproj" />
+    <ProjectReference Include="..\\..\\plugins\\DualWriteCompare\\DualWriteCompare.csproj" />
     <ProjectReference Include="..\\..\\tests\\Fixtures\\UnsignedTestPlugin\\UnsignedTestPlugin.csproj" />
   </ItemGroup>
 

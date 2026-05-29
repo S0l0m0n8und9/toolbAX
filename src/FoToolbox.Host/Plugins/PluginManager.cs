@@ -29,7 +29,9 @@ public sealed class PluginManager
         "QueryBuilder",
         "TableEntityBrowser",
         "ODataPostBuilder",
-        "DualWriteMapBrowser"
+        "DualWriteMapBrowser",
+        "DualWriteOperations",
+        "DualWriteCompare"
     };
 
     private readonly string _pluginRoot;

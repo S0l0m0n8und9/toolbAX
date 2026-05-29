@@ -1,0 +1,134 @@
+<UserControl x:Class="DualWriteOperationsPlugin.DualWriteOperationsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             xmlns:local="clr-namespace:DualWriteOperationsPlugin"
+             mc:Ignorable="d"
+             d:DesignHeight="640"
+             d:DesignWidth="1000">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Live environment warning -->
+        <Border Grid.Row="0"
+                Margin="8,8,8,0"
+                Padding="10,6"
+                Background="#33C04000"
+                BorderBrush="#C04000"
+                BorderThickness="1"
+                CornerRadius="4">
+            <TextBlock TextWrapping="Wrap"
+                       FontWeight="SemiBold">
+                <Run Text="⚠ Live environment:" />
+                <Run Text="{Binding EnvironmentName, Mode=OneWay}" />
+                <Run Text="— actions here affect real dual-write maps." />
+            </TextBlock>
+        </Border>
+
+        <!-- Connection panel -->
+        <Border Grid.Row="1"
+                Margin="8"
+                Padding="10"
+                Background="{DynamicResource Fo.SurfaceAltBrush}"
+                BorderBrush="{DynamicResource Fo.BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="{DynamicResource Fo.CornerRadius.Card}">
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
+                    </Grid.RowDefinitions>
+
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Gateway base URL" VerticalAlignment="Center" Margin="0,0,8,4" />
+                    <TextBox Grid.Row="0" Grid.Column="1" Margin="0,0,0,4"
+                             Text="{Binding GatewayBaseUrl, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="e.g. https://projectmanagementservice.&lt;region&gt;.gateway.prod.island.powerapps.com" />
+
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="F&amp;O identifier" VerticalAlignment="Center" Margin="0,0,8,4" />
+                    <TextBox Grid.Row="1" Grid.Column="1" Margin="0,0,0,4"
+                             Text="{Binding FoIdentifier, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="The F&amp;O environment identifier used for the Environments lookup." />
+
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Bearer token" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <PasswordBox Grid.Row="2" Grid.Column="1" x:Name="BearerTokenBox"
+                                 PasswordChanged="BearerTokenBox_PasswordChanged"
+                                 ToolTip="Paste a dual-write token from the Power Platform portal (F12 network tab). Stored DPAPI-protected; leave blank to keep the saved token." />
+                </Grid>
+
+                <DockPanel Margin="0,8,0,0">
+                    <Button DockPanel.Dock="Left" Content="Save Connection"
+                            Command="{Binding SaveConnectionCommand}"
+                            Padding="10,4" MinWidth="130" />
+                    <Button DockPanel.Dock="Left" Content="Load Maps"
+                            Command="{Binding LoadMapsCommand}"
+                            Padding="10,4" MinWidth="110" Margin="6,0,0,0"
+                            IsEnabled="{Binding IsNotBusy}" />
+                    <TextBlock VerticalAlignment="Center" Margin="12,0,0,0"
+                               TextTrimming="CharacterEllipsis"
+                               Text="{Binding ConnectionSummary}" />
+                </DockPanel>
+            </StackPanel>
+        </Border>
+
+        <!-- Maps grid -->
+        <DataGrid Grid.Row="2"
+                  Margin="8,0,8,0"
+                  ItemsSource="{Binding Maps}"
+                  AutoGenerateColumns="False"
+                  CanUserAddRows="False"
+                  CanUserDeleteRows="False"
+                  HeadersVisibility="Column"
+                  GridLinesVisibility="Horizontal"
+                  IsReadOnly="False">
+            <DataGrid.Columns>
+                <DataGridCheckBoxColumn Header="" Binding="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}" Width="36" />
+                <DataGridTextColumn Header="Map" Binding="{Binding Name}" Width="2*" IsReadOnly="True" />
+                <DataGridTextColumn Header="Version" Binding="{Binding Version}" Width="*" IsReadOnly="True" />
+                <DataGridTextColumn Header="Author" Binding="{Binding Author}" Width="*" IsReadOnly="True" />
+                <DataGridTextColumn Header="State" Binding="{Binding State}" Width="*" IsReadOnly="True" />
+            </DataGrid.Columns>
+        </DataGrid>
+
+        <!-- Action bar + status -->
+        <Border Grid.Row="3"
+                Margin="8"
+                Padding="10"
+                Background="{DynamicResource Fo.SurfaceAltBrush}"
+                BorderBrush="{DynamicResource Fo.BorderBrush}"
+                BorderThickness="1"
+                CornerRadius="{DynamicResource Fo.CornerRadius.Card}">
+            <StackPanel>
+                <WrapPanel>
+                    <Button Content="Start" Command="{Binding StartCommand}" Padding="12,4" MinWidth="84" IsEnabled="{Binding IsNotBusy}" />
+                    <Button Content="Stop" Command="{Binding StopCommand}" Padding="12,4" MinWidth="84" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
+                    <Button Content="Pause" Command="{Binding PauseCommand}" Padding="12,4" MinWidth="84" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
+                    <Button Content="Resume" Command="{Binding ResumeCommand}" Padding="12,4" MinWidth="84" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
+                    <Button Content="Initial Sync" Command="{Binding InitialSyncCommand}" Padding="12,4" MinWidth="100" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
+                    <Border Width="1" Margin="10,2" Background="{DynamicResource Fo.BorderBrush}" />
+                    <Button Content="Apply Latest Version" Command="{Binding ApplyLatestVersionCommand}" Padding="12,4" MinWidth="140" IsEnabled="{Binding IsNotBusy}" />
+                    <Button Content="Refresh Tables" Command="{Binding RefreshTablesCommand}" Padding="12,4" MinWidth="110" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
+                    <Button Content="Export Config" Command="{Binding ExportConfigCommand}" Padding="12,4" MinWidth="110" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
+                    <TextBlock Text="Author filter:" VerticalAlignment="Center" Margin="8,0,4,0" />
+                    <TextBox Width="160" VerticalAlignment="Center"
+                             Text="{Binding AuthorFilter, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Optional. Comma-separated authors; blank = any author." />
+                </WrapPanel>
+                <TextBlock Margin="0,8,0,0"
+                           TextWrapping="Wrap"
+                           Text="{Binding StatusMessage}" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>
