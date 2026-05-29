@@ -72,6 +72,19 @@ public class DualWriteOperationsViewModelTests
             Refreshed.Add(fieldMappingName);
             return Task.CompletedTask;
         }
+
+        public DualWriteConnectionSet ConnectionSet { get; set; } =
+            new("connset", Array.Empty<DualWriteConnectionSetEnvironment>(), Array.Empty<string>());
+        public List<(string Cid, IReadOnlyList<string> LegalEntities, bool ForceReset)> Resets { get; } = new();
+
+        public Task<DualWriteConnectionSet> GetConnectionSetAsync(string cname, CancellationToken ct = default) =>
+            Task.FromResult(ConnectionSet);
+
+        public Task ResetLinksAsync(string cid, DualWriteConnectionSet connectionSet, IReadOnlyList<string> legalEntities, bool forceReset, CancellationToken ct = default)
+        {
+            Resets.Add((cid, legalEntities, forceReset));
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeFactory : IDualWriteGatewayFactory
@@ -283,6 +296,40 @@ public class DualWriteOperationsViewModelTests
         {
             File.Delete(storePath);
             if (File.Exists(exportPath)) File.Delete(exportPath);
+        }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task ResetLink_Confirmed_ResetsConnectionSetLegalEntities()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway();
+            gateway.MapsList.Add(Map("a"));
+            gateway.ConnectionSet = new DualWriteConnectionSet(
+                "cs",
+                new[] { new DualWriteConnectionSetEnvironment("ce", "CE", "pae", false, "CRM", "https://ce", Array.Empty<DualWriteSchema>()) },
+                new[] { "USMF", "DEMF" });
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
+            {
+                ConfirmAction = (_, _) => true,
+                ForceReset = true
+            };
+            await vm.LoadMapsCommand.ExecuteAsync();
+
+            await vm.ResetLinkCommand.ExecuteAsync();
+
+            var reset = Assert.Single(gateway.Resets);
+            Assert.Equal("C1", reset.Cid);
+            Assert.True(reset.ForceReset);
+            Assert.Equal(new[] { "USMF", "DEMF" }, reset.LegalEntities.ToArray());
+        }
+        finally
+        {
+            File.Delete(path);
         }
     }
 

@@ -54,6 +54,12 @@ public class DualWriteCompareViewModelTests
 
         public Task RefreshTablesAsync(string fieldMappingName, CancellationToken ct = default) =>
             throw new NotSupportedException();
+
+        public Task<DualWriteConnectionSet> GetConnectionSetAsync(string cname, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task ResetLinksAsync(string cid, DualWriteConnectionSet connectionSet, IReadOnlyList<string> legalEntities, bool forceReset, CancellationToken ct = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class KeyedFactory : IDualWriteGatewayFactory

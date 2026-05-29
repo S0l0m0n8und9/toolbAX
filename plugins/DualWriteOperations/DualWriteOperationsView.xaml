@@ -124,6 +124,9 @@
                     <TextBox Width="160" VerticalAlignment="Center"
                              Text="{Binding AuthorFilter, UpdateSourceTrigger=PropertyChanged}"
                              ToolTip="Optional. Comma-separated authors; blank = any author." />
+                    <Border Width="1" Margin="10,2" Background="{DynamicResource Fo.BorderBrush}" />
+                    <Button Content="Reset Link" Command="{Binding ResetLinkCommand}" Padding="12,4" MinWidth="100" IsEnabled="{Binding IsNotBusy}" />
+                    <CheckBox Content="Force reset" VerticalAlignment="Center" Margin="8,0,0,0" IsChecked="{Binding ForceReset}" />
                 </WrapPanel>
                 <TextBlock Margin="0,8,0,0"
                            TextWrapping="Wrap"

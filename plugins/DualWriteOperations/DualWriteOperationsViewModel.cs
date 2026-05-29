@@ -37,6 +37,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     private string _foIdentifier = string.Empty;
     private string _bearerToken = string.Empty;
     private string _authorFilter = string.Empty;
+    private bool _forceReset;
     private string _statusMessage = "Configure the connection, then Load Maps.";
     private string _connectionSummary = "Not connected.";
     private bool _isBusy;
@@ -85,6 +86,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         ApplyLatestVersionCommand = new AsyncRelayCommand(ApplyLatestVersionAsync, onError);
         RefreshTablesCommand = new AsyncRelayCommand(RefreshTablesAsync, onError);
         ExportConfigCommand = new AsyncRelayCommand(ExportConfigAsync, onError);
+        ResetLinkCommand = new AsyncRelayCommand(ResetLinkAsync, onError);
 
         _ = InitializeAsync();
     }
@@ -101,6 +103,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     public AsyncRelayCommand ApplyLatestVersionCommand { get; }
     public AsyncRelayCommand RefreshTablesCommand { get; }
     public AsyncRelayCommand ExportConfigCommand { get; }
+    public AsyncRelayCommand ResetLinkCommand { get; }
 
     public string EnvironmentName => _ctx.CurrentEnv.Name;
 
@@ -109,6 +112,13 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     {
         get => _authorFilter;
         set { if (_authorFilter != value) { _authorFilter = value; OnPropertyChanged(); } }
+    }
+
+    /// <summary>When true, the reset-link request sets forceReset=true.</summary>
+    public bool ForceReset
+    {
+        get => _forceReset;
+        set { if (_forceReset != value) { _forceReset = value; OnPropertyChanged(); } }
     }
 
     public string GatewayBaseUrl
@@ -422,6 +432,44 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
 
         await File.WriteAllTextAsync(path, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), ct);
         StatusMessage = $"Exported {maps.Count} map(s) to {Path.GetFileName(path)}.";
+    }
+
+    private async Task ResetLinkAsync(CancellationToken ct)
+    {
+        if (_gateway is null || _environment is null || string.IsNullOrWhiteSpace(_environment.Cname) || string.IsNullOrWhiteSpace(_cid))
+        {
+            StatusMessage = "Load maps before resetting the link.";
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            StatusMessage = "Loading connection set...";
+            var connectionSet = await _gateway.GetConnectionSetAsync(_environment.Cname, ct);
+            var legalEntities = connectionSet.LegalEntities;
+            if (legalEntities.Count == 0)
+            {
+                StatusMessage = "No legal entities found in the connection set; nothing to reset.";
+                return;
+            }
+
+            var forceNote = ForceReset ? "\n\nForce reset is ON." : string.Empty;
+            if (!ConfirmAction("Reset dual-write link",
+                    $"Reset the dual-write link on the LIVE environment '{EnvironmentName}' for {legalEntities.Count} legal entit{(legalEntities.Count == 1 ? "y" : "ies")}?\n\n{string.Join(", ", legalEntities)}\n\nThis re-initialises the link and can disrupt running maps.{forceNote}"))
+            {
+                StatusMessage = "Reset link cancelled.";
+                return;
+            }
+
+            StatusMessage = "Submitting reset link...";
+            await _gateway.ResetLinksAsync(_cid!, connectionSet, legalEntities, ForceReset, ct);
+            StatusMessage = $"Reset link submitted for {legalEntities.Count} legal entit{(legalEntities.Count == 1 ? "y" : "ies")}.";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     private static string Sanitize(string value)

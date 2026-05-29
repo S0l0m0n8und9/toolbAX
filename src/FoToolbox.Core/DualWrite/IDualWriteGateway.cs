@@ -23,4 +23,10 @@ public interface IDualWriteGateway
 
     /// <summary>Refreshes the table/entity metadata for a project field mapping.</summary>
     Task RefreshTablesAsync(string fieldMappingName, CancellationToken cancellationToken = default);
+
+    /// <summary>Loads the connection set (environments + legal entities + CE schemas) by its name.</summary>
+    Task<DualWriteConnectionSet> GetConnectionSetAsync(string cname, CancellationToken cancellationToken = default);
+
+    /// <summary>Resets the dual-write link for the chosen legal entities.</summary>
+    Task ResetLinksAsync(string cid, DualWriteConnectionSet connectionSet, IReadOnlyList<string> legalEntities, bool forceReset, CancellationToken cancellationToken = default);
 }

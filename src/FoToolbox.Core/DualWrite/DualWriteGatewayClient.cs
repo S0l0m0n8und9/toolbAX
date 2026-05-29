@@ -141,6 +141,50 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway
         await SendAsync(HttpMethod.Post, uri, "{\"tokens\":[\"\"]}", cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Loads the connection set by name.
+    /// <c>GET api/ConnectionSet/{cname}</c> (host-root, per <c>DWCommonEngine.getConnectionSet</c>).
+    /// </summary>
+    public async Task<DualWriteConnectionSet> GetConnectionSetAsync(string cname, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(cname))
+        {
+            throw new ArgumentException("A connection set name (cname) is required.", nameof(cname));
+        }
+
+        var uri = $"api/ConnectionSet/{Uri.EscapeDataString(cname)}";
+        var json = await SendAsync(HttpMethod.Get, uri, null, cancellationToken).ConfigureAwait(false);
+        return DualWriteConnectionSetParser.Parse(json);
+    }
+
+    /// <summary>
+    /// Resets the dual-write link for the chosen legal entities.
+    /// <c>POST api/ConnectionSet/{cid}/Reset?targetType=AX&amp;forceReset={bool}</c> with a
+    /// <see cref="ResetLinkPayloadBuilder"/> body (per <c>ResetLinkEngine.sendResetLinkPayload</c>).
+    /// </summary>
+    public async Task ResetLinksAsync(
+        string cid,
+        DualWriteConnectionSet connectionSet,
+        IReadOnlyList<string> legalEntities,
+        bool forceReset,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(cid))
+        {
+            throw new ArgumentException("A connection id (cid) is required.", nameof(cid));
+        }
+
+        if (connectionSet is null)
+        {
+            throw new ArgumentNullException(nameof(connectionSet));
+        }
+
+        var body = ResetLinkPayloadBuilder.Build(connectionSet, legalEntities ?? Array.Empty<string>());
+        var force = forceReset ? "true" : "false";
+        var uri = $"api/ConnectionSet/{Uri.EscapeDataString(cid)}/Reset?targetType=AX&forceReset={force}";
+        await SendAsync(HttpMethod.Post, uri, body, cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Polls the status of a previously submitted action request.</summary>
     public async Task<DualWriteRequestStatus> GetStatusAsync(string requestId, CancellationToken cancellationToken = default)
     {
