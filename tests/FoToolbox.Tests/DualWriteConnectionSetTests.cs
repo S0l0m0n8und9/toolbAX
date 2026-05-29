@@ -167,4 +167,20 @@ public class DualWriteResetClientTests
         using var doc = JsonDocument.Parse(handler.LastBody!);
         Assert.Equal("USMF", doc.RootElement.GetProperty("legalEntities")[0].GetString());
     }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task ApplyIntegrationKeys_PostsKeyedByEntity_ToDatasetPath()
+    {
+        var (client, handler) = Make("{}");
+
+        await client.ApplyIntegrationKeysAsync("ce-prod", "Customers V3", new[] { "CustomerAccount", "dataAreaId" }, CancellationToken.None);
+
+        Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
+        Assert.Equal("https://gw.example/api/dataset/ce-prod/IntegrationKeys", handler.LastRequest!.RequestUri!.ToString());
+        using var doc = JsonDocument.Parse(handler.LastBody!);
+        Assert.Equal("ce-prod", doc.RootElement.GetProperty("datasetName").GetString());
+        var fields = doc.RootElement.GetProperty("integrationKeys").GetProperty("Customers V3");
+        Assert.Equal(new[] { "CustomerAccount", "dataAreaId" }, fields.EnumerateArray().Select(e => e.GetString()).ToArray());
+    }
 }

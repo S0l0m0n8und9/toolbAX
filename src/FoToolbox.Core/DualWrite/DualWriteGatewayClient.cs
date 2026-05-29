@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Text;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -182,6 +183,42 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway
         var body = ResetLinkPayloadBuilder.Build(connectionSet, legalEntities ?? Array.Empty<string>());
         var force = forceReset ? "true" : "false";
         var uri = $"api/ConnectionSet/{Uri.EscapeDataString(cid)}/Reset?targetType=AX&forceReset={force}";
+        await SendAsync(HttpMethod.Post, uri, body, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Applies integration keys for a CE entity.
+    /// <c>POST api/dataset/{datasetName}/IntegrationKeys</c> with body
+    /// <c>{ integrationKeys: { "&lt;ceEntity&gt;": [keyFields] }, datasetName }</c>
+    /// (host-root, per <c>DWMapEngine.applyIntegrationKeys</c> + <c>DWIntegrationKeyUpdate</c>).
+    /// </summary>
+    public async Task ApplyIntegrationKeysAsync(
+        string datasetName,
+        string ceEntityName,
+        IReadOnlyList<string> keyFields,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(datasetName))
+        {
+            throw new ArgumentException("A dataset name is required.", nameof(datasetName));
+        }
+
+        if (string.IsNullOrWhiteSpace(ceEntityName))
+        {
+            throw new ArgumentException("A CE entity name is required.", nameof(ceEntityName));
+        }
+
+        var payload = new Dictionary<string, object?>
+        {
+            ["integrationKeys"] = new Dictionary<string, IReadOnlyList<string>>
+            {
+                [ceEntityName] = keyFields ?? Array.Empty<string>()
+            },
+            ["datasetName"] = datasetName
+        };
+
+        var body = JsonSerializer.Serialize(payload);
+        var uri = $"api/dataset/{Uri.EscapeDataString(datasetName)}/IntegrationKeys";
         await SendAsync(HttpMethod.Post, uri, body, cancellationToken).ConfigureAwait(false);
     }
 

@@ -29,4 +29,7 @@ public interface IDualWriteGateway
 
     /// <summary>Resets the dual-write link for the chosen legal entities.</summary>
     Task ResetLinksAsync(string cid, DualWriteConnectionSet connectionSet, IReadOnlyList<string> legalEntities, bool forceReset, CancellationToken cancellationToken = default);
+
+    /// <summary>Applies integration keys for a CE entity in the given connection-set dataset.</summary>
+    Task ApplyIntegrationKeysAsync(string datasetName, string ceEntityName, IReadOnlyList<string> keyFields, CancellationToken cancellationToken = default);
 }

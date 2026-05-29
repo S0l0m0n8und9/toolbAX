@@ -60,6 +60,9 @@ public class DualWriteCompareViewModelTests
 
         public Task ResetLinksAsync(string cid, DualWriteConnectionSet connectionSet, IReadOnlyList<string> legalEntities, bool forceReset, CancellationToken ct = default) =>
             throw new NotSupportedException();
+
+        public Task ApplyIntegrationKeysAsync(string datasetName, string ceEntityName, IReadOnlyList<string> keyFields, CancellationToken ct = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class KeyedFactory : IDualWriteGatewayFactory

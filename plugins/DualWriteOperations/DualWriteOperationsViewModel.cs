@@ -87,6 +87,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         RefreshTablesCommand = new AsyncRelayCommand(RefreshTablesAsync, onError);
         ExportConfigCommand = new AsyncRelayCommand(ExportConfigAsync, onError);
         ResetLinkCommand = new AsyncRelayCommand(ResetLinkAsync, onError);
+        ApplyIntegrationKeysCommand = new AsyncRelayCommand(ApplyIntegrationKeysAsync, onError);
 
         _ = InitializeAsync();
     }
@@ -104,6 +105,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     public AsyncRelayCommand RefreshTablesCommand { get; }
     public AsyncRelayCommand ExportConfigCommand { get; }
     public AsyncRelayCommand ResetLinkCommand { get; }
+    public AsyncRelayCommand ApplyIntegrationKeysCommand { get; }
 
     public string EnvironmentName => _ctx.CurrentEnv.Name;
 
@@ -465,6 +467,84 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
             StatusMessage = "Submitting reset link...";
             await _gateway.ResetLinksAsync(_cid!, connectionSet, legalEntities, ForceReset, ct);
             StatusMessage = $"Reset link submitted for {legalEntities.Count} legal entit{(legalEntities.Count == 1 ? "y" : "ies")}.";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task ApplyIntegrationKeysAsync(CancellationToken ct)
+    {
+        if (_gateway is null || _environment is null || string.IsNullOrWhiteSpace(_environment.Cname) || string.IsNullOrWhiteSpace(_cid))
+        {
+            StatusMessage = "Load maps before applying integration keys.";
+            return;
+        }
+
+        var selected = Maps.Where(r => r.IsSelected).Select(r => r.Map).ToList();
+        if (selected.Count == 0)
+        {
+            StatusMessage = "Select at least one map (checkbox) before applying integration keys.";
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            StatusMessage = "Loading connection set...";
+            var connectionSet = await _gateway.GetConnectionSetAsync(_environment.Cname, ct);
+            var ce = connectionSet.CeEnvironment;
+            if (ce is null)
+            {
+                StatusMessage = "No CE environment found in the connection set.";
+                return;
+            }
+
+            // Resolve the integration key for each map up-front so we can show a precise plan
+            // and skip maps we can't resolve rather than risk a wrong call.
+            var plan = new List<(DualWriteMap Map, DualWriteSchemaKey Key)>();
+            var skipped = new List<string>();
+            foreach (var map in selected)
+            {
+                var key = string.IsNullOrWhiteSpace(map.RightEntityName)
+                    ? null
+                    : connectionSet.GetIntegrationKey(map.RightEntityName);
+                if (key is null || key.Fields.Count == 0)
+                {
+                    skipped.Add(MapLabel(map));
+                }
+                else
+                {
+                    plan.Add((map, key));
+                }
+            }
+
+            if (plan.Count == 0)
+            {
+                StatusMessage = "Could not resolve integration keys for the selected map(s) (no CE entity match).";
+                return;
+            }
+
+            var planLines = string.Join("\n", plan.Select(p => $"  {p.Map.RightEntityName}: {string.Join(", ", p.Key.Fields)}"));
+            if (!ConfirmAction("Apply integration keys",
+                    $"Apply integration keys on the LIVE environment '{EnvironmentName}' for these CE entit(y/ies)?\n\n{planLines}"))
+            {
+                StatusMessage = "Apply integration keys cancelled.";
+                return;
+            }
+
+            var applied = 0;
+            foreach (var (map, key) in plan)
+            {
+                ct.ThrowIfCancellationRequested();
+                StatusMessage = $"Applying integration keys for {map.RightEntityName}...";
+                await _gateway.ApplyIntegrationKeysAsync(ce.Name, map.RightEntityName, key.Fields, ct);
+                applied++;
+            }
+
+            var skippedNote = skipped.Count == 0 ? string.Empty : $" Skipped {skipped.Count} (no key resolved).";
+            StatusMessage = $"Applied integration keys for {applied} entit{(applied == 1 ? "y" : "ies")}.{skippedNote}";
         }
         finally
         {

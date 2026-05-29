@@ -85,6 +85,14 @@ public class DualWriteOperationsViewModelTests
             Resets.Add((cid, legalEntities, forceReset));
             return Task.CompletedTask;
         }
+
+        public List<(string Dataset, string Entity, IReadOnlyList<string> Fields)> KeyApplications { get; } = new();
+
+        public Task ApplyIntegrationKeysAsync(string datasetName, string ceEntityName, IReadOnlyList<string> keyFields, CancellationToken ct = default)
+        {
+            KeyApplications.Add((datasetName, ceEntityName, keyFields));
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeFactory : IDualWriteGatewayFactory
@@ -326,6 +334,46 @@ public class DualWriteOperationsViewModelTests
             Assert.Equal("C1", reset.Cid);
             Assert.True(reset.ForceReset);
             Assert.Equal(new[] { "USMF", "DEMF" }, reset.LegalEntities.ToArray());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task ApplyIntegrationKeys_ResolvesKeyFromConnectionSet_AndPostsForResolvedMaps()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway();
+            gateway.MapsList.Add(Map("a", "Customers") with { RightEntityName = "Customers" });
+            gateway.MapsList.Add(Map("b", "Vendors") with { RightEntityName = "Unmapped" });
+            gateway.ConnectionSet = new DualWriteConnectionSet(
+                "cs",
+                new[]
+                {
+                    new DualWriteConnectionSetEnvironment("ce-prod", "CE", "pae", false, "CRM", "https://ce",
+                        new[] { new DualWriteSchema("Customers", new[] { new DualWriteSchemaKey("USERKEYS", "k", new[] { "accountnumber" }) }) })
+                },
+                Array.Empty<string>());
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
+            {
+                ConfirmAction = (_, _) => true
+            };
+            await vm.LoadMapsCommand.ExecuteAsync();
+            foreach (var row in vm.Maps) row.IsSelected = true;
+
+            await vm.ApplyIntegrationKeysCommand.ExecuteAsync();
+
+            var applied = Assert.Single(gateway.KeyApplications);
+            Assert.Equal("ce-prod", applied.Dataset);
+            Assert.Equal("Customers", applied.Entity);
+            Assert.Equal(new[] { "accountnumber" }, applied.Fields.ToArray());
+            Assert.Contains("Skipped 1", vm.StatusMessage);
         }
         finally
         {
