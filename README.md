@@ -64,6 +64,18 @@ Why: the Ralph validation runner can treat the full validation string as a path-
 
 If you discover a security issue, please follow `SECURITY.md`.
 
+## Plugin trust
+
+- The 5 bundled plugins are strong-name pinned; the host refuses to load a bundled
+  plugin whose assembly has been tampered with.
+- Unsigned third-party plugins prompt for consent on first load (Load once / Always
+  trust / Don't load). "Always trust" decisions are stored in
+  `%LOCALAPPDATA%\FoToolbox\trusted-plugins.json` — delete that file to reset them.
+- Set `FOTOOLBOX_ALLOW_UNSIGNED_PLUGINS=true` to load all unsigned plugins silently
+  (intended for development/CI only).
+- Authenticode-signed plugins can be restricted to an allowlist via
+  `FOTOOLBOX_ALLOWED_PLUGIN_THUMBPRINTS`.
+
 ## License
 
 Licensed under the MIT License. See `LICENSE`.
