@@ -28,7 +28,7 @@ If you want to build the bundle yourself instead of downloading, see [`install/R
 ## Requirements
 
 - Windows 10/11
-- .NET SDK from `global.json` (currently `9.0.306` with `latestMinor` roll-forward)
+- .NET SDK from `global.json` (currently `10.0.201` with `latestPatch` roll-forward)
 - Visual Studio 2022 or newer (recommended for WPF development)
 
 ## Quick Start

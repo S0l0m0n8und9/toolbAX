@@ -2,6 +2,9 @@
 **/bin/
 **/obj/
 
+# Test outputs
+**/TestResults/
+
 # Packaging / generated outputs
 artifacts/
 publish/
