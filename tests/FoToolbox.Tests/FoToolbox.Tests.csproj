@@ -8,6 +8,9 @@
 
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <SignAssembly>true</SignAssembly>
+    <AssemblyOriginatorKeyFile>$(MSBuildProjectDirectory)\..\..\build\fotoolbox.snk</AssemblyOriginatorKeyFile>
+    <NoWarn>$(NoWarn);CS8002</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,6 +23,7 @@
     <ProjectReference Include="..\\..\\plugins\\TableEntityBrowser\\TableEntityBrowser.csproj" />
     <ProjectReference Include="..\\..\\plugins\\ODataPostBuilder\\ODataPostBuilder.csproj" />
     <ProjectReference Include="..\\..\\plugins\\DualWriteMapBrowser\\DualWriteMapBrowser.csproj" />
+    <ProjectReference Include="..\\..\\tests\\Fixtures\\UnsignedTestPlugin\\UnsignedTestPlugin.csproj" />
   </ItemGroup>
 
   <ItemGroup>
