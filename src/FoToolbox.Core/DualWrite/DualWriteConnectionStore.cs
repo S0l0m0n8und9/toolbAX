@@ -8,15 +8,15 @@ using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace DualWriteOperationsPlugin;
+namespace FoToolbox.Core.DualWrite;
 
 /// <summary>
-/// Per-environment dual-write connection settings: the gateway base URL, the F&amp;O
-/// identifier used to resolve the linkage, and the pasted bearer token (DPAPI-protected
-/// at rest). Persisted to <c>%LocalAppData%/FoToolbox/dualwrite-connections.json</c>,
-/// mirroring the plugin-local persistence pattern used by Testify configuration.
+/// Persists dual-write connection settings keyed by an arbitrary string (an environment id
+/// for the Operations plugin, or "Left"/"Right" for Compare). The bearer token is
+/// DPAPI-protected at rest. Stored under <c>%LocalAppData%/FoToolbox/</c>, mirroring the
+/// plugin-local persistence pattern used elsewhere. Shared by dual-write plugins.
 /// </summary>
-internal sealed class DualWriteConnectionStore
+public sealed class DualWriteConnectionStore
 {
     private static readonly JsonSerializerOptions SerializerOptions = new()
     {
@@ -39,22 +39,22 @@ internal sealed class DualWriteConnectionStore
         _protector = protector ?? new DpapiTokenProtector();
     }
 
-    public async Task<DualWriteConnectionSettings> GetAsync(string envId, CancellationToken ct)
+    public async Task<DualWriteConnectionSettings> GetAsync(string key, CancellationToken ct)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             await EnsureLoadedAsync(ct).ConfigureAwait(false);
-            if (_items.TryGetValue(envId, out var record))
+            if (_items.TryGetValue(key, out var record))
             {
                 return new DualWriteConnectionSettings(
-                    envId,
+                    key,
                     record.GatewayBaseUrl ?? string.Empty,
                     record.FoIdentifier ?? string.Empty,
                     string.IsNullOrEmpty(record.ProtectedToken) ? null : _protector.Unprotect(record.ProtectedToken!));
             }
 
-            return new DualWriteConnectionSettings(envId, string.Empty, string.Empty, null);
+            return new DualWriteConnectionSettings(key, string.Empty, string.Empty, null);
         }
         finally
         {
@@ -68,9 +68,9 @@ internal sealed class DualWriteConnectionStore
         try
         {
             await EnsureLoadedAsync(ct).ConfigureAwait(false);
-            _items[settings.EnvId] = new DualWriteConnectionRecord
+            _items[settings.Key] = new DualWriteConnectionRecord
             {
-                EnvId = settings.EnvId,
+                Key = settings.Key,
                 GatewayBaseUrl = settings.GatewayBaseUrl,
                 FoIdentifier = settings.FoIdentifier,
                 ProtectedToken = string.IsNullOrEmpty(settings.BearerToken) ? null : _protector.Protect(settings.BearerToken!),
@@ -109,8 +109,8 @@ internal sealed class DualWriteConnectionStore
 
             var doc = JsonSerializer.Deserialize<DualWriteConnectionDocument>(json, SerializerOptions);
             _items = (doc?.Connections ?? new List<DualWriteConnectionRecord>())
-                .Where(c => !string.IsNullOrWhiteSpace(c.EnvId))
-                .ToDictionary(c => c.EnvId!, c => c, StringComparer.OrdinalIgnoreCase);
+                .Where(c => !string.IsNullOrWhiteSpace(c.Key))
+                .ToDictionary(c => c.Key!, c => c, StringComparer.OrdinalIgnoreCase);
         }
         catch
         {
@@ -123,7 +123,7 @@ internal sealed class DualWriteConnectionStore
         var doc = new DualWriteConnectionDocument
         {
             Connections = _items.Values
-                .OrderBy(v => v.EnvId, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(v => v.Key, StringComparer.OrdinalIgnoreCase)
                 .ToList()
         };
 
@@ -145,18 +145,9 @@ internal sealed class DualWriteConnectionDocument
 
 internal sealed class DualWriteConnectionRecord
 {
-    public string? EnvId { get; set; }
+    public string? Key { get; set; }
     public string? GatewayBaseUrl { get; set; }
     public string? FoIdentifier { get; set; }
     public string? ProtectedToken { get; set; }
     public string? UpdatedUtc { get; set; }
-}
-
-/// <summary>Decrypted, in-memory connection settings handed to the view-model.</summary>
-internal sealed record DualWriteConnectionSettings(string EnvId, string GatewayBaseUrl, string FoIdentifier, string? BearerToken)
-{
-    public bool IsComplete =>
-        !string.IsNullOrWhiteSpace(GatewayBaseUrl) &&
-        !string.IsNullOrWhiteSpace(FoIdentifier) &&
-        !string.IsNullOrWhiteSpace(BearerToken);
 }

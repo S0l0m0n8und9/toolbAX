@@ -2,10 +2,10 @@ using System;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace DualWriteOperationsPlugin;
+namespace FoToolbox.Core.DualWrite;
 
 /// <summary>Encrypts/decrypts the pasted bearer token at rest. Abstracted for testability.</summary>
-internal interface ITokenProtector
+public interface ITokenProtector
 {
     string Protect(string plaintext);
     string? Unprotect(string protectedValue);
@@ -15,7 +15,7 @@ internal interface ITokenProtector
 /// DPAPI (CurrentUser) protector. The token never leaves the signed-in Windows user's
 /// profile in plaintext, so the on-disk connection file is useless to other users.
 /// </summary>
-internal sealed class DpapiTokenProtector : ITokenProtector
+public sealed class DpapiTokenProtector : ITokenProtector
 {
     public string Protect(string plaintext)
     {

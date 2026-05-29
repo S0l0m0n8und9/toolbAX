@@ -1,14 +1,13 @@
-using FoToolbox.Core.DualWrite;
 using System;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace DualWriteOperationsPlugin;
+namespace FoToolbox.Core.DualWrite;
 
 /// <summary>Builds an <see cref="IDualWriteGateway"/> bound to a connection's gateway URL + bearer token.</summary>
-internal interface IDualWriteGatewayFactory
+public interface IDualWriteGatewayFactory
 {
     IDualWriteGateway Create(DualWriteConnectionSettings settings);
 }
@@ -18,10 +17,15 @@ internal interface IDualWriteGatewayFactory
 /// and whose handler injects the pasted bearer token, then wraps it in a
 /// <see cref="DualWriteGatewayClient"/>.
 /// </summary>
-internal sealed class DualWriteGatewayFactory : IDualWriteGatewayFactory
+public sealed class DualWriteGatewayFactory : IDualWriteGatewayFactory
 {
     public IDualWriteGateway Create(DualWriteConnectionSettings settings)
     {
+        if (settings is null)
+        {
+            throw new ArgumentNullException(nameof(settings));
+        }
+
         if (string.IsNullOrWhiteSpace(settings.GatewayBaseUrl))
         {
             throw new InvalidOperationException("Gateway base URL is not configured.");
@@ -32,7 +36,7 @@ internal sealed class DualWriteGatewayFactory : IDualWriteGatewayFactory
         {
             BaseAddress = new Uri(baseUrl)
         };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("FoToolbox-DualWriteOperations/0.1");
+        http.DefaultRequestHeaders.UserAgent.ParseAdd("FoToolbox-DualWrite/0.1");
         return new DualWriteGatewayClient(http);
     }
 }

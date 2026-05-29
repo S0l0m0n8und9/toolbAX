@@ -29,6 +29,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DualWriteMapBrowser", "plug
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DualWriteOperations", "plugins\DualWriteOperations\DualWriteOperations.csproj", "{74B46C22-AEEE-422E-88CC-938ED33A830B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "DualWriteCompare", "plugins\DualWriteCompare\DualWriteCompare.csproj", "{2060C473-5588-436D-92F6-0E301F788521}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -159,6 +161,18 @@ Global
 		{74B46C22-AEEE-422E-88CC-938ED33A830B}.Release|x64.Build.0 = Release|Any CPU
 		{74B46C22-AEEE-422E-88CC-938ED33A830B}.Release|x86.ActiveCfg = Release|Any CPU
 		{74B46C22-AEEE-422E-88CC-938ED33A830B}.Release|x86.Build.0 = Release|Any CPU
+		{2060C473-5588-436D-92F6-0E301F788521}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2060C473-5588-436D-92F6-0E301F788521}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2060C473-5588-436D-92F6-0E301F788521}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{2060C473-5588-436D-92F6-0E301F788521}.Debug|x64.Build.0 = Debug|Any CPU
+		{2060C473-5588-436D-92F6-0E301F788521}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{2060C473-5588-436D-92F6-0E301F788521}.Debug|x86.Build.0 = Debug|Any CPU
+		{2060C473-5588-436D-92F6-0E301F788521}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2060C473-5588-436D-92F6-0E301F788521}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2060C473-5588-436D-92F6-0E301F788521}.Release|x64.ActiveCfg = Release|Any CPU
+		{2060C473-5588-436D-92F6-0E301F788521}.Release|x64.Build.0 = Release|Any CPU
+		{2060C473-5588-436D-92F6-0E301F788521}.Release|x86.ActiveCfg = Release|Any CPU
+		{2060C473-5588-436D-92F6-0E301F788521}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
@@ -174,5 +188,6 @@ Global
 		{C3B85928-03CF-40CA-A240-28B6C5062CB9} = {07D57EEB-2F50-60C4-C011-FE4FA775C9A8}
 		{A2C2CE31-8A3D-4E71-9577-5DE3C403E217} = {07D57EEB-2F50-60C4-C011-FE4FA775C9A8}
 		{74B46C22-AEEE-422E-88CC-938ED33A830B} = {07D57EEB-2F50-60C4-C011-FE4FA775C9A8}
+		{2060C473-5588-436D-92F6-0E301F788521} = {07D57EEB-2F50-60C4-C011-FE4FA775C9A8}
 	EndGlobalSection
 EndGlobal
