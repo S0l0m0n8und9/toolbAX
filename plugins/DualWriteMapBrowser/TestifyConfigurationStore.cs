@@ -157,9 +157,9 @@ internal sealed class TestifyConfigurationStore
 
         cfg.PreferredCreateValuesByCompany = byCompany;
 
-        if (cfg.CePollTimeoutMinutes <= 0)
+        if (cfg.CePollTimeoutSeconds <= 0)
         {
-            cfg.CePollTimeoutMinutes = 5;
+            cfg.CePollTimeoutSeconds = 5;
         }
 
         return cfg;
@@ -181,9 +181,9 @@ public sealed class TestifyMapConfiguration
     public Dictionary<string, Dictionary<string, string>> PreferredCreateValuesByCompany { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// How long to wait for a CE record count delta before timing out. Defaults to 5 minutes.
+    /// How long, in seconds, to wait for a CE record count delta before timing out. Defaults to 5 seconds.
     /// </summary>
-    public int CePollTimeoutMinutes { get; set; } = 5;
+    public int CePollTimeoutSeconds { get; set; } = 5;
 
     /// <summary>
     /// When true, incomplete enum value-map coverage is treated as a warning rather than a blocking

@@ -21,7 +21,7 @@ public sealed class TestifyConfigurationStoreTests
                 ["NumberSequenceGroup"] = "STD",
                 ["CurrencyCode"] = "USD"
             };
-            config.CePollTimeoutMinutes = 12;
+            config.CePollTimeoutSeconds = 12;
             config.AllowPartialEnumCoverage = true;
 
             await store.SaveAsync(config, CancellationToken.None);
@@ -32,7 +32,7 @@ public sealed class TestifyConfigurationStoreTests
             Assert.Equal(new[] { "FieldA", "fieldB" }, reloaded.OmitCreateFields.OrderBy(v => v, StringComparer.OrdinalIgnoreCase));
             Assert.Equal("STD", reloaded.PreferredCreateValues["NumberSequenceGroup"]);
             Assert.Equal("USD", reloaded.PreferredCreateValues["CurrencyCode"]);
-            Assert.Equal(12, reloaded.CePollTimeoutMinutes);
+            Assert.Equal(12, reloaded.CePollTimeoutSeconds);
             Assert.True(reloaded.AllowPartialEnumCoverage);
         }
         finally

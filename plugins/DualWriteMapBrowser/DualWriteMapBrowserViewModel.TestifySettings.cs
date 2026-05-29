@@ -79,7 +79,7 @@ public sealed partial class DualWriteMapBrowserViewModel
         {
             plan.Configuration.OmitCreateFields = new HashSet<string>(saved.OmitCreateFields, StringComparer.OrdinalIgnoreCase);
             plan.Configuration.PreferredCreateValues = new Dictionary<string, string>(saved.PreferredCreateValues, StringComparer.OrdinalIgnoreCase);
-            plan.Configuration.CePollTimeoutMinutes = saved.CePollTimeoutMinutes;
+            plan.Configuration.CePollTimeoutSeconds = saved.CePollTimeoutSeconds;
             plan.Configuration.AllowPartialEnumCoverage = saved.AllowPartialEnumCoverage;
         }
 
