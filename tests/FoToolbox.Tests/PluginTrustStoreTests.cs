@@ -46,6 +46,6 @@ public sealed class PluginTrustStoreTests
 
         var json = File.ReadAllText(path);
         // Only one entry serialized.
-        Assert.Equal(1, System.Text.RegularExpressions.Regex.Matches(json, "Some.Plugin").Count);
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(json, "Some.Plugin"));
     }
 }
