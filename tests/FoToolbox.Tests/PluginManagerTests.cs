@@ -666,6 +666,46 @@ public sealed class PluginManagerTests
         });
     }
 
+    [Fact]
+    public void Discover_Loads_New_DualWrite_Plugins_As_Renderable_Tabs()
+    {
+        // The Dual-write Operations and Compare plugins are the newest bundled features. This guards
+        // that they are discovered, pass bundled-plugin trust, and produce a non-null tool control —
+        // i.e. the host can render a tab for each (MainWindowViewModel.LoadPlugins binds ToolControl).
+        RunSta(async () =>
+        {
+            var pluginRoot = Directory.CreateTempSubdirectory("plugins-dualwrite-new").FullName;
+            StageCanonicalByType(pluginRoot, "DualWriteOperations", typeof(DualWriteOperationsPlugin.DualWriteOperationsPlugin));
+            StageCanonicalByType(pluginRoot, "DualWriteCompare", typeof(DualWriteComparePlugin.DualWriteComparePlugin));
+
+            var logger = new CapturingLogger();
+            var manager = CreateManager(pluginRoot, logger);
+            var plugins = await manager.DiscoverAsync();
+
+            if (plugins.Count == 0 && logger.LastException != null)
+            {
+                throw logger.LastException;
+            }
+
+            var operations = Assert.Single(plugins, p => p.Manifest.Id == "fo.dualwriteoperations");
+            Assert.Equal("Dual-write Operations", operations.Manifest.Name);
+            Assert.NotNull(operations.ToolControl);
+
+            var compare = Assert.Single(plugins, p => p.Manifest.Id == "fo.dualwritecompare");
+            Assert.Equal("Dual-write Compare", compare.Manifest.Name);
+            Assert.NotNull(compare.ToolControl);
+
+            Assert.DoesNotContain(logger.Entries, e => e.Level >= Microsoft.Extensions.Logging.LogLevel.Error);
+        });
+    }
+
+    private static void StageCanonicalByType(string pluginRoot, string name, Type pluginType)
+    {
+        var pluginDir = Path.Combine(pluginRoot, name);
+        Directory.CreateDirectory(pluginDir);
+        File.Copy(pluginType.Assembly.Location, Path.Combine(pluginDir, name + ".dll"), overwrite: true);
+    }
+
     private static void RunSta(Func<Task> action)
     {
         Exception? failure = null;
