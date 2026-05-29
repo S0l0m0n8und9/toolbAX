@@ -54,6 +54,9 @@ public sealed record DualWriteMap(
     public string CurrentAuthor => ActiveTemplate?.Author ?? string.Empty;
 }
 
+/// <summary>A project field mapping (the unit "refresh tables" operates on).</summary>
+public sealed record DualWriteFieldMapping(string Name);
+
 /// <summary>Result of a <c>POST Start</c> action: carries the request id to poll.</summary>
 public sealed record DualWriteActionResponse(string RequestId, string? State);
 

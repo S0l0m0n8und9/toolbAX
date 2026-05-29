@@ -118,6 +118,7 @@
                     <Button Content="Initial Sync" Command="{Binding InitialSyncCommand}" Padding="12,4" MinWidth="100" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
                     <Border Width="1" Margin="10,2" Background="{DynamicResource Fo.BorderBrush}" />
                     <Button Content="Apply Latest Version" Command="{Binding ApplyLatestVersionCommand}" Padding="12,4" MinWidth="140" IsEnabled="{Binding IsNotBusy}" />
+                    <Button Content="Refresh Tables" Command="{Binding RefreshTablesCommand}" Padding="12,4" MinWidth="110" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
                     <TextBlock Text="Author filter:" VerticalAlignment="Center" Margin="8,0,4,0" />
                     <TextBox Width="160" VerticalAlignment="Center"
                              Text="{Binding AuthorFilter, UpdateSourceTrigger=PropertyChanged}"

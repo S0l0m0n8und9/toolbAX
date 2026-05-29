@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
@@ -110,5 +111,42 @@ public class DualWriteSwitchActiveTests
             handler.LastRequest!.RequestUri!.ToString());
         Assert.Equal("t-101", handler.LastBody);
         Assert.Equal("req-7", response.RequestId);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task GetFieldMappings_BuildsExpectedRequest_AndParsesNames()
+    {
+        var handler = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{\"value\":[{\"name\":\"fm-1\"},{\"name\":\"fm-2\"}]}")
+        });
+        var http = new HttpClient(handler) { BaseAddress = new Uri("https://gw.example/") };
+        var client = new DualWriteGatewayClient(http);
+
+        var mappings = await client.GetFieldMappingsAsync("proj-1", CancellationToken.None);
+
+        Assert.Equal(
+            "https://gw.example/api/DualWriteManagement/1.0/proj-1/FieldMappings",
+            handler.LastRequest!.RequestUri!.ToString());
+        Assert.Equal(new[] { "fm-1", "fm-2" }, mappings.Select(m => m.Name).ToArray());
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task RefreshTables_PostsFixedBodyToProjectRefreshPath()
+    {
+        var handler = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("{}")
+        });
+        var http = new HttpClient(handler) { BaseAddress = new Uri("https://gw.example/") };
+        var client = new DualWriteGatewayClient(http);
+
+        await client.RefreshTablesAsync("fm-1", CancellationToken.None);
+
+        Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
+        Assert.Equal("https://gw.example/api/Project/fm-1/Refresh", handler.LastRequest!.RequestUri!.ToString());
+        Assert.Equal("{\"tokens\":[\"\"]}", handler.LastBody);
     }
 }

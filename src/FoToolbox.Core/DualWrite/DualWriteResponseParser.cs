@@ -39,6 +39,25 @@ public static class DualWriteResponseParser
         return maps;
     }
 
+    public static IReadOnlyList<DualWriteFieldMapping> ParseFieldMappings(string json)
+    {
+        using var doc = JsonDocument.Parse(json);
+        var array = AsArray(doc.RootElement);
+        var mappings = new List<DualWriteFieldMapping>();
+        foreach (var item in array)
+        {
+            var name = item.ValueKind == JsonValueKind.Object
+                ? GetString(item, "name", "fieldMappingName")
+                : item.ValueKind == JsonValueKind.String ? item.GetString() ?? string.Empty : string.Empty;
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                mappings.Add(new DualWriteFieldMapping(name));
+            }
+        }
+
+        return mappings;
+    }
+
     public static DualWriteActionResponse ParseActionResponse(string json)
     {
         using var doc = JsonDocument.Parse(json);

@@ -109,6 +109,38 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway
             : new DualWriteActionResponse(trimmed.Trim('"'), null);
     }
 
+    /// <summary>
+    /// Lists the field mappings for a project.
+    /// <c>GET {pid}/FieldMappings</c> (per <c>DWCommonEngine.getFieldMappingForMaps</c>).
+    /// </summary>
+    public async Task<IReadOnlyList<DualWriteFieldMapping>> GetFieldMappingsAsync(string projectId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(projectId))
+        {
+            throw new ArgumentException("A project id (pid) is required.", nameof(projectId));
+        }
+
+        var uri = $"{ApiBasePath}{Uri.EscapeDataString(projectId)}/FieldMappings";
+        var json = await SendAsync(HttpMethod.Get, uri, null, cancellationToken).ConfigureAwait(false);
+        return DualWriteResponseParser.ParseFieldMappings(json);
+    }
+
+    /// <summary>
+    /// Refreshes table/entity metadata for a project field mapping.
+    /// <c>POST api/Project/{fieldMappingName}/Refresh</c> with body <c>{"tokens":[""]}</c>
+    /// (host-root path, per <c>DWMapEngine.refreshTable</c>).
+    /// </summary>
+    public async Task RefreshTablesAsync(string fieldMappingName, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(fieldMappingName))
+        {
+            throw new ArgumentException("A field mapping name is required.", nameof(fieldMappingName));
+        }
+
+        var uri = $"api/Project/{Uri.EscapeDataString(fieldMappingName)}/Refresh";
+        await SendAsync(HttpMethod.Post, uri, "{\"tokens\":[\"\"]}", cancellationToken).ConfigureAwait(false);
+    }
+
     /// <summary>Polls the status of a previously submitted action request.</summary>
     public async Task<DualWriteRequestStatus> GetStatusAsync(string requestId, CancellationToken cancellationToken = default)
     {

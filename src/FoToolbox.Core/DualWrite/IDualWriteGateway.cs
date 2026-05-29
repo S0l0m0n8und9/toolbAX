@@ -17,4 +17,10 @@ public interface IDualWriteGateway
 
     /// <summary>Activates a specific template version for a map (the "apply map version" action).</summary>
     Task<DualWriteActionResponse> SwitchActiveTemplateAsync(string cid, string projectId, string templateId, CancellationToken cancellationToken = default);
+
+    /// <summary>Lists the field mappings for a project (the units "refresh tables" operates on).</summary>
+    Task<IReadOnlyList<DualWriteFieldMapping>> GetFieldMappingsAsync(string projectId, CancellationToken cancellationToken = default);
+
+    /// <summary>Refreshes the table/entity metadata for a project field mapping.</summary>
+    Task RefreshTablesAsync(string fieldMappingName, CancellationToken cancellationToken = default);
 }

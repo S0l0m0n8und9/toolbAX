@@ -59,6 +59,19 @@ public class DualWriteOperationsViewModelTests
             Switches.Add((cid, projectId, templateId));
             return Task.FromResult(new DualWriteActionResponse(string.Empty, null));
         }
+
+        public Dictionary<string, List<DualWriteFieldMapping>> FieldMappingsByPid { get; } = new();
+        public List<string> Refreshed { get; } = new();
+
+        public Task<IReadOnlyList<DualWriteFieldMapping>> GetFieldMappingsAsync(string projectId, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<DualWriteFieldMapping>>(
+                FieldMappingsByPid.TryGetValue(projectId, out var list) ? list : new List<DualWriteFieldMapping>());
+
+        public Task RefreshTablesAsync(string fieldMappingName, CancellationToken ct = default)
+        {
+            Refreshed.Add(fieldMappingName);
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeFactory : IDualWriteGatewayFactory
@@ -203,6 +216,38 @@ public class DualWriteOperationsViewModelTests
             Assert.Equal("C1", sw.Cid);
             Assert.Equal("pid-a", sw.Pid);
             Assert.Equal("t-new", sw.TemplateId);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task RefreshTables_RefreshesEachFieldMappingOfSelectedMaps()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway();
+            gateway.MapsList.Add(Map("a"));
+            gateway.FieldMappingsByPid["pid-a"] = new List<DualWriteFieldMapping>
+            {
+                new("fm-1"),
+                new("fm-2")
+            };
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
+            {
+                ConfirmAction = (_, _) => true
+            };
+            await vm.LoadMapsCommand.ExecuteAsync();
+            vm.Maps[0].IsSelected = true;
+
+            await vm.RefreshTablesCommand.ExecuteAsync();
+
+            Assert.Equal(new[] { "fm-1", "fm-2" }, gateway.Refreshed.ToArray());
         }
         finally
         {

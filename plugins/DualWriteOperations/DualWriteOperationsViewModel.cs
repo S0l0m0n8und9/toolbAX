@@ -73,6 +73,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         ResumeCommand = new AsyncRelayCommand(ct => ExecuteActionAsync(DualWriteActionType.Resume, ct), onError);
         InitialSyncCommand = new AsyncRelayCommand(ct => ExecuteActionAsync(DualWriteActionType.InitialSync, ct), onError);
         ApplyLatestVersionCommand = new AsyncRelayCommand(ApplyLatestVersionAsync, onError);
+        RefreshTablesCommand = new AsyncRelayCommand(RefreshTablesAsync, onError);
 
         _ = InitializeAsync();
     }
@@ -87,6 +88,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     public AsyncRelayCommand ResumeCommand { get; }
     public AsyncRelayCommand InitialSyncCommand { get; }
     public AsyncRelayCommand ApplyLatestVersionCommand { get; }
+    public AsyncRelayCommand RefreshTablesCommand { get; }
 
     public string EnvironmentName => _ctx.CurrentEnv.Name;
 
@@ -329,6 +331,56 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
             await RefreshMapStatesAsync(ct);
             var skippedNote = skipped.Count == 0 ? string.Empty : $" Skipped {skipped.Count} with no matching version.";
             StatusMessage = $"Applied version to {applied} map(s).{skippedNote}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task RefreshTablesAsync(CancellationToken ct)
+    {
+        if (_gateway is null || string.IsNullOrWhiteSpace(_cid))
+        {
+            StatusMessage = "Load maps before refreshing tables.";
+            return;
+        }
+
+        var selected = Maps.Where(r => r.IsSelected).Select(r => r.Map).ToList();
+        if (selected.Count == 0)
+        {
+            StatusMessage = "Select at least one map (checkbox) before refreshing tables.";
+            return;
+        }
+
+        var names = string.Join(", ", selected.Select(MapLabel));
+        if (!ConfirmAction("Refresh tables",
+                $"Refresh table metadata for these map(s) on the LIVE environment '{EnvironmentName}'?\n\n{names}"))
+        {
+            StatusMessage = "Refresh tables cancelled.";
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var refreshed = 0;
+            foreach (var map in selected)
+            {
+                ct.ThrowIfCancellationRequested();
+                StatusMessage = $"Refreshing tables for {MapLabel(map)}...";
+                var fieldMappings = await _gateway.GetFieldMappingsAsync(map.ProjectId, ct);
+                foreach (var fieldMapping in fieldMappings)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    await _gateway.RefreshTablesAsync(fieldMapping.Name, ct);
+                    refreshed++;
+                }
+            }
+
+            StatusMessage = refreshed == 0
+                ? "No field mappings found to refresh for the selected map(s)."
+                : $"Refreshed {refreshed} field mapping(s) across {selected.Count} map(s).";
         }
         finally
         {

@@ -48,6 +48,12 @@ public class DualWriteCompareViewModelTests
 
         public Task<DualWriteActionResponse> SwitchActiveTemplateAsync(string cid, string projectId, string templateId, CancellationToken ct = default) =>
             throw new NotSupportedException();
+
+        public Task<IReadOnlyList<DualWriteFieldMapping>> GetFieldMappingsAsync(string projectId, CancellationToken ct = default) =>
+            throw new NotSupportedException();
+
+        public Task RefreshTablesAsync(string fieldMappingName, CancellationToken ct = default) =>
+            throw new NotSupportedException();
     }
 
     private sealed class KeyedFactory : IDualWriteGatewayFactory
