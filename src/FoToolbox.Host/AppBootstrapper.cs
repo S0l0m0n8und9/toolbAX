@@ -83,7 +83,9 @@ internal sealed class AppBootstrapper : IDisposable
             _logger,
             IsDataverseConfigured(bundle.DataverseEnvironment) ? bundle.DataverseEnvironment : null,
             _dataverseHttpClient,
-            trust);
+            trust,
+            new PluginTrustStore(),
+            new PluginConsentPrompt());
 
         var plugins = await manager.DiscoverAsync(cancellationToken);
 
