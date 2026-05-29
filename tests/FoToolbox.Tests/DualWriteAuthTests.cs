@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 using FoToolbox.Core.DualWrite.Auth;
@@ -116,6 +117,77 @@ public class DualWriteRefreshTokenProviderTests
         var provider = new DualWriteRefreshTokenProvider(new HttpClient(handler));
 
         await Assert.ThrowsAsync<DualWriteAuthException>(() => provider.RefreshAsync("r1", CancellationToken.None));
+    }
+}
+
+public class RefreshingBearerTokenHandlerTests
+{
+    private sealed class StubInner : HttpMessageHandler
+    {
+        public AuthenticationHeaderValue? LastAuth { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            LastAuth = request.Headers.Authorization;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        }
+    }
+
+    private sealed class TokenEndpointHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"access_token\":\"fresh\",\"refresh_token\":\"r2\",\"expires_in\":3600}")
+            });
+    }
+
+    private static HttpResponseMessage Send(DelegatingHandler handler, HttpRequestMessage req)
+    {
+        var invoker = new HttpMessageInvoker(handler);
+        return invoker.SendAsync(req, CancellationToken.None).GetAwaiter().GetResult();
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task ExpiredToken_RefreshesAndAttachesNewToken_AndPersists()
+    {
+        var now = new DateTimeOffset(2026, 5, 29, 0, 0, 0, TimeSpan.Zero);
+        var expired = new DualWriteToken("old", "r1", now.AddMinutes(-5));
+        var refresher = new DualWriteRefreshTokenProvider(new HttpClient(new TokenEndpointHandler())) { Clock = () => now };
+        DualWriteToken? persisted = null;
+        var inner = new StubInner();
+        var handler = new RefreshingBearerTokenHandler(expired, refresher, t => { persisted = t; return Task.CompletedTask; }, () => now)
+        {
+            InnerHandler = inner
+        };
+
+        var response = await new HttpMessageInvoker(handler).SendAsync(
+            new HttpRequestMessage(HttpMethod.Get, "https://gw.example/x"), CancellationToken.None);
+
+        Assert.Equal("fresh", inner.LastAuth!.Parameter);
+        Assert.NotNull(persisted);
+        Assert.Equal("fresh", persisted!.AccessToken);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task FreshToken_DoesNotRefresh()
+    {
+        var now = new DateTimeOffset(2026, 5, 29, 0, 0, 0, TimeSpan.Zero);
+        var fresh = new DualWriteToken("good", "r1", now.AddHours(1));
+        var refresher = new DualWriteRefreshTokenProvider(new HttpClient(new TokenEndpointHandler())) { Clock = () => now };
+        var persisted = false;
+        var inner = new StubInner();
+        var handler = new RefreshingBearerTokenHandler(fresh, refresher, _ => { persisted = true; return Task.CompletedTask; }, () => now)
+        {
+            InnerHandler = inner
+        };
+
+        await new HttpMessageInvoker(handler).SendAsync(
+            new HttpRequestMessage(HttpMethod.Get, "https://gw.example/x"), CancellationToken.None);
+
+        Assert.Equal("good", inner.LastAuth!.Parameter);
+        Assert.False(persisted);
     }
 }
 

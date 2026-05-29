@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using DualWriteOperationsPlugin;
 using FoToolbox.Core.Catalog;
 using FoToolbox.Core.DualWrite;
+using FoToolbox.Core.DualWrite.Auth;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.OData;
 using FoToolbox.SDK.Plugins;
@@ -100,6 +101,7 @@ public class DualWriteOperationsViewModelTests
         private readonly IDualWriteGateway _gateway;
         public FakeFactory(IDualWriteGateway gateway) => _gateway = gateway;
         public IDualWriteGateway Create(DualWriteConnectionSettings settings) => _gateway;
+        public IDualWriteGateway CreateRefreshing(DualWriteConnectionSettings settings, Func<DualWriteToken, Task> onRefreshed) => _gateway;
     }
 
     private sealed class FakeContext : IPluginContext
@@ -119,6 +121,64 @@ public class DualWriteOperationsViewModelTests
         var store = new DualWriteConnectionStore(path, new PassthroughProtector());
         await store.SaveAsync(new DualWriteConnectionSettings("env-1", "https://gw.example", "uat-fo", "tok-123"), CancellationToken.None);
         return store;
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task SignIn_StoresDiscoveredGatewayAndDelegatedToken()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = new DualWriteConnectionStore(path, new PassthroughProtector());
+            var gateway = new FakeGateway();
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
+            {
+                FoIdentifier = "uat-fo",
+                SignInFlow = _ => Task.FromResult<DualWriteSignInResult?>(new DualWriteSignInResult(
+                    new DualWriteToken("acc", "ref", new DateTimeOffset(2026, 5, 29, 1, 0, 0, TimeSpan.Zero)),
+                    "https://projectmanagementservice.weu.gateway.prod.island.powerapps.com"))
+            };
+
+            await vm.SignInCommand.ExecuteAsync();
+
+            Assert.Equal("https://projectmanagementservice.weu.gateway.prod.island.powerapps.com", vm.GatewayBaseUrl);
+            var saved = await store.GetAsync("env-1", CancellationToken.None);
+            Assert.Equal("acc", saved.BearerToken);
+            Assert.Equal("ref", saved.RefreshToken);
+            Assert.True(saved.HasDelegatedSession);
+            Assert.True(saved.IsComplete);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task SignIn_Cancelled_DoesNotSave()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = new DualWriteConnectionStore(path, new PassthroughProtector());
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(new FakeGateway()))
+            {
+                FoIdentifier = "uat-fo",
+                SignInFlow = _ => Task.FromResult<DualWriteSignInResult?>(null)
+            };
+
+            await vm.SignInCommand.ExecuteAsync();
+
+            var saved = await store.GetAsync("env-1", CancellationToken.None);
+            Assert.False(saved.IsComplete);
+            Assert.Contains("cancelled", vm.StatusMessage, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Trait("Category", "DualWrite")]

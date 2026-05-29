@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using DualWriteComparePlugin;
 using FoToolbox.Core.Catalog;
 using FoToolbox.Core.DualWrite;
+using FoToolbox.Core.DualWrite.Auth;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.OData;
 using FoToolbox.SDK.Plugins;
@@ -70,6 +71,7 @@ public class DualWriteCompareViewModelTests
         private readonly Dictionary<string, IDualWriteGateway> _byKey;
         public KeyedFactory(Dictionary<string, IDualWriteGateway> byKey) => _byKey = byKey;
         public IDualWriteGateway Create(DualWriteConnectionSettings settings) => _byKey[settings.Key];
+        public IDualWriteGateway CreateRefreshing(DualWriteConnectionSettings settings, Func<DualWriteToken, Task> onRefreshed) => _byKey[settings.Key];
     }
 
     private sealed class FakeContext : IPluginContext

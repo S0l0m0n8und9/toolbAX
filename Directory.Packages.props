@@ -9,6 +9,7 @@
     <PackageVersion Include="Microsoft.Identity.Client" Version="4.62.0" />
     <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.8" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.8" />
+    <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.2792.45" />
 
     <!-- Test -->
     <PackageVersion Include="coverlet.collector" Version="6.0.4" />

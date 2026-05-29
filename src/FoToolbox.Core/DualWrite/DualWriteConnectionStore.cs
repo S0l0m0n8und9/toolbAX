@@ -47,11 +47,22 @@ public sealed class DualWriteConnectionStore
             await EnsureLoadedAsync(ct).ConfigureAwait(false);
             if (_items.TryGetValue(key, out var record))
             {
+                DateTimeOffset? expiry = null;
+                if (!string.IsNullOrWhiteSpace(record.AccessTokenExpiryUtc) &&
+                    DateTimeOffset.TryParse(record.AccessTokenExpiryUtc, null, System.Globalization.DateTimeStyles.RoundtripKind, out var parsed))
+                {
+                    expiry = parsed;
+                }
+
                 return new DualWriteConnectionSettings(
                     key,
                     record.GatewayBaseUrl ?? string.Empty,
                     record.FoIdentifier ?? string.Empty,
-                    string.IsNullOrEmpty(record.ProtectedToken) ? null : _protector.Unprotect(record.ProtectedToken!));
+                    string.IsNullOrEmpty(record.ProtectedToken) ? null : _protector.Unprotect(record.ProtectedToken!))
+                {
+                    RefreshToken = string.IsNullOrEmpty(record.ProtectedRefreshToken) ? null : _protector.Unprotect(record.ProtectedRefreshToken!),
+                    AccessTokenExpiryUtc = expiry
+                };
             }
 
             return new DualWriteConnectionSettings(key, string.Empty, string.Empty, null);
@@ -74,6 +85,8 @@ public sealed class DualWriteConnectionStore
                 GatewayBaseUrl = settings.GatewayBaseUrl,
                 FoIdentifier = settings.FoIdentifier,
                 ProtectedToken = string.IsNullOrEmpty(settings.BearerToken) ? null : _protector.Protect(settings.BearerToken!),
+                ProtectedRefreshToken = string.IsNullOrEmpty(settings.RefreshToken) ? null : _protector.Protect(settings.RefreshToken!),
+                AccessTokenExpiryUtc = settings.AccessTokenExpiryUtc?.ToString("o"),
                 UpdatedUtc = DateTime.UtcNow.ToString("o")
             };
             await SaveUnlockedAsync(ct).ConfigureAwait(false);
@@ -149,5 +162,7 @@ internal sealed class DualWriteConnectionRecord
     public string? GatewayBaseUrl { get; set; }
     public string? FoIdentifier { get; set; }
     public string? ProtectedToken { get; set; }
+    public string? ProtectedRefreshToken { get; set; }
+    public string? AccessTokenExpiryUtc { get; set; }
     public string? UpdatedUtc { get; set; }
 }

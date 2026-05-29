@@ -68,9 +68,14 @@
                 </Grid>
 
                 <DockPanel Margin="0,8,0,0">
+                    <Button DockPanel.Dock="Left" Content="Sign in…"
+                            Command="{Binding SignInCommand}"
+                            Padding="10,4" MinWidth="90"
+                            ToolTip="Interactive sign-in: captures a token and auto-discovers the gateway (no manual paste needed)."
+                            IsEnabled="{Binding IsNotBusy}" />
                     <Button DockPanel.Dock="Left" Content="Save Connection"
                             Command="{Binding SaveConnectionCommand}"
-                            Padding="10,4" MinWidth="130" />
+                            Padding="10,4" MinWidth="130" Margin="6,0,0,0" />
                     <Button DockPanel.Dock="Left" Content="Load Maps"
                             Command="{Binding LoadMapsCommand}"
                             Padding="10,4" MinWidth="110" Margin="6,0,0,0"
