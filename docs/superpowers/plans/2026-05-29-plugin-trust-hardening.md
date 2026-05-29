@@ -40,14 +40,18 @@
 
 - [ ] **Step 1: Generate the strong-name key**
 
-In a "Developer PowerShell for VS 2022" (so `sn.exe` is on PATH):
+`sn.exe` is not available in this environment, so generate the `.snk` directly. The SNK
+format is a CryptoAPI RSA private-key blob, which `RSACryptoServiceProvider.ExportCspBlob`
+produces exactly (Windows-only API; this is a Windows repo). Run:
 
 ```powershell
-New-Item -ItemType Directory -Force build
-sn -k build\fotoolbox.snk
+New-Item -ItemType Directory -Force build | Out-Null
+$rsa = New-Object System.Security.Cryptography.RSACryptoServiceProvider 2048
+[System.IO.File]::WriteAllBytes("$PWD\build\fotoolbox.snk", $rsa.ExportCspBlob($true))
+Write-Output ("Wrote build\fotoolbox.snk (" + (Get-Item build\fotoolbox.snk).Length + " bytes)")
 ```
 
-Expected: `Key pair written to build\fotoolbox.snk`. If `sn` is not found, locate it: `Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter sn.exe | Select-Object -First 1` and call it by full path.
+Expected: `Wrote build\fotoolbox.snk (1172 bytes)` (a 2048-bit key blob is ~1172 bytes). The build in Step 3 is the real validation that the key is usable for signing.
 
 - [ ] **Step 2: Enable signing on the 7 projects**
 
