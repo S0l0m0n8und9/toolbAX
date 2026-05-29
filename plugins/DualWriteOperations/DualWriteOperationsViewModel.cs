@@ -5,11 +5,14 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.IO;
 using System.Linq;
 using System.Runtime.CompilerServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using Microsoft.Win32;
 
 namespace DualWriteOperationsPlugin;
 
@@ -29,6 +32,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
 
     private IDualWriteGateway? _gateway;
     private string? _cid;
+    private DualWriteEnvironment? _environment;
     private string _gatewayBaseUrl = string.Empty;
     private string _foIdentifier = string.Empty;
     private string _bearerToken = string.Empty;
@@ -45,6 +49,12 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
 
     /// <summary>Maximum status polls before giving up and telling the user to check the portal.</summary>
     internal int MaxPollAttempts { get; set; } = 40;
+
+    /// <summary>Chooses an export file path (returns null to cancel). Overridable for tests.</summary>
+    internal Func<string, string?> ChooseExportPath { get; set; } = DefaultChooseExportPath;
+
+    /// <summary>Clock for export timestamps. Overridable for tests.</summary>
+    internal Func<DateTimeOffset> Clock { get; set; } = () => DateTimeOffset.UtcNow;
 
     public DualWriteOperationsViewModel(IPluginContext ctx)
         : this(ctx, new DualWriteConnectionStore(), new DualWriteGatewayFactory())
@@ -74,6 +84,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         InitialSyncCommand = new AsyncRelayCommand(ct => ExecuteActionAsync(DualWriteActionType.InitialSync, ct), onError);
         ApplyLatestVersionCommand = new AsyncRelayCommand(ApplyLatestVersionAsync, onError);
         RefreshTablesCommand = new AsyncRelayCommand(RefreshTablesAsync, onError);
+        ExportConfigCommand = new AsyncRelayCommand(ExportConfigAsync, onError);
 
         _ = InitializeAsync();
     }
@@ -89,6 +100,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     public AsyncRelayCommand InitialSyncCommand { get; }
     public AsyncRelayCommand ApplyLatestVersionCommand { get; }
     public AsyncRelayCommand RefreshTablesCommand { get; }
+    public AsyncRelayCommand ExportConfigCommand { get; }
 
     public string EnvironmentName => _ctx.CurrentEnv.Name;
 
@@ -197,6 +209,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
             StatusMessage = "Resolving dual-write environment...";
             var env = await _gateway.GetEnvironmentAsync(settings.FoIdentifier, ct);
             _cid = env.Cid;
+            _environment = env;
             if (string.IsNullOrWhiteSpace(_cid))
             {
                 StatusMessage = "Environment resolved but no connection id (cid) was returned. Check the identifier and token.";
@@ -386,6 +399,49 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         {
             IsBusy = false;
         }
+    }
+
+    private async Task ExportConfigAsync(CancellationToken ct)
+    {
+        if (_environment is null || Maps.Count == 0)
+        {
+            StatusMessage = "Load maps before exporting the configuration.";
+            return;
+        }
+
+        var maps = Maps.Select(r => r.Map).ToList();
+        var json = DualWriteConfigExporter.ExportJson(_environment, maps, Clock());
+
+        var suggestedName = $"dualwrite-config-{Sanitize(EnvironmentName)}.json";
+        var path = ChooseExportPath(suggestedName);
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            StatusMessage = "Export cancelled.";
+            return;
+        }
+
+        await File.WriteAllTextAsync(path, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), ct);
+        StatusMessage = $"Exported {maps.Count} map(s) to {Path.GetFileName(path)}.";
+    }
+
+    private static string Sanitize(string value)
+    {
+        var invalid = Path.GetInvalidFileNameChars();
+        var cleaned = new string(value.Select(c => invalid.Contains(c) ? '-' : c).ToArray()).Trim();
+        return string.IsNullOrWhiteSpace(cleaned) ? "environment" : cleaned;
+    }
+
+    private static string? DefaultChooseExportPath(string suggestedName)
+    {
+        var dialog = new SaveFileDialog
+        {
+            Title = "Export dual-write configuration",
+            Filter = "JSON files (*.json)|*.json|All files (*.*)|*.*",
+            FileName = suggestedName,
+            OverwritePrompt = true
+        };
+
+        return dialog.ShowDialog() == true ? dialog.FileName : null;
     }
 
     private static string MapLabel(DualWriteMap map) =>

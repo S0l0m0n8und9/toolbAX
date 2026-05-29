@@ -257,6 +257,37 @@ public class DualWriteOperationsViewModelTests
 
     [Trait("Category", "DualWrite")]
     [Fact]
+    public async Task ExportConfig_WritesLoadedMapsToChosenPath()
+    {
+        var storePath = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        var exportPath = Path.Combine(Path.GetTempPath(), $"dwexport-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(storePath);
+            var gateway = new FakeGateway();
+            gateway.MapsList.Add(Map("a", "Customers"));
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
+            {
+                ChooseExportPath = _ => exportPath
+            };
+            await vm.LoadMapsCommand.ExecuteAsync();
+
+            await vm.ExportConfigCommand.ExecuteAsync();
+
+            Assert.True(File.Exists(exportPath));
+            var json = await File.ReadAllTextAsync(exportPath);
+            Assert.Contains("Customers", json);
+            Assert.Contains("\"cid\": \"C1\"", json);
+        }
+        finally
+        {
+            File.Delete(storePath);
+            if (File.Exists(exportPath)) File.Delete(exportPath);
+        }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
     public async Task Action_Declined_DoesNotSubmit()
     {
         var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
