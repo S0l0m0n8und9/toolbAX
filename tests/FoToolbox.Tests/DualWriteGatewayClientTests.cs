@@ -188,12 +188,36 @@ public class MapActionPayloadBuilderTests
 
     [Trait("Category", "DualWrite")]
     [Fact]
-    public void Build_InitialSync_OmitsPid()
+    public void Build_InitialSync_OmitsPidAndParameters()
     {
         var json = MapActionPayloadBuilder.Build(DualWriteActionType.InitialSync, new[] { Map() }, "C123");
         using var doc = JsonDocument.Parse(json);
         var detail = doc.RootElement.GetProperty("details")[0];
         Assert.False(detail.TryGetProperty("pid", out _));
+        Assert.False(detail.TryGetProperty("parameters", out _));
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void Build_Start_IncludesParametersWithSkipInitialSyncAndConflictResolution()
+    {
+        var json = MapActionPayloadBuilder.Build(DualWriteActionType.Start, new[] { Map() }, "C123");
+        using var doc = JsonDocument.Parse(json);
+        var parameters = doc.RootElement.GetProperty("details")[0].GetProperty("parameters");
+        Assert.True(parameters.GetProperty("skipInitialSync").GetBoolean());
+        var conflict = parameters.GetProperty("conflictResolution");
+        Assert.Equal("1", conflict.GetProperty("option").GetString());
+        Assert.Equal("CE", conflict.GetProperty("master").GetString());
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void Build_Stop_SkipInitialSyncIsFalse()
+    {
+        var json = MapActionPayloadBuilder.Build(DualWriteActionType.Stop, new[] { Map() }, "C123");
+        using var doc = JsonDocument.Parse(json);
+        var parameters = doc.RootElement.GetProperty("details")[0].GetProperty("parameters");
+        Assert.False(parameters.GetProperty("skipInitialSync").GetBoolean());
     }
 
     [Trait("Category", "DualWrite")]
