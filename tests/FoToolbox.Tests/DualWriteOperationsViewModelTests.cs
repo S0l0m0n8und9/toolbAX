@@ -51,6 +51,14 @@ public class DualWriteOperationsViewModelTests
             Task.FromResult(StatusQueue.Count > 0
                 ? StatusQueue.Dequeue()
                 : new DualWriteRequestStatus(requestId, "2", true, true, null));
+
+        public List<(string Cid, string Pid, string TemplateId)> Switches { get; } = new();
+
+        public Task<DualWriteActionResponse> SwitchActiveTemplateAsync(string cid, string projectId, string templateId, CancellationToken ct = default)
+        {
+            Switches.Add((cid, projectId, templateId));
+            return Task.FromResult(new DualWriteActionResponse(string.Empty, null));
+        }
     }
 
     private sealed class FakeFactory : IDualWriteGatewayFactory
@@ -157,6 +165,44 @@ public class DualWriteOperationsViewModelTests
             Assert.Equal(1, action.MapCount);
             Assert.Equal("C1", action.Cid);
             Assert.Contains("completed", vm.StatusMessage, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task ApplyLatestVersion_PicksHighestTemplate_AndCallsSwitchActive()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway();
+            var mapWithTemplates = new DualWriteMap(
+                "a", "Customers", "Customers", "pid-a", "Running",
+                new DualWriteTemplate("t-old", "1.0.0", "MS"),
+                new[]
+                {
+                    new DualWriteTemplate("t-old", "1.0.0", "MS"),
+                    new DualWriteTemplate("t-new", "1.2.0", "MS")
+                });
+            gateway.MapsList.Add(mapWithTemplates);
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
+            {
+                ConfirmAction = (_, _) => true
+            };
+            await vm.LoadMapsCommand.ExecuteAsync();
+            vm.Maps[0].IsSelected = true;
+
+            await vm.ApplyLatestVersionCommand.ExecuteAsync();
+
+            var sw = Assert.Single(gateway.Switches);
+            Assert.Equal("C1", sw.Cid);
+            Assert.Equal("pid-a", sw.Pid);
+            Assert.Equal("t-new", sw.TemplateId);
         }
         finally
         {

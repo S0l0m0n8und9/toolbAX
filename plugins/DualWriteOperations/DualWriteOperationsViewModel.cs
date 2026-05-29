@@ -32,6 +32,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     private string _gatewayBaseUrl = string.Empty;
     private string _foIdentifier = string.Empty;
     private string _bearerToken = string.Empty;
+    private string _authorFilter = string.Empty;
     private string _statusMessage = "Configure the connection, then Load Maps.";
     private string _connectionSummary = "Not connected.";
     private bool _isBusy;
@@ -71,6 +72,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         PauseCommand = new AsyncRelayCommand(ct => ExecuteActionAsync(DualWriteActionType.Pause, ct), onError);
         ResumeCommand = new AsyncRelayCommand(ct => ExecuteActionAsync(DualWriteActionType.Resume, ct), onError);
         InitialSyncCommand = new AsyncRelayCommand(ct => ExecuteActionAsync(DualWriteActionType.InitialSync, ct), onError);
+        ApplyLatestVersionCommand = new AsyncRelayCommand(ApplyLatestVersionAsync, onError);
 
         _ = InitializeAsync();
     }
@@ -84,8 +86,16 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     public AsyncRelayCommand PauseCommand { get; }
     public AsyncRelayCommand ResumeCommand { get; }
     public AsyncRelayCommand InitialSyncCommand { get; }
+    public AsyncRelayCommand ApplyLatestVersionCommand { get; }
 
     public string EnvironmentName => _ctx.CurrentEnv.Name;
+
+    /// <summary>Optional comma/semicolon-separated author filter for "apply latest version" (empty = any author).</summary>
+    public string AuthorFilter
+    {
+        get => _authorFilter;
+        set { if (_authorFilter != value) { _authorFilter = value; OnPropertyChanged(); } }
+    }
 
     public string GatewayBaseUrl
     {
@@ -257,6 +267,77 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
             IsBusy = false;
         }
     }
+
+    private async Task ApplyLatestVersionAsync(CancellationToken ct)
+    {
+        if (_gateway is null || string.IsNullOrWhiteSpace(_cid))
+        {
+            StatusMessage = "Load maps before applying a version.";
+            return;
+        }
+
+        var selected = Maps.Where(r => r.IsSelected).Select(r => r.Map).ToList();
+        if (selected.Count == 0)
+        {
+            StatusMessage = "Select at least one map (checkbox) before applying a version.";
+            return;
+        }
+
+        var authors = TemplateSelector.ParseAuthorFilter(AuthorFilter);
+        var plan = new List<(DualWriteMap Map, DualWriteTemplate Template)>();
+        var skipped = new List<string>();
+        foreach (var map in selected)
+        {
+            var template = TemplateSelector.SelectLatest(map.Templates, authors);
+            if (template is null)
+            {
+                skipped.Add(MapLabel(map));
+            }
+            else
+            {
+                plan.Add((map, template));
+            }
+        }
+
+        if (plan.Count == 0)
+        {
+            StatusMessage = "No applicable template version found for the selected map(s).";
+            return;
+        }
+
+        var planLines = string.Join("\n", plan.Select(p => $"  {MapLabel(p.Map)} → v{p.Template.Version} ({p.Template.Author})"));
+        var authorNote = authors.Count == 0 ? "latest version (any author)" : $"latest version by [{string.Join(", ", authors)}]";
+        if (!ConfirmAction("Apply map version(s)",
+                $"Apply the {authorNote} for these map(s) on the LIVE environment '{EnvironmentName}'?\n\n{planLines}"))
+        {
+            StatusMessage = "Apply version cancelled.";
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            var applied = 0;
+            foreach (var (map, template) in plan)
+            {
+                ct.ThrowIfCancellationRequested();
+                StatusMessage = $"Applying v{template.Version} to {MapLabel(map)}...";
+                await _gateway.SwitchActiveTemplateAsync(_cid!, map.ProjectId, template.Id, ct);
+                applied++;
+            }
+
+            await RefreshMapStatesAsync(ct);
+            var skippedNote = skipped.Count == 0 ? string.Empty : $" Skipped {skipped.Count} with no matching version.";
+            StatusMessage = $"Applied version to {applied} map(s).{skippedNote}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private static string MapLabel(DualWriteMap map) =>
+        string.IsNullOrWhiteSpace(map.DisplayName) ? map.Name : map.DisplayName;
 
     private async Task PollUntilTerminalAsync(DualWriteActionType action, string requestId, CancellationToken ct)
     {

@@ -68,6 +68,47 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway
         return DualWriteResponseParser.ParseActionResponse(json);
     }
 
+    /// <summary>
+    /// Activates the given template version for a map (the "apply map version" action).
+    /// Mirrors <c>DWMapEngine.applyMapVersion</c>:
+    /// <c>POST SolutionAware/{cid}/SwitchActive/{templateId}?pid={projectId}</c> with the raw
+    /// template id as the body.
+    /// </summary>
+    public async Task<DualWriteActionResponse> SwitchActiveTemplateAsync(
+        string cid,
+        string projectId,
+        string templateId,
+        CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(cid))
+        {
+            throw new ArgumentException("A connection id (cid) is required.", nameof(cid));
+        }
+
+        if (string.IsNullOrWhiteSpace(projectId))
+        {
+            throw new ArgumentException("A project id (pid) is required.", nameof(projectId));
+        }
+
+        if (string.IsNullOrWhiteSpace(templateId))
+        {
+            throw new ArgumentException("A template id is required.", nameof(templateId));
+        }
+
+        var uri = $"{ApiBasePath}SolutionAware/{Uri.EscapeDataString(cid)}/SwitchActive/{Uri.EscapeDataString(templateId)}?pid={Uri.EscapeDataString(projectId)}";
+        var body = await SendAsync(HttpMethod.Post, uri, templateId, cancellationToken).ConfigureAwait(false);
+        var trimmed = body?.TrimStart() ?? string.Empty;
+        if (trimmed.Length == 0)
+        {
+            return new DualWriteActionResponse(string.Empty, null);
+        }
+
+        // The gateway may answer with a JSON object ({requestId,...}) or a bare id string.
+        return trimmed[0] is '{' or '['
+            ? DualWriteResponseParser.ParseActionResponse(body!)
+            : new DualWriteActionResponse(trimmed.Trim('"'), null);
+    }
+
     /// <summary>Polls the status of a previously submitted action request.</summary>
     public async Task<DualWriteRequestStatus> GetStatusAsync(string requestId, CancellationToken cancellationToken = default)
     {

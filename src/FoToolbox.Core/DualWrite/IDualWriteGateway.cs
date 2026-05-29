@@ -14,4 +14,7 @@ public interface IDualWriteGateway
     Task<IReadOnlyList<DualWriteMap>> GetMapsAsync(string cid, CancellationToken cancellationToken = default);
     Task<DualWriteActionResponse> StartActionAsync(DualWriteActionType action, IReadOnlyList<DualWriteMap> maps, string cid, CancellationToken cancellationToken = default);
     Task<DualWriteRequestStatus> GetStatusAsync(string requestId, CancellationToken cancellationToken = default);
+
+    /// <summary>Activates a specific template version for a map (the "apply map version" action).</summary>
+    Task<DualWriteActionResponse> SwitchActiveTemplateAsync(string cid, string projectId, string templateId, CancellationToken cancellationToken = default);
 }
