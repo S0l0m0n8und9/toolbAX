@@ -64,12 +64,11 @@ Silent-allow is replaced by the consent flow. `PluginTrustOptions.FromEnvironmen
 - Add a committed repo key `build/fotoolbox.snk`. Documented in-repo as tamper-detection
   only, not a secret boundary.
 - Enable `SignAssembly` + `AssemblyOriginatorKeyFile` on `FoToolbox.Core`,
-  `FoToolbox.SDK`, and the bundled plugin projects that exist in `plugins/`
-  (`HelloPlugin`, `QueryBuilder`, `ODataPostBuilder`, `DualWriteMapBrowser`).
+  `FoToolbox.SDK`, and the 5 bundled plugin projects (`HelloPlugin`, `QueryBuilder`,
+  `TableEntityBrowser`, `ODataPostBuilder`, `DualWriteMapBrowser`).
   `BundledPluginAssemblyNames` in `PluginManager` is the source of truth for which
-  assembly names are pinned; it also lists `TableEntityBrowser` for forward-compatibility,
-  which should be strong-named if/when that project is added. Strong-named assemblies
-  require their references to be strong-named, which is why `Core` and `SDK` are included.
+  assembly names are pinned. Strong-named assemblies require their references to be
+  strong-named, which is why `Core` and `SDK` are included.
 - A non-strong-named third-party plugin can still reference a strong-named SDK — the
   "must reference strong-named" rule is one-directional — so this does not break the
   third-party plugin ecosystem.
