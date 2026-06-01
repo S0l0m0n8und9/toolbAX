@@ -45,6 +45,49 @@ public sealed class TestifyConfigurationStoreTests
     }
 
     [Fact]
+    public async Task Load_MigratesLegacyCePollTimeoutMinutes_ToClampedSeconds()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-legacy.json");
+
+        try
+        {
+            // Pre-rename config: timeout persisted in minutes, with no CePollTimeoutSeconds field.
+            var legacyJson = """
+            {
+              "Configurations": [
+                { "EnvId": "env-1", "MapId": "map-3min", "CePollTimeoutMinutes": 3 },
+                { "EnvId": "env-1", "MapId": "map-60min", "CePollTimeoutMinutes": 60 }
+              ]
+            }
+            """;
+            await File.WriteAllTextAsync(path, legacyJson);
+
+            var store = new TestifyConfigurationStore(path);
+            var threeMin = await store.GetOrCreateAsync("env-1", "map-3min", CancellationToken.None);
+            var sixtyMin = await store.GetOrCreateAsync("env-1", "map-60min", CancellationToken.None);
+
+            // 3 min -> 180 s (in range); 60 min -> 3600 s clamped to the 300 s maximum.
+            Assert.Equal(180, threeMin.CePollTimeoutSeconds);
+            Assert.Equal(300, sixtyMin.CePollTimeoutSeconds);
+            // The user's setting is preserved, not silently reset to the 5 s default.
+            Assert.NotEqual(5, threeMin.CePollTimeoutSeconds);
+
+            // After save + reload the migrated seconds value is stable and the legacy key is gone.
+            await store.SaveAsync(threeMin, CancellationToken.None);
+            var reloaded = await new TestifyConfigurationStore(path).GetOrCreateAsync("env-1", "map-3min", CancellationToken.None);
+            Assert.Equal(180, reloaded.CePollTimeoutSeconds);
+            Assert.DoesNotContain("CePollTimeoutMinutes", await File.ReadAllTextAsync(path));
+        }
+        finally
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+    }
+
+    [Fact]
     public void TextSerializer_FormatsAndParsesEditorValues()
     {
         var omitText = TestifySettingsTextSerializer.FormatLines(new HashSet<string>(new[] { "FieldA", "FieldB" }, StringComparer.OrdinalIgnoreCase));

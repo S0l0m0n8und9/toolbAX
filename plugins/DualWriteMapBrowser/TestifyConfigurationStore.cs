@@ -157,12 +157,40 @@ internal sealed class TestifyConfigurationStore
 
         cfg.PreferredCreateValuesByCompany = byCompany;
 
+        MigrateLegacyCePollTimeout(cfg);
+
         if (cfg.CePollTimeoutSeconds <= 0)
         {
             cfg.CePollTimeoutSeconds = 5;
         }
 
         return cfg;
+    }
+
+    /// <summary>
+    /// Migrates the pre-rename <c>CePollTimeoutMinutes</c> field (stored in minutes) into the current
+    /// <c>CePollTimeoutSeconds</c> field. Converts minutes→seconds and clamps to the supported [5,300]
+    /// range, so an upgraded config keeps a sensible timeout instead of silently resetting to the
+    /// default. The legacy key is dropped afterwards so it is not written back on the next save.
+    /// </summary>
+    private static void MigrateLegacyCePollTimeout(TestifyMapConfiguration cfg)
+    {
+        if (cfg.ExtraData is null)
+        {
+            return;
+        }
+
+        var legacy = cfg.ExtraData.FirstOrDefault(kv => string.Equals(kv.Key, "CePollTimeoutMinutes", StringComparison.OrdinalIgnoreCase));
+        if (legacy.Key is not null
+            && legacy.Value.ValueKind == JsonValueKind.Number
+            && legacy.Value.TryGetInt32(out var minutes)
+            && minutes > 0)
+        {
+            cfg.CePollTimeoutSeconds = Math.Clamp(minutes * 60, 5, 300);
+        }
+
+        // Drop captured unknown/legacy keys so they are not re-serialised on the next save.
+        cfg.ExtraData = null;
     }
 }
 
@@ -184,6 +212,13 @@ public sealed class TestifyMapConfiguration
     /// How long, in seconds, to wait for a CE record count delta before timing out. Defaults to 5 seconds.
     /// </summary>
     public int CePollTimeoutSeconds { get; set; } = 5;
+
+    /// <summary>
+    /// Captures unknown JSON properties on load so legacy fields (e.g. the pre-rename
+    /// <c>CePollTimeoutMinutes</c>) can be migrated. Cleared after migration so it is not re-persisted.
+    /// </summary>
+    [JsonExtensionData]
+    public Dictionary<string, JsonElement>? ExtraData { get; set; }
 
     /// <summary>
     /// When true, incomplete enum value-map coverage is treated as a warning rather than a blocking

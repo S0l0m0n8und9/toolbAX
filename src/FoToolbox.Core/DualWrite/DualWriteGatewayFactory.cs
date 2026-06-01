@@ -27,6 +27,11 @@ public interface IDualWriteGatewayFactory
 /// </summary>
 public sealed class DualWriteGatewayFactory : IDualWriteGatewayFactory
 {
+    // Token-endpoint calls share one long-lived client. Refresh providers only send requests
+    // (they never dispose it), so a static instance avoids leaking a SocketsHttpHandler/connection
+    // pool on every gateway creation.
+    private static readonly HttpClient RefreshHttpClient = new();
+
     public IDualWriteGateway Create(DualWriteConnectionSettings settings)
     {
         var http = new HttpClient(new BearerTokenHandler(RequireGatewayUrl(settings)))
@@ -49,7 +54,7 @@ public sealed class DualWriteGatewayFactory : IDualWriteGatewayFactory
             settings.BearerToken ?? string.Empty,
             settings.RefreshToken,
             settings.AccessTokenExpiryUtc ?? DateTimeOffset.UtcNow);
-        var refresher = new DualWriteRefreshTokenProvider(new HttpClient());
+        var refresher = new DualWriteRefreshTokenProvider(RefreshHttpClient);
         var http = new HttpClient(new RefreshingBearerTokenHandler(token, refresher, onRefreshed))
         {
             BaseAddress = GatewayUri(settings)
