@@ -1,5 +1,7 @@
 using Microsoft.Identity.Client;
 using System;
+using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -10,9 +12,25 @@ namespace FoToolbox.Core.Auth;
 /// browser with a loopback redirect — the canonical desktop pattern, requiring no embedded
 /// browser/WebView2. The app registration must permit a public-client/<c>http://localhost</c>
 /// redirect for this to succeed.
+///
+/// The MSAL token cache is persisted (DPAPI) via an <see cref="IMsalTokenCacheStore"/>, so after a
+/// first interactive sign-in the provider renews tokens <b>silently</b> (no browser prompt) until
+/// the refresh token expires — across operations and app restarts.
 /// </summary>
 public sealed class MsalInteractiveTokenProvider : IInteractiveTokenProvider
 {
+    private readonly IMsalTokenCacheStore _cacheStore;
+
+    public MsalInteractiveTokenProvider()
+        : this(DefaultCacheStore())
+    {
+    }
+
+    public MsalInteractiveTokenProvider(IMsalTokenCacheStore cacheStore)
+    {
+        _cacheStore = cacheStore ?? throw new ArgumentNullException(nameof(cacheStore));
+    }
+
     public static string BuildAuthority(string authorityBase, string tenantId) =>
         $"{authorityBase.TrimEnd('/')}/{tenantId}";
 
@@ -20,6 +38,64 @@ public sealed class MsalInteractiveTokenProvider : IInteractiveTokenProvider
         $"{resourceBaseUrl.TrimEnd('/')}/.default";
 
     public async Task<InteractiveTokenResult> AcquireTokenAsync(InteractiveTokenRequest request, CancellationToken cancellationToken = default)
+    {
+        Validate(request);
+
+        var app = BuildApp(request);
+        var scope = BuildScope(request.ResourceBaseUrl);
+        var account = (await app.GetAccountsAsync().ConfigureAwait(false)).FirstOrDefault();
+
+        AuthenticationResult result;
+        try
+        {
+            // Silent-first: reuse the cached session/refresh token when one exists.
+            result = account is not null
+                ? await app.AcquireTokenSilent(new[] { scope }, account).ExecuteAsync(cancellationToken).ConfigureAwait(false)
+                : await AcquireInteractiveAsync(app, scope, cancellationToken).ConfigureAwait(false);
+        }
+        catch (MsalUiRequiredException)
+        {
+            // Cached token can't be renewed silently (expired/revoked/needs consent): fall back to interactive.
+            result = await AcquireInteractiveAsync(app, scope, cancellationToken).ConfigureAwait(false);
+        }
+
+        return new InteractiveTokenResult(result.AccessToken, result.ExpiresOn);
+    }
+
+    private static Task<AuthenticationResult> AcquireInteractiveAsync(IPublicClientApplication app, string scope, CancellationToken cancellationToken) =>
+        app.AcquireTokenInteractive(new[] { scope })
+            .WithUseEmbeddedWebView(false)
+            .ExecuteAsync(cancellationToken);
+
+    private IPublicClientApplication BuildApp(InteractiveTokenRequest request)
+    {
+        var app = PublicClientApplicationBuilder
+            .Create(request.ClientId)
+            .WithAuthority(BuildAuthority(request.AuthorityBase, request.TenantId))
+            .WithRedirectUri(request.RedirectUri)
+            .Build();
+
+        var cacheKey = $"{request.ClientId}|{request.TenantId}";
+        app.UserTokenCache.SetBeforeAccess(args =>
+        {
+            var blob = _cacheStore.Load(cacheKey);
+            if (blob is not null)
+            {
+                args.TokenCache.DeserializeMsalV3(blob);
+            }
+        });
+        app.UserTokenCache.SetAfterAccess(args =>
+        {
+            if (args.HasStateChanged)
+            {
+                _cacheStore.Save(cacheKey, args.TokenCache.SerializeMsalV3());
+            }
+        });
+
+        return app;
+    }
+
+    private static void Validate(InteractiveTokenRequest request)
     {
         if (string.IsNullOrWhiteSpace(request.ClientId))
         {
@@ -35,18 +111,11 @@ public sealed class MsalInteractiveTokenProvider : IInteractiveTokenProvider
         {
             throw new ArgumentException("Resource base URL is required for interactive sign-in.", nameof(request));
         }
-
-        var app = PublicClientApplicationBuilder
-            .Create(request.ClientId)
-            .WithAuthority(BuildAuthority(request.AuthorityBase, request.TenantId))
-            .WithRedirectUri(request.RedirectUri)
-            .Build();
-
-        var result = await app
-            .AcquireTokenInteractive(new[] { BuildScope(request.ResourceBaseUrl) })
-            .WithUseEmbeddedWebView(false)
-            .ExecuteAsync(cancellationToken);
-
-        return new InteractiveTokenResult(result.AccessToken, result.ExpiresOn);
     }
+
+    private static IMsalTokenCacheStore DefaultCacheStore() =>
+        new DpapiFileMsalTokenCacheStore(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "FoToolbox",
+            "msal-cache"));
 }
