@@ -62,10 +62,10 @@
                              VerticalScrollBarVisibility="Auto"
                              TextWrapping="Wrap" />
 
-                    <TextBlock Text="CE Poll Timeout (minutes, 5–300)"
+                    <TextBlock Text="CE Poll Timeout (seconds, 5–300)"
                                FontWeight="SemiBold"
                                Margin="0,14,0,2" />
-                    <TextBox Text="{Binding CePollTimeoutMinutesText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                    <TextBox Text="{Binding CePollTimeoutSecondsText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
                              Width="120"
                              HorizontalAlignment="Left" />
 

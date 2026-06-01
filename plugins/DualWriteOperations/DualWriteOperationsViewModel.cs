@@ -1,4 +1,5 @@
 using FoToolbox.Core.DualWrite;
+using FoToolbox.Core.DualWrite.Auth;
 using FoToolbox.SDK.Commands;
 using FoToolbox.SDK.Plugins;
 using Microsoft.Extensions.Logging;
@@ -37,6 +38,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     private string _foIdentifier = string.Empty;
     private string _bearerToken = string.Empty;
     private string _authorFilter = string.Empty;
+    private bool _forceReset;
     private string _statusMessage = "Configure the connection, then Load Maps.";
     private string _connectionSummary = "Not connected.";
     private bool _isBusy;
@@ -55,6 +57,9 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
 
     /// <summary>Clock for export timestamps. Overridable for tests.</summary>
     internal Func<DateTimeOffset> Clock { get; set; } = () => DateTimeOffset.UtcNow;
+
+    /// <summary>Runs the interactive sign-in for an F&amp;O identifier. Overridable for tests.</summary>
+    internal Func<string, Task<DualWriteSignInResult?>> SignInFlow { get; set; } = DefaultSignInAsync;
 
     public DualWriteOperationsViewModel(IPluginContext ctx)
         : this(ctx, new DualWriteConnectionStore(), new DualWriteGatewayFactory())
@@ -75,6 +80,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
             IsBusy = false;
         };
 
+        SignInCommand = new AsyncRelayCommand(SignInAsync, onError);
         SaveConnectionCommand = new AsyncRelayCommand(SaveConnectionAsync, onError);
         LoadMapsCommand = new AsyncRelayCommand(LoadMapsAsync, onError);
         StartCommand = new AsyncRelayCommand(ct => ExecuteActionAsync(DualWriteActionType.Start, ct), onError);
@@ -85,12 +91,15 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         ApplyLatestVersionCommand = new AsyncRelayCommand(ApplyLatestVersionAsync, onError);
         RefreshTablesCommand = new AsyncRelayCommand(RefreshTablesAsync, onError);
         ExportConfigCommand = new AsyncRelayCommand(ExportConfigAsync, onError);
+        ResetLinkCommand = new AsyncRelayCommand(ResetLinkAsync, onError);
+        ApplyIntegrationKeysCommand = new AsyncRelayCommand(ApplyIntegrationKeysAsync, onError);
 
         _ = InitializeAsync();
     }
 
     public ObservableCollection<DualWriteMapRow> Maps { get; } = new();
 
+    public AsyncRelayCommand SignInCommand { get; }
     public AsyncRelayCommand SaveConnectionCommand { get; }
     public AsyncRelayCommand LoadMapsCommand { get; }
     public AsyncRelayCommand StartCommand { get; }
@@ -101,6 +110,8 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     public AsyncRelayCommand ApplyLatestVersionCommand { get; }
     public AsyncRelayCommand RefreshTablesCommand { get; }
     public AsyncRelayCommand ExportConfigCommand { get; }
+    public AsyncRelayCommand ResetLinkCommand { get; }
+    public AsyncRelayCommand ApplyIntegrationKeysCommand { get; }
 
     public string EnvironmentName => _ctx.CurrentEnv.Name;
 
@@ -109,6 +120,13 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     {
         get => _authorFilter;
         set { if (_authorFilter != value) { _authorFilter = value; OnPropertyChanged(); } }
+    }
+
+    /// <summary>When true, the reset-link request sets forceReset=true.</summary>
+    public bool ForceReset
+    {
+        get => _forceReset;
+        set { if (_forceReset != value) { _forceReset = value; OnPropertyChanged(); } }
     }
 
     public string GatewayBaseUrl
@@ -166,22 +184,88 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         }
     }
 
-    private async Task SaveConnectionAsync(CancellationToken ct)
+    private async Task SignInAsync(CancellationToken ct)
     {
-        // Preserve a previously stored token when the box is left blank (so users don't
-        // have to re-paste the secret just to tweak the URL or identifier).
-        var token = BearerToken;
-        if (string.IsNullOrWhiteSpace(token))
+        var identifier = string.IsNullOrWhiteSpace(FoIdentifier) ? _ctx.CurrentEnv.BaseUrl : FoIdentifier.Trim();
+        if (string.IsNullOrWhiteSpace(identifier))
         {
-            var existing = await _store.GetAsync(_envId, ct);
-            token = existing.BearerToken ?? string.Empty;
+            StatusMessage = "Set the F&O identifier before signing in.";
+            return;
         }
 
-        var settings = new DualWriteConnectionSettings(
-            _envId,
-            GatewayBaseUrl?.Trim() ?? string.Empty,
-            FoIdentifier?.Trim() ?? string.Empty,
-            token);
+        StatusMessage = "Opening interactive sign-in...";
+        var result = await SignInFlow(identifier);
+        if (result is null)
+        {
+            StatusMessage = "Sign-in cancelled or no token captured.";
+            return;
+        }
+
+        var settings = new DualWriteConnectionSettings(_envId, result.GatewayBaseUrl, identifier, result.Token.AccessToken)
+        {
+            RefreshToken = result.Token.RefreshToken,
+            AccessTokenExpiryUtc = result.Token.ExpiresUtc
+        };
+        await _store.SaveAsync(settings, ct);
+
+        GatewayBaseUrl = result.GatewayBaseUrl;
+        FoIdentifier = identifier;
+        _gateway = null;
+        _cid = null;
+        _environment = null;
+        UpdateConnectionSummary(settings);
+        StatusMessage = $"Signed in. Gateway discovered: {result.GatewayBaseUrl}. Click Load Maps.";
+    }
+
+    private IDualWriteGateway BuildGateway(DualWriteConnectionSettings settings)
+    {
+        if (!settings.HasDelegatedSession)
+        {
+            return _factory.Create(settings);
+        }
+
+        // Delegated session: renew the access token via the refresh token and persist the
+        // rotated token so the next session/operation stays signed in.
+        return _factory.CreateRefreshing(settings, async refreshed =>
+        {
+            var updated = settings with
+            {
+                BearerToken = refreshed.AccessToken,
+                RefreshToken = refreshed.RefreshToken,
+                AccessTokenExpiryUtc = refreshed.ExpiresUtc
+            };
+            await _store.SaveAsync(updated, CancellationToken.None);
+        });
+    }
+
+    private static async Task<DualWriteSignInResult?> DefaultSignInAsync(string foIdentifier)
+    {
+        var window = new DualWriteSignInWindow(foIdentifier);
+        if (Application.Current?.MainWindow is not null && !ReferenceEquals(Application.Current.MainWindow, window))
+        {
+            window.Owner = Application.Current.MainWindow;
+        }
+
+        return await window.SignInAsync();
+    }
+
+    private async Task SaveConnectionAsync(CancellationToken ct)
+    {
+        var url = GatewayBaseUrl?.Trim() ?? string.Empty;
+        var identifier = FoIdentifier?.Trim() ?? string.Empty;
+        DualWriteConnectionSettings settings;
+        if (!string.IsNullOrWhiteSpace(BearerToken))
+        {
+            // A freshly pasted token is a static session; drop any delegated refresh token.
+            settings = new DualWriteConnectionSettings(_envId, url, identifier, BearerToken);
+        }
+        else
+        {
+            // Blank token box: keep whatever is stored (including a delegated sign-in session),
+            // just update the URL/identifier.
+            var existing = await _store.GetAsync(_envId, ct);
+            settings = existing with { GatewayBaseUrl = url, FoIdentifier = identifier };
+        }
 
         await _store.SaveAsync(settings, ct);
         BearerToken = string.Empty;
@@ -205,7 +289,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         IsBusy = true;
         try
         {
-            _gateway = _factory.Create(settings);
+            _gateway = BuildGateway(settings);
             StatusMessage = "Resolving dual-write environment...";
             var env = await _gateway.GetEnvironmentAsync(settings.FoIdentifier, ct);
             _cid = env.Cid;
@@ -422,6 +506,122 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
 
         await File.WriteAllTextAsync(path, json, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false), ct);
         StatusMessage = $"Exported {maps.Count} map(s) to {Path.GetFileName(path)}.";
+    }
+
+    private async Task ResetLinkAsync(CancellationToken ct)
+    {
+        if (_gateway is null || _environment is null || string.IsNullOrWhiteSpace(_environment.Cname) || string.IsNullOrWhiteSpace(_cid))
+        {
+            StatusMessage = "Load maps before resetting the link.";
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            StatusMessage = "Loading connection set...";
+            var connectionSet = await _gateway.GetConnectionSetAsync(_environment.Cname, ct);
+            var legalEntities = connectionSet.LegalEntities;
+            if (legalEntities.Count == 0)
+            {
+                StatusMessage = "No legal entities found in the connection set; nothing to reset.";
+                return;
+            }
+
+            var forceNote = ForceReset ? "\n\nForce reset is ON." : string.Empty;
+            if (!ConfirmAction("Reset dual-write link",
+                    $"Reset the dual-write link on the LIVE environment '{EnvironmentName}' for {legalEntities.Count} legal entit{(legalEntities.Count == 1 ? "y" : "ies")}?\n\n{string.Join(", ", legalEntities)}\n\nThis re-initialises the link and can disrupt running maps.{forceNote}"))
+            {
+                StatusMessage = "Reset link cancelled.";
+                return;
+            }
+
+            StatusMessage = "Submitting reset link...";
+            await _gateway.ResetLinksAsync(_cid!, connectionSet, legalEntities, ForceReset, ct);
+            StatusMessage = $"Reset link submitted for {legalEntities.Count} legal entit{(legalEntities.Count == 1 ? "y" : "ies")}.";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private async Task ApplyIntegrationKeysAsync(CancellationToken ct)
+    {
+        if (_gateway is null || _environment is null || string.IsNullOrWhiteSpace(_environment.Cname) || string.IsNullOrWhiteSpace(_cid))
+        {
+            StatusMessage = "Load maps before applying integration keys.";
+            return;
+        }
+
+        var selected = Maps.Where(r => r.IsSelected).Select(r => r.Map).ToList();
+        if (selected.Count == 0)
+        {
+            StatusMessage = "Select at least one map (checkbox) before applying integration keys.";
+            return;
+        }
+
+        IsBusy = true;
+        try
+        {
+            StatusMessage = "Loading connection set...";
+            var connectionSet = await _gateway.GetConnectionSetAsync(_environment.Cname, ct);
+            var ce = connectionSet.CeEnvironment;
+            if (ce is null)
+            {
+                StatusMessage = "No CE environment found in the connection set.";
+                return;
+            }
+
+            // Resolve the integration key for each map up-front so we can show a precise plan
+            // and skip maps we can't resolve rather than risk a wrong call.
+            var plan = new List<(DualWriteMap Map, DualWriteSchemaKey Key)>();
+            var skipped = new List<string>();
+            foreach (var map in selected)
+            {
+                var key = string.IsNullOrWhiteSpace(map.RightEntityName)
+                    ? null
+                    : connectionSet.GetIntegrationKey(map.RightEntityName);
+                if (key is null || key.Fields.Count == 0)
+                {
+                    skipped.Add(MapLabel(map));
+                }
+                else
+                {
+                    plan.Add((map, key));
+                }
+            }
+
+            if (plan.Count == 0)
+            {
+                StatusMessage = "Could not resolve integration keys for the selected map(s) (no CE entity match).";
+                return;
+            }
+
+            var planLines = string.Join("\n", plan.Select(p => $"  {p.Map.RightEntityName}: {string.Join(", ", p.Key.Fields)}"));
+            if (!ConfirmAction("Apply integration keys",
+                    $"Apply integration keys on the LIVE environment '{EnvironmentName}' for these CE entit(y/ies)?\n\n{planLines}"))
+            {
+                StatusMessage = "Apply integration keys cancelled.";
+                return;
+            }
+
+            var applied = 0;
+            foreach (var (map, key) in plan)
+            {
+                ct.ThrowIfCancellationRequested();
+                StatusMessage = $"Applying integration keys for {map.RightEntityName}...";
+                await _gateway.ApplyIntegrationKeysAsync(ce.Name, map.RightEntityName, key.Fields, ct);
+                applied++;
+            }
+
+            var skippedNote = skipped.Count == 0 ? string.Empty : $" Skipped {skipped.Count} (no key resolved).";
+            StatusMessage = $"Applied integration keys for {applied} entit{(applied == 1 ? "y" : "ies")}.{skippedNote}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     private static string Sanitize(string value)

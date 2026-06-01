@@ -113,7 +113,16 @@ public static class DualWriteResponseParser
             active = ParseTemplate(templateEl);
         }
 
-        return new DualWriteMap(id, name, displayName, projectId, state, active, templates);
+        var rightEntityName = string.Empty;
+        if (TryGetProperty(item, out var rightEntity, "rightEntity") && rightEntity.ValueKind == JsonValueKind.Object)
+        {
+            rightEntityName = GetString(rightEntity, "name");
+        }
+
+        return new DualWriteMap(id, name, displayName, projectId, state, active, templates)
+        {
+            RightEntityName = rightEntityName
+        };
     }
 
     private static DualWriteTemplate ParseTemplate(JsonElement element)

@@ -16,7 +16,7 @@ public sealed class TestifyConfigurationViewModelTests
     [InlineData(5, true)]
     [InlineData(300, true)]
     [InlineData(301, false)]
-    public async Task SaveCommand_TimeoutValidation_RespectsRange(int timeoutMinutes, bool shouldBeEnabled)
+    public async Task SaveCommand_TimeoutValidation_RespectsRange(int timeoutSeconds, bool shouldBeEnabled)
     {
         var path = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify.json");
 
@@ -28,7 +28,7 @@ public sealed class TestifyConfigurationViewModelTests
 
             var vm = new TestifyConfigurationViewModel(store, "env-1", "map-1", onError);
             await WaitForLoadAsync();
-            vm.CePollTimeoutMinutes = timeoutMinutes;
+            vm.CePollTimeoutSeconds = timeoutSeconds;
 
             Assert.Equal(shouldBeEnabled, vm.SaveCommand.CanExecute(null));
         }
@@ -54,19 +54,19 @@ public sealed class TestifyConfigurationViewModelTests
             await WaitForLoadAsync();
 
             // Test 4 (invalid - below minimum)
-            vm.CePollTimeoutMinutes = 4;
+            vm.CePollTimeoutSeconds = 4;
             Assert.False(vm.SaveCommand.CanExecute(null), "Timeout 4 should be invalid (below minimum 5)");
 
             // Test 5 (valid - at minimum)
-            vm.CePollTimeoutMinutes = 5;
+            vm.CePollTimeoutSeconds = 5;
             Assert.True(vm.SaveCommand.CanExecute(null), "Timeout 5 should be valid (at minimum)");
 
             // Test 300 (valid - at maximum)
-            vm.CePollTimeoutMinutes = 300;
+            vm.CePollTimeoutSeconds = 300;
             Assert.True(vm.SaveCommand.CanExecute(null), "Timeout 300 should be valid (at maximum)");
 
             // Test 301 (invalid - above maximum)
-            vm.CePollTimeoutMinutes = 301;
+            vm.CePollTimeoutSeconds = 301;
             Assert.False(vm.SaveCommand.CanExecute(null), "Timeout 301 should be invalid (above maximum 300)");
         }
         finally
@@ -93,7 +93,7 @@ public sealed class TestifyConfigurationViewModelTests
             var vm = new TestifyConfigurationViewModel(store, "env-1", "map-1", _ => { });
             await WaitForLoadAsync();
 
-            vm.CePollTimeoutMinutes = invalidTimeout;
+            vm.CePollTimeoutSeconds = invalidTimeout;
             Assert.False(vm.SaveCommand.CanExecute(null), $"Timeout {invalidTimeout} should be invalid (below minimum 5)");
         }
         finally
@@ -120,7 +120,7 @@ public sealed class TestifyConfigurationViewModelTests
             var vm = new TestifyConfigurationViewModel(store, "env-1", "map-1", _ => { });
             await WaitForLoadAsync();
 
-            vm.CePollTimeoutMinutes = invalidTimeout;
+            vm.CePollTimeoutSeconds = invalidTimeout;
             Assert.False(vm.SaveCommand.CanExecute(null), $"Timeout {invalidTimeout} should be invalid (above maximum 300)");
         }
         finally
@@ -148,7 +148,7 @@ public sealed class TestifyConfigurationViewModelTests
             var vm = new TestifyConfigurationViewModel(store, "env-1", "map-1", _ => { });
             await WaitForLoadAsync();
 
-            vm.CePollTimeoutMinutes = validTimeout;
+            vm.CePollTimeoutSeconds = validTimeout;
             Assert.True(vm.SaveCommand.CanExecute(null), $"Timeout {validTimeout} should be valid (within 5-300 range)");
         }
         finally
@@ -175,7 +175,7 @@ public sealed class TestifyConfigurationViewModelTests
 
             first.OmitCreateFieldsText = "FieldA\nFieldB";
             first.PreferredCreateValuesText = "CurrencyCode=USD\nNumberSequenceGroup=STD";
-            first.CePollTimeoutMinutes = 42;
+            first.CePollTimeoutSeconds = 42;
             first.AllowPartialEnumCoverage = true;
             await first.SaveCommand.ExecuteAsync();
 
@@ -186,13 +186,13 @@ public sealed class TestifyConfigurationViewModelTests
             Assert.Equal(new HashSet<string>(new[] { "FieldA", "FieldB" }, StringComparer.OrdinalIgnoreCase), reloaded.OmitCreateFields);
             Assert.Equal("USD", reloaded.PreferredCreateValues["CurrencyCode"]);
             Assert.Equal("STD", reloaded.PreferredCreateValues["NumberSequenceGroup"]);
-            Assert.Equal(42, reloaded.CePollTimeoutMinutes);
+            Assert.Equal(42, reloaded.CePollTimeoutSeconds);
             Assert.True(reloaded.AllowPartialEnumCoverage);
 
             // Overwrite scenario: replace every field with new values and save again.
             reloaded.OmitCreateFieldsText = "FieldC";
             reloaded.PreferredCreateValuesText = "Country=NZ";
-            reloaded.CePollTimeoutMinutes = 17;
+            reloaded.CePollTimeoutSeconds = 17;
             reloaded.AllowPartialEnumCoverage = false;
             await reloaded.SaveCommand.ExecuteAsync();
 
@@ -202,7 +202,7 @@ public sealed class TestifyConfigurationViewModelTests
             Assert.Equal(new HashSet<string>(new[] { "FieldC" }, StringComparer.OrdinalIgnoreCase), afterOverwrite.OmitCreateFields);
             Assert.Single(afterOverwrite.PreferredCreateValues);
             Assert.Equal("NZ", afterOverwrite.PreferredCreateValues["Country"]);
-            Assert.Equal(17, afterOverwrite.CePollTimeoutMinutes);
+            Assert.Equal(17, afterOverwrite.CePollTimeoutSeconds);
             Assert.False(afterOverwrite.AllowPartialEnumCoverage);
         }
         finally

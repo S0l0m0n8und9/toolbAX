@@ -30,7 +30,15 @@ jobs:
         run: dotnet build .\FoToolbox.sln -c Release --no-restore
 
       - name: Test
-        run: dotnet test .\FoToolbox.sln -c Release --no-build --collect:"XPlat Code Coverage"
+        run: dotnet test .\FoToolbox.sln -c Release --no-build --collect:"XPlat Code Coverage" --blame-hang --blame-hang-timeout 150s --blame-hang-dump-type mini --results-directory ${{ github.workspace }}\TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: ${{ github.workspace }}\TestResults
+          if-no-files-found: ignore
 
       - name: Vulnerable packages
         run: dotnet list .\FoToolbox.sln package --vulnerable --include-transitive

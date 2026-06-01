@@ -403,13 +403,20 @@ dotnet publish (Join-Path $repoRoot "src\\FoToolbox.Host\\FoToolbox.Host.csproj"
     -p:FileVersion=$fileVersion | Out-Host
 
 $pluginsOut = Join-Path $SourceDir "plugins"
+# Clear any previously-staged plugin output so the installer is reproducible and never ships stale
+# files from an earlier build (e.g. a plugin that was removed, or files staged under a wrong path).
+if (Test-Path $pluginsOut) {
+    Remove-Item $pluginsOut -Recurse -Force
+}
 New-Item -ItemType Directory -Force -Path $pluginsOut | Out-Null
 $bundledPlugins = @(
     "HelloPlugin",
     "QueryBuilder",
     "TableEntityBrowser",
     "ODataPostBuilder",
-    "DualWriteMapBrowser"
+    "DualWriteMapBrowser",
+    "DualWriteOperations",
+    "DualWriteCompare"
 )
 
 Write-Host "`nBuilding plugins..."
@@ -423,8 +430,23 @@ dotnet clean (Join-Path $repoRoot "plugins\\ODataPostBuilder\\ODataPostBuilder.c
 dotnet build (Join-Path $repoRoot "plugins\\ODataPostBuilder\\ODataPostBuilder.csproj") -c $Configuration -p:Version=$msiVersion -p:AssemblyVersion=$assemblyVersion -p:FileVersion=$fileVersion | Out-Host
 dotnet clean (Join-Path $repoRoot "plugins\\DualWriteMapBrowser\\DualWriteMapBrowser.csproj") -c $Configuration | Out-Host
 dotnet build (Join-Path $repoRoot "plugins\\DualWriteMapBrowser\\DualWriteMapBrowser.csproj") -c $Configuration -p:Version=$msiVersion -p:AssemblyVersion=$assemblyVersion -p:FileVersion=$fileVersion | Out-Host
+dotnet clean (Join-Path $repoRoot "plugins\\DualWriteOperations\\DualWriteOperations.csproj") -c $Configuration | Out-Host
+dotnet build (Join-Path $repoRoot "plugins\\DualWriteOperations\\DualWriteOperations.csproj") -c $Configuration -p:Version=$msiVersion -p:AssemblyVersion=$assemblyVersion -p:FileVersion=$fileVersion | Out-Host
+dotnet clean (Join-Path $repoRoot "plugins\\DualWriteCompare\\DualWriteCompare.csproj") -c $Configuration | Out-Host
+dotnet build (Join-Path $repoRoot "plugins\\DualWriteCompare\\DualWriteCompare.csproj") -c $Configuration -p:Version=$msiVersion -p:AssemblyVersion=$assemblyVersion -p:FileVersion=$fileVersion | Out-Host
 
 Write-Host "`nCopying plugin binaries to SourceDir..."
+
+# Files already provided by the host shell (SDK/Core/shared managed assemblies). A plugin must NOT
+# carry its own copy of these: a duplicate FoToolbox.SDK in a plugin's load context breaks the
+# IFoToolPlugin type identity and the plugin silently fails to load. Treat the published host output
+# as the source of truth for "host-provided" and only stage a plugin dependency the host does NOT
+# already ship (e.g. WebView2 for DualWriteOperations' interactive sign-in).
+$hostProvided = New-Object System.Collections.Generic.HashSet[string] ([System.StringComparer]::OrdinalIgnoreCase)
+foreach ($hostDll in Get-ChildItem -Path $SourceDir -File -Filter *.dll) {
+    [void]$hostProvided.Add($hostDll.Name)
+}
+
 foreach ($pluginName in $bundledPlugins) {
     $legacyFlatPath = Join-Path $pluginsOut "$pluginName.dll"
     if (Test-Path $legacyFlatPath) {
@@ -434,9 +456,35 @@ foreach ($pluginName in $bundledPlugins) {
     $pluginDirectory = Join-Path $pluginsOut $pluginName
     New-Item -ItemType Directory -Force -Path $pluginDirectory | Out-Null
 
-    $source = Join-Path $repoRoot "plugins\\$pluginName\\bin\\$Configuration\\net10.0-windows\\$pluginName.dll"
-    $destination = Join-Path $pluginDirectory "$pluginName.dll"
-    Copy-Item $source -Destination $destination -Force
+    $pluginBin = Join-Path $repoRoot "plugins\\$pluginName\\bin\\$Configuration\\net10.0-windows"
+    $primaryDll = "$pluginName.dll"
+
+    # Always stage the primary plugin assembly.
+    Copy-Item (Join-Path $pluginBin $primaryDll) -Destination (Join-Path $pluginDirectory $primaryDll) -Force
+
+    # Stage private runtime dependencies the host does not provide (managed DLLs + native loaders
+    # such as WebView2Loader.dll) so the plugin's load context can resolve them. Skip host-provided
+    # managed assemblies and build-time artifacts.
+    foreach ($dep in Get-ChildItem -Path $pluginBin -File -Filter *.dll) {
+        if ($dep.Name -ieq $primaryDll) { continue }
+        if ($hostProvided.Contains($dep.Name)) { continue }
+        Copy-Item $dep.FullName -Destination (Join-Path $pluginDirectory $dep.Name) -Force
+        Write-Host "   staged private dependency $($dep.Name) for $pluginName"
+    }
+
+    # Stage the win-x64 native loaders the plugin needs but the host does not already provide
+    # (e.g. WebView2Loader.dll for interactive sign-in), placed next to the managed assembly where
+    # the WebView2 SDK probes. The app ships win-x64 only, so cross-platform natives are skipped;
+    # e_sqlite3 is host-provided at the app root and must not be duplicated per plugin.
+    $nativeDir = Join-Path $pluginBin "runtimes\\win-x64\\native"
+    if (Test-Path $nativeDir) {
+        foreach ($nativeFile in Get-ChildItem -Path $nativeDir -File) {
+            if ($nativeFile.Name -ieq "e_sqlite3.dll") { continue }
+            if ($hostProvided.Contains($nativeFile.Name)) { continue }
+            Copy-Item $nativeFile.FullName -Destination (Join-Path $pluginDirectory $nativeFile.Name) -Force
+            Write-Host "   staged native loader $($nativeFile.Name) for $pluginName"
+        }
+    }
 }
 
 Write-Host "Verifying canonical plugin staging layout..."

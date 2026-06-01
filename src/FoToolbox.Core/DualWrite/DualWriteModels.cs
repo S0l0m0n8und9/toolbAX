@@ -52,6 +52,9 @@ public sealed record DualWriteMap(
 {
     public string CurrentVersion => ActiveTemplate?.Version ?? string.Empty;
     public string CurrentAuthor => ActiveTemplate?.Author ?? string.Empty;
+
+    /// <summary>The CE (Dataverse) entity name for this map, used for integration-key apply. May be empty.</summary>
+    public string RightEntityName { get; init; } = string.Empty;
 }
 
 /// <summary>A project field mapping (the unit "refresh tables" operates on).</summary>

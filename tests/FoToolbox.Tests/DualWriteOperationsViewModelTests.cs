@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using DualWriteOperationsPlugin;
 using FoToolbox.Core.Catalog;
 using FoToolbox.Core.DualWrite;
+using FoToolbox.Core.DualWrite.Auth;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.OData;
 using FoToolbox.SDK.Plugins;
@@ -72,6 +73,27 @@ public class DualWriteOperationsViewModelTests
             Refreshed.Add(fieldMappingName);
             return Task.CompletedTask;
         }
+
+        public DualWriteConnectionSet ConnectionSet { get; set; } =
+            new("connset", Array.Empty<DualWriteConnectionSetEnvironment>(), Array.Empty<string>());
+        public List<(string Cid, IReadOnlyList<string> LegalEntities, bool ForceReset)> Resets { get; } = new();
+
+        public Task<DualWriteConnectionSet> GetConnectionSetAsync(string cname, CancellationToken ct = default) =>
+            Task.FromResult(ConnectionSet);
+
+        public Task ResetLinksAsync(string cid, DualWriteConnectionSet connectionSet, IReadOnlyList<string> legalEntities, bool forceReset, CancellationToken ct = default)
+        {
+            Resets.Add((cid, legalEntities, forceReset));
+            return Task.CompletedTask;
+        }
+
+        public List<(string Dataset, string Entity, IReadOnlyList<string> Fields)> KeyApplications { get; } = new();
+
+        public Task ApplyIntegrationKeysAsync(string datasetName, string ceEntityName, IReadOnlyList<string> keyFields, CancellationToken ct = default)
+        {
+            KeyApplications.Add((datasetName, ceEntityName, keyFields));
+            return Task.CompletedTask;
+        }
     }
 
     private sealed class FakeFactory : IDualWriteGatewayFactory
@@ -79,6 +101,7 @@ public class DualWriteOperationsViewModelTests
         private readonly IDualWriteGateway _gateway;
         public FakeFactory(IDualWriteGateway gateway) => _gateway = gateway;
         public IDualWriteGateway Create(DualWriteConnectionSettings settings) => _gateway;
+        public IDualWriteGateway CreateRefreshing(DualWriteConnectionSettings settings, Func<DualWriteToken, Task> onRefreshed) => _gateway;
     }
 
     private sealed class FakeContext : IPluginContext
@@ -98,6 +121,64 @@ public class DualWriteOperationsViewModelTests
         var store = new DualWriteConnectionStore(path, new PassthroughProtector());
         await store.SaveAsync(new DualWriteConnectionSettings("env-1", "https://gw.example", "uat-fo", "tok-123"), CancellationToken.None);
         return store;
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task SignIn_StoresDiscoveredGatewayAndDelegatedToken()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = new DualWriteConnectionStore(path, new PassthroughProtector());
+            var gateway = new FakeGateway();
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
+            {
+                FoIdentifier = "uat-fo",
+                SignInFlow = _ => Task.FromResult<DualWriteSignInResult?>(new DualWriteSignInResult(
+                    new DualWriteToken("acc", "ref", new DateTimeOffset(2026, 5, 29, 1, 0, 0, TimeSpan.Zero)),
+                    "https://projectmanagementservice.weu.gateway.prod.island.powerapps.com"))
+            };
+
+            await vm.SignInCommand.ExecuteAsync();
+
+            Assert.Equal("https://projectmanagementservice.weu.gateway.prod.island.powerapps.com", vm.GatewayBaseUrl);
+            var saved = await store.GetAsync("env-1", CancellationToken.None);
+            Assert.Equal("acc", saved.BearerToken);
+            Assert.Equal("ref", saved.RefreshToken);
+            Assert.True(saved.HasDelegatedSession);
+            Assert.True(saved.IsComplete);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task SignIn_Cancelled_DoesNotSave()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = new DualWriteConnectionStore(path, new PassthroughProtector());
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(new FakeGateway()))
+            {
+                FoIdentifier = "uat-fo",
+                SignInFlow = _ => Task.FromResult<DualWriteSignInResult?>(null)
+            };
+
+            await vm.SignInCommand.ExecuteAsync();
+
+            var saved = await store.GetAsync("env-1", CancellationToken.None);
+            Assert.False(saved.IsComplete);
+            Assert.Contains("cancelled", vm.StatusMessage, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
     }
 
     [Trait("Category", "DualWrite")]
@@ -283,6 +364,80 @@ public class DualWriteOperationsViewModelTests
         {
             File.Delete(storePath);
             if (File.Exists(exportPath)) File.Delete(exportPath);
+        }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task ResetLink_Confirmed_ResetsConnectionSetLegalEntities()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway();
+            gateway.MapsList.Add(Map("a"));
+            gateway.ConnectionSet = new DualWriteConnectionSet(
+                "cs",
+                new[] { new DualWriteConnectionSetEnvironment("ce", "CE", "pae", false, "CRM", "https://ce", Array.Empty<DualWriteSchema>()) },
+                new[] { "USMF", "DEMF" });
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
+            {
+                ConfirmAction = (_, _) => true,
+                ForceReset = true
+            };
+            await vm.LoadMapsCommand.ExecuteAsync();
+
+            await vm.ResetLinkCommand.ExecuteAsync();
+
+            var reset = Assert.Single(gateway.Resets);
+            Assert.Equal("C1", reset.Cid);
+            Assert.True(reset.ForceReset);
+            Assert.Equal(new[] { "USMF", "DEMF" }, reset.LegalEntities.ToArray());
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task ApplyIntegrationKeys_ResolvesKeyFromConnectionSet_AndPostsForResolvedMaps()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway();
+            gateway.MapsList.Add(Map("a", "Customers") with { RightEntityName = "Customers" });
+            gateway.MapsList.Add(Map("b", "Vendors") with { RightEntityName = "Unmapped" });
+            gateway.ConnectionSet = new DualWriteConnectionSet(
+                "cs",
+                new[]
+                {
+                    new DualWriteConnectionSetEnvironment("ce-prod", "CE", "pae", false, "CRM", "https://ce",
+                        new[] { new DualWriteSchema("Customers", new[] { new DualWriteSchemaKey("USERKEYS", "k", new[] { "accountnumber" }) }) })
+                },
+                Array.Empty<string>());
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
+            {
+                ConfirmAction = (_, _) => true
+            };
+            await vm.LoadMapsCommand.ExecuteAsync();
+            foreach (var row in vm.Maps) row.IsSelected = true;
+
+            await vm.ApplyIntegrationKeysCommand.ExecuteAsync();
+
+            var applied = Assert.Single(gateway.KeyApplications);
+            Assert.Equal("ce-prod", applied.Dataset);
+            Assert.Equal("Customers", applied.Entity);
+            Assert.Equal(new[] { "accountnumber" }, applied.Fields.ToArray());
+            Assert.Contains("Skipped 1", vm.StatusMessage);
+        }
+        finally
+        {
+            File.Delete(path);
         }
     }
 

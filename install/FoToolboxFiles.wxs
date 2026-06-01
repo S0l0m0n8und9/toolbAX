@@ -22,6 +22,8 @@
             <Directory Id="PLUGIN_TABLEENTITYBROWSER" Name="TableEntityBrowser" />
             <Directory Id="PLUGIN_ODATAPOSTBUILDER" Name="ODataPostBuilder" />
             <Directory Id="PLUGIN_DUALWRITEMAPBROWSER" Name="DualWriteMapBrowser" />
+            <Directory Id="PLUGIN_DUALWRITEOPERATIONS" Name="DualWriteOperations" />
+            <Directory Id="PLUGIN_DUALWRITECOMPARE" Name="DualWriteCompare" />
           </Directory>
         </Directory>
       </Directory>
@@ -71,6 +73,17 @@
       </Component>
       <Component Id="FoToolboxPluginDualWriteMapBrowser" Guid="{5D1B8280-9F8E-4545-8F2B-6267F943E1E7}" Directory="PLUGIN_DUALWRITEMAPBROWSER">
         <File Id="DualWriteMapBrowser.dll" Source="$(var.SourceDir)\plugins\DualWriteMapBrowser\DualWriteMapBrowser.dll" KeyPath="yes" />
+      </Component>
+      <!-- DualWriteOperations carries its private WebView2 dependencies (interactive sign-in);
+           these are staged next to the plugin DLL by install/build.ps1. -->
+      <Component Id="FoToolboxPluginDualWriteOperations" Guid="{D3016377-268E-45EC-B1A6-AF65B5B852CE}" Directory="PLUGIN_DUALWRITEOPERATIONS">
+        <File Id="DualWriteOperations.dll" Source="$(var.SourceDir)\plugins\DualWriteOperations\DualWriteOperations.dll" KeyPath="yes" />
+        <File Id="Microsoft.Web.WebView2.Core.dll" Source="$(var.SourceDir)\plugins\DualWriteOperations\Microsoft.Web.WebView2.Core.dll" />
+        <File Id="Microsoft.Web.WebView2.Wpf.dll" Source="$(var.SourceDir)\plugins\DualWriteOperations\Microsoft.Web.WebView2.Wpf.dll" />
+        <File Id="WebView2Loader.dll" Source="$(var.SourceDir)\plugins\DualWriteOperations\WebView2Loader.dll" />
+      </Component>
+      <Component Id="FoToolboxPluginDualWriteCompare" Guid="{CCA5EF8A-D7DA-4FB4-A5C1-7A8A0AE39CA6}" Directory="PLUGIN_DUALWRITECOMPARE">
+        <File Id="DualWriteCompare.dll" Source="$(var.SourceDir)\plugins\DualWriteCompare\DualWriteCompare.dll" KeyPath="yes" />
       </Component>
 
       <!-- Start menu shortcut -->

@@ -36,6 +36,9 @@ public sealed class DualWriteMapRow : INotifyPropertyChanged
     public string Version => Map.CurrentVersion;
     public string Author => Map.CurrentAuthor;
 
+    /// <summary>The CE (Dataverse) entity this map targets — the unit "Apply Integration Keys" operates on.</summary>
+    public string CeEntity => Map.RightEntityName;
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>

@@ -20,12 +20,12 @@ internal sealed class TestifyConfigurationViewModel : INotifyPropertyChanged
 
     private HashSet<string> _omitCreateFields = new(StringComparer.OrdinalIgnoreCase);
     private Dictionary<string, string> _preferredCreateValues = new(StringComparer.OrdinalIgnoreCase);
-    private int _cePollTimeoutMinutes = 5;
+    private int _cePollTimeoutSeconds = 5;
     private bool _allowPartialEnumCoverage = false;
     private bool _isSaving;
     private string _omitCreateFieldsText = string.Empty;
     private string _preferredCreateValuesText = string.Empty;
-    private string _cePollTimeoutMinutesText = "5";
+    private string _cePollTimeoutSecondsText = "5";
     private string _confirmationMessage = string.Empty;
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -60,21 +60,21 @@ internal sealed class TestifyConfigurationViewModel : INotifyPropertyChanged
         }
     }
 
-    public int CePollTimeoutMinutes
+    public int CePollTimeoutSeconds
     {
-        get => _cePollTimeoutMinutes;
+        get => _cePollTimeoutSeconds;
         set
         {
-            if (_cePollTimeoutMinutes == value)
+            if (_cePollTimeoutSeconds == value)
             {
                 return;
             }
 
-            _cePollTimeoutMinutes = value;
-            _cePollTimeoutMinutesText = value.ToString(CultureInfo.InvariantCulture);
+            _cePollTimeoutSeconds = value;
+            _cePollTimeoutSecondsText = value.ToString(CultureInfo.InvariantCulture);
             _confirmationMessage = string.Empty;
             OnPropertyChanged();
-            OnPropertyChanged(nameof(CePollTimeoutMinutesText));
+            OnPropertyChanged(nameof(CePollTimeoutSecondsText));
             OnPropertyChanged(nameof(ConfirmationMessage));
         }
     }
@@ -151,20 +151,20 @@ internal sealed class TestifyConfigurationViewModel : INotifyPropertyChanged
         }
     }
 
-    public string CePollTimeoutMinutesText
+    public string CePollTimeoutSecondsText
     {
-        get => _cePollTimeoutMinutesText;
+        get => _cePollTimeoutSecondsText;
         set
         {
-            if (string.Equals(_cePollTimeoutMinutesText, value, StringComparison.Ordinal))
+            if (string.Equals(_cePollTimeoutSecondsText, value, StringComparison.Ordinal))
             {
                 return;
             }
 
-            _cePollTimeoutMinutesText = value ?? string.Empty;
-            if (int.TryParse(_cePollTimeoutMinutesText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
+            _cePollTimeoutSecondsText = value ?? string.Empty;
+            if (int.TryParse(_cePollTimeoutSecondsText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed))
             {
-                _cePollTimeoutMinutes = parsed;
+                _cePollTimeoutSeconds = parsed;
             }
             _confirmationMessage = string.Empty;
             OnPropertyChanged();
@@ -218,28 +218,28 @@ internal sealed class TestifyConfigurationViewModel : INotifyPropertyChanged
 
             _omitCreateFields = new HashSet<string>(_configuration.OmitCreateFields, StringComparer.OrdinalIgnoreCase);
             _preferredCreateValues = new Dictionary<string, string>(_configuration.PreferredCreateValues, StringComparer.OrdinalIgnoreCase);
-            _cePollTimeoutMinutes = _configuration.CePollTimeoutMinutes;
+            _cePollTimeoutSeconds = _configuration.CePollTimeoutSeconds;
             _allowPartialEnumCoverage = _configuration.AllowPartialEnumCoverage;
         }
         catch
         {
             _omitCreateFields = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             _preferredCreateValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-            _cePollTimeoutMinutes = 5;
+            _cePollTimeoutSeconds = 5;
             _allowPartialEnumCoverage = false;
         }
 
         _omitCreateFieldsText = TestifySettingsTextSerializer.FormatLines(_omitCreateFields);
         _preferredCreateValuesText = TestifySettingsTextSerializer.FormatKeyValueLines(_preferredCreateValues);
-        _cePollTimeoutMinutesText = _cePollTimeoutMinutes.ToString(CultureInfo.InvariantCulture);
+        _cePollTimeoutSecondsText = _cePollTimeoutSeconds.ToString(CultureInfo.InvariantCulture);
 
         OnPropertyChanged(nameof(OmitCreateFields));
         OnPropertyChanged(nameof(PreferredCreateValues));
-        OnPropertyChanged(nameof(CePollTimeoutMinutes));
+        OnPropertyChanged(nameof(CePollTimeoutSeconds));
         OnPropertyChanged(nameof(AllowPartialEnumCoverage));
         OnPropertyChanged(nameof(OmitCreateFieldsText));
         OnPropertyChanged(nameof(PreferredCreateValuesText));
-        OnPropertyChanged(nameof(CePollTimeoutMinutesText));
+        OnPropertyChanged(nameof(CePollTimeoutSecondsText));
     }
 
     private async Task SaveAsync(CancellationToken cancellationToken)
@@ -265,7 +265,7 @@ internal sealed class TestifyConfigurationViewModel : INotifyPropertyChanged
         {
             _configuration.OmitCreateFields = new HashSet<string>(_omitCreateFields, StringComparer.OrdinalIgnoreCase);
             _configuration.PreferredCreateValues = preferredCreateValues;
-            _configuration.CePollTimeoutMinutes = _cePollTimeoutMinutes;
+            _configuration.CePollTimeoutSeconds = _cePollTimeoutSeconds;
             _configuration.AllowPartialEnumCoverage = _allowPartialEnumCoverage;
 
             await _store.SaveAsync(_configuration, cancellationToken);
@@ -279,7 +279,7 @@ internal sealed class TestifyConfigurationViewModel : INotifyPropertyChanged
     }
 
     private bool IsTimeoutValid() =>
-        int.TryParse(_cePollTimeoutMinutesText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v)
+        int.TryParse(_cePollTimeoutSecondsText, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v)
         && v >= 5 && v <= 300;
 
     private void OnPropertyChanged([CallerMemberName] string? propertyName = null)

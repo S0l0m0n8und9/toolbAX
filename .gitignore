@@ -33,3 +33,6 @@ Thumbs.db
 *.nupkg
 install/wix_*.html
 /FO/
+
+# Test run / coverage artifacts
+**/TestResults/

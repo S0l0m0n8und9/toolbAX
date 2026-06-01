@@ -175,7 +175,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
             var store = new TestifyConfigurationStore(storePath);
             var viewModel = new DualWriteMapBrowserViewModel(context, store);
             var config = await store.GetOrCreateAsync("env-1", "map-timeout", CancellationToken.None);
-            config.CePollTimeoutMinutes = 1;
+            config.CePollTimeoutSeconds = 1;
 
             var plan = new TestifyMapPlan(
                 mapId: "map-timeout",
@@ -202,7 +202,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
                     CancellationToken.None,
                     "after patch 1"));
 
-            Assert.Equal("CE correlation verification timed out (after patch 1) after 1 minute(s). Increase CePollTimeoutMinutes in Testify configuration if sync is slow.", ex.Message);
+            Assert.Equal("CE correlation verification timed out (after patch 1) after 1 second(s). Increase CePollTimeoutSeconds in Testify configuration if sync is slow.", ex.Message);
         }
         finally
         {
@@ -223,7 +223,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
         var viewModel = new DualWriteMapBrowserViewModel(
             new FakeIntegrationDataverseWriteContext(new SequenceODataWriteClient(), dataverseHttp),
             new TestifyConfigurationStore(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-integration.json")));
-        var plan = BuildCeCorrelationPlan(new TestifyMapConfiguration { CePollTimeoutMinutes = 1 });
+        var plan = BuildCeCorrelationPlan(new TestifyMapConfiguration { CePollTimeoutSeconds = 1 });
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             viewModel.WaitForCeCorrelationAsync(
@@ -248,7 +248,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
         var viewModel = new DualWriteMapBrowserViewModel(
             new FakeIntegrationDataverseWriteContext(new SequenceODataWriteClient(), dataverseHttp),
             new TestifyConfigurationStore(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-integration.json")));
-        var plan = BuildCeCorrelationPlan(new TestifyMapConfiguration { CePollTimeoutMinutes = 1 });
+        var plan = BuildCeCorrelationPlan(new TestifyMapConfiguration { CePollTimeoutSeconds = 1 });
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
             viewModel.WaitForCeCorrelationAsync(
@@ -274,7 +274,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
         var viewModel = new DualWriteMapBrowserViewModel(
             new FakeIntegrationDataverseWriteContext(new SequenceODataWriteClient(), dataverseHttp),
             new TestifyConfigurationStore(Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}-testify-integration.json")));
-        var plan = BuildCeCorrelationPlan(new TestifyMapConfiguration { CePollTimeoutMinutes = 1 });
+        var plan = BuildCeCorrelationPlan(new TestifyMapConfiguration { CePollTimeoutSeconds = 1 });
         var runtimeValues = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase) { ["Name"] = "TESTIFY-ROW" };
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
@@ -1142,7 +1142,7 @@ public sealed class DualWriteMapBrowserTestifyIntegrationTests
             mapDisplayName: "Assertion Map",
             foEntity: "CustomersV3",
             foEntityDetails: null,
-            configuration: new TestifyMapConfiguration { CePollTimeoutMinutes = 1 },
+            configuration: new TestifyMapConfiguration { CePollTimeoutSeconds = 1 },
             foFilter: string.Empty,
             ceLegs: new[] { new TestifyLegPlan("leg-1", "accounts", "$filter=statecode eq 0", "Name", "name") },
             createValues: new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase),

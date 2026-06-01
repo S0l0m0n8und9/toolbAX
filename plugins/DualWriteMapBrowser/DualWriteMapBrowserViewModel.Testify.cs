@@ -972,8 +972,8 @@ public sealed partial class DualWriteMapBrowserViewModel
     {
         var dataverseHttp = _dataverse!.DataverseHttp!;
         var apiBase = ResourceUrlNormalizer.BuildDataverseApiBaseUrl(_dataverse.CurrentDataverseEnv!.BaseUrl);
-        var timeoutMinutes = plan.Configuration.CePollTimeoutMinutes > 0 ? plan.Configuration.CePollTimeoutMinutes : 5;
-        var deadline = TestifyUtcNow().AddMinutes(timeoutMinutes);
+        var timeoutSeconds = plan.Configuration.CePollTimeoutSeconds > 0 ? plan.Configuration.CePollTimeoutSeconds : 5;
+        var deadline = TestifyUtcNow().AddSeconds(timeoutSeconds);
         var criteriaByLeg = BuildCeCorrelationCriteria(plan, runtimeCreateValues, expectedRowIdentities);
 
         while (TestifyUtcNow() <= deadline)
@@ -1030,7 +1030,7 @@ public sealed partial class DualWriteMapBrowserViewModel
             await TestifyDelayAsync(TimeSpan.FromSeconds(5), cancellationToken);
         }
 
-        throw new InvalidOperationException($"CE correlation verification timed out ({phase}) after {timeoutMinutes} minute(s). Increase CePollTimeoutMinutes in Testify configuration if sync is slow.");
+        throw new InvalidOperationException($"CE correlation verification timed out ({phase}) after {timeoutSeconds} second(s). Increase CePollTimeoutSeconds in Testify configuration if sync is slow.");
     }
 
     private static IReadOnlyList<TestifyCeCorrelationCriteria> BuildCeCorrelationCriteria(

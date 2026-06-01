@@ -50,7 +50,7 @@ public sealed class DualWriteMapBrowserViewModelTestifySettingsTests
             {
                 ["CurrencyCode"] = "USD"
             };
-            seeded.CePollTimeoutMinutes = 7;
+            seeded.CePollTimeoutSeconds = 7;
             seeded.AllowPartialEnumCoverage = true;
             await store.SaveAsync(seeded, CancellationToken.None);
 
@@ -63,11 +63,11 @@ public sealed class DualWriteMapBrowserViewModelTestifySettingsTests
             Assert.NotNull(viewModel.TestifySettingsViewModel);
 
             var modal = viewModel.TestifySettingsViewModel!;
-            await WaitForAsync(() => modal.CePollTimeoutMinutes == 7);
+            await WaitForAsync(() => modal.CePollTimeoutSeconds == 7);
 
             Assert.Equal("FieldA", modal.OmitCreateFieldsText);
             Assert.Equal("CurrencyCode=USD", modal.PreferredCreateValuesText);
-            Assert.Equal(7, modal.CePollTimeoutMinutes);
+            Assert.Equal(7, modal.CePollTimeoutSeconds);
             Assert.True(modal.AllowPartialEnumCoverage);
         }
         finally
@@ -96,7 +96,7 @@ public sealed class DualWriteMapBrowserViewModelTestifySettingsTests
 
             modal.OmitCreateFieldsText = "FieldB\r\nFieldC";
             modal.PreferredCreateValuesText = "NumberSequenceGroup=STD";
-            modal.CePollTimeoutMinutes = 11;
+            modal.CePollTimeoutSeconds = 11;
             modal.AllowPartialEnumCoverage = true;
 
             await modal.SaveCommand.ExecuteAsync();
@@ -110,7 +110,7 @@ public sealed class DualWriteMapBrowserViewModelTestifySettingsTests
             var reloaded = await store.GetOrCreateAsync("env-1", "map-a", CancellationToken.None);
             Assert.Equal(new HashSet<string>(new[] { "FieldB", "FieldC" }, StringComparer.OrdinalIgnoreCase), reloaded.OmitCreateFields);
             Assert.Equal("STD", reloaded.PreferredCreateValues["NumberSequenceGroup"]);
-            Assert.Equal(11, reloaded.CePollTimeoutMinutes);
+            Assert.Equal(11, reloaded.CePollTimeoutSeconds);
             Assert.True(reloaded.AllowPartialEnumCoverage);
         }
         finally

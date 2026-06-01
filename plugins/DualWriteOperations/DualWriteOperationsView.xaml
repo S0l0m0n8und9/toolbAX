@@ -7,6 +7,9 @@
              mc:Ignorable="d"
              d:DesignHeight="640"
              d:DesignWidth="1000">
+    <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    </UserControl.Resources>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
@@ -68,9 +71,14 @@
                 </Grid>
 
                 <DockPanel Margin="0,8,0,0">
+                    <Button DockPanel.Dock="Left" Content="Sign in…"
+                            Command="{Binding SignInCommand}"
+                            Padding="10,4" MinWidth="90"
+                            ToolTip="Interactive sign-in: captures a token and auto-discovers the gateway (no manual paste needed)."
+                            IsEnabled="{Binding IsNotBusy}" />
                     <Button DockPanel.Dock="Left" Content="Save Connection"
                             Command="{Binding SaveConnectionCommand}"
-                            Padding="10,4" MinWidth="130" />
+                            Padding="10,4" MinWidth="130" Margin="6,0,0,0" />
                     <Button DockPanel.Dock="Left" Content="Load Maps"
                             Command="{Binding LoadMapsCommand}"
                             Padding="10,4" MinWidth="110" Margin="6,0,0,0"
@@ -95,6 +103,7 @@
             <DataGrid.Columns>
                 <DataGridCheckBoxColumn Header="" Binding="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}" Width="36" />
                 <DataGridTextColumn Header="Map" Binding="{Binding Name}" Width="2*" IsReadOnly="True" />
+                <DataGridTextColumn Header="CE Entity" Binding="{Binding CeEntity}" Width="*" IsReadOnly="True" />
                 <DataGridTextColumn Header="Version" Binding="{Binding Version}" Width="*" IsReadOnly="True" />
                 <DataGridTextColumn Header="Author" Binding="{Binding Author}" Width="*" IsReadOnly="True" />
                 <DataGridTextColumn Header="State" Binding="{Binding State}" Width="*" IsReadOnly="True" />
@@ -124,10 +133,23 @@
                     <TextBox Width="160" VerticalAlignment="Center"
                              Text="{Binding AuthorFilter, UpdateSourceTrigger=PropertyChanged}"
                              ToolTip="Optional. Comma-separated authors; blank = any author." />
+                    <Border Width="1" Margin="10,2" Background="{DynamicResource Fo.BorderBrush}" />
+                    <Button Content="Reset Link" Command="{Binding ResetLinkCommand}" Padding="12,4" MinWidth="100" IsEnabled="{Binding IsNotBusy}" />
+                    <CheckBox Content="Force reset" VerticalAlignment="Center" Margin="8,0,0,0" IsChecked="{Binding ForceReset}" />
+                    <Button Content="Apply Integration Keys" Command="{Binding ApplyIntegrationKeysCommand}" Padding="12,4" MinWidth="160" Margin="8,0,0,0" IsEnabled="{Binding IsNotBusy}" />
                 </WrapPanel>
-                <TextBlock Margin="0,8,0,0"
-                           TextWrapping="Wrap"
-                           Text="{Binding StatusMessage}" />
+                <DockPanel Margin="0,8,0,0">
+                    <ProgressBar DockPanel.Dock="Left"
+                                 Width="120"
+                                 Height="6"
+                                 IsIndeterminate="True"
+                                 VerticalAlignment="Center"
+                                 Margin="0,0,10,0"
+                                 Visibility="{Binding IsBusy, Converter={StaticResource BoolToVisibility}}" />
+                    <TextBlock TextWrapping="Wrap"
+                               VerticalAlignment="Center"
+                               Text="{Binding StatusMessage}" />
+                </DockPanel>
             </StackPanel>
         </Border>
     </Grid>
