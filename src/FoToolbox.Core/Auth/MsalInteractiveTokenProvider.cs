@@ -78,17 +78,38 @@ public sealed class MsalInteractiveTokenProvider : IInteractiveTokenProvider
         var cacheKey = $"{request.ClientId}|{request.TenantId}";
         app.UserTokenCache.SetBeforeAccess(args =>
         {
-            var blob = _cacheStore.Load(cacheKey);
-            if (blob is not null)
+            // Cache read is best-effort: a missing/corrupt cache must not break sign-in — just
+            // start from an empty cache and acquire interactively.
+            try
             {
-                args.TokenCache.DeserializeMsalV3(blob);
+                var blob = _cacheStore.Load(cacheKey);
+                if (blob is not null)
+                {
+                    args.TokenCache.DeserializeMsalV3(blob);
+                }
+            }
+            catch (Exception)
+            {
+                // Ignore: treat as no cached session.
             }
         });
         app.UserTokenCache.SetAfterAccess(args =>
         {
-            if (args.HasStateChanged)
+            if (!args.HasStateChanged)
+            {
+                return;
+            }
+
+            // Cache write is best-effort: the token was already acquired successfully. A persist
+            // failure (disk full, permissions, DPAPI) must not fail the sign-in — the user is just
+            // re-prompted next time because the entry wasn't saved.
+            try
             {
                 _cacheStore.Save(cacheKey, args.TokenCache.SerializeMsalV3());
+            }
+            catch (Exception)
+            {
+                // Ignore: persistence is an optimisation, not required for this acquisition.
             }
         });
 

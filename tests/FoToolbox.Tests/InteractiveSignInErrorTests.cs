@@ -44,6 +44,17 @@ public sealed class InteractiveSignInErrorTests
     }
 
     [Fact]
+    public void Describe_GenericInvalidClient_ReturnsNull()
+    {
+        // invalid_client covers many unrelated problems (expired secret, disabled app, cert
+        // mismatch). Without the specific AADSTS7000218 signal we must not steer the user to
+        // "enable public client flows".
+        var ex = new MsalServiceException("invalid_client", "The client credential keys are expired.");
+
+        Assert.Null(InteractiveSignInError.Describe(ex));
+    }
+
+    [Fact]
     public void Describe_UnrelatedException_ReturnsNull()
     {
         Assert.Null(InteractiveSignInError.Describe(new InvalidOperationException("something else")));

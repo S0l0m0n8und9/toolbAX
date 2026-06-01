@@ -33,9 +33,11 @@ public static class InteractiveSignInError
                    "In Entra, add a 'Mobile and desktop applications' platform with redirect URI 'http://localhost', then try again.";
         }
 
+        // Note: do not match the bare `invalid_client` error code — it covers many unrelated
+        // problems (expired secret, disabled app, certificate mismatch). The public-client
+        // signal is the specific AADSTS7000218 code, matched below.
         var requiresPublicClient =
             string.Equals(msal.ErrorCode, "unauthorized_client", StringComparison.OrdinalIgnoreCase)
-            || string.Equals(msal.ErrorCode, "invalid_client", StringComparison.OrdinalIgnoreCase)
             || text.Contains("aadsts7000218")
             || text.Contains("client_assertion")
             || text.Contains("client_secret")

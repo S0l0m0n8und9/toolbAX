@@ -36,6 +36,19 @@ If these aren't configured, sign-in opens the browser but fails at the redirect.
 an actionable message for the common cases (redirect-URI mismatch, "public client required"); see
 `InteractiveSignInError`.
 
+## Switching accounts
+
+Because sign-in is **silent-first**, once a session is cached for an environment, clicking
+**Sign in with Microsoft…** renews that same account silently and does **not** reopen the browser.
+To sign in as a **different** Azure AD principal, clear the cached session first by deleting the
+cache directory for that environment:
+
+```
+%LocalAppData%\FoToolbox\msal-cache
+```
+
+(A dedicated "switch account / sign out" action is a candidate future enhancement.)
+
 ## Notes / limitations
 
 - The Azure CLI route is unchanged and remains available for users who prefer it.
