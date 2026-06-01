@@ -1110,6 +1110,14 @@ try {{
 
     private static bool ConfirmRefreshOtherPlugins()
     {
+        // No running WPF application (unit tests / headless contexts): there is no UI to prompt,
+        // and a modal MessageBox would block forever. Default to not refreshing — the user can
+        // re-apply the profile. This keeps the view-model usable off the UI thread.
+        if (Application.Current is null)
+        {
+            return false;
+        }
+
         var result = MessageBoxResult.No;
         RunOnUi(() =>
         {

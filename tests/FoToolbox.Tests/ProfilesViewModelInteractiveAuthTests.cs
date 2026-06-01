@@ -65,6 +65,10 @@ public sealed class ProfilesViewModelInteractiveAuthTests
                 fake.LastRequest.ResourceBaseUrl);
             Assert.False(string.IsNullOrWhiteSpace(vm.Selected!.FoPrincipal.SecretRef));
             Assert.Contains("acquired", vm.Status, StringComparison.OrdinalIgnoreCase);
+            // Saving the first profile makes it active, so the acquire reaches the
+            // "refresh other plugins?" branch — which must NOT block on a modal in a headless
+            // context (regression: this test hung CI when it invoked MessageBox.Show).
+            Assert.Contains("not refreshed", vm.Status, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
