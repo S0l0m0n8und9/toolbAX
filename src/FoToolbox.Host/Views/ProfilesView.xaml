@@ -244,13 +244,18 @@
 
                                         <TextBlock Grid.Row="5" Grid.Column="0" Text="Retrieve token" VerticalAlignment="Center" Margin="{DynamicResource Fo.Margin.FormRow}"
                                                    Style="{StaticResource VisibleWhenFoBearerToken}" />
-                                        <Grid Grid.Row="5" Grid.Column="1" Margin="{DynamicResource Fo.Margin.FormRow}"
-                                              Style="{StaticResource VisibleWhenFoBearerToken}">
-                                            <Button Content="Get FO bearer token"
-                                                    HorizontalAlignment="Left"
+                                        <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="{DynamicResource Fo.Margin.FormRow}"
+                                                    Style="{StaticResource VisibleWhenFoBearerToken}">
+                                            <Button Content="Sign in with Microsoft…"
                                                     MinWidth="170"
-                                                    Command="{Binding AcquireFoBearerTokenCommand}" />
-                                        </Grid>
+                                                    Command="{Binding AcquireFoTokenInteractiveCommand}"
+                                                    ToolTip="Interactive delegated sign-in via your browser. Requires the app registration to allow a public-client / http://localhost redirect. No Azure CLI needed." />
+                                            <Button Content="Get token (Azure CLI)"
+                                                    MinWidth="150"
+                                                    Margin="6,0,0,0"
+                                                    Command="{Binding AcquireFoBearerTokenCommand}"
+                                                    ToolTip="Acquire a token using the Azure CLI (requires 'az login' to be configured)." />
+                                        </StackPanel>
 
                                         <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding FoStoredCredentialStatus}" Foreground="{DynamicResource Fo.SubtleTextBrush}" FontSize="{DynamicResource Fo.FontSize.Small}" Margin="0,5,0,0"
                                                    Style="{StaticResource VisibleWhenFoBearerToken}" />
@@ -316,13 +321,18 @@
 
                                         <TextBlock Grid.Row="5" Grid.Column="0" Text="Retrieve token" VerticalAlignment="Center" Margin="{DynamicResource Fo.Margin.FormRow}"
                                                    Style="{StaticResource VisibleWhenCeBearerToken}" />
-                                        <Grid Grid.Row="5" Grid.Column="1" Margin="{DynamicResource Fo.Margin.FormRow}"
-                                              Style="{StaticResource VisibleWhenCeBearerToken}">
-                                            <Button Content="Get CE bearer token"
-                                                    HorizontalAlignment="Left"
+                                        <StackPanel Grid.Row="5" Grid.Column="1" Orientation="Horizontal" Margin="{DynamicResource Fo.Margin.FormRow}"
+                                                    Style="{StaticResource VisibleWhenCeBearerToken}">
+                                            <Button Content="Sign in with Microsoft…"
                                                     MinWidth="170"
-                                                    Command="{Binding AcquireCeBearerTokenCommand}" />
-                                        </Grid>
+                                                    Command="{Binding AcquireCeTokenInteractiveCommand}"
+                                                    ToolTip="Interactive delegated sign-in via your browser. Requires the app registration to allow a public-client / http://localhost redirect. No Azure CLI needed." />
+                                            <Button Content="Get token (Azure CLI)"
+                                                    MinWidth="150"
+                                                    Margin="6,0,0,0"
+                                                    Command="{Binding AcquireCeBearerTokenCommand}"
+                                                    ToolTip="Acquire a token using the Azure CLI (requires 'az login' to be configured)." />
+                                        </StackPanel>
 
                                         <TextBlock Grid.Row="6" Grid.Column="1" Text="{Binding CeStoredCredentialStatus}" Foreground="{DynamicResource Fo.SubtleTextBrush}" FontSize="{DynamicResource Fo.FontSize.Small}" Margin="0,5,0,0"
                                                    Style="{StaticResource VisibleWhenCeBearerToken}" />

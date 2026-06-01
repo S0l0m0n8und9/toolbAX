@@ -42,6 +42,12 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     public ObservableCollection<ProfileItem> Profiles { get; } = new();
     public Array AuthModeValues { get; } = Enum.GetValues(typeof(AuthMode));
 
+    /// <summary>
+    /// Interactive (delegated user) token acquirer used by the "Sign in with Microsoft" route.
+    /// Defaults to the real MSAL provider; tests substitute a fake.
+    /// </summary>
+    internal IInteractiveTokenProvider InteractiveTokenProvider { get; set; } = new MsalInteractiveTokenProvider();
+
     public ProfileItem? Selected
     {
         get => _selected;
@@ -175,6 +181,8 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     public ICommand TestCeConnectionCommand { get; }
     public ICommand AcquireFoBearerTokenCommand { get; }
     public ICommand AcquireCeBearerTokenCommand { get; }
+    public ICommand AcquireFoTokenInteractiveCommand { get; }
+    public ICommand AcquireCeTokenInteractiveCommand { get; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler<ConnectionTestedEventArgs>? ConnectionTested;
@@ -202,6 +210,8 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         TestCeConnectionCommand = new AsyncCommand(TestCeConnectionAsync);
         AcquireFoBearerTokenCommand = new AsyncCommand(AcquireFoBearerTokenAsync);
         AcquireCeBearerTokenCommand = new AsyncCommand(AcquireCeBearerTokenAsync);
+        AcquireFoTokenInteractiveCommand = new AsyncCommand(AcquireFoTokenInteractiveAsync);
+        AcquireCeTokenInteractiveCommand = new AsyncCommand(AcquireCeTokenInteractiveAsync);
     }
 
     public async Task RefreshAsync()
@@ -548,6 +558,10 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         }
     }
 
+    internal Task AcquireFoTokenInteractiveAsync() => AcquireTokenInteractiveAsync(AuthTarget.Fo);
+
+    internal Task AcquireCeTokenInteractiveAsync() => AcquireTokenInteractiveAsync(AuthTarget.Dataverse);
+
     private Task AcquireFoBearerTokenAsync() => AcquireBearerTokenAsync(AuthTarget.Fo);
 
     private Task AcquireCeBearerTokenAsync() => AcquireBearerTokenAsync(AuthTarget.Dataverse);
@@ -578,83 +592,141 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         return AcquireBearerTokenAsync(target);
     }
 
+    private static string Side(AuthTarget target) => target == AuthTarget.Fo ? "FO" : "CE";
+
+    private static string NormalizeResourceBaseUrl(AuthTarget target, string baseUrl) => target == AuthTarget.Fo
+        ? ResourceUrlNormalizer.NormalizeFoBaseUrl(baseUrl)
+        : ResourceUrlNormalizer.NormalizeDataverseResourceBaseUrl(baseUrl);
+
+    /// <summary>
+    /// Validates the prerequisites shared by both token-acquisition routes (az CLI and interactive
+    /// MSAL). Sets <see cref="Status"/> and returns false when a prerequisite is missing.
+    /// </summary>
+    private bool TryGetBearerTokenAcquisitionInputs(
+        AuthTarget target,
+        FoEnvironment env,
+        DataverseEnvironment ceEnv,
+        bool requireClientId,
+        out string baseUrl,
+        out string tenantId,
+        out string clientId)
+    {
+        var principal = target == AuthTarget.Fo ? Selected!.FoPrincipal : Selected!.DataversePrincipal;
+        baseUrl = target == AuthTarget.Fo ? env.BaseUrl : ceEnv.BaseUrl;
+        tenantId = target == AuthTarget.Fo ? env.TenantId : ceEnv.TenantId;
+        clientId = principal.ClientId ?? string.Empty;
+
+        if (principal.AuthMode != AuthMode.BearerToken)
+        {
+            Status = $"Switch {Side(target)} Auth mode to BearerToken to retrieve a bearer token.";
+            return false;
+        }
+
+        if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(tenantId))
+        {
+            Status = $"{Side(target)} base URL and tenant ID are required to retrieve a bearer token.";
+            return false;
+        }
+
+        if (requireClientId && string.IsNullOrWhiteSpace(clientId))
+        {
+            Status = $"{Side(target)} Client ID is required for interactive sign-in.";
+            return false;
+        }
+
+        return true;
+    }
+
     private async Task AcquireBearerTokenAsync(AuthTarget target)
     {
         if (Selected is null) return;
 
         var env = Selected.Environment.ToModel();
         var ceEnv = Selected.DataverseEnvironment.ToModel(env.Id);
-        var targetEnvBaseUrl = target == AuthTarget.Fo ? env.BaseUrl : ceEnv.BaseUrl;
-        var targetTenantId = target == AuthTarget.Fo ? env.TenantId : ceEnv.TenantId;
-        var targetSp = target == AuthTarget.Fo
-            ? Selected.FoPrincipal.ToModel(env.Id, AuthTarget.Fo)
-            : Selected.DataversePrincipal.ToModel(env.Id, AuthTarget.Dataverse);
-
-        if (targetSp.AuthMode != AuthMode.BearerToken)
+        if (!TryGetBearerTokenAcquisitionInputs(target, env, ceEnv, requireClientId: false, out var baseUrl, out var tenantId, out _))
         {
-            Status = $"Switch {(target == AuthTarget.Fo ? "FO" : "CE")} Auth mode to BearerToken to retrieve a bearer token.";
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(targetEnvBaseUrl) || string.IsNullOrWhiteSpace(targetTenantId))
-        {
-            Status = $"{(target == AuthTarget.Fo ? "FO" : "CE")} base URL and tenant ID are required to retrieve a bearer token.";
             return;
         }
 
         try
         {
-            Status = $"Acquiring {(target == AuthTarget.Fo ? "FO" : "CE")} bearer token via Azure CLI (az)...";
-            var resourceBaseUrl = target == AuthTarget.Fo
-                ? ResourceUrlNormalizer.NormalizeFoBaseUrl(targetEnvBaseUrl)
-                : ResourceUrlNormalizer.NormalizeDataverseResourceBaseUrl(targetEnvBaseUrl);
-
-            var scope = $"{resourceBaseUrl}/.default";
-            var token = await GetAzCliAccessTokenAsync(targetTenantId, scope, CancellationToken.None);
-            var normalizedToken = NormalizeBearerToken(token);
-
-            if (target == AuthTarget.Fo) PendingFoBearerToken = normalizedToken;
-            else PendingCeBearerToken = normalizedToken;
-
-            var saveSucceeded = await SaveAsync(promptForPluginRefresh: false);
-            if (!saveSucceeded)
-            {
-                return;
-            }
-
-            string tokenStatus;
-            if (TryGetJwtExpiryUtc(normalizedToken, out var expiryUtc))
-            {
-                tokenStatus = $"{(target == AuthTarget.Fo ? "FO" : "CE")} bearer token acquired and saved. Expires {expiryUtc.UtcDateTime:u}.";
-            }
-            else
-            {
-                tokenStatus = $"{(target == AuthTarget.Fo ? "FO" : "CE")} bearer token acquired and saved.";
-            }
-
-            if (IsSelectedProfileActive(env.Id))
-            {
-                if (ConfirmRefreshOtherPlugins())
-                {
-                    var foSp = Selected.FoPrincipal.ToModel(env.Id, AuthTarget.Fo);
-                    var savedCeSp = Selected.DataversePrincipal.ToModel(env.Id, AuthTarget.Dataverse);
-                    _applyProfile(new ProfileBundle(env, foSp, ceEnv, savedCeSp));
-                    Status = $"{tokenStatus} Other plugins are refreshing.";
-                }
-                else
-                {
-                    Status = $"{tokenStatus} Other plugins were not refreshed.";
-                }
-            }
-            else
-            {
-                Status = tokenStatus;
-            }
+            Status = $"Acquiring {Side(target)} bearer token via Azure CLI (az)...";
+            var scope = $"{NormalizeResourceBaseUrl(target, baseUrl)}/.default";
+            var token = await GetAzCliAccessTokenAsync(tenantId, scope, CancellationToken.None);
+            await StoreAcquiredBearerTokenAsync(target, env, ceEnv, token);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "{Target} bearer token retrieval failed for {Env}", target.ToString(), env.Name);
-            Status = $"{(target == AuthTarget.Fo ? "FO" : "CE")} bearer token retrieval failed: {FormatForStatus(ex.Message)}";
+            Status = $"{Side(target)} bearer token retrieval failed: {FormatForStatus(ex.Message)}";
+        }
+    }
+
+    private async Task AcquireTokenInteractiveAsync(AuthTarget target)
+    {
+        if (Selected is null) return;
+
+        var env = Selected.Environment.ToModel();
+        var ceEnv = Selected.DataverseEnvironment.ToModel(env.Id);
+        if (!TryGetBearerTokenAcquisitionInputs(target, env, ceEnv, requireClientId: true, out var baseUrl, out var tenantId, out var clientId))
+        {
+            return;
+        }
+
+        try
+        {
+            Status = $"Opening Microsoft sign-in for {Side(target)} in your browser...";
+            var resourceBaseUrl = NormalizeResourceBaseUrl(target, baseUrl);
+            var result = await InteractiveTokenProvider.AcquireTokenAsync(
+                new InteractiveTokenRequest(clientId, tenantId, resourceBaseUrl),
+                CancellationToken.None);
+            await StoreAcquiredBearerTokenAsync(target, env, ceEnv, result.AccessToken);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "{Target} interactive sign-in failed for {Env}", target.ToString(), env.Name);
+            Status = $"{Side(target)} sign-in failed: {FormatForStatus(ex.Message)}";
+        }
+    }
+
+    /// <summary>
+    /// Shared tail for both token-acquisition routes: normalise, persist to the DPAPI vault via
+    /// <see cref="SaveAsync"/>, report expiry, and refresh dependent plugins when the profile is active.
+    /// </summary>
+    private async Task StoreAcquiredBearerTokenAsync(AuthTarget target, FoEnvironment env, DataverseEnvironment ceEnv, string rawToken)
+    {
+        var normalizedToken = NormalizeBearerToken(rawToken);
+
+        if (target == AuthTarget.Fo) PendingFoBearerToken = normalizedToken;
+        else PendingCeBearerToken = normalizedToken;
+
+        var saveSucceeded = await SaveAsync(promptForPluginRefresh: false);
+        if (!saveSucceeded)
+        {
+            return;
+        }
+
+        var tokenStatus = TryGetJwtExpiryUtc(normalizedToken, out var expiryUtc)
+            ? $"{Side(target)} bearer token acquired and saved. Expires {expiryUtc.UtcDateTime:u}."
+            : $"{Side(target)} bearer token acquired and saved.";
+
+        if (IsSelectedProfileActive(env.Id))
+        {
+            if (ConfirmRefreshOtherPlugins())
+            {
+                var foSp = Selected!.FoPrincipal.ToModel(env.Id, AuthTarget.Fo);
+                var savedCeSp = Selected.DataversePrincipal.ToModel(env.Id, AuthTarget.Dataverse);
+                _applyProfile(new ProfileBundle(env, foSp, ceEnv, savedCeSp));
+                Status = $"{tokenStatus} Other plugins are refreshing.";
+            }
+            else
+            {
+                Status = $"{tokenStatus} Other plugins were not refreshed.";
+            }
+        }
+        else
+        {
+            Status = tokenStatus;
         }
     }
 
