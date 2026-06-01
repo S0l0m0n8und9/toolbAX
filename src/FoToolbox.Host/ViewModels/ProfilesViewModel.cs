@@ -685,7 +685,9 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         catch (Exception ex)
         {
             _logger.LogError(ex, "{Target} interactive sign-in failed for {Env}", target.ToString(), env.Name);
-            Status = $"{Side(target)} sign-in failed: {FormatForStatus(ex.Message)}";
+            // Surface actionable guidance for the common app-registration misconfigurations
+            // (public client / http://localhost redirect), falling back to the raw message.
+            Status = InteractiveSignInError.Describe(ex) ?? $"{Side(target)} sign-in failed: {FormatForStatus(ex.Message)}";
         }
     }
 
