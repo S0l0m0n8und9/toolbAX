@@ -349,6 +349,57 @@
                         </Grid>
                     </ScrollViewer>
                 </TabItem>
+                <TabItem Header="Data Integrator">
+                    <ScrollViewer VerticalScrollBarVisibility="Auto">
+                        <StackPanel Margin="{DynamicResource Fo.Margin.Card}">
+                            <Border Style="{StaticResource CardBorder}">
+                                <StackPanel>
+                                    <TextBlock Text="Data Integrator (dual-write)"
+                                               FontWeight="SemiBold"
+                                               FontSize="{DynamicResource Fo.FontSize.SubHeading}"
+                                               Margin="0,0,0,4" />
+                                    <TextBlock Text="ROPC service-account sign-in for the Dual-write gateway — non-MFA accounts only."
+                                               Foreground="{DynamicResource Fo.SubtleTextBrush}"
+                                               FontSize="{DynamicResource Fo.FontSize.Small}"
+                                               TextWrapping="Wrap"
+                                               Margin="0,0,0,8" />
+
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="140" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
+                                        </Grid.RowDefinitions>
+
+                                        <TextBlock Grid.Row="0" Grid.Column="0" Text="Client ID" VerticalAlignment="Center" />
+                                        <TextBox Grid.Row="0" Grid.Column="1"
+                                                 Text="{Binding DiClientId, UpdateSourceTrigger=PropertyChanged}" />
+
+                                        <TextBlock Grid.Row="1" Grid.Column="0" Text="Username" VerticalAlignment="Center" Margin="{DynamicResource Fo.Margin.FormRow}" />
+                                        <TextBox Grid.Row="1" Grid.Column="1" Margin="{DynamicResource Fo.Margin.FormRow}"
+                                                 Text="{Binding DiUsername, UpdateSourceTrigger=PropertyChanged}" />
+
+                                        <TextBlock Grid.Row="2" Grid.Column="0" Text="Password" VerticalAlignment="Center" Margin="{DynamicResource Fo.Margin.FormRow}" />
+                                        <PasswordBox x:Name="DiPasswordBox" Grid.Row="2" Grid.Column="1" Margin="{DynamicResource Fo.Margin.FormRow}" />
+
+                                        <TextBlock Grid.Row="3" Grid.Column="1" Text="{Binding DiStoredStatus}" Foreground="{DynamicResource Fo.SubtleTextBrush}" FontSize="{DynamicResource Fo.FontSize.Small}" Margin="0,5,0,0" />
+
+                                        <Button Grid.Row="4" Grid.Column="1" Content="Save Data Integrator credential"
+                                                Command="{Binding SaveDataIntegratorCommand}"
+                                                HorizontalAlignment="Left"
+                                                Margin="0,8,0,0" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+                    </ScrollViewer>
+                </TabItem>
             </TabControl>
 
             <c:PluginToolbar Grid.Row="1">

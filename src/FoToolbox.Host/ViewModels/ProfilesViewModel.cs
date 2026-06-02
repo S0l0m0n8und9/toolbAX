@@ -1,4 +1,5 @@
 using FoToolbox.Core.Auth;
+using FoToolbox.Core.DualWrite.Auth;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.Profiles;
 using Microsoft.Extensions.Logging;
@@ -25,6 +26,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     private readonly ProfileStore _store;
     private readonly ProfileService _profiles;
     private readonly SecretVaultService _vault;
+    private readonly DataIntegratorCredentialStore _diStore;
     private readonly ILogger _logger;
     private readonly Action<ProfileBundle> _applyProfile;
 
@@ -38,6 +40,12 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     private string? _pendingCeBearerToken;
     private string? _activeEnvId;
     private ProfilesTab _selectedTab = ProfilesTab.FoEnvironment;
+
+    // Data Integrator (dual-write) ROPC credential fields
+    private string _diClientId = DualWriteAuthConstants.ClientId;
+    private string _diUsername = string.Empty;
+    private string? _pendingDiPassword;
+    private string _diStoredStatus = "No Data Integrator credential stored.";
 
     public ObservableCollection<ProfileItem> Profiles { get; } = new();
     public Array AuthModeValues { get; } = Enum.GetValues(typeof(AuthMode));
@@ -80,6 +88,16 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
                 OnPropertyChanged(nameof(HasSelection));
                 OnPropertyChanged(nameof(FoStoredCredentialStatus));
                 OnPropertyChanged(nameof(CeStoredCredentialStatus));
+                if (value is not null)
+                {
+                    LoadDataIntegratorAsync(value.Environment.Id);
+                }
+                else
+                {
+                    DiClientId = DualWriteAuthConstants.ClientId;
+                    DiUsername = string.Empty;
+                    DiStoredStatus = "No Data Integrator credential stored.";
+                }
             }
         }
     }
@@ -164,6 +182,58 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         }
     }
 
+    public string DiClientId
+    {
+        get => _diClientId;
+        set
+        {
+            if (_diClientId != value)
+            {
+                _diClientId = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public string DiUsername
+    {
+        get => _diUsername;
+        set
+        {
+            if (_diUsername != value)
+            {
+                _diUsername = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public string? PendingDiPassword
+    {
+        get => _pendingDiPassword;
+        set
+        {
+            if (_pendingDiPassword != value)
+            {
+                _pendingDiPassword = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
+    public string DiStoredStatus
+    {
+        get => _diStoredStatus;
+        private set
+        {
+            if (_diStoredStatus != value)
+            {
+                _diStoredStatus = value;
+                OnPropertyChanged();
+            }
+        }
+    }
+
     public string FoStoredCredentialStatus
     {
         get => BuildStoredCredentialStatus(Selected?.FoPrincipal);
@@ -183,6 +253,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     public ICommand AcquireCeBearerTokenCommand { get; }
     public ICommand AcquireFoTokenInteractiveCommand { get; }
     public ICommand AcquireCeTokenInteractiveCommand { get; }
+    public ICommand SaveDataIntegratorCommand { get; }
 
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler<ConnectionTestedEventArgs>? ConnectionTested;
@@ -192,6 +263,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         _store = new ProfileStore(dbPath);
         _profiles = new ProfileService(_store);
         _vault = new SecretVaultService(_store.ConnectionString);
+        _diStore = new DataIntegratorCredentialStore(_store, _vault);
         _logger = logger;
         _applyProfile = applyProfile;
 
@@ -212,6 +284,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         AcquireCeBearerTokenCommand = new AsyncCommand(AcquireCeBearerTokenAsync);
         AcquireFoTokenInteractiveCommand = new AsyncCommand(AcquireFoTokenInteractiveAsync);
         AcquireCeTokenInteractiveCommand = new AsyncCommand(AcquireCeTokenInteractiveAsync);
+        SaveDataIntegratorCommand = new AsyncCommand(SaveDataIntegratorAsync);
     }
 
     public async Task RefreshAsync()
@@ -439,6 +512,71 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         {
             _logger.LogError(ex, "Failed to set active profile {EnvId}", env.Id);
             Status = $"Set active failed: {ex.Message}";
+        }
+    }
+
+    private async Task SaveDataIntegratorAsync()
+    {
+        if (Selected is null)
+        {
+            Status = "Select a profile before saving Data Integrator credentials.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(DiClientId))
+        {
+            Status = "Data Integrator: Client ID is required.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(DiUsername))
+        {
+            Status = "Data Integrator: Username is required.";
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(PendingDiPassword))
+        {
+            Status = "Data Integrator: Password is required.";
+            return;
+        }
+
+        try
+        {
+            await _diStore.SaveAsync(
+                Selected.Environment.Id,
+                new DataIntegratorCredential(DiClientId.Trim(), DiUsername.Trim(), PendingDiPassword));
+            PendingDiPassword = null;
+            DiStoredStatus = "Credential stored (DPAPI).";
+            Status = "Data Integrator credential saved.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to save Data Integrator credential for {EnvId}", Selected.Environment.Id);
+            Status = $"Data Integrator save failed: {ex.Message}";
+        }
+    }
+
+    private async void LoadDataIntegratorAsync(string envId)
+    {
+        try
+        {
+            var cred = await _diStore.GetAsync(envId);
+            DiClientId = string.IsNullOrWhiteSpace(cred?.ClientId)
+                ? DualWriteAuthConstants.ClientId
+                : cred.ClientId;
+            DiUsername = cred?.Username ?? string.Empty;
+            // Never populate the password field from storage.
+            DiStoredStatus = cred is not null
+                ? "Credential stored (DPAPI)."
+                : "No Data Integrator credential stored.";
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to load Data Integrator credential for {EnvId}", envId);
+            DiClientId = DualWriteAuthConstants.ClientId;
+            DiUsername = string.Empty;
+            DiStoredStatus = "No Data Integrator credential stored.";
         }
     }
 
