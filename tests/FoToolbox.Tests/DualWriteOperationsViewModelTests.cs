@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using DualWriteOperationsPlugin;
@@ -102,6 +103,7 @@ public class DualWriteOperationsViewModelTests
         public FakeFactory(IDualWriteGateway gateway) => _gateway = gateway;
         public IDualWriteGateway Create(DualWriteConnectionSettings settings) => _gateway;
         public IDualWriteGateway CreateRefreshing(DualWriteConnectionSettings settings, Func<DualWriteToken, Task> onRefreshed) => _gateway;
+        public IDualWriteGateway CreateWithTokenProvider(string gatewayBaseUrl, Func<CancellationToken, Task<string>> getToken, HttpMessageHandler? innerHandler = null) => throw new NotImplementedException();
     }
 
     private sealed class FakeContext : IPluginContext

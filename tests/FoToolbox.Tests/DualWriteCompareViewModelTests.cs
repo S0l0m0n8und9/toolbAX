@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using DualWriteComparePlugin;
@@ -72,6 +73,7 @@ public class DualWriteCompareViewModelTests
         public KeyedFactory(Dictionary<string, IDualWriteGateway> byKey) => _byKey = byKey;
         public IDualWriteGateway Create(DualWriteConnectionSettings settings) => _byKey[settings.Key];
         public IDualWriteGateway CreateRefreshing(DualWriteConnectionSettings settings, Func<DualWriteToken, Task> onRefreshed) => _byKey[settings.Key];
+        public IDualWriteGateway CreateWithTokenProvider(string gatewayBaseUrl, Func<CancellationToken, Task<string>> getToken, HttpMessageHandler? innerHandler = null) => throw new NotImplementedException();
     }
 
     private sealed class FakeContext : IPluginContext
