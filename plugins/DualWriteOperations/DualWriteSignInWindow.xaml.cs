@@ -17,14 +17,16 @@ namespace DualWriteOperationsPlugin;
 public partial class DualWriteSignInWindow : Window
 {
     private readonly string _foIdentifier;
+    private readonly bool _clearCachedAccount;
     private readonly DualWriteSignInCapture _capture = new();
     private readonly TaskCompletionSource<DualWriteSignInResult?> _tcs = new();
     private bool _completed;
 
-    public DualWriteSignInWindow(string foIdentifier)
+    public DualWriteSignInWindow(string foIdentifier, bool clearCachedAccount = false)
     {
         InitializeComponent();
         _foIdentifier = foIdentifier;
+        _clearCachedAccount = clearCachedAccount;
         Loaded += OnLoaded;
         Closed += OnClosed;
     }
@@ -41,6 +43,21 @@ public partial class DualWriteSignInWindow : Window
         try
         {
             await Web.EnsureCoreWebView2Async();
+
+            // "Switch account": forget the persisted browser session so Entra re-prompts for an
+            // account instead of silently reusing the cached user.
+            if (_clearCachedAccount)
+            {
+                try
+                {
+                    Web.CoreWebView2.CookieManager.DeleteAllCookies();
+                }
+                catch (Exception)
+                {
+                    // Best-effort: if clearing fails, fall through to a normal (cached) sign-in.
+                }
+            }
+
             Web.CoreWebView2.WebResourceResponseReceived += OnResponseReceived;
             Web.CoreWebView2.Navigate(DualWriteAuthConstants.BuildSignInUrl(_foIdentifier));
         }
@@ -98,11 +115,12 @@ public partial class DualWriteSignInWindow : Window
 
     private void OnClosed(object? sender, EventArgs e)
     {
-        // If the user closed the window before capture finished, surface whatever we have (null = cancelled).
+        // If the user closed the window before an API call pinned the regional gateway, fall back to
+        // the best-effort result (first projectmanagementservice host) so manual close still works.
         if (!_completed)
         {
             _completed = true;
-            _tcs.TrySetResult(_capture.Result);
+            _tcs.TrySetResult(_capture.BestEffortResult);
         }
     }
 }

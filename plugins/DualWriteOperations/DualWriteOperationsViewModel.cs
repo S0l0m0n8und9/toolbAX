@@ -58,8 +58,11 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     /// <summary>Clock for export timestamps. Overridable for tests.</summary>
     internal Func<DateTimeOffset> Clock { get; set; } = () => DateTimeOffset.UtcNow;
 
-    /// <summary>Runs the interactive sign-in for an F&amp;O identifier. Overridable for tests.</summary>
-    internal Func<string, Task<DualWriteSignInResult?>> SignInFlow { get; set; } = DefaultSignInAsync;
+    /// <summary>
+    /// Runs the interactive sign-in for an F&amp;O identifier. The bool requests a fresh sign-in
+    /// (forget the cached browser account). Overridable for tests.
+    /// </summary>
+    internal Func<string, bool, Task<DualWriteSignInResult?>> SignInFlow { get; set; } = DefaultSignInAsync;
 
     public DualWriteOperationsViewModel(IPluginContext ctx)
         : this(ctx, new DualWriteConnectionStore(), new DualWriteGatewayFactory())
@@ -81,6 +84,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         };
 
         SignInCommand = new AsyncRelayCommand(SignInAsync, onError);
+        SignInFreshCommand = new AsyncRelayCommand(SignInFreshAsync, onError);
         SaveConnectionCommand = new AsyncRelayCommand(SaveConnectionAsync, onError);
         LoadMapsCommand = new AsyncRelayCommand(LoadMapsAsync, onError);
         StartCommand = new AsyncRelayCommand(ct => ExecuteActionAsync(DualWriteActionType.Start, ct), onError);
@@ -100,6 +104,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     public ObservableCollection<DualWriteMapRow> Maps { get; } = new();
 
     public AsyncRelayCommand SignInCommand { get; }
+    public AsyncRelayCommand SignInFreshCommand { get; }
     public AsyncRelayCommand SaveConnectionCommand { get; }
     public AsyncRelayCommand LoadMapsCommand { get; }
     public AsyncRelayCommand StartCommand { get; }
@@ -184,7 +189,12 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         }
     }
 
-    private async Task SignInAsync(CancellationToken ct)
+    private Task SignInAsync(CancellationToken ct) => SignInCoreAsync(clearCachedAccount: false, ct);
+
+    /// <summary>"Switch account": forget the cached browser session and sign in again.</summary>
+    private Task SignInFreshAsync(CancellationToken ct) => SignInCoreAsync(clearCachedAccount: true, ct);
+
+    private async Task SignInCoreAsync(bool clearCachedAccount, CancellationToken ct)
     {
         var identifier = string.IsNullOrWhiteSpace(FoIdentifier) ? _ctx.CurrentEnv.BaseUrl : FoIdentifier.Trim();
         if (string.IsNullOrWhiteSpace(identifier))
@@ -193,8 +203,10 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
             return;
         }
 
-        StatusMessage = "Opening interactive sign-in...";
-        var result = await SignInFlow(identifier);
+        StatusMessage = clearCachedAccount
+            ? "Opening interactive sign-in (switch account)..."
+            : "Opening interactive sign-in...";
+        var result = await SignInFlow(identifier, clearCachedAccount);
         if (result is null)
         {
             StatusMessage = "Sign-in cancelled or no token captured.";
@@ -238,9 +250,9 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         });
     }
 
-    private static async Task<DualWriteSignInResult?> DefaultSignInAsync(string foIdentifier)
+    private static async Task<DualWriteSignInResult?> DefaultSignInAsync(string foIdentifier, bool clearCachedAccount)
     {
-        var window = new DualWriteSignInWindow(foIdentifier);
+        var window = new DualWriteSignInWindow(foIdentifier, clearCachedAccount);
         if (Application.Current?.MainWindow is not null && !ReferenceEquals(Application.Current.MainWindow, window))
         {
             window.Owner = Application.Current.MainWindow;

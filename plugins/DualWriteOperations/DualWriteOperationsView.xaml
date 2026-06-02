@@ -76,6 +76,11 @@
                             Padding="10,4" MinWidth="90"
                             ToolTip="Interactive sign-in: captures a token and auto-discovers the gateway (no manual paste needed)."
                             IsEnabled="{Binding IsNotBusy}" />
+                    <Button DockPanel.Dock="Left" Content="Switch account…"
+                            Command="{Binding SignInFreshCommand}"
+                            Padding="10,4" MinWidth="110" Margin="6,0,0,0"
+                            ToolTip="Forget the cached browser session and sign in again, choosing a different account."
+                            IsEnabled="{Binding IsNotBusy}" />
                     <Button DockPanel.Dock="Left" Content="Save Connection"
                             Command="{Binding SaveConnectionCommand}"
                             Padding="10,4" MinWidth="130" Margin="6,0,0,0" />
