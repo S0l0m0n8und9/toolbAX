@@ -1,5 +1,6 @@
 using FoToolbox.Core.Auth;
 using FoToolbox.Core.Catalog;
+using FoToolbox.Core.DualWrite.Auth;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.OData;
 using FoToolbox.Core.Profiles;
@@ -24,6 +25,7 @@ internal sealed class AppBootstrapper : IDisposable
     private readonly string _profileDbPath;
     private readonly ILogger _logger;
     private readonly SecretVaultService _vault;
+    private readonly DataIntegratorCredentialStore _diStore;
     private readonly AuthReauthCoordinator _reauthCoordinator;
     private HttpClient? _foHttpClient;
     private HttpClient? _dataverseHttpClient;
@@ -35,6 +37,7 @@ internal sealed class AppBootstrapper : IDisposable
 
         var store = new ProfileStore(profileDbPath);
         _vault = new SecretVaultService(store.ConnectionString);
+        _diStore = new DataIntegratorCredentialStore(store, _vault);
         _reauthCoordinator = new AuthReauthCoordinator();
     }
 
@@ -81,6 +84,7 @@ internal sealed class AppBootstrapper : IDisposable
             odataWrite,
             catalog,
             _logger,
+            _diStore,
             IsDataverseConfigured(bundle.DataverseEnvironment) ? bundle.DataverseEnvironment : null,
             _dataverseHttpClient,
             trust,
