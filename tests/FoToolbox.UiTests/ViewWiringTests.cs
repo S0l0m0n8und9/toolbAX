@@ -9,13 +9,22 @@ namespace FoToolbox.UiTests;
 
 public class ViewWiringTests
 {
+    // View case names temporarily excluded from the binding-error assertion. Each entry
+    // MUST have a one-line reason and a tracking note. Empty by default — keep it empty.
+    private static readonly IReadOnlySet<string> Quarantine = new HashSet<string>(System.StringComparer.Ordinal)
+    {
+        // e.g. "SomeView", // flaky offscreen render on CI image — tracked in issue #NN
+    };
+
     // Case names are strings (serializable) so xUnit gets one discoverable test per view
     // and no xUnit1045 non-serializable-data warning (which CI treats as an error).
+    // Quarantined names are filtered out here (Assert.SkipWhen is not available in xunit 2.9.3).
     public static TheoryData<string> ViewCaseNames()
     {
         var data = new TheoryData<string>();
         foreach (var name in ViewRegistry.All.Keys)
         {
+            if (Quarantine.Contains(name)) continue;
             data.Add(name);
         }
         return data;
