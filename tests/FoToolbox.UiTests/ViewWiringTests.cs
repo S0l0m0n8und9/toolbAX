@@ -1,4 +1,7 @@
 using System.Threading.Tasks;
+using System.Windows;
+using FoToolbox.Host.Plugins;
+using FoToolbox.Host.Views;
 using FoToolbox.UiTests.Infrastructure;
 using Xunit;
 
@@ -33,5 +36,22 @@ public class ViewWiringTests
         Assert.True(
             scope.Errors.Count == 0,
             $"'{caseName}' produced {scope.Errors.Count} binding error(s):\n" + string.Join("\n", scope.Errors));
+    }
+
+    [WpfFact]
+    public void PluginConsentWindow_constructs_with_no_binding_errors()
+    {
+        using var scope = new BindingErrorScope();
+
+        var window = new PluginConsentWindow(
+            new PluginConsentRequest("Demo.Plugin.dll", @"C:\plugins\Demo.Plugin.dll", "abc123def456"));
+
+        // Reparent the window content so it can be measured/bound offscreen without Show().
+        var content = (FrameworkElement)window.Content;
+        window.Content = null;
+        using var host = OffscreenHost.Mount(content);
+        host.PumpToIdle();
+
+        Assert.True(scope.Errors.Count == 0, string.Join("\n", scope.Errors));
     }
 }

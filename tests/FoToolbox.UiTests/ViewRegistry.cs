@@ -1,10 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using System.Windows.Controls;
+using FoToolbox.Host.ViewModels;
+using FoToolbox.Host.Views;
 using FoToolbox.SDK.Plugins;
 using FoToolbox.UiTests.Infrastructure;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FoToolbox.UiTests;
 
@@ -22,7 +26,15 @@ internal static class ViewRegistry
         yield return Plugin("DualWriteOperations", () => new DualWriteOperationsPlugin.DualWriteOperationsPlugin());
         yield return Plugin("DualWriteCompare", () => new DualWriteComparePlugin.DualWriteComparePlugin());
         yield return Plugin("Hello", () => new HelloPlugin.HelloFoToolPlugin());
-        // Host views are added in Task 6.
+        yield return new ViewCase("ProfilesView", () =>
+        {
+            var dir = Path.Combine(Path.GetTempPath(), "fotoolbox-uitests");
+            Directory.CreateDirectory(dir);
+            var dbPath = Path.Combine(dir, Guid.NewGuid().ToString("N") + ".db");
+            // ProfilesView.Loaded auto-runs RefreshCommand against this empty temp store.
+            var vm = new ProfilesViewModel(dbPath, NullLogger.Instance, _ => { });
+            return Task.FromResult<UserControl>(new ProfilesView(vm));
+        });
     }
 
     private static ViewCase Plugin(string name, Func<IFoToolPlugin> create) =>
