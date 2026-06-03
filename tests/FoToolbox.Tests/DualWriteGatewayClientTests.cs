@@ -156,19 +156,41 @@ public class DualWriteGatewayClientTests
     }
 
     [Trait("Category", "DualWrite")]
-    [Fact]
-    public async Task GetEnvironment_NormalizesIdentifierToBareHost()
+    [Theory]
+    // Full URL (what the field holds today), bare host, and bare host with a trailing slash all
+    // normalize to the same bare host the gateway's Environments lookup keys on.
+    [InlineData("https://shl-uat.sandbox.operations.dynamics.com/", "shl-uat.sandbox.operations.dynamics.com")]
+    [InlineData("https://shl-uat.sandbox.operations.dynamics.com", "shl-uat.sandbox.operations.dynamics.com")]
+    [InlineData("shl-uat.sandbox.operations.dynamics.com", "shl-uat.sandbox.operations.dynamics.com")]
+    [InlineData("shl-uat.sandbox.operations.dynamics.com/", "shl-uat.sandbox.operations.dynamics.com")]
+    [InlineData("  shl-uat.sandbox.operations.dynamics.com  ", "shl-uat.sandbox.operations.dynamics.com")]
+    public async Task GetEnvironment_NormalizesIdentifierToBareHost(string input, string expectedIdentifier)
     {
         // Arrange: a handler that returns one environment record and captures the request URI.
         var (client, handler) = CreateClient(_ => Json("[{\"cid\":\"c1\",\"cname\":\"n1\"}]"));
 
-        // Act: pass a full URL — the gateway must only see the bare host in the query string.
-        await client.GetEnvironmentAsync("https://shl-uat.sandbox.operations.dynamics.com/", CancellationToken.None);
+        // Act
+        await client.GetEnvironmentAsync(input, CancellationToken.None);
 
         // Assert: identifier query parameter is the bare host — no scheme, no trailing slash.
         var query = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
-        Assert.Contains("identifier=shl-uat.sandbox.operations.dynamics.com", query);
+        Assert.Contains($"identifier={expectedIdentifier}", query);
         Assert.DoesNotContain("https", query);
+        Assert.DoesNotContain($"identifier={expectedIdentifier}/", query);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task GetEnvironment_FallsBackToRawValue_WhenHostParsesEmpty()
+    {
+        // "host:port" with no scheme parses to an empty UriBuilder.Uri.Host; the normalizer must
+        // fall back to the raw value rather than send the gateway an empty identifier.
+        var (client, handler) = CreateClient(_ => Json("[{\"cid\":\"c1\",\"cname\":\"n1\"}]"));
+
+        await client.GetEnvironmentAsync("shl-uat.example.com:8080", CancellationToken.None);
+
+        var query = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.Contains("identifier=shl-uat.example.com:8080", query);
     }
 }
 

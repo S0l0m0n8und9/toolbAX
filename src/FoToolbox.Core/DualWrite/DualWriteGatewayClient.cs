@@ -50,7 +50,11 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway
         var trimmed = identifier.Trim();
         try
         {
-            return new UriBuilder(trimmed).Uri.Host;
+            // UriBuilder parses a bare multi-label host correctly (Host == the host). A few inputs
+            // (e.g. "host:8080" with no scheme) parse to an empty Host; fall back to the raw value
+            // rather than send the gateway an empty identifier.
+            var host = new UriBuilder(trimmed).Uri.Host;
+            return string.IsNullOrEmpty(host) ? trimmed : host;
         }
         catch
         {
