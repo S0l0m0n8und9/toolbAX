@@ -562,6 +562,8 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         try
         {
             var cred = await _diStore.GetAsync(envId);
+            // Guard: if the user switched profiles while the load was in flight, discard the result.
+            if (!string.Equals(Selected?.Environment.Id, envId, StringComparison.Ordinal)) return;
             DiClientId = string.IsNullOrWhiteSpace(cred?.ClientId)
                 ? DualWriteAuthConstants.ClientId
                 : cred.ClientId;
