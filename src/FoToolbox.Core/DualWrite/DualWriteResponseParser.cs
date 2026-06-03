@@ -80,21 +80,40 @@ public static class DualWriteResponseParser
 
     private static DualWriteMap ParseMap(JsonElement item)
     {
-        var id = GetString(item, "id", "templateId", "msdyn_dualwriteentitymapid");
-        var name = GetString(item, "name");
-        var displayName = GetString(item, "displayName", "displayname");
-        if (string.IsNullOrWhiteSpace(displayName))
+        // The gateway "Entities" item (DWLibary DWMap) nests the map under leftEntity/rightEntity
+        // and a "detail" block; the older flat shape (top-level name/state/template) is kept only
+        // as a tolerant fallback. leftEntity is the F&O entity; rightEntity is the CE table.
+        var leftEntityName = string.Empty;
+        var leftEntityDisplay = string.Empty;
+        if (TryGetProperty(item, out var leftEntity, "leftEntity") && leftEntity.ValueKind == JsonValueKind.Object)
         {
-            displayName = name;
+            leftEntityName = GetString(leftEntity, "name");
+            leftEntityDisplay = GetString(leftEntity, "displayName", "displayname");
         }
 
-        var state = GetString(item, "state", "status", "executionState");
+        var rightEntityName = string.Empty;
+        if (TryGetProperty(item, out var rightEntity, "rightEntity") && rightEntity.ValueKind == JsonValueKind.Object)
+        {
+            rightEntityName = GetString(rightEntity, "name");
+        }
 
         var projectId = string.Empty;
+        var activeTemplateId = string.Empty;
+        var stateCode = string.Empty;
+        var compositeName = string.Empty;
+        DualWriteTemplate? active = null;
         var templates = new List<DualWriteTemplate>();
         if (TryGetProperty(item, out var detail, "detail") && detail.ValueKind == JsonValueKind.Object)
         {
             projectId = GetString(detail, "pid", "projectId");
+            activeTemplateId = GetString(detail, "tid");
+            stateCode = GetString(detail, "state", "mapStatus");
+            compositeName = GetString(detail, "tName");
+            if (TryGetProperty(detail, out var templateEl, "template") && templateEl.ValueKind == JsonValueKind.Object)
+            {
+                active = ParseTemplate(templateEl);
+            }
+
             if (TryGetProperty(detail, out var templatesEl, "templates") && templatesEl.ValueKind == JsonValueKind.Array)
             {
                 foreach (var t in templatesEl.EnumerateArray())
@@ -107,17 +126,28 @@ public static class DualWriteResponseParser
             }
         }
 
-        DualWriteTemplate? active = null;
-        if (TryGetProperty(item, out var templateEl, "template") && templateEl.ValueKind == JsonValueKind.Object)
+        // Tolerant fallbacks to the older assumed flat shape.
+        if (string.IsNullOrWhiteSpace(projectId))
         {
-            active = ParseTemplate(templateEl);
+            projectId = GetString(item, "pid", "projectId");
         }
 
-        var rightEntityName = string.Empty;
-        if (TryGetProperty(item, out var rightEntity, "rightEntity") && rightEntity.ValueKind == JsonValueKind.Object)
+        if (active is null && TryGetProperty(item, out var flatTemplate, "template") && flatTemplate.ValueKind == JsonValueKind.Object)
         {
-            rightEntityName = GetString(rightEntity, "name");
+            active = ParseTemplate(flatTemplate);
         }
+
+        // Map identity (Name): the gateway's composite "tName" (e.g. "accounts - Customers V3") is
+        // unique per left+right pair — unlike the F&O entity name alone, which repeats across CE
+        // targets — so it's the stable key for compare/export. DisplayName shows the friendlier F&O
+        // (left) entity name in the grid; the CE Entity column disambiguates same-named rows.
+        var name = FirstNonEmpty(compositeName, leftEntityName, GetString(item, "name"));
+        var displayName = FirstNonEmpty(leftEntityDisplay, leftEntityName, compositeName, GetString(item, "displayName", "displayname"), name);
+
+        // Id must be the active template id so lifecycle actions (Start/Stop/...) send a valid tid.
+        var id = FirstNonEmpty(active?.Id, activeTemplateId, GetString(item, "id", "templateId", "msdyn_dualwriteentitymapid"));
+
+        var state = DescribeMapState(FirstNonEmpty(stateCode, GetString(item, "state", "status", "executionState")));
 
         return new DualWriteMap(id, name, displayName, projectId, state, active, templates)
         {
@@ -128,9 +158,76 @@ public static class DualWriteResponseParser
     private static DualWriteTemplate ParseTemplate(JsonElement element)
     {
         var id = GetString(element, "id", "templateId");
-        var version = GetString(element, "version");
+        var version = FormatVersion(element);
         var author = GetString(element, "author", "createdBy");
         return new DualWriteTemplate(id, version, author);
+    }
+
+    /// <summary>
+    /// Formats a template version. The gateway returns a structured object
+    /// (<c>{major,minor,build,revision}</c>, DWLibary <c>DWMapVersion</c>); a plain string or
+    /// number is also accepted for tolerance.
+    /// </summary>
+    private static string FormatVersion(JsonElement template)
+    {
+        if (!TryGetProperty(template, out var version, "version"))
+        {
+            return string.Empty;
+        }
+
+        switch (version.ValueKind)
+        {
+            case JsonValueKind.Object:
+                static int Part(JsonElement obj, string name) =>
+                    obj.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var i)
+                        ? i
+                        : 0;
+                return $"{Part(version, "major")}.{Part(version, "minor")}.{Part(version, "build")}.{Part(version, "revision")}";
+            case JsonValueKind.String:
+                return version.GetString() ?? string.Empty;
+            case JsonValueKind.Number:
+                return version.GetRawText();
+            default:
+                return string.Empty;
+        }
+    }
+
+    /// <summary>
+    /// Maps a numeric <c>MapStatus</c> code (DWLibary <c>DWEnums.MapStatus</c>) to a friendly
+    /// name. Already-friendly strings pass through; unknown codes are returned verbatim rather
+    /// than blanked, so nothing is silently dropped.
+    /// </summary>
+    private static string DescribeMapState(string state)
+    {
+        if (string.IsNullOrWhiteSpace(state))
+        {
+            return string.Empty;
+        }
+
+        return state.Trim() switch
+        {
+            "0" => "None",
+            "1" => "Stopped",
+            "2" => "Initial sync",
+            "3" => "Catch-up",
+            "4" => "Running",
+            "5" => "Paused",
+            "6" => "Not running",
+            var other => other
+        };
+    }
+
+    private static string FirstNonEmpty(params string?[] values)
+    {
+        foreach (var value in values)
+        {
+            if (!string.IsNullOrWhiteSpace(value))
+            {
+                return value;
+            }
+        }
+
+        return string.Empty;
     }
 
     private static JsonElement FirstItemOrSelf(JsonElement root)

@@ -67,25 +67,26 @@ public class DualWriteGatewayClientTests
     [Fact]
     public async Task GetMaps_BuildsExpectedRequest_AndParsesMapsAndTemplates()
     {
+        // Real gateway "Entities" shape (bare array): map fields under leftEntity/rightEntity/detail,
+        // version as an object, state as a numeric MapStatus code.
         const string json = """
-        {
-          "value": [
-            {
-              "id": "map-1",
-              "name": "CustomersV3",
-              "displayName": "Customers",
-              "state": "Running",
-              "detail": {
-                "pid": "proj-1",
-                "templates": [
-                  { "id": "t-100", "version": "1.0.0", "author": "Microsoft" },
-                  { "id": "t-101", "version": "1.0.1", "author": "Contoso" }
-                ]
-              },
-              "template": { "id": "t-101", "version": "1.0.1", "author": "Contoso" }
+        [
+          {
+            "leftEntity": { "targetType": "AX", "name": "Customers V3", "displayName": "Customers V3" },
+            "rightEntity": { "targetType": "CRM", "name": "accounts", "displayName": "accounts" },
+            "detail": {
+              "tid": "t-101",
+              "tName": "accounts - Customers V3",
+              "pid": "proj-1",
+              "state": "4",
+              "templates": [
+                { "id": "t-100", "author": "Microsoft", "version": { "major": 1, "minor": 0, "build": 0, "revision": 0 } },
+                { "id": "t-101", "author": "Contoso", "version": { "major": 1, "minor": 0, "build": 1, "revision": 0 } }
+              ],
+              "template": { "id": "t-101", "author": "Contoso", "version": { "major": 1, "minor": 0, "build": 1, "revision": 0 } }
             }
-          ]
-        }
+          }
+        ]
         """;
         var (client, handler) = CreateClient(_ => Json(json));
 
@@ -95,11 +96,13 @@ public class DualWriteGatewayClientTests
             "https://gw.example/api/DualWriteManagement/1.0/Entities?targetType=AX&cid=C123",
             handler.LastRequest!.RequestUri!.ToString());
         var map = Assert.Single(maps);
-        Assert.Equal("map-1", map.Id);
-        Assert.Equal("Customers", map.DisplayName);
+        Assert.Equal("t-101", map.Id);
+        Assert.Equal("Customers V3", map.DisplayName);
+        Assert.Equal("accounts - Customers V3", map.Name);
+        Assert.Equal("accounts", map.RightEntityName);
         Assert.Equal("proj-1", map.ProjectId);
         Assert.Equal("Running", map.State);
-        Assert.Equal("1.0.1", map.CurrentVersion);
+        Assert.Equal("1.0.1.0", map.CurrentVersion);
         Assert.Equal("Contoso", map.CurrentAuthor);
         Assert.Equal(2, map.Templates.Count);
     }
