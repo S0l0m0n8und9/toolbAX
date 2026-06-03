@@ -154,6 +154,22 @@ public class DualWriteGatewayClientTests
         Assert.Equal(HttpStatusCode.BadRequest, ex.StatusCode);
         Assert.Contains("400", ex.Message);
     }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task GetEnvironment_NormalizesIdentifierToBareHost()
+    {
+        // Arrange: a handler that returns one environment record and captures the request URI.
+        var (client, handler) = CreateClient(_ => Json("[{\"cid\":\"c1\",\"cname\":\"n1\"}]"));
+
+        // Act: pass a full URL — the gateway must only see the bare host in the query string.
+        await client.GetEnvironmentAsync("https://shl-uat.sandbox.operations.dynamics.com/", CancellationToken.None);
+
+        // Assert: identifier query parameter is the bare host — no scheme, no trailing slash.
+        var query = Uri.UnescapeDataString(handler.LastRequest!.RequestUri!.Query);
+        Assert.Contains("identifier=shl-uat.sandbox.operations.dynamics.com", query);
+        Assert.DoesNotContain("https", query);
+    }
 }
 
 public class MapActionPayloadBuilderTests

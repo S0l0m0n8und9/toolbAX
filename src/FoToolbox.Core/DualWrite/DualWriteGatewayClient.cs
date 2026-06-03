@@ -35,9 +35,27 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway
             throw new ArgumentException("An F&O environment identifier is required.", nameof(foIdentifier));
         }
 
-        var uri = $"{ApiBasePath}Environments?targetType=AX&identifier={Uri.EscapeDataString(foIdentifier)}";
+        // The gateway's Environments lookup keys on the bare host name, NOT a full URL. Sending the
+        // scheme/path (e.g. "https://x/") returns an empty list. Mirror the MS reference tool, which
+        // normalizes via UriBuilder(url).Uri.Host (DWLibary ArgsHandler.parseUriHostname).
+        var identifier = NormalizeToHost(foIdentifier);
+
+        var uri = $"{ApiBasePath}Environments?targetType=AX&identifier={Uri.EscapeDataString(identifier)}";
         var json = await SendAsync(HttpMethod.Get, uri, null, cancellationToken).ConfigureAwait(false);
-        return DualWriteResponseParser.ParseEnvironment(json, foIdentifier);
+        return DualWriteResponseParser.ParseEnvironment(json, identifier);
+    }
+
+    private static string NormalizeToHost(string identifier)
+    {
+        var trimmed = identifier.Trim();
+        try
+        {
+            return new UriBuilder(trimmed).Uri.Host;
+        }
+        catch
+        {
+            return trimmed;
+        }
     }
 
     /// <summary>Lists all dual-write maps for the linkage, each with its template versions.</summary>
