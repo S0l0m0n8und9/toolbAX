@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using DualWriteOperationsPlugin;
@@ -103,27 +102,6 @@ public class DualWriteOperationsViewModelTests
         public FakeFactory(IDualWriteGateway gateway) => _gateway = gateway;
         public IDualWriteGateway Create(DualWriteConnectionSettings settings) => _gateway;
         public IDualWriteGateway CreateRefreshing(DualWriteConnectionSettings settings, Func<DualWriteToken, Task> onRefreshed) => _gateway;
-
-        public bool UsedTokenProvider { get; private set; }
-        public Func<CancellationToken, Task<string>>? LastTokenProvider { get; private set; }
-        public IDualWriteGateway CreateWithTokenProvider(string gatewayBaseUrl, Func<CancellationToken, Task<string>> getToken, HttpMessageHandler? innerHandler = null)
-        {
-            UsedTokenProvider = true;
-            LastTokenProvider = getToken;
-            return _gateway;
-        }
-    }
-
-    private sealed class DualWriteFakeContext : IPluginContext, IPluginContextDualWrite
-    {
-        private readonly string _token;
-        public DualWriteFakeContext(string token) => _token = token;
-        public FoEnvironment CurrentEnv { get; set; } =
-            new("env-1", "UAT", "https://uat.operations.dynamics.com", "tenant-1", null);
-        public IODataClient OData => null!;
-        public ICatalogService Catalog => null!;
-        public Microsoft.Extensions.Logging.ILogger Logger => NullLogger.Instance;
-        public Task<string> AcquireDataIntegratorTokenAsync(CancellationToken cancellationToken = default) => Task.FromResult(_token);
     }
 
     private sealed class FakeContext : IPluginContext
@@ -489,29 +467,6 @@ public class DualWriteOperationsViewModelTests
         {
             File.Delete(path);
         }
-    }
-
-    [Trait("Category", "DualWrite")]
-    [Fact]
-    public async Task LoadMaps_UsesContextDataIntegratorToken_WhenNoConnectionToken()
-    {
-        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
-        try
-        {
-            var store = new DualWriteConnectionStore(path, new PassthroughProtector());
-            await store.SaveAsync(new DualWriteConnectionSettings("env-1",
-                "https://projectmanagementservice.au-il102.gateway.prod.island.powerapps.com",
-                "https://x.operations.dynamics.com", null), CancellationToken.None);
-            var gateway = new FakeGateway();
-            var factory = new FakeFactory(gateway);
-            var vm = new DualWriteOperationsViewModel(new DualWriteFakeContext("ctx-token"), store, factory);
-
-            await vm.LoadMapsCommand.ExecuteAsync();
-
-            Assert.True(factory.UsedTokenProvider);
-            Assert.Equal("ctx-token", await factory.LastTokenProvider!(CancellationToken.None));
-        }
-        finally { File.Delete(path); }
     }
 
     [Trait("Category", "DualWrite")]

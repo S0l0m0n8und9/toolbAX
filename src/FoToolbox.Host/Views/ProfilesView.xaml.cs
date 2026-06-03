@@ -29,7 +29,6 @@ internal partial class ProfilesView : UserControl
                 FoBearerTokenBox.Password = string.Empty;
                 CeClientSecretBox.Password = string.Empty;
                 CeBearerTokenBox.Password = string.Empty;
-                DiPasswordBox.Password = string.Empty;
             }
         };
 
@@ -63,16 +62,6 @@ internal partial class ProfilesView : UserControl
         CeBearerTokenBox.PasswordChanged += (_, __) =>
         {
             vm.PendingCeBearerToken = CeBearerTokenBox.Password;
-        };
-
-        DiPasswordBox.PasswordChanged += (_, __) =>
-        {
-            vm.PendingDiPassword = DiPasswordBox.Password;
-        };
-
-        vm.DataIntegratorCredentialSaved += (_, __) =>
-        {
-            DiPasswordBox.Password = string.Empty;
         };
     }
 }

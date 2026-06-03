@@ -1,4 +1,3 @@
-using FoToolbox.Core.DualWrite.Auth;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.Profiles;
 using FoToolbox.SDK;
@@ -52,8 +51,6 @@ public sealed class PluginManager
     private readonly DataverseEnvironment? _dataverseEnv;
     private readonly HttpClient? _dataverseHttp;
     private readonly PluginNavigationBus _navBus = new();
-    private readonly DataIntegratorCredentialStore? _diStore;
-    private readonly DataIntegratorTokenService _diTokens;
 
     /// <summary>
     /// The shared navigation bus. The host UI should subscribe to
@@ -69,8 +66,6 @@ public sealed class PluginManager
         IODataWriteClient odataWrite,
         ICatalogService catalog,
         ILogger logger,
-        DataIntegratorCredentialStore? diStore = null,
-        DataIntegratorTokenService? diTokens = null,
         DataverseEnvironment? dataverseEnv = null,
         HttpClient? dataverseHttp = null,
         PluginTrustOptions? trustOptions = null,
@@ -83,8 +78,6 @@ public sealed class PluginManager
         _odataWrite = odataWrite;
         _catalog = catalog;
         _logger = logger;
-        _diStore = diStore;
-        _diTokens = diTokens ?? new DataIntegratorTokenService(new MsalRopcTokenAcquirer());
         _dataverseEnv = dataverseEnv;
         _dataverseHttp = dataverseHttp;
         _trustOptions = trustOptions ?? PluginTrustOptions.Default;
@@ -265,8 +258,8 @@ public sealed class PluginManager
                      ?? throw new InvalidOperationException($"Could not create instance of {pluginType.FullName}.");
 
         IPluginContext ctx = RequiresWrite(manifest)
-            ? new PluginContextWrite(_env, _odata, _odataWrite, _catalog, _logger, _dataverseEnv, _dataverseHttp, _navBus, _diStore, _diTokens)
-            : new PluginContext(_env, _odata, _catalog, _logger, _dataverseEnv, _dataverseHttp, _navBus, _diStore, _diTokens);
+            ? new PluginContextWrite(_env, _odata, _odataWrite, _catalog, _logger, _dataverseEnv, _dataverseHttp, _navBus)
+            : new PluginContext(_env, _odata, _catalog, _logger, _dataverseEnv, _dataverseHttp, _navBus);
         await plugin.InitializeAsync(ctx);
         var control = plugin.CreateTool();
 

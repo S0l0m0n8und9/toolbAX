@@ -18,12 +18,6 @@ public interface IDualWriteGatewayFactory
     /// <paramref name="onRefreshed"/> so the caller can persist the rotated token.
     /// </summary>
     IDualWriteGateway CreateRefreshing(DualWriteConnectionSettings settings, Func<DualWriteToken, Task> onRefreshed);
-
-    /// <summary>
-    /// Builds a gateway client that obtains its bearer token by calling <paramref name="getToken"/>
-    /// on every request (e.g. from an MSAL token provider).
-    /// </summary>
-    IDualWriteGateway CreateWithTokenProvider(string gatewayBaseUrl, Func<CancellationToken, Task<string>> getToken, HttpMessageHandler? innerHandler = null);
 }
 
 /// <summary>
@@ -69,21 +63,6 @@ public sealed class DualWriteGatewayFactory : IDualWriteGatewayFactory
         return new DualWriteGatewayClient(http);
     }
 
-    public IDualWriteGateway CreateWithTokenProvider(string gatewayBaseUrl, Func<CancellationToken, Task<string>> getToken, HttpMessageHandler? innerHandler = null)
-    {
-        if (string.IsNullOrWhiteSpace(gatewayBaseUrl))
-        {
-            throw new InvalidOperationException("Gateway base URL is not configured.");
-        }
-
-        var http = new HttpClient(new DelegatedTokenHandler(getToken, innerHandler ?? new HttpClientHandler()))
-        {
-            BaseAddress = new Uri(gatewayBaseUrl.TrimEnd('/') + "/")
-        };
-        http.DefaultRequestHeaders.UserAgent.ParseAdd("FoToolbox-DualWrite/0.1");
-        return new DualWriteGatewayClient(http);
-    }
-
     private static string RequireGatewayUrl(DualWriteConnectionSettings settings)
     {
         if (settings is null)
@@ -120,23 +99,5 @@ internal sealed class BearerTokenHandler : DelegatingHandler
         }
 
         return base.SendAsync(request, cancellationToken);
-    }
-}
-
-internal sealed class DelegatedTokenHandler : DelegatingHandler
-{
-    private readonly Func<CancellationToken, Task<string>> _getToken;
-
-    public DelegatedTokenHandler(Func<CancellationToken, Task<string>> getToken, HttpMessageHandler inner) : base(inner)
-        => _getToken = getToken;
-
-    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
-    {
-        var token = await _getToken(cancellationToken).ConfigureAwait(false);
-        if (!string.IsNullOrWhiteSpace(token))
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-        }
-        return await base.SendAsync(request, cancellationToken).ConfigureAwait(false);
     }
 }

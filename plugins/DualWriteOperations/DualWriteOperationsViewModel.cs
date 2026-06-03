@@ -233,36 +233,23 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
 
     private IDualWriteGateway BuildGateway(DualWriteConnectionSettings settings)
     {
-        // A connection-level token (WebView2-captured or pasted) takes precedence so the existing
-        // interactive flow is unchanged.
-        if (!string.IsNullOrWhiteSpace(settings.BearerToken))
+        if (!settings.HasDelegatedSession)
         {
-            if (!settings.HasDelegatedSession)
-            {
-                return _factory.Create(settings);
-            }
-
-            // Delegated session: renew via the refresh token and persist the rotated token.
-            return _factory.CreateRefreshing(settings, async refreshed =>
-            {
-                var updated = settings with
-                {
-                    BearerToken = refreshed.AccessToken,
-                    RefreshToken = refreshed.RefreshToken,
-                    AccessTokenExpiryUtc = refreshed.ExpiresUtc
-                };
-                await _store.SaveAsync(updated, CancellationToken.None);
-            });
+            return _factory.Create(settings);
         }
 
-        // No connection token: use the profile-level Data Integrator (ROPC) token when the host
-        // context provides it.
-        if (_ctx is IPluginContextDualWrite dualWrite)
+        // Delegated session: renew the access token via the refresh token and persist the
+        // rotated token so the next session/operation stays signed in.
+        return _factory.CreateRefreshing(settings, async refreshed =>
         {
-            return _factory.CreateWithTokenProvider(settings.GatewayBaseUrl, ct => dualWrite.AcquireDataIntegratorTokenAsync(ct));
-        }
-
-        return _factory.Create(settings);
+            var updated = settings with
+            {
+                BearerToken = refreshed.AccessToken,
+                RefreshToken = refreshed.RefreshToken,
+                AccessTokenExpiryUtc = refreshed.ExpiresUtc
+            };
+            await _store.SaveAsync(updated, CancellationToken.None);
+        });
     }
 
     private static async Task<DualWriteSignInResult?> DefaultSignInAsync(string foIdentifier, bool clearCachedAccount)
@@ -319,12 +306,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     private async Task LoadMapsAsync(CancellationToken ct)
     {
         var settings = await _store.GetAsync(_envId, ct);
-        // Allow the context-token path through even without a stored bearer token, provided the
-        // gateway URL and F&O identifier are present and the host context supplies a token.
-        var canUseContextToken = _ctx is IPluginContextDualWrite &&
-                                 !string.IsNullOrWhiteSpace(settings.GatewayBaseUrl) &&
-                                 !string.IsNullOrWhiteSpace(settings.FoIdentifier);
-        if (!settings.IsComplete && !canUseContextToken)
+        if (!settings.IsComplete)
         {
             StatusMessage = "Configure the gateway URL, F&O identifier and bearer token, then Save.";
             return;
