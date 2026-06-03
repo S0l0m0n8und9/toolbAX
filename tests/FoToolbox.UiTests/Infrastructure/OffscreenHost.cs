@@ -21,9 +21,13 @@ internal sealed class OffscreenHost : IDisposable
         "pack://application:,,,/FoToolbox.Host;component/Themes/Fluent.Controls.xaml",
     };
 
-    private readonly HwndSource _source;
+    private const int OffscreenWidth = 1280;
+    private const int OffscreenHeight = 1024;
 
-    private OffscreenHost(HwndSource source) => _source = source;
+    private readonly HwndSource _source;
+    private readonly Border _root;
+
+    private OffscreenHost(HwndSource source, Border root) { _source = source; _root = root; }
 
     public static OffscreenHost Mount(FrameworkElement element)
     {
@@ -39,17 +43,17 @@ internal sealed class OffscreenHost : IDisposable
 
         var parameters = new HwndSourceParameters("FoToolbox.UiTests.Offscreen")
         {
-            Width = 1280,
-            Height = 1024,
+            Width = OffscreenWidth,
+            Height = OffscreenHeight,
             WindowStyle = 0, // WS_VISIBLE not set => never displayed
         };
         var source = new HwndSource(parameters) { RootVisual = root };
 
-        root.Measure(new Size(1280, 1024));
-        root.Arrange(new Rect(0, 0, 1280, 1024));
+        root.Measure(new Size(OffscreenWidth, OffscreenHeight));
+        root.Arrange(new Rect(0, 0, OffscreenWidth, OffscreenHeight));
         root.UpdateLayout();
 
-        var host = new OffscreenHost(source);
+        var host = new OffscreenHost(source, root);
         host.PumpToIdle();
         return host;
     }
@@ -63,5 +67,11 @@ internal sealed class OffscreenHost : IDisposable
         Dispatcher.PushFrame(frame);
     }
 
-    public void Dispose() => _source.Dispose();
+    public void Dispose()
+    {
+        _source.RootVisual = null;
+        _root.Child = null;
+        _source.Dispose();
+        PumpToIdle();
+    }
 }
