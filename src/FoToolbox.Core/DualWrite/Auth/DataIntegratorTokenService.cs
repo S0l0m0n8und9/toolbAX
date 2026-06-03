@@ -15,7 +15,7 @@ public sealed class DataIntegratorTokenService
 
     private readonly IDataIntegratorTokenAcquirer _acquirer;
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private DualWriteToken? _cached;
+    private volatile DualWriteToken? _cached;
 
     public Func<DateTimeOffset> Clock { get; set; } = () => DateTimeOffset.UtcNow;
 

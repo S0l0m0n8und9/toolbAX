@@ -37,4 +37,34 @@ public class DataIntegratorCredentialStoreTests
             File.Delete(dbPath);
         }
     }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task SaveTwice_DeletesPriorVaultEntry()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"di-{Guid.NewGuid():N}.db");
+        try
+        {
+            var profiles = new ProfileStore(dbPath);
+            await profiles.EnsureCreatedAsync();
+            var vault = new SecretVaultService(profiles.ConnectionString);
+            var store = new DataIntegratorCredentialStore(profiles, vault);
+
+            await store.SaveAsync("env-1", new DataIntegratorCredential("c", "svc@contoso.com", "pw1"));
+            await store.SaveAsync("env-1", new DataIntegratorCredential("c", "svc@contoso.com", "pw2"));
+
+            var got = await store.GetAsync("env-1");
+            Assert.Equal("pw2", got!.Password);
+
+            await using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(profiles.ConnectionString))
+            {
+                await conn.OpenAsync();
+                await using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT COUNT(*) FROM SecretVault";
+                var count = (long)(await cmd.ExecuteScalarAsync())!;
+                Assert.Equal(1L, count);
+            }
+        }
+        finally { Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools(); File.Delete(dbPath); }
+    }
 }

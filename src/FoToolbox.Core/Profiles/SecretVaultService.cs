@@ -58,4 +58,14 @@ public sealed class SecretVaultService
         var json = Encoding.UTF8.GetString(plaintext);
         return JsonSerializer.Deserialize<T>(json);
     }
+
+    public async Task DeleteSecretAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM SecretVault WHERE Id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
 }

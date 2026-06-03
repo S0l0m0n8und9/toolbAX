@@ -23,6 +23,7 @@ public sealed class DataIntegratorCredentialStore
 
     public async Task SaveAsync(string envId, DataIntegratorCredential credential, CancellationToken ct = default)
     {
+        var oldRef = await _profiles.GetSettingAsync(Key(envId), ct);
         var secretRef = await _vault.StoreSecretAsync("DataIntegrator", new Payload
         {
             ClientId = credential.ClientId,
@@ -30,6 +31,10 @@ public sealed class DataIntegratorCredentialStore
             Password = credential.Password,
         }, ct);
         await _profiles.SetSettingAsync(Key(envId), secretRef, ct);
+        if (!string.IsNullOrWhiteSpace(oldRef) && !string.Equals(oldRef, secretRef, System.StringComparison.Ordinal))
+        {
+            await _vault.DeleteSecretAsync(oldRef, ct);
+        }
     }
 
     public async Task<DataIntegratorCredential?> GetAsync(string envId, CancellationToken ct = default)
