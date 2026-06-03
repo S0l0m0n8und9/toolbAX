@@ -9,6 +9,9 @@ using System.Threading.Tasks;
 
 namespace DualWriteMapBrowserPlugin;
 
+// Public so WPF data binding can resolve it as the type of the public
+// TestifySettingsViewModel property; the constructor stays internal so only this plugin
+// can create instances.
 public sealed class TestifyConfigurationViewModel : INotifyPropertyChanged
 {
     private readonly TestifyConfigurationStore _store;
