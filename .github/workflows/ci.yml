@@ -29,8 +29,11 @@ jobs:
       - name: Build
         run: dotnet build .\FoToolbox.sln -c Release --no-restore
 
+      # Unit tests only — UI tests run in the isolated `ui-tests` job so a flaky
+      # offscreen render never masks the unit-test signal. The full solution is still
+      # built above, so a UI-project compile break still fails this job.
       - name: Test
-        run: dotnet test .\FoToolbox.sln -c Release --no-build --collect:"XPlat Code Coverage" --blame-hang --blame-hang-timeout 150s --blame-hang-dump-type mini --results-directory ${{ github.workspace }}\TestResults
+        run: dotnet test .\tests\FoToolbox.Tests\FoToolbox.Tests.csproj -c Release --no-build --collect:"XPlat Code Coverage" --blame-hang --blame-hang-timeout 150s --blame-hang-dump-type mini --results-directory ${{ github.workspace }}\TestResults
 
       - name: Upload test results
         if: always()
