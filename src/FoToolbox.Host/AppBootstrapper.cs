@@ -26,6 +26,7 @@ internal sealed class AppBootstrapper : IDisposable
     private readonly ILogger _logger;
     private readonly SecretVaultService _vault;
     private readonly DataIntegratorCredentialStore _diStore;
+    private readonly DataIntegratorTokenService _diTokens;
     private readonly AuthReauthCoordinator _reauthCoordinator;
     private HttpClient? _foHttpClient;
     private HttpClient? _dataverseHttpClient;
@@ -38,6 +39,7 @@ internal sealed class AppBootstrapper : IDisposable
         var store = new ProfileStore(profileDbPath);
         _vault = new SecretVaultService(store.ConnectionString);
         _diStore = new DataIntegratorCredentialStore(store, _vault);
+        _diTokens = new DataIntegratorTokenService(new MsalRopcTokenAcquirer());
         _reauthCoordinator = new AuthReauthCoordinator();
     }
 
@@ -84,12 +86,13 @@ internal sealed class AppBootstrapper : IDisposable
             odataWrite,
             catalog,
             _logger,
-            _diStore,
-            IsDataverseConfigured(bundle.DataverseEnvironment) ? bundle.DataverseEnvironment : null,
-            _dataverseHttpClient,
-            trust,
-            new PluginTrustStore(),
-            new PluginConsentPrompt());
+            diStore: _diStore,
+            diTokens: _diTokens,
+            dataverseEnv: IsDataverseConfigured(bundle.DataverseEnvironment) ? bundle.DataverseEnvironment : null,
+            dataverseHttp: _dataverseHttpClient,
+            trustOptions: trust,
+            trustStore: new PluginTrustStore(),
+            consentPrompt: new PluginConsentPrompt());
 
         var plugins = await manager.DiscoverAsync(cancellationToken);
 
