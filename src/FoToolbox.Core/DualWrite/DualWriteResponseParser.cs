@@ -182,7 +182,15 @@ public static class DualWriteResponseParser
                     obj.TryGetProperty(name, out var p) && p.ValueKind == JsonValueKind.Number && p.TryGetInt32(out var i)
                         ? i
                         : 0;
-                return $"{Part(version, "major")}.{Part(version, "minor")}.{Part(version, "build")}.{Part(version, "revision")}";
+                var major = Part(version, "major");
+                var minor = Part(version, "minor");
+                var build = Part(version, "build");
+                var revision = Part(version, "revision");
+                // An empty ({}) or all-zero version object is "no version" — render blank rather than
+                // a misleading "0.0.0.0", matching the blank an absent version property already gives.
+                return major == 0 && minor == 0 && build == 0 && revision == 0
+                    ? string.Empty
+                    : $"{major}.{minor}.{build}.{revision}";
             case JsonValueKind.String:
                 return version.GetString() ?? string.Empty;
             case JsonValueKind.Number:

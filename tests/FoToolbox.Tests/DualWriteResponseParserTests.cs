@@ -99,6 +99,7 @@ public class DualWriteResponseParserTests
     [InlineData("5", "Paused")]
     [InlineData("6", "Not running")]
     [InlineData("Running", "Running")]
+    [InlineData("7", "7")] // unknown code surfaces verbatim, never silently blanked
     public void ParseMaps_MapStatusCode_MapsToFriendlyState(string stateCode, string expected)
     {
         var json = $$"""
@@ -115,5 +116,29 @@ public class DualWriteResponseParserTests
 
         var map = Assert.Single(DualWriteResponseParser.ParseMaps(json));
         Assert.Equal(expected, map.State);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{ \"major\": 0, \"minor\": 0, \"build\": 0, \"revision\": 0 }")]
+    public void ParseMaps_EmptyOrZeroVersionObject_YieldsBlankVersion(string versionJson)
+    {
+        // A missing/empty version object is "no version" — it must read blank, not a misleading
+        // "0.0.0.0" that looks like a real version (and matches the blank an absent version key gives).
+        var json = $$"""
+        [
+          {
+            "leftEntity": { "name": "E", "displayName": "E" },
+            "rightEntity": { "name": "ce" },
+            "detail": { "tName": "ce - E", "pid": "p", "state": "4",
+              "template": { "id": "t", "author": "A", "version": {{versionJson}} },
+              "templates": [] }
+          }
+        ]
+        """;
+
+        var map = Assert.Single(DualWriteResponseParser.ParseMaps(json));
+        Assert.Equal(string.Empty, map.CurrentVersion);
     }
 }
