@@ -81,6 +81,8 @@ internal sealed class FakePluginContext :
             => Task.FromResult(new ODataWriteResponse(200, "{}", new Dictionary<string, string>()));
     }
 
+    // TODO: consolidate with FakeCatalogService in tests/FoToolbox.Tests/QueryBuilderPluginTests.cs
+    // to prevent the two seeded catalogs from drifting.
     private sealed class SeededCatalogService : ICatalogService
     {
         public Task<TableCatalog> GetTablesAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)

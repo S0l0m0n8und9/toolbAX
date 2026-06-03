@@ -1,6 +1,5 @@
 using FoToolbox.Core.Catalog;
 using FoToolbox.SDK.Plugins;
-using FoToolbox.UiTests.Infrastructure;
 using Xunit;
 
 namespace FoToolbox.UiTests.Infrastructure;
