@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace DualWriteMapBrowserPlugin;
 
-internal sealed class TestifyConfigurationViewModel : INotifyPropertyChanged
+public sealed class TestifyConfigurationViewModel : INotifyPropertyChanged
 {
     private readonly TestifyConfigurationStore _store;
     private readonly string _envId;
@@ -190,7 +190,7 @@ internal sealed class TestifyConfigurationViewModel : INotifyPropertyChanged
     public AsyncRelayCommand SaveCommand { get; }
     public RelayCommand CloseCommand { get; }
 
-    public TestifyConfigurationViewModel(
+    internal TestifyConfigurationViewModel(
         TestifyConfigurationStore store,
         string envId,
         string mapId,

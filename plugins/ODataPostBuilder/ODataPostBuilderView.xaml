@@ -9,6 +9,7 @@
              d:DesignWidth="1000">
 
   <UserControl.Resources>
+    <local:BindingProxy x:Key="VmProxy" Data="{Binding}" />
     <DataTemplate x:Key="ValueTextTemplate">
       <TextBox Text="{Binding TextValue, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
     </DataTemplate>
@@ -215,7 +216,7 @@
                       ScrollViewer.HorizontalScrollBarVisibility="Auto">
               <DataGrid.Columns>
                 <DataGridComboBoxColumn Header="Method" Width="120"
-                                        ItemsSource="{Binding DataContext.Methods, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                                        ItemsSource="{Binding Data.Methods, Source={StaticResource VmProxy}}"
                                         SelectedItemBinding="{Binding Method, UpdateSourceTrigger=PropertyChanged}" />
                 <DataGridTextColumn Header="URL" Width="360" MinWidth="260"
                                    Binding="{Binding Url, UpdateSourceTrigger=PropertyChanged}" />
