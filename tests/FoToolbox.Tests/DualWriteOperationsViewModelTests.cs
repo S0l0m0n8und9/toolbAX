@@ -135,7 +135,7 @@ public class DualWriteOperationsViewModelTests
             var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
             {
                 FoIdentifier = "uat-fo",
-                SignInFlow = _ => Task.FromResult<DualWriteSignInResult?>(new DualWriteSignInResult(
+                SignInFlow = (_, _) => Task.FromResult<DualWriteSignInResult?>(new DualWriteSignInResult(
                     new DualWriteToken("acc", "ref", new DateTimeOffset(2026, 5, 29, 1, 0, 0, TimeSpan.Zero)),
                     "https://projectmanagementservice.weu.gateway.prod.island.powerapps.com"))
             };
@@ -166,7 +166,7 @@ public class DualWriteOperationsViewModelTests
             var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(new FakeGateway()))
             {
                 FoIdentifier = "uat-fo",
-                SignInFlow = _ => Task.FromResult<DualWriteSignInResult?>(null)
+                SignInFlow = (_, _) => Task.FromResult<DualWriteSignInResult?>(null)
             };
 
             await vm.SignInCommand.ExecuteAsync();
@@ -467,6 +467,27 @@ public class DualWriteOperationsViewModelTests
         {
             File.Delete(path);
         }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task ClearToken_RemovesBearerToken_KeepsGatewayAndIdentifier()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(new FakeGateway()));
+
+            await vm.ClearTokenCommand.ExecuteAsync();
+
+            var saved = await store.GetAsync("env-1", CancellationToken.None);
+            Assert.True(string.IsNullOrEmpty(saved.BearerToken));
+            Assert.False(saved.HasDelegatedSession);
+            Assert.Equal("https://gw.example", saved.GatewayBaseUrl);
+            Assert.Equal("uat-fo", saved.FoIdentifier);
+        }
+        finally { File.Delete(path); }
     }
 }
 

@@ -81,11 +81,11 @@ internal sealed class AppBootstrapper : IDisposable
             odataWrite,
             catalog,
             _logger,
-            IsDataverseConfigured(bundle.DataverseEnvironment) ? bundle.DataverseEnvironment : null,
-            _dataverseHttpClient,
-            trust,
-            new PluginTrustStore(),
-            new PluginConsentPrompt());
+            dataverseEnv: IsDataverseConfigured(bundle.DataverseEnvironment) ? bundle.DataverseEnvironment : null,
+            dataverseHttp: _dataverseHttpClient,
+            trustOptions: trust,
+            trustStore: new PluginTrustStore(),
+            consentPrompt: new PluginConsentPrompt());
 
         var plugins = await manager.DiscoverAsync(cancellationToken);
 

@@ -29,6 +29,14 @@ public static class DualWriteAuthConstants
     /// <summary>Substring that identifies a dual-write management gateway URL in browser traffic.</summary>
     public const string GatewayHostMarker = "projectmanagementservice";
 
+    /// <summary>
+    /// Substring that identifies a call to the actual DualWriteManagement API (e.g. the portal's
+    /// <c>.../api/DualWriteManagement/1.0/Version</c> handshake). The MS tool keys on this to pick the
+    /// environment's resolved regional gateway, not the first <see cref="GatewayHostMarker"/> host it
+    /// sees (which can be a global/routing endpoint).
+    /// </summary>
+    public const string GatewayApiMarker = "DualWriteManagement";
+
     /// <summary>Builds the portal sign-in URL for the given F&amp;O environment identifier.</summary>
     public static string BuildSignInUrl(string foIdentifier) =>
         $"{DataIntegratorBaseUrl}/dualWrite?axenv={Uri.EscapeDataString(foIdentifier ?? string.Empty)}";
