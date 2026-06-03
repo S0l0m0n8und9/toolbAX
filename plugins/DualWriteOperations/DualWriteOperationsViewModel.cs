@@ -300,7 +300,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         _gateway = null;
         _cid = null;
         UpdateConnectionSummary(cleared);
-        StatusMessage = "Connection token cleared. If a Data Integrator credential is set in Profiles, Load Maps will use the profile (ROPC) token.";
+        StatusMessage = "Connection token cleared. Sign in again (or paste a bearer token) and Save before loading maps.";
     }
 
     private async Task LoadMapsAsync(CancellationToken ct)
