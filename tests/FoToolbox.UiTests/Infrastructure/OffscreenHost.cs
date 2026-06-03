@@ -13,6 +13,9 @@ namespace FoToolbox.UiTests.Infrastructure;
 /// </summary>
 internal sealed class OffscreenHost : IDisposable
 {
+    private const int OffscreenWidth = 1280;
+    private const int OffscreenHeight = 1024;
+
     private static readonly string[] ThemeDictionaries =
     {
         "pack://application:,,,/FoToolbox.Host;component/Themes/Fluent.Theme.xaml",
@@ -21,25 +24,18 @@ internal sealed class OffscreenHost : IDisposable
         "pack://application:,,,/FoToolbox.Host;component/Themes/Fluent.Controls.xaml",
     };
 
-    private const int OffscreenWidth = 1280;
-    private const int OffscreenHeight = 1024;
-
     private readonly HwndSource _source;
     private readonly Border _root;
 
-    private OffscreenHost(HwndSource source, Border root) { _source = source; _root = root; }
+    private OffscreenHost(HwndSource source, Border root)
+    {
+        _source = source;
+        _root = root;
+    }
 
     public static OffscreenHost Mount(FrameworkElement element)
     {
         WpfTestRuntime.EnsurePackSchemeRegistered();
-
-        // Defer DataContext so that bindings evaluate after the element joins the visual
-        // tree rather than at SetBinding time.  This ensures any active BindingErrorScope
-        // (which attaches its TraceListener before Mount is called) can capture the trace
-        // events that WPF emits when a binding path cannot be resolved.
-        var savedDc = element.ReadLocalValue(FrameworkElement.DataContextProperty);
-        if (savedDc != DependencyProperty.UnsetValue)
-            element.ClearValue(FrameworkElement.DataContextProperty);
 
         var root = new Border();
         foreach (var uri in ThemeDictionaries)
@@ -53,14 +49,9 @@ internal sealed class OffscreenHost : IDisposable
         {
             Width = OffscreenWidth,
             Height = OffscreenHeight,
-            WindowStyle = 0, // WS_VISIBLE not set => never displayed
+            WindowStyle = 0, // WS_OVERLAPPED (0) — no WS_VISIBLE, never displayed
         };
         var source = new HwndSource(parameters) { RootVisual = root };
-
-        // Restore the deferred DataContext now that the element is in the tree.
-        // Bindings evaluate at this point, which is inside any active BindingErrorScope.
-        if (savedDc != DependencyProperty.UnsetValue)
-            element.SetValue(FrameworkElement.DataContextProperty, savedDc);
 
         root.Measure(new Size(OffscreenWidth, OffscreenHeight));
         root.Arrange(new Rect(0, 0, OffscreenWidth, OffscreenHeight));
