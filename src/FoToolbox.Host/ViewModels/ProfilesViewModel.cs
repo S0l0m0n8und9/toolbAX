@@ -258,6 +258,12 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler<ConnectionTestedEventArgs>? ConnectionTested;
 
+    /// <summary>
+    /// Raised after a Data Integrator credential is successfully persisted.
+    /// The view subscribes to clear the DiPasswordBox (WPF PasswordBox cannot be cleared from the VM).
+    /// </summary>
+    public event EventHandler? DataIntegratorCredentialSaved;
+
     public ProfilesViewModel(string dbPath, ILogger logger, Action<ProfileBundle> applyProfile)
     {
         _store = new ProfileStore(dbPath);
@@ -549,6 +555,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             PendingDiPassword = null;
             DiStoredStatus = "Credential stored (DPAPI).";
             Status = "Data Integrator credential saved.";
+            DataIntegratorCredentialSaved?.Invoke(this, EventArgs.Empty);
         }
         catch (Exception ex)
         {

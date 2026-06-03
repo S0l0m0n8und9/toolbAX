@@ -69,5 +69,10 @@ internal partial class ProfilesView : UserControl
         {
             vm.PendingDiPassword = DiPasswordBox.Password;
         };
+
+        vm.DataIntegratorCredentialSaved += (_, __) =>
+        {
+            DiPasswordBox.Password = string.Empty;
+        };
     }
 }

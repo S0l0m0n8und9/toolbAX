@@ -25,8 +25,11 @@ public sealed class MsalRopcTokenAcquirer : IDataIntegratorTokenAcquirer
 
         try
         {
-            // Silent-first: reuse MSAL's cached token/refresh token when one exists.
-            var account = (await app.GetAccountsAsync().ConfigureAwait(false)).FirstOrDefault();
+            // Silent-first: reuse MSAL's cached token/refresh token when one exists,
+            // but only if the cached account matches the requested username — prevents
+            // returning a stale token for the previous service account when credentials change.
+            var accounts = await app.GetAccountsAsync().ConfigureAwait(false);
+            var account = accounts.FirstOrDefault(a => string.Equals(a.Username, username, System.StringComparison.OrdinalIgnoreCase));
             if (account is not null)
             {
                 try
