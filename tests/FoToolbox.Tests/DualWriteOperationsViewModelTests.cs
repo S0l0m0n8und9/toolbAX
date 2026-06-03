@@ -513,6 +513,27 @@ public class DualWriteOperationsViewModelTests
         }
         finally { File.Delete(path); }
     }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task ClearToken_RemovesBearerToken_KeepsGatewayAndIdentifier()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(new FakeGateway()));
+
+            await vm.ClearTokenCommand.ExecuteAsync();
+
+            var saved = await store.GetAsync("env-1", CancellationToken.None);
+            Assert.True(string.IsNullOrEmpty(saved.BearerToken));
+            Assert.False(saved.HasDelegatedSession);
+            Assert.Equal("https://gw.example", saved.GatewayBaseUrl);
+            Assert.Equal("uat-fo", saved.FoIdentifier);
+        }
+        finally { File.Delete(path); }
+    }
 }
 
 public class DualWriteConnectionStoreTests

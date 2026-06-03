@@ -84,6 +84,11 @@
                     <Button DockPanel.Dock="Left" Content="Save Connection"
                             Command="{Binding SaveConnectionCommand}"
                             Padding="10,4" MinWidth="130" Margin="6,0,0,0" />
+                    <Button DockPanel.Dock="Left" Content="Clear Token"
+                            Command="{Binding ClearTokenCommand}"
+                            Padding="10,4" MinWidth="100" Margin="6,0,0,0"
+                            ToolTip="Remove the stored connection bearer/refresh token for this environment (keeps the gateway URL and identifier) so Load Maps uses the profile Data Integrator (ROPC) token."
+                            IsEnabled="{Binding IsNotBusy}" />
                     <Button DockPanel.Dock="Left" Content="Load Maps"
                             Command="{Binding LoadMapsCommand}"
                             Padding="10,4" MinWidth="110" Margin="6,0,0,0"

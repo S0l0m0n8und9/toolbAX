@@ -97,6 +97,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         ExportConfigCommand = new AsyncRelayCommand(ExportConfigAsync, onError);
         ResetLinkCommand = new AsyncRelayCommand(ResetLinkAsync, onError);
         ApplyIntegrationKeysCommand = new AsyncRelayCommand(ApplyIntegrationKeysAsync, onError);
+        ClearTokenCommand = new AsyncRelayCommand(ClearTokenAsync, onError);
 
         _ = InitializeAsync();
     }
@@ -117,6 +118,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     public AsyncRelayCommand ExportConfigCommand { get; }
     public AsyncRelayCommand ResetLinkCommand { get; }
     public AsyncRelayCommand ApplyIntegrationKeysCommand { get; }
+    public AsyncRelayCommand ClearTokenCommand { get; }
 
     public string EnvironmentName => _ctx.CurrentEnv.Name;
 
@@ -300,6 +302,18 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         StatusMessage = settings.IsComplete
             ? "Connection saved. Click Load Maps."
             : "Saved. Provide the gateway URL, F&O identifier and bearer token to enable operations.";
+    }
+
+    private async Task ClearTokenAsync(CancellationToken ct)
+    {
+        var existing = await _store.GetAsync(_envId, ct);
+        var cleared = new DualWriteConnectionSettings(_envId, existing.GatewayBaseUrl, existing.FoIdentifier, null);
+        await _store.SaveAsync(cleared, ct);
+        BearerToken = string.Empty;
+        _gateway = null;
+        _cid = null;
+        UpdateConnectionSummary(cleared);
+        StatusMessage = "Connection token cleared. If a Data Integrator credential is set in Profiles, Load Maps will use the profile (ROPC) token.";
     }
 
     private async Task LoadMapsAsync(CancellationToken ct)
