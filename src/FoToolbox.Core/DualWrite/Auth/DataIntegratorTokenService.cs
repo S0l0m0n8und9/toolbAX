@@ -16,6 +16,7 @@ public sealed class DataIntegratorTokenService
     private readonly IDataIntegratorTokenAcquirer _acquirer;
     private readonly SemaphoreSlim _gate = new(1, 1);
     private volatile DualWriteToken? _cached;
+    private string? _cachedKey;
 
     public Func<DateTimeOffset> Clock { get; set; } = () => DateTimeOffset.UtcNow;
 
@@ -29,22 +30,28 @@ public sealed class DataIntegratorTokenService
             throw new DualWriteAuthException("No Data Integrator credential is configured. Set it in Profiles → Data Integrator.");
         }
 
-        if (_cached is not null && !_cached.IsExpired(Clock()))
+        var key = $"{credential.ClientId}|{credential.Username}|{tenantId}";
+
+        var cached = _cached;
+        if (cached is not null && _cachedKey == key && !cached.IsExpired(Clock()))
         {
-            return _cached.AccessToken;
+            return cached.AccessToken;
         }
 
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            if (_cached is not null && !_cached.IsExpired(Clock()))
+            cached = _cached;
+            if (cached is not null && _cachedKey == key && !cached.IsExpired(Clock()))
             {
-                return _cached.AccessToken;
+                return cached.AccessToken;
             }
 
             var authority = $"{AuthorityBase}/{tenantId}";
-            _cached = await _acquirer.AcquireAsync(authority, credential.ClientId, ScopeDefault, credential.Username, credential.Password, ct).ConfigureAwait(false);
-            return _cached.AccessToken;
+            var token = await _acquirer.AcquireAsync(authority, credential.ClientId, ScopeDefault, credential.Username, credential.Password, ct).ConfigureAwait(false);
+            _cachedKey = key;
+            _cached = token;
+            return token.AccessToken;
         }
         finally
         {

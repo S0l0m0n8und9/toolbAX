@@ -50,4 +50,22 @@ public class DataIntegratorTokenServiceTests
         Assert.Equal("acc2", c);
         Assert.Equal(2, acquirer.Calls);
     }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task GetToken_ReacquiresWhenCredentialIdentityChanges()
+    {
+        var now = new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero);
+        var acquirer = new FakeAcquirer { Next = new DualWriteToken("acc1", null, now.AddHours(1)) };
+        var svc = new DataIntegratorTokenService(acquirer) { Clock = () => now };
+
+        var a = await svc.GetTokenAsync(new DataIntegratorCredential("c", "userA@contoso.com", "pw"), "tenant-1", CancellationToken.None);
+
+        acquirer.Next = new DualWriteToken("acc2", null, now.AddHours(1));
+        var b = await svc.GetTokenAsync(new DataIntegratorCredential("c", "userB@contoso.com", "pw"), "tenant-1", CancellationToken.None); // different username
+
+        Assert.Equal("acc1", a);
+        Assert.Equal("acc2", b);
+        Assert.Equal(2, acquirer.Calls); // not served from cache despite unexpired token
+    }
 }
