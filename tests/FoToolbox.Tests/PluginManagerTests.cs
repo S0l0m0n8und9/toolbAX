@@ -717,6 +717,32 @@ public sealed class PluginManagerTests
         });
     }
 
+    [Fact]
+    public void RunSta_Send_Executes_Callback_On_Sta_Thread()
+    {
+        // Regression for #38 review: WPF initialization inside CreateTool() can call
+        // SynchronizationContext.Current.Send(...) to marshal synchronous work. The STA pump must
+        // execute the callback (on the STA thread we are already on) rather than throwing, otherwise
+        // plugin loading would surface a confusing NotSupportedException.
+        RunSta(() =>
+        {
+            var context = SynchronizationContext.Current;
+            Assert.NotNull(context);
+
+            var ran = false;
+            var observed = ApartmentState.Unknown;
+            context!.Send(_ =>
+            {
+                ran = true;
+                observed = Thread.CurrentThread.GetApartmentState();
+            }, null);
+
+            Assert.True(ran);
+            Assert.Equal(ApartmentState.STA, observed);
+            return Task.CompletedTask;
+        });
+    }
+
     private static void StageCanonicalByType(string pluginRoot, string name, Type pluginType)
     {
         var pluginDir = Path.Combine(pluginRoot, name);
@@ -772,8 +798,10 @@ public sealed class PluginManagerTests
 
         public override void Post(SendOrPostCallback d, object? state) => _queue.Add((d, state));
 
-        public override void Send(SendOrPostCallback d, object? state) =>
-            throw new NotSupportedException("Synchronous Send is not supported on the STA pump.");
+        // WPF construction in CreateTool() runs on the STA pump thread, so any synchronous Send it
+        // makes is already on the target thread: execute it inline (matching the base-class default)
+        // rather than throwing.
+        public override void Send(SendOrPostCallback d, object? state) => d(state);
 
         public void RunOnCurrentThread()
         {
