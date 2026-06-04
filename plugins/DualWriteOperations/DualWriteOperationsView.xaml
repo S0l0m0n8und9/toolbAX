@@ -100,25 +100,34 @@
             </StackPanel>
         </Border>
 
-        <!-- Maps grid -->
-        <DataGrid Grid.Row="2"
-                  Margin="8,0,8,0"
-                  ItemsSource="{Binding Maps}"
-                  AutoGenerateColumns="False"
-                  CanUserAddRows="False"
-                  CanUserDeleteRows="False"
-                  HeadersVisibility="Column"
-                  GridLinesVisibility="Horizontal"
-                  IsReadOnly="False">
-            <DataGrid.Columns>
-                <DataGridCheckBoxColumn Header="" Binding="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}" Width="36" />
-                <DataGridTextColumn Header="Map" Binding="{Binding Name}" Width="2*" IsReadOnly="True" />
-                <DataGridTextColumn Header="CE Entity" Binding="{Binding CeEntity}" Width="*" IsReadOnly="True" />
-                <DataGridTextColumn Header="Version" Binding="{Binding Version}" Width="*" IsReadOnly="True" />
-                <DataGridTextColumn Header="Author" Binding="{Binding Author}" Width="*" IsReadOnly="True" />
-                <DataGridTextColumn Header="State" Binding="{Binding State}" Width="*" IsReadOnly="True" />
-            </DataGrid.Columns>
-        </DataGrid>
+        <!-- Maps grid (with search) -->
+        <DockPanel Grid.Row="2" Margin="8,0,8,0">
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,4">
+                <TextBlock Text="{Binding MapListSummary}" DockPanel.Dock="Right" VerticalAlignment="Center"
+                           Margin="8,0,0,0" Foreground="{DynamicResource Fo.SubtleTextBrush}" />
+                <TextBlock Text="Search:" DockPanel.Dock="Left" VerticalAlignment="Center" Margin="0,0,4,0" />
+                <TextBox VerticalAlignment="Center"
+                         Text="{Binding MapSearch, UpdateSourceTrigger=PropertyChanged}"
+                         ToolTip="Case-insensitive search across map name, CE entity, version, author, state and id. Filters the list only; it does not change which maps an action targets (use the checkboxes)." />
+            </DockPanel>
+            <DataGrid ItemsSource="{Binding MapsView}"
+                      AutoGenerateColumns="False"
+                      CanUserAddRows="False"
+                      CanUserDeleteRows="False"
+                      CanUserSortColumns="True"
+                      HeadersVisibility="Column"
+                      GridLinesVisibility="Horizontal"
+                      IsReadOnly="False">
+                <DataGrid.Columns>
+                    <DataGridCheckBoxColumn Header="" Binding="{Binding IsSelected, UpdateSourceTrigger=PropertyChanged}" Width="36" />
+                    <DataGridTextColumn Header="Map" Binding="{Binding Name}" Width="2*" IsReadOnly="True" />
+                    <DataGridTextColumn Header="CE Entity" Binding="{Binding CeEntity}" Width="*" IsReadOnly="True" />
+                    <DataGridTextColumn Header="Version" Binding="{Binding Version}" Width="*" IsReadOnly="True" />
+                    <DataGridTextColumn Header="Author" Binding="{Binding Author}" Width="*" IsReadOnly="True" />
+                    <DataGridTextColumn Header="State" Binding="{Binding State}" Width="*" IsReadOnly="True" />
+                </DataGrid.Columns>
+            </DataGrid>
+        </DockPanel>
 
         <!-- Action bar + status -->
         <Border Grid.Row="3"

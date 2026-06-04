@@ -13,6 +13,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
+using System.Windows.Data;
 using Microsoft.Win32;
 
 namespace DualWriteOperationsPlugin;
@@ -39,6 +40,8 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     private string _bearerToken = string.Empty;
     private string _applyVersionAuthorFilter = string.Empty;
     private bool _forceReset;
+    private string _mapSearch = string.Empty;
+    private string _mapListSummary = "0 maps";
     private string _statusMessage = "Configure the connection, then Load Maps.";
     private string _connectionSummary = "Not connected.";
     private bool _isBusy;
@@ -99,10 +102,18 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         ApplyIntegrationKeysCommand = new AsyncRelayCommand(ApplyIntegrationKeysAsync, onError);
         ClearTokenCommand = new AsyncRelayCommand(ClearTokenAsync, onError);
 
+        MapsView = CollectionViewSource.GetDefaultView(Maps);
+        MapsView.Filter = o => o is DualWriteMapRow row && row.Matches(MapSearch);
+        Maps.CollectionChanged += (_, _) => UpdateMapListSummary();
+        UpdateMapListSummary();
+
         _ = InitializeAsync();
     }
 
     public ObservableCollection<DualWriteMapRow> Maps { get; } = new();
+
+    /// <summary>Filtered/searchable view over <see cref="Maps"/> bound by the grid (#31).</summary>
+    public ICollectionView MapsView { get; }
 
     public AsyncRelayCommand SignInCommand { get; }
     public AsyncRelayCommand SignInFreshCommand { get; }
@@ -133,6 +144,42 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     {
         get => _applyVersionAuthorFilter;
         set { if (_applyVersionAuthorFilter != value) { _applyVersionAuthorFilter = value; OnPropertyChanged(); } }
+    }
+
+    /// <summary>
+    /// Case-insensitive search applied to the map list view (#31). Filters by name, CE entity,
+    /// version, author, state and identifiers. Blank shows all maps; it only narrows the displayed
+    /// list and does not change which maps an action targets (actions use the row checkboxes).
+    /// </summary>
+    public string MapSearch
+    {
+        get => _mapSearch;
+        set
+        {
+            if (_mapSearch == value)
+            {
+                return;
+            }
+
+            _mapSearch = value;
+            OnPropertyChanged();
+            MapsView.Refresh();
+            UpdateMapListSummary();
+        }
+    }
+
+    /// <summary>"Showing X of Y map(s)" — reflects the active search so the empty-result state is clear.</summary>
+    public string MapListSummary
+    {
+        get => _mapListSummary;
+        private set { if (_mapListSummary != value) { _mapListSummary = value; OnPropertyChanged(); } }
+    }
+
+    private void UpdateMapListSummary()
+    {
+        var total = Maps.Count;
+        var visible = string.IsNullOrWhiteSpace(MapSearch) ? total : Maps.Count(r => r.Matches(MapSearch));
+        MapListSummary = $"Showing {visible} of {total} map(s)";
     }
 
     /// <summary>When true, the reset-link request sets forceReset=true.</summary>
