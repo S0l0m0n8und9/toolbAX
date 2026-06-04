@@ -140,10 +140,10 @@
                     <Button Content="Refresh Tables" Command="{Binding RefreshTablesCommand}" Padding="12,4" MinWidth="110" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
                     <Button Content="Export Config" Command="{Binding ExportConfigCommand}" Padding="12,4" MinWidth="110" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
                     <TextBlock Text="Apply-version author(s):" VerticalAlignment="Center" Margin="8,0,4,0"
-                               ToolTip="Scopes the 'Apply Latest Version' button only — restricts which template author's versions are considered. It does not filter the map list or affect Start/Stop/Pause/Resume, Refresh Tables, or Export." />
+                               ToolTip="Scopes the 'Apply Latest Version' button only — restricts which template author's versions are considered. It does not filter the map list or affect Start/Stop/Pause/Resume, Refresh Tables, Export, Reset Link, or Apply Integration Keys." />
                     <TextBox Width="160" VerticalAlignment="Center"
                              Text="{Binding ApplyVersionAuthorFilter, UpdateSourceTrigger=PropertyChanged}"
-                             ToolTip="Comma-separated template authors used only by 'Apply Latest Version' (blank = any author). Does not filter the map list or affect Start/Stop/Pause/Resume, Refresh Tables, or Export." />
+                             ToolTip="Comma-separated template authors used only by 'Apply Latest Version' (blank = any author). Does not filter the map list or affect Start/Stop/Pause/Resume, Refresh Tables, Export, Reset Link, or Apply Integration Keys." />
                     <Border Width="1" Margin="10,2" Background="{DynamicResource Fo.BorderBrush}" />
                     <Button Content="Reset Link" Command="{Binding ResetLinkCommand}" Padding="12,4" MinWidth="100" IsEnabled="{Binding IsNotBusy}" />
                     <CheckBox Content="Force reset" VerticalAlignment="Center" Margin="8,0,0,0" IsChecked="{Binding ForceReset}" />
