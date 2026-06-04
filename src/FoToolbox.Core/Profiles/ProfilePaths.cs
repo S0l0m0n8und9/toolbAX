@@ -40,6 +40,13 @@ public static class ProfilePaths
         return Path.Combine(appDataDir, fileName);
     }
 
+    /// <summary>
+    /// Resolves the profile.db path. When <see cref="AppDataDirEnvVar"/> is set (test
+    /// isolation only) the override root deliberately takes precedence over
+    /// <paramref name="baseDir"/>, so isolated runs cannot be pulled back to a caller-supplied
+    /// directory. Production never sets the override, so <paramref name="baseDir"/> behaves
+    /// exactly as before; all in-repo callers use the no-arg form.
+    /// </summary>
     public static string ResolveProfileDbPath(string? baseDir = null)
     {
         var overrideRoot = ResolveOverrideRoot();
