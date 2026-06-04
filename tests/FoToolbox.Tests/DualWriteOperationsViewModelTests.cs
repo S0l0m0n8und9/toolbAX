@@ -758,6 +758,69 @@ public class DualWriteOperationsViewModelTests
         }
     }
 
+    private static DualWriteMapRow Row(string displayName, string ce = "ce", string author = "MS", string state = "Running", string version = "1.0") =>
+        new(new DualWriteMap("map-id-1", "rawname", displayName, "pid-1", state,
+            new DualWriteTemplate("t-1", version, author), Array.Empty<DualWriteTemplate>()) { RightEntityName = ce });
+
+    [Trait("Category", "DualWrite")]
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public void MapRow_Matches_BlankSearch_ReturnsTrue(string? search)
+    {
+        // #31: a blank search matches everything (clearing the search restores the full list).
+        Assert.True(Row("Customers V3").Matches(search));
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Theory]
+    [InlineData("customers")]   // name, case-insensitive
+    [InlineData("ACCOUNT")]     // CE entity, case-insensitive
+    [InlineData("contoso")]     // author
+    [InlineData("paus")]        // state substring
+    [InlineData("2.5")]         // version
+    [InlineData("map-id")]      // identifier: Map.Id ("map-id-1")
+    [InlineData("RAWNAME")]     // identifier: Map.Name ("rawname"), case-insensitive
+    public void MapRow_Matches_AcrossUserFacingFields_CaseInsensitive(string search)
+    {
+        var row = Row("Customers V3", ce: "accounts", author: "Contoso", state: "Paused", version: "2.5.0");
+        Assert.True(row.Matches(search));
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void MapRow_Matches_NoMatch_ReturnsFalse()
+    {
+        var row = Row("Customers V3", ce: "accounts", author: "Contoso", state: "Paused", version: "2.5.0");
+        Assert.False(row.Matches("nonexistent-term"));
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task MapSearch_FiltersMapListSummary_AndClearingRestores()
+    {
+        // #31: typing a search narrows the visible-count summary; clearing it restores the full set.
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway();
+            gateway.MapsList.Add(Map("a", "Customers"));
+            gateway.MapsList.Add(Map("b", "Vendors"));
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway));
+            await vm.LoadMapsCommand.ExecuteAsync();
+            Assert.Equal(2, vm.Maps.Count);
+
+            vm.MapSearch = "cust";
+            Assert.Contains("1 of 2", vm.MapListSummary);
+
+            vm.MapSearch = "   ";
+            Assert.Contains("2 of 2", vm.MapListSummary);
+        }
+        finally { File.Delete(path); }
+    }
+
     [Trait("Category", "DualWrite")]
     [Fact]
     public async Task ClearToken_RemovesBearerToken_KeepsGatewayAndIdentifier()
