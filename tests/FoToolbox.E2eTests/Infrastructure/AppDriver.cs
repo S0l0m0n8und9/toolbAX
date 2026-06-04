@@ -77,7 +77,8 @@ internal sealed class AppDriver : IDisposable
         }
         if (dir is null)
         {
-            throw new InvalidOperationException("Could not locate repo root (FoToolbox.sln).");
+            throw new InvalidOperationException(
+                $"Could not locate repo root (no FoToolbox.sln found walking up from '{AppContext.BaseDirectory}').");
         }
 
         var exe = Path.Combine(dir.FullName, "src", "FoToolbox.Host", "bin", config, "net10.0-windows", "FoToolbox.Host.exe");
@@ -88,9 +89,27 @@ internal sealed class AppDriver : IDisposable
         return exe;
     }
 
+    private bool _disposed;
+
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
+
         try { App?.Close(); } catch { /* ignore */ }
+
+        // Let graceful WPF shutdown (clean SQLite close in MainWindow.OnClosed) finish
+        // before forcing — important once flows write profile data.
+        try
+        {
+            var deadline = DateTime.UtcNow.AddSeconds(3);
+            while (App is { HasExited: false } && DateTime.UtcNow < deadline)
+            {
+                System.Threading.Thread.Sleep(100);
+            }
+        }
+        catch { /* ignore */ }
+
         try { if (App is { HasExited: false }) App.Kill(); } catch { /* ignore */ }
         try { Automation?.Dispose(); } catch { /* ignore */ }
         try { if (Directory.Exists(_tempLocalAppData)) Directory.Delete(_tempLocalAppData, recursive: true); }
