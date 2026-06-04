@@ -11,6 +11,7 @@ using QueryBuilderPlugin;
 using TableEntityBrowserPlugin;
 using Microsoft.Extensions.Logging.Abstractions;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -699,6 +700,49 @@ public sealed class PluginManagerTests
         });
     }
 
+    [Fact]
+    public void RunSta_Keeps_Async_Continuations_On_Sta_Thread()
+    {
+        // Regression for #38: DiscoverAsync awaits IFoToolPlugin.InitializeAsync and then calls
+        // CreateTool(), which constructs WPF controls and requires an STA thread. If the STA test
+        // thread has no SynchronizationContext, the post-await continuation resumes on a thread-pool
+        // (MTA) thread and CreateTool throws "The calling thread must be STA" intermittently —
+        // producing the flaky "expected 5 bundled plugins, observed 4" failure under full-suite load.
+        // RunSta must therefore keep awaited continuations on the same STA thread.
+        RunSta(async () =>
+        {
+            Assert.Equal(ApartmentState.STA, Thread.CurrentThread.GetApartmentState());
+            await Task.Yield();
+            Assert.Equal(ApartmentState.STA, Thread.CurrentThread.GetApartmentState());
+        });
+    }
+
+    [Fact]
+    public void RunSta_Send_Executes_Callback_On_Sta_Thread()
+    {
+        // Regression for #38 review: WPF initialization inside CreateTool() can call
+        // SynchronizationContext.Current.Send(...) to marshal synchronous work. The STA pump must
+        // execute the callback (on the STA thread we are already on) rather than throwing, otherwise
+        // plugin loading would surface a confusing NotSupportedException.
+        RunSta(() =>
+        {
+            var context = SynchronizationContext.Current;
+            Assert.NotNull(context);
+
+            var ran = false;
+            var observed = ApartmentState.Unknown;
+            context!.Send(_ =>
+            {
+                ran = true;
+                observed = Thread.CurrentThread.GetApartmentState();
+            }, null);
+
+            Assert.True(ran);
+            Assert.Equal(ApartmentState.STA, observed);
+            return Task.CompletedTask;
+        });
+    }
+
     private static void StageCanonicalByType(string pluginRoot, string name, Type pluginType)
     {
         var pluginDir = Path.Combine(pluginRoot, name);
@@ -711,13 +755,26 @@ public sealed class PluginManagerTests
         Exception? failure = null;
         var thread = new Thread(() =>
         {
+            var previousContext = SynchronizationContext.Current;
+            var syncContext = new SingleThreadSynchronizationContext();
+            SynchronizationContext.SetSynchronizationContext(syncContext);
             try
             {
-                action().GetAwaiter().GetResult();
+                // Pump awaited continuations back onto this STA thread (rather than letting them
+                // resume on a thread-pool MTA thread) so WPF construction in CreateTool() stays on
+                // STA. See RunSta_Keeps_Async_Continuations_On_Sta_Thread / issue #38.
+                var task = action();
+                task.ContinueWith(_ => syncContext.Complete(), TaskScheduler.Default);
+                syncContext.RunOnCurrentThread();
+                task.GetAwaiter().GetResult();
             }
             catch (Exception ex)
             {
                 failure = ex;
+            }
+            finally
+            {
+                SynchronizationContext.SetSynchronizationContext(previousContext);
             }
         });
         thread.SetApartmentState(ApartmentState.STA);
@@ -728,5 +785,32 @@ public sealed class PluginManagerTests
         {
             throw failure;
         }
+    }
+
+    /// <summary>
+    /// Minimal single-threaded <see cref="SynchronizationContext"/> that queues posted callbacks
+    /// and runs them on the thread that calls <see cref="RunOnCurrentThread"/>. Used by
+    /// <see cref="RunSta"/> so async continuations stay on the dedicated STA thread.
+    /// </summary>
+    private sealed class SingleThreadSynchronizationContext : SynchronizationContext
+    {
+        private readonly BlockingCollection<(SendOrPostCallback Callback, object? State)> _queue = new();
+
+        public override void Post(SendOrPostCallback d, object? state) => _queue.Add((d, state));
+
+        // WPF construction in CreateTool() runs on the STA pump thread, so any synchronous Send it
+        // makes is already on the target thread: execute it inline (matching the base-class default)
+        // rather than throwing.
+        public override void Send(SendOrPostCallback d, object? state) => d(state);
+
+        public void RunOnCurrentThread()
+        {
+            foreach (var work in _queue.GetConsumingEnumerable())
+            {
+                work.Callback(work.State);
+            }
+        }
+
+        public void Complete() => _queue.CompleteAdding();
     }
 }
