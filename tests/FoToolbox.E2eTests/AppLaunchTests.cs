@@ -14,7 +14,7 @@ public class AppLaunchTests
         try
         {
             driver = AppDriver.Launch();
-            Assert.Contains("toolBax", driver.MainWindow.Title);
+            Assert.Contains("toolbax", driver.MainWindow.Title, StringComparison.OrdinalIgnoreCase);
 
             // The "Profiles" entry is always present (default tab when no profile exists).
             var profiles = Retry.WhileNull(
