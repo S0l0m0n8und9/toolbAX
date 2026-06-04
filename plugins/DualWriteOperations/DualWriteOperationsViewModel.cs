@@ -326,6 +326,9 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
                 return;
             }
 
+            // The cid is a GUID — keep it in the diagnostic surface only, never in UI status text (#27).
+            _ctx.Logger.LogInformation("Dual-write connected (cid={Cid}, cname={Cname}).", env.Cid, env.Cname);
+
             StatusMessage = $"Loading maps for {DescribeEnv(env)}...";
             var maps = await _gateway.GetMapsAsync(_cid, ct);
             Maps.Clear();
@@ -779,8 +782,18 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
             : "Not connected — gateway URL, identifier and token required.";
     }
 
-    private static string DescribeEnv(DualWriteEnvironment env) =>
-        string.IsNullOrWhiteSpace(env.Cname) ? env.Cid : env.Cname;
+    // #27: never surface the raw connection id (cid, a GUID) in user-facing text. Prefer the
+    // gateway's friendly connection name (cname), then the F&O environment's friendly name, and
+    // fall back to a neutral label — but never the GUID. The cid stays available via logs.
+    private string DescribeEnv(DualWriteEnvironment env)
+    {
+        if (!string.IsNullOrWhiteSpace(env.Cname))
+        {
+            return env.Cname;
+        }
+
+        return string.IsNullOrWhiteSpace(EnvironmentName) ? "environment" : EnvironmentName;
+    }
 
     private static bool DefaultConfirm(string title, string message) =>
         MessageBox.Show(message, title, MessageBoxButton.OKCancel, MessageBoxImage.Warning) == MessageBoxResult.OK;

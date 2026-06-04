@@ -221,6 +221,85 @@ public class DualWriteOperationsViewModelTests
 
     [Trait("Category", "DualWrite")]
     [Fact]
+    public async Task LoadMaps_WhenConnectionNameMissing_ShowsFriendlyEnvName_NotCidGuid()
+    {
+        // #27: the connected-state text must never surface the raw environment GUID (cid). When the
+        // gateway returns no friendly connection name (cname), fall back to the F&O environment's
+        // friendly name instead of "Connected to <guid>".
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway
+            {
+                Environment = new DualWriteEnvironment("b99e1234-5678-90ab-cdef-1234567890ab", "", "")
+            };
+            gateway.MapsList.Add(Map("a"));
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway));
+
+            await vm.LoadMapsCommand.ExecuteAsync();
+
+            Assert.DoesNotContain("b99e1234", vm.ConnectionSummary, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Connected", vm.ConnectionSummary, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("UAT", vm.ConnectionSummary, StringComparison.OrdinalIgnoreCase); // FakeContext env name
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task LoadMaps_WithConnectionName_ShowsFriendlyName_NotCidGuid()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway
+            {
+                Environment = new DualWriteEnvironment("b99e1234-5678-90ab-cdef-1234567890ab", "Contoso Production", "uat-fo")
+            };
+            gateway.MapsList.Add(Map("a"));
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway));
+
+            await vm.LoadMapsCommand.ExecuteAsync();
+
+            Assert.Contains("Contoso Production", vm.ConnectionSummary);
+            Assert.DoesNotContain("b99e1234", vm.ConnectionSummary, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task LoadMaps_WhenNoFriendlyNameAvailable_ShowsNeutralConnected_NotCidGuid()
+    {
+        // #27: the neutral fallback — no gateway connection name (cname) AND no F&O environment
+        // name — must still avoid the cid GUID and show a generic "Connected to environment".
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway
+            {
+                Environment = new DualWriteEnvironment("b99e1234-5678-90ab-cdef-1234567890ab", "", "")
+            };
+            gateway.MapsList.Add(Map("a"));
+            var ctx = new FakeContext
+            {
+                CurrentEnv = new("env-1", "", "https://uat.operations.dynamics.com", "tenant-1", null)
+            };
+            var vm = new DualWriteOperationsViewModel(ctx, store, new FakeFactory(gateway));
+
+            await vm.LoadMapsCommand.ExecuteAsync();
+
+            Assert.DoesNotContain("b99e1234", vm.ConnectionSummary, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Connected to environment", vm.ConnectionSummary, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
     public async Task StartAction_WithoutSelection_DoesNotCallGateway()
     {
         var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
