@@ -80,3 +80,40 @@ jobs:
           name: ui-test-results
           path: ${{ github.workspace }}\UiTestResults
           if-no-files-found: ignore
+
+  e2e-tests:
+    runs-on: windows-latest
+    continue-on-error: true   # advisory until the GUI E2E suite is proven stable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Build.props
+            Directory.Packages.props
+
+      - name: Restore
+        run: dotnet restore .\FoToolbox.sln
+
+      - name: Build
+        run: dotnet build .\FoToolbox.sln -c Release --no-restore
+
+      - name: Run E2E tests
+        run: dotnet test .\tests\FoToolbox.E2eTests\FoToolbox.E2eTests.csproj -c Release --no-build --blame-hang --blame-hang-timeout 180s --blame-hang-dump-type mini --results-directory ${{ github.workspace }}\E2eResults
+
+      - name: Upload E2E results + screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-results
+          path: |
+            ${{ github.workspace }}\E2eResults
+            ${{ github.workspace }}\tests\FoToolbox.E2eTests\bin\Release\net10.0-windows\e2e-screenshots
+          if-no-files-found: ignore

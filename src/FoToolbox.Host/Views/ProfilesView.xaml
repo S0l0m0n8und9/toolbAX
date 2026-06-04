@@ -86,6 +86,7 @@
                                DockPanel.Dock="Left" />
                     <Button DockPanel.Dock="Right"
                             Content="+"
+                            AutomationProperties.AutomationId="ProfilesAddButton"
                             Command="{Binding AddProfileCommand}"
                             Width="28" MinHeight="24" Padding="0" />
                 </DockPanel>
@@ -97,6 +98,7 @@
                         Margin="0,8,0,0" />
 
                 <ListBox ItemsSource="{Binding Profiles}"
+                         AutomationProperties.AutomationId="ProfilesList"
                          SelectedItem="{Binding Selected, Mode=TwoWay}"
                          MinHeight="600"
                          ScrollViewer.HorizontalScrollBarVisibility="Auto"
@@ -138,10 +140,12 @@
 
                                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Name" VerticalAlignment="Center" />
                                     <TextBox Grid.Row="0" Grid.Column="1"
+                                             AutomationProperties.AutomationId="ProfileNameTextBox"
                                              Text="{Binding Selected.Environment.Name, UpdateSourceTrigger=PropertyChanged}" />
 
                                     <TextBlock Grid.Row="1" Grid.Column="0" Text="Base URL" VerticalAlignment="Center" Margin="{DynamicResource Fo.Margin.FormRow}" />
                                     <TextBox Grid.Row="1" Grid.Column="1" Margin="{DynamicResource Fo.Margin.FormRow}"
+                                             AutomationProperties.AutomationId="ProfileBaseUrlTextBox"
                                              Text="{Binding Selected.Environment.BaseUrl, UpdateSourceTrigger=PropertyChanged}" />
 
                                     <TextBlock Grid.Row="2" Grid.Column="0" Text="Tenant ID" VerticalAlignment="Center" Margin="{DynamicResource Fo.Margin.FormRow}" />

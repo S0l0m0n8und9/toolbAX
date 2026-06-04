@@ -117,6 +117,7 @@
                     BorderBrush="{DynamicResource Fo.HairBrush}"
                     BorderThickness="0,0,1,0">
                 <ListBox Style="{DynamicResource Fo.LeftRail.ListBox}"
+                         AutomationProperties.AutomationId="FoNavRail"
                          ItemsSource="{Binding Plugins}"
                          SelectedItem="{Binding Selected, Mode=TwoWay}">
                     <ListBox.ItemTemplate>
@@ -166,6 +167,7 @@
                         BorderBrush="{DynamicResource Fo.HairBrush}"
                         BorderThickness="0,0,0,1">
                     <ListBox Style="{DynamicResource Fo.TabBar.ListBox}"
+                             AutomationProperties.AutomationId="FoTabBar"
                              ItemsSource="{Binding Plugins}"
                              SelectedItem="{Binding Selected, Mode=TwoWay}">
                         <ListBox.ItemTemplate>
