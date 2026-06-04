@@ -271,6 +271,35 @@ public class DualWriteOperationsViewModelTests
 
     [Trait("Category", "DualWrite")]
     [Fact]
+    public async Task LoadMaps_WhenNoFriendlyNameAvailable_ShowsNeutralConnected_NotCidGuid()
+    {
+        // #27: the neutral fallback — no gateway connection name (cname) AND no F&O environment
+        // name — must still avoid the cid GUID and show a generic "Connected to environment".
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway
+            {
+                Environment = new DualWriteEnvironment("b99e1234-5678-90ab-cdef-1234567890ab", "", "")
+            };
+            gateway.MapsList.Add(Map("a"));
+            var ctx = new FakeContext
+            {
+                CurrentEnv = new("env-1", "", "https://uat.operations.dynamics.com", "tenant-1", null)
+            };
+            var vm = new DualWriteOperationsViewModel(ctx, store, new FakeFactory(gateway));
+
+            await vm.LoadMapsCommand.ExecuteAsync();
+
+            Assert.DoesNotContain("b99e1234", vm.ConnectionSummary, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Connected to environment", vm.ConnectionSummary, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
     public async Task StartAction_WithoutSelection_DoesNotCallGateway()
     {
         var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
