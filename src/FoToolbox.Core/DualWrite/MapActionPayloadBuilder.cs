@@ -43,9 +43,20 @@ public static class MapActionPayloadBuilder
 
         var details = maps.Select(map =>
         {
+            // The gateway dereferences tid (and, for non-initial-sync actions, pid) without
+            // null-guarding, so an empty value serialized here surfaces as an opaque
+            // "500 NullReferenceException". Reject it client-side with a map-named error (#25).
+            var tid = string.IsNullOrWhiteSpace(map.ActiveTemplate?.Id) ? map.Id : map.ActiveTemplate!.Id;
+            if (string.IsNullOrWhiteSpace(tid))
+            {
+                throw new ArgumentException(
+                    $"Dual-write map '{DescribeMap(map)}' has no template id (tid); cannot build a {action.ToDisplayName()} request.",
+                    nameof(maps));
+            }
+
             var detail = new Dictionary<string, object?>
             {
-                ["tid"] = string.IsNullOrWhiteSpace(map.ActiveTemplate?.Id) ? map.Id : map.ActiveTemplate!.Id,
+                ["tid"] = tid,
                 ["cid"] = cid
             };
 
@@ -53,6 +64,13 @@ public static class MapActionPayloadBuilder
             // parameters object, matching the MS tool's action-8 payload (NullValueHandling.Ignore).
             if (action != DualWriteActionType.InitialSync)
             {
+                if (string.IsNullOrWhiteSpace(map.ProjectId))
+                {
+                    throw new ArgumentException(
+                        $"Dual-write map '{DescribeMap(map)}' has no project id (pid); cannot build a {action.ToDisplayName()} request.",
+                        nameof(maps));
+                }
+
                 detail["pid"] = map.ProjectId;
                 detail["parameters"] = new Dictionary<string, object?>
                 {
@@ -78,4 +96,11 @@ public static class MapActionPayloadBuilder
 
         return JsonSerializer.Serialize(payload, SerializerOptions);
     }
+
+    /// <summary>A human-friendly identifier for a map, for use in validation error messages.</summary>
+    private static string DescribeMap(DualWriteMap map) =>
+        !string.IsNullOrWhiteSpace(map.DisplayName) ? map.DisplayName
+        : !string.IsNullOrWhiteSpace(map.Name) ? map.Name
+        : !string.IsNullOrWhiteSpace(map.Id) ? map.Id
+        : "(unknown)";
 }
