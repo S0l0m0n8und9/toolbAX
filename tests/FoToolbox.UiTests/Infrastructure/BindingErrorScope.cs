@@ -26,7 +26,8 @@ internal sealed class BindingErrorScope : IDisposable
     {
         PresentationTraceSources.Refresh();
         _previousLevel = PresentationTraceSources.DataBindingSource.Switch.Level;
-        PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Warning | SourceLevels.Error;
+        // SourceLevels.Warning already includes the Error and Critical bits.
+        PresentationTraceSources.DataBindingSource.Switch.Level = SourceLevels.Warning;
         PresentationTraceSources.DataBindingSource.Listeners.Add(_listener);
     }
 
