@@ -42,9 +42,11 @@ public static class ProfilePaths
 
     public static string ResolveProfileDbPath(string? baseDir = null)
     {
-        if (ResolveOverrideRoot() is not null)
+        var overrideRoot = ResolveOverrideRoot();
+        if (overrideRoot is not null)
         {
-            return ResolveAppDataPath("profile.db");
+            Directory.CreateDirectory(overrideRoot);
+            return Path.Combine(overrideRoot, "profile.db");
         }
 
         var actualBase = baseDir ?? AppContext.BaseDirectory;

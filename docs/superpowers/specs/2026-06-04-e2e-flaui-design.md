@@ -24,7 +24,7 @@ expected UI states. Every flow must be deterministic and self-cleaning.
 | --- | --- |
 | Tool | **FlaUI** (`FlaUI.UIA3` + `FlaUI.Core`), MIT, no external driver. Via CPM. |
 | Project | New `tests/FoToolbox.E2eTests` (`net10.0-windows`). Drives the built exe; no runtime ProjectReference to Host. |
-| Launch determinism | Child process with env overrides — **no production code change**. |
+| Launch determinism | Child-process env overrides **plus one minimal env-gated production hook** `FOTOOLBOX_APPDATA_DIR` (see note). |
 | Flows (v1) | (1) launch smoke + shell present + clean exit; (2) Profiles add-form input + validation. |
 | Deferred | Plugin-tab navigation (needs an active profile → profile DB seeding). Live auth/data flows (out of scope, as in Layer A). |
 | AutomationIds | Minimal targeted pass on shell + ProfilesView elements the flows touch. |
@@ -36,9 +36,15 @@ expected UI states. Every flow must be deterministic and self-cleaning.
 The built `FoToolbox.Host.exe` reaches a usable `MainWindow` (title **`toolBax`**) with no
 network, no dialogs, no auth, and isolated data when launched with these process env vars:
 
-- `LOCALAPPDATA` = a fresh temp directory per test run → isolates `profile.db`, secret
-  vault, catalog cache, trust store, logs (paths derive from `%LOCALAPPDATA%/FoToolbox/`).
-  No code hook needed; overriding the child process env is sufficient.
+- `FOTOOLBOX_APPDATA_DIR` = a fresh temp directory per test run → isolates `profile.db`,
+  secret vault, catalog cache, trust store, logs. **Correction (discovered during C3):** a
+  process `LOCALAPPDATA` override is *not* sufficient — `ProfilePaths` resolves the data
+  root via `Environment.GetFolderPath(LocalApplicationData)`, which the Windows shell
+  resolves and which ignores the process env. Without isolation the app reads the real
+  user's `profile.db`, and a stale Dataverse token there pops a blocking sign-in dialog.
+  So a single, minimal, **env-gated** production hook was added to `ProfilePaths`
+  (`FOTOOLBOX_APPDATA_DIR`); unset → byte-for-byte unchanged production behaviour. `AppDriver`
+  sets it (and `LOCALAPPDATA`) to the temp dir.
 - `FOTOOLBOX_UPDATE_MANIFEST` = empty → the (already fire-and-forget) update check is a
   no-op; zero network.
 - Bundled plugins are strong-named → auto-trusted, **no consent dialog**. No third-party

@@ -34,15 +34,15 @@ public class ProfilesFlowTests
             var tb = nameBox.AsTextBox();
             tb.Text = name;
 
-            var list = Retry.WhileNull(
-                () => win.FindFirstDescendant(cf => cf.ByAutomationId("ProfilesList")),
-                TimeSpan.FromSeconds(10)).Result?.AsListBox() ?? throw new InvalidOperationException("ProfilesList not found.");
-
-            // The list item's own Name is the bound VM type; the displayed profile name is rendered
-            // in a child TextBlock, so search the item's descendants (and its Name, for robustness).
+            // Re-acquire the list (and its items) on every poll so each iteration sees a fresh
+            // UIA snapshot — a list/items reference captured once can go stale as WPF re-renders.
+            // The item's own Name is the bound VM type; the displayed profile name is rendered in a
+            // child TextBlock, so search each item's descendants (and its Name, for robustness).
             var matched = Retry.WhileFalse(
                 () =>
                 {
+                    var list = win.FindFirstDescendant(cf => cf.ByAutomationId("ProfilesList"))?.AsListBox();
+                    if (list is null) return false;
                     foreach (var item in list.Items)
                     {
                         if ((item.Name ?? string.Empty).Contains(name, StringComparison.Ordinal)) return true;
