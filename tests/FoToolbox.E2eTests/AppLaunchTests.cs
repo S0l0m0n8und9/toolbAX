@@ -1,3 +1,5 @@
+using System;
+using FlaUI.Core.Tools;
 using FoToolbox.E2eTests.Infrastructure;
 using Xunit;
 
@@ -6,10 +8,28 @@ namespace FoToolbox.E2eTests;
 public class AppLaunchTests
 {
     [E2eFact]
-    public void App_launches_to_main_window()
+    public void App_launches_shows_profiles_and_exits_cleanly()
     {
-        using var driver = AppDriver.Launch();
-        Assert.NotNull(driver.MainWindow);
-        Assert.Contains("toolBax", driver.MainWindow.Title);
+        AppDriver? driver = null;
+        try
+        {
+            driver = AppDriver.Launch();
+            Assert.Contains("toolBax", driver.MainWindow.Title);
+
+            // The "Profiles" entry is always present (default tab when no profile exists).
+            var profiles = Retry.WhileNull(
+                () => driver!.MainWindow.FindFirstDescendant(cf => cf.ByName("Profiles")),
+                TimeSpan.FromSeconds(10)).Result;
+            Assert.NotNull(profiles);
+        }
+        catch
+        {
+            driver?.CaptureScreenshot(nameof(App_launches_shows_profiles_and_exits_cleanly));
+            throw;
+        }
+        finally
+        {
+            driver?.Dispose();
+        }
     }
 }

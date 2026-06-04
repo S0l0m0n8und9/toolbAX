@@ -40,6 +40,12 @@ internal sealed class AppDriver : IDisposable
             WorkingDirectory = Path.GetDirectoryName(exe)!,
         };
         psi.Environment["LOCALAPPDATA"] = tmp;
+        // LOCALAPPDATA alone does not isolate the app: Environment.SpecialFolder.LocalApplicationData
+        // is resolved by the Windows shell and ignores the process env override, so the app would
+        // otherwise read the real user's %LOCALAPPDATA%\FoToolbox profile.db (including any stale
+        // Dataverse token that pops a blocking "sign-in required" dialog on launch). FOTOOLBOX_APPDATA_DIR
+        // forces ProfilePaths to use this throwaway dir, guaranteeing a clean no-profile launch.
+        psi.Environment["FOTOOLBOX_APPDATA_DIR"] = tmp;
         psi.Environment["FOTOOLBOX_UPDATE_MANIFEST"] = "";
 
         var app = Application.Launch(psi);

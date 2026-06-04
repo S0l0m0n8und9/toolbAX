@@ -5,8 +5,30 @@ namespace FoToolbox.Core.Profiles;
 
 public static class ProfilePaths
 {
+    /// <summary>
+    /// When set, this directory is used as the FoToolbox app-data root instead of
+    /// %LOCALAPPDATA%\FoToolbox. Intended for test isolation (E2E/integration), since
+    /// <see cref="Environment.SpecialFolder.LocalApplicationData"/> is resolved by the
+    /// Windows shell and ignores a process-scoped LOCALAPPDATA environment override.
+    /// Production leaves this unset, preserving the existing %LOCALAPPDATA% behaviour.
+    /// </summary>
+    public const string AppDataDirEnvVar = "FOTOOLBOX_APPDATA_DIR";
+
+    private static string? ResolveOverrideRoot()
+    {
+        var overrideRoot = Environment.GetEnvironmentVariable(AppDataDirEnvVar);
+        return string.IsNullOrWhiteSpace(overrideRoot) ? null : overrideRoot;
+    }
+
     public static string ResolveAppDataPath(string fileName)
     {
+        var overrideRoot = ResolveOverrideRoot();
+        if (overrideRoot is not null)
+        {
+            Directory.CreateDirectory(overrideRoot);
+            return Path.Combine(overrideRoot, fileName);
+        }
+
         var localRoot = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         if (string.IsNullOrWhiteSpace(localRoot))
         {
@@ -20,6 +42,11 @@ public static class ProfilePaths
 
     public static string ResolveProfileDbPath(string? baseDir = null)
     {
+        if (ResolveOverrideRoot() is not null)
+        {
+            return ResolveAppDataPath("profile.db");
+        }
+
         var actualBase = baseDir ?? AppContext.BaseDirectory;
         var localRoot = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         if (string.IsNullOrWhiteSpace(localRoot))
