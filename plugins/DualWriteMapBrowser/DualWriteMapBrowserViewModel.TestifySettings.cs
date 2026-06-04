@@ -11,7 +11,7 @@ public sealed partial class DualWriteMapBrowserViewModel
 
     public RelayCommand OpenTestifySettingsCommand { get; private set; } = null!;
 
-    internal TestifyConfigurationViewModel? TestifySettingsViewModel
+    public TestifyConfigurationViewModel? TestifySettingsViewModel
     {
         get => _testifySettingsViewModel;
         private set
