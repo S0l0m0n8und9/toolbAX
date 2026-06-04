@@ -41,7 +41,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     private string _applyVersionAuthorFilter = string.Empty;
     private bool _forceReset;
     private string _mapSearch = string.Empty;
-    private string _mapListSummary = "0 maps";
+    private string _mapListSummary = "Showing 0 of 0 map(s)";
     private string _statusMessage = "Configure the connection, then Load Maps.";
     private string _connectionSummary = "Not connected.";
     private bool _isBusy;
@@ -104,7 +104,8 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
 
         MapsView = CollectionViewSource.GetDefaultView(Maps);
         MapsView.Filter = o => o is DualWriteMapRow row && row.Matches(MapSearch);
-        Maps.CollectionChanged += (_, _) => UpdateMapListSummary();
+        // The summary is recomputed once after each bulk load (LoadMaps/RefreshMapStates) and on
+        // search change — avoiding an O(n^2) scan if we recomputed on every per-item Add.
         UpdateMapListSummary();
 
         _ = InitializeAsync();
@@ -389,6 +390,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
             {
                 Maps.Add(new DualWriteMapRow(map));
             }
+            UpdateMapListSummary();
 
             ConnectionSummary = $"Connected to {DescribeEnv(env)} — {maps.Count} map(s).";
             StatusMessage = $"Loaded {maps.Count} map(s).";
@@ -826,6 +828,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         {
             Maps.Add(new DualWriteMapRow(map) { IsSelected = selectedNames.Contains(map.Id) });
         }
+        UpdateMapListSummary();
     }
 
     private void UpdateConnectionSummary(DualWriteConnectionSettings settings)

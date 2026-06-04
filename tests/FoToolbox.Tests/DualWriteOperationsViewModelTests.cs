@@ -780,6 +780,8 @@ public class DualWriteOperationsViewModelTests
     [InlineData("contoso")]     // author
     [InlineData("paus")]        // state substring
     [InlineData("2.5")]         // version
+    [InlineData("map-id")]      // identifier: Map.Id ("map-id-1")
+    [InlineData("RAWNAME")]     // identifier: Map.Name ("rawname"), case-insensitive
     public void MapRow_Matches_AcrossUserFacingFields_CaseInsensitive(string search)
     {
         var row = Row("Customers V3", ce: "accounts", author: "Contoso", state: "Paused", version: "2.5.0");
