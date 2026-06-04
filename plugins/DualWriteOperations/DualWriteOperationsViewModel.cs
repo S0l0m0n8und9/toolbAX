@@ -21,9 +21,9 @@ namespace DualWriteOperationsPlugin;
 /// <summary>
 /// Drives the Dual-write Management gateway: resolve environment, list maps, and run
 /// lifecycle actions (start/stop/pause/resume/initial-sync) with live status polling.
-/// Connection settings (gateway URL, F&amp;O identifier, bearer token) are owned by the
-/// plugin via <see cref="DualWriteConnectionStore"/> — the host auth/profile schema is
-/// untouched for this bearer-token-now v1.
+/// Connection settings (gateway URL and F&amp;O identifier) are owned by the plugin via
+/// <see cref="DualWriteConnectionStore"/>; tokens are obtained exclusively through the
+/// interactive sign-in flow and stored DPAPI-protected. The host auth/profile schema is untouched.
 /// </summary>
 public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
 {
@@ -346,7 +346,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         var settings = await _store.GetAsync(_envId, ct);
         if (!settings.IsComplete)
         {
-            StatusMessage = "Configure the gateway URL, F&O identifier and bearer token, then Save.";
+            StatusMessage = "Configure the gateway URL and F&O identifier, sign in, then Load Maps.";
             return;
         }
 
@@ -819,7 +819,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     {
         ConnectionSummary = settings.IsComplete
             ? $"Configured for {settings.GatewayBaseUrl} (identifier: {settings.FoIdentifier})."
-            : "Not connected — gateway URL, identifier and token required.";
+            : "Not connected — configure the gateway URL and F&O identifier, then sign in.";
     }
 
     // #27: never surface the raw connection id (cid, a GUID) in user-facing text. Prefer the
