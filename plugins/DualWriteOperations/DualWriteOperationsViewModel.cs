@@ -371,7 +371,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
             return;
         }
 
-        var names = string.Join(", ", selected.Select(m => string.IsNullOrWhiteSpace(m.DisplayName) ? m.Name : m.DisplayName));
+        var names = string.Join(", ", selected.Select(DescribeMap));
         var detail = $"{action.ToDisplayName()} the following map(s) on the LIVE environment '{EnvironmentName}'?\n\n{names}";
         if (action == DualWriteActionType.InitialSync)
         {
@@ -387,25 +387,45 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         IsBusy = true;
         try
         {
-            StatusMessage = $"Submitting {action.ToDisplayName()} for {selected.Count} map(s)...";
-            var response = await _gateway.StartActionAsync(action, selected, _cid!, ct);
-            if (string.IsNullOrWhiteSpace(response.RequestId))
+            var actionSucceeded = false;
+            try
             {
-                StatusMessage = $"{action.ToDisplayName()} submitted (gateway returned no request id to poll).";
+                StatusMessage = $"Submitting {action.ToDisplayName()} for {selected.Count} map(s)...";
+                var response = await _gateway.StartActionAsync(action, selected, _cid!, ct);
+                if (string.IsNullOrWhiteSpace(response.RequestId))
+                {
+                    StatusMessage = $"{action.ToDisplayName()} submitted (gateway returned no request id to poll).";
+                }
+                else
+                {
+                    await PollUntilTerminalAsync(action, response.RequestId, ct);
+                }
+
+                actionSucceeded = true;
             }
-            else
+            catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                await PollUntilTerminalAsync(action, response.RequestId, ct);
+                // Name the action + affected map(s) so a gateway failure is diagnosable; the
+                // message carries only non-sensitive gateway detail (never the bearer token).
+                _ctx.Logger.LogError(ex, "Dual-write {Action} failed for {MapCount} map(s).", action.ToDisplayName(), selected.Count);
+                StatusMessage = $"{action.ToDisplayName()} failed for map(s) {names}: {ex.Message}";
             }
 
-            await RefreshMapStatesAsync(ct);
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            // Name the action + affected map(s) so a gateway failure is diagnosable; the exception
-            // message carries only non-sensitive gateway detail (never the bearer token).
-            _ctx.Logger.LogError(ex, "Dual-write {Action} failed for {MapCount} map(s).", action.ToDisplayName(), selected.Count);
-            StatusMessage = $"{action.ToDisplayName()} failed for map(s) {names}: {ex.Message}";
+            // Refresh map states separately: a transient refresh failure must never be reported as
+            // the lifecycle action having failed (the action already succeeded, and a spurious
+            // "failed" message could prompt a harmful retry of a map that already transitioned).
+            try
+            {
+                await RefreshMapStatesAsync(ct);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                _ctx.Logger.LogError(ex, "Refreshing dual-write map states after {Action} failed.", action.ToDisplayName());
+                if (actionSucceeded)
+                {
+                    StatusMessage = $"{action.ToDisplayName()} finished, but refreshing the map list failed: {ex.Message}. Reload maps to see the current state.";
+                }
+            }
         }
         finally
         {
