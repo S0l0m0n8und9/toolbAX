@@ -42,8 +42,15 @@ public class DualWriteOperationsViewModelTests
             return Task.FromResult<IReadOnlyList<DualWriteMap>>(MapsList.ToList());
         }
 
+        public Exception? StartActionFault { get; set; }
+
         public Task<DualWriteActionResponse> StartActionAsync(DualWriteActionType action, IReadOnlyList<DualWriteMap> maps, string cid, CancellationToken ct = default)
         {
+            if (StartActionFault is not null)
+            {
+                return Task.FromException<DualWriteActionResponse>(StartActionFault);
+            }
+
             Actions.Add((action, maps.Count, cid));
             return Task.FromResult(ActionResponse);
         }
@@ -264,6 +271,72 @@ public class DualWriteOperationsViewModelTests
         {
             File.Delete(path);
         }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task StartAction_SelectedMapMissingProjectId_DoesNotCallGateway_AndReportsClearError()
+    {
+        // Regression for #25: a selected map with no project id (pid) must be rejected client-side
+        // with a clear, action- and map-named message instead of being sent and triggering a
+        // gateway 500 NullReferenceException.
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway();
+            gateway.MapsList.Add(new DualWriteMap("a", "Customers", "Customers", "", "Stopped",
+                new DualWriteTemplate("t-a", "1.0", "MS"), Array.Empty<DualWriteTemplate>()));
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
+            {
+                ConfirmAction = (_, _) => true
+            };
+            await vm.LoadMapsCommand.ExecuteAsync();
+            vm.Maps[0].IsSelected = true;
+
+            await vm.StartCommand.ExecuteAsync();
+
+            Assert.Empty(gateway.Actions);
+            Assert.Contains("Start", vm.StatusMessage, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Customers", vm.StatusMessage, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("project", vm.StatusMessage, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task Action_WhenGatewayFails_ReportsActionAndMap_WithoutLeakingToken()
+    {
+        // Regression for #25: when the gateway still fails, the error surface must name the
+        // lifecycle action and the affected map(s) (and never the bearer token).
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway
+            {
+                StartActionFault = new DualWriteGatewayException(
+                    "Dual-write gateway request failed: 500 Internal Server Error.",
+                    System.Net.HttpStatusCode.InternalServerError)
+            };
+            gateway.MapsList.Add(Map("a", "Customers"));
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
+            {
+                ConfirmAction = (_, _) => true,
+                PollInterval = TimeSpan.Zero
+            };
+            await vm.LoadMapsCommand.ExecuteAsync();
+            vm.Maps[0].IsSelected = true;
+
+            await vm.StartCommand.ExecuteAsync();
+
+            Assert.Empty(gateway.Actions); // faulted before recording
+            Assert.Contains("Start", vm.StatusMessage, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("Customers", vm.StatusMessage, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("tok-123", vm.StatusMessage, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { File.Delete(path); }
     }
 
     [Trait("Category", "DualWrite")]

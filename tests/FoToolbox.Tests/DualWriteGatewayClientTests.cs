@@ -280,6 +280,53 @@ public class MapActionPayloadBuilderTests
         Assert.Throws<ArgumentException>(() =>
             MapActionPayloadBuilder.Build(DualWriteActionType.Start, Array.Empty<DualWriteMap>(), "C123"));
     }
+
+    // Regression for #25: a selected map with an empty project id (pid) serialized to the gateway
+    // triggers a server-side NullReferenceException (500). Reject it client-side with a clear,
+    // map-named error instead of sending "pid":"".
+    [Trait("Category", "DualWrite")]
+    [Theory]
+    [InlineData(DualWriteActionType.Start)]
+    [InlineData(DualWriteActionType.Stop)]
+    [InlineData(DualWriteActionType.Pause)]
+    [InlineData(DualWriteActionType.Resume)]
+    public void Build_NonInitialSyncWithEmptyProjectId_Throws(DualWriteActionType action)
+    {
+        var map = new DualWriteMap("id1", "Customers", "Customers V3 → accounts", "", "Stopped",
+            new DualWriteTemplate("t1", "1.0", "MS"), Array.Empty<DualWriteTemplate>());
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            MapActionPayloadBuilder.Build(action, new[] { map }, "C123"));
+        Assert.Contains("Customers V3", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("project", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void Build_WithEmptyTemplateId_Throws()
+    {
+        // tid (template id) is required for every action; an empty tid also NREs the gateway.
+        var map = new DualWriteMap("", "Vendors", "Vendors V2 → vendors", "proj-1", "Stopped",
+            new DualWriteTemplate("", "1.0", "MS"), Array.Empty<DualWriteTemplate>());
+
+        var ex = Assert.Throws<ArgumentException>(() =>
+            MapActionPayloadBuilder.Build(DualWriteActionType.Start, new[] { map }, "C123"));
+        Assert.Contains("Vendors V2", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("template", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void Build_InitialSyncWithEmptyProjectId_DoesNotThrow()
+    {
+        // Initial sync omits pid entirely (action-8 shape), so a missing project id must not block it.
+        var map = new DualWriteMap("id1", "Customers", "Customers", "", "Stopped",
+            new DualWriteTemplate("t1", "1.0", "MS"), Array.Empty<DualWriteTemplate>());
+
+        var json = MapActionPayloadBuilder.Build(DualWriteActionType.InitialSync, new[] { map }, "C123");
+        using var doc = JsonDocument.Parse(json);
+        Assert.False(doc.RootElement.GetProperty("details")[0].TryGetProperty("pid", out _));
+    }
 }
 
 public class DualWriteStatusInterpreterTests

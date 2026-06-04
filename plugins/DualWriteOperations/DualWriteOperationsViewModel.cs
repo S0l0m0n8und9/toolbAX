@@ -358,6 +358,19 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
             return;
         }
 
+        // Validate required gateway context up front: a selected map missing its template id (tid)
+        // or, for non-initial-sync actions, its project id (pid) would otherwise be sent and surface
+        // as an opaque gateway "500 NullReferenceException" (#25). Fail with a clear, map-named error.
+        var missingContext = selected.Where(m => !HasRequiredActionContext(m, action)).ToList();
+        if (missingContext.Count > 0)
+        {
+            var missingNames = string.Join(", ", missingContext.Select(DescribeMap));
+            StatusMessage =
+                $"Cannot {action.ToDisplayName()}: map(s) {missingNames} are missing required dual-write context " +
+                "(project id / template). Reload maps and verify the dual-write configuration in the portal.";
+            return;
+        }
+
         var names = string.Join(", ", selected.Select(m => string.IsNullOrWhiteSpace(m.DisplayName) ? m.Name : m.DisplayName));
         var detail = $"{action.ToDisplayName()} the following map(s) on the LIVE environment '{EnvironmentName}'?\n\n{names}";
         if (action == DualWriteActionType.InitialSync)
@@ -387,11 +400,40 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
 
             await RefreshMapStatesAsync(ct);
         }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            // Name the action + affected map(s) so a gateway failure is diagnosable; the exception
+            // message carries only non-sensitive gateway detail (never the bearer token).
+            _ctx.Logger.LogError(ex, "Dual-write {Action} failed for {MapCount} map(s).", action.ToDisplayName(), selected.Count);
+            StatusMessage = $"{action.ToDisplayName()} failed for map(s) {names}: {ex.Message}";
+        }
         finally
         {
             IsBusy = false;
         }
     }
+
+    /// <summary>
+    /// True when the map carries the gateway context a lifecycle action requires: a template id
+    /// (tid) for every action, plus a project id (pid) for all actions except initial sync.
+    /// </summary>
+    private static bool HasRequiredActionContext(DualWriteMap map, DualWriteActionType action)
+    {
+        var hasTemplate = !string.IsNullOrWhiteSpace(map.ActiveTemplate?.Id) || !string.IsNullOrWhiteSpace(map.Id);
+        if (!hasTemplate)
+        {
+            return false;
+        }
+
+        return action == DualWriteActionType.InitialSync || !string.IsNullOrWhiteSpace(map.ProjectId);
+    }
+
+    /// <summary>A human-friendly identifier for a map, for status/error messages.</summary>
+    private static string DescribeMap(DualWriteMap map) =>
+        !string.IsNullOrWhiteSpace(map.DisplayName) ? map.DisplayName
+        : !string.IsNullOrWhiteSpace(map.Name) ? map.Name
+        : !string.IsNullOrWhiteSpace(map.Id) ? map.Id
+        : "(unknown map)";
 
     private async Task ApplyLatestVersionAsync(CancellationToken ct)
     {
