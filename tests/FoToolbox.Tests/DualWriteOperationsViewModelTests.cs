@@ -462,6 +462,101 @@ public class DualWriteOperationsViewModelTests
 
     [Trait("Category", "DualWrite")]
     [Fact]
+    public async Task ApplyVersionAuthorFilter_RestrictsTemplateSelectionToThatAuthor()
+    {
+        // #29: the author filter scopes ONLY the "Apply Latest Version" action — it restricts which
+        // template author's versions are considered, not the visible map list or other actions.
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway();
+            gateway.MapsList.Add(new DualWriteMap(
+                "a", "Customers", "Customers", "pid-a", "Running",
+                new DualWriteTemplate("t-active", "1.0.0", "MS"),
+                new[]
+                {
+                    new DualWriteTemplate("t-ms", "1.0.0", "MS"),
+                    new DualWriteTemplate("t-partner", "2.0.0", "Partner")
+                }));
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
+            {
+                ConfirmAction = (_, _) => true,
+                ApplyVersionAuthorFilter = "MS"
+            };
+            await vm.LoadMapsCommand.ExecuteAsync();
+            vm.Maps[0].IsSelected = true;
+
+            await vm.ApplyLatestVersionCommand.ExecuteAsync();
+
+            // With the filter set to MS, the higher Partner v2.0.0 must be ignored.
+            var sw = Assert.Single(gateway.Switches);
+            Assert.Equal("t-ms", sw.TemplateId);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task Lifecycle_IgnoresApplyVersionAuthorFilter()
+    {
+        // #29: a non-matching author filter must NOT silently narrow Start/Stop/Pause/Resume.
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway();
+            gateway.MapsList.Add(Map("a")); // author "MS"
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
+            {
+                ConfirmAction = (_, _) => true,
+                PollInterval = TimeSpan.Zero,
+                ApplyVersionAuthorFilter = "NoSuchAuthor"
+            };
+            await vm.LoadMapsCommand.ExecuteAsync();
+            vm.Maps[0].IsSelected = true;
+
+            await vm.StartCommand.ExecuteAsync();
+
+            var action = Assert.Single(gateway.Actions);
+            Assert.Equal(1, action.MapCount); // map acted on despite the non-matching author filter
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task ExportConfig_IgnoresApplyVersionAuthorFilter()
+    {
+        // #29: export must include all loaded maps regardless of the author filter.
+        var storePath = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        var exportPath = Path.Combine(Path.GetTempPath(), $"dwexport-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(storePath);
+            var gateway = new FakeGateway();
+            gateway.MapsList.Add(Map("a", "Customers")); // author "MS"
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway))
+            {
+                ChooseExportPath = _ => exportPath,
+                ApplyVersionAuthorFilter = "NoSuchAuthor"
+            };
+            await vm.LoadMapsCommand.ExecuteAsync();
+
+            await vm.ExportConfigCommand.ExecuteAsync();
+
+            Assert.True(File.Exists(exportPath));
+            Assert.Contains("Customers", await File.ReadAllTextAsync(exportPath));
+        }
+        finally
+        {
+            File.Delete(storePath);
+            if (File.Exists(exportPath)) File.Delete(exportPath);
+        }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
     public async Task ApplyLatestVersion_PicksHighestTemplate_AndCallsSwitchActive()
     {
         var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");

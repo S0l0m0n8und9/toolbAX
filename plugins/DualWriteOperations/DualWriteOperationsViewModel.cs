@@ -37,7 +37,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     private string _gatewayBaseUrl = string.Empty;
     private string _foIdentifier = string.Empty;
     private string _bearerToken = string.Empty;
-    private string _authorFilter = string.Empty;
+    private string _applyVersionAuthorFilter = string.Empty;
     private bool _forceReset;
     private string _statusMessage = "Configure the connection, then Load Maps.";
     private string _connectionSummary = "Not connected.";
@@ -122,11 +122,17 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
 
     public string EnvironmentName => _ctx.CurrentEnv.Name;
 
-    /// <summary>Optional comma/semicolon-separated author filter for "apply latest version" (empty = any author).</summary>
-    public string AuthorFilter
+    /// <summary>
+    /// Optional comma/semicolon-separated list of template authors that scopes ONLY the
+    /// "Apply Latest Version" action: it restricts which author's template versions are considered
+    /// when picking the latest (empty = any author). It does NOT filter the visible map list and
+    /// does NOT affect Start/Stop/Pause/Resume, Refresh Tables, Export, Reset Link, or Apply
+    /// Integration Keys — those operate on the explicitly selected/loaded maps (#29).
+    /// </summary>
+    public string ApplyVersionAuthorFilter
     {
-        get => _authorFilter;
-        set { if (_authorFilter != value) { _authorFilter = value; OnPropertyChanged(); } }
+        get => _applyVersionAuthorFilter;
+        set { if (_applyVersionAuthorFilter != value) { _applyVersionAuthorFilter = value; OnPropertyChanged(); } }
     }
 
     /// <summary>When true, the reset-link request sets forceReset=true.</summary>
@@ -473,7 +479,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
             return;
         }
 
-        var authors = TemplateSelector.ParseAuthorFilter(AuthorFilter);
+        var authors = TemplateSelector.ParseAuthorFilter(ApplyVersionAuthorFilter);
         var plan = new List<(DualWriteMap Map, DualWriteTemplate Template)>();
         var skipped = new List<string>();
         foreach (var map in selected)

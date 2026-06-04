@@ -139,10 +139,11 @@
                     <Button Content="Apply Latest Version" Command="{Binding ApplyLatestVersionCommand}" Padding="12,4" MinWidth="140" IsEnabled="{Binding IsNotBusy}" />
                     <Button Content="Refresh Tables" Command="{Binding RefreshTablesCommand}" Padding="12,4" MinWidth="110" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
                     <Button Content="Export Config" Command="{Binding ExportConfigCommand}" Padding="12,4" MinWidth="110" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
-                    <TextBlock Text="Author filter:" VerticalAlignment="Center" Margin="8,0,4,0" />
+                    <TextBlock Text="Apply-version author(s):" VerticalAlignment="Center" Margin="8,0,4,0"
+                               ToolTip="Scopes the 'Apply Latest Version' button only — restricts which template author's versions are considered. It does not filter the map list or affect Start/Stop/Pause/Resume, Refresh Tables, or Export." />
                     <TextBox Width="160" VerticalAlignment="Center"
-                             Text="{Binding AuthorFilter, UpdateSourceTrigger=PropertyChanged}"
-                             ToolTip="Optional. Comma-separated authors; blank = any author." />
+                             Text="{Binding ApplyVersionAuthorFilter, UpdateSourceTrigger=PropertyChanged}"
+                             ToolTip="Comma-separated template authors used only by 'Apply Latest Version' (blank = any author). Does not filter the map list or affect Start/Stop/Pause/Resume, Refresh Tables, or Export." />
                     <Border Width="1" Margin="10,2" Background="{DynamicResource Fo.BorderBrush}" />
                     <Button Content="Reset Link" Command="{Binding ResetLinkCommand}" Padding="12,4" MinWidth="100" IsEnabled="{Binding IsNotBusy}" />
                     <CheckBox Content="Force reset" VerticalAlignment="Center" Margin="8,0,0,0" IsChecked="{Binding ForceReset}" />
