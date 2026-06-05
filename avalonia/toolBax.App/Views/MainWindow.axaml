@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:ToolBax.App.ViewModels"
         xmlns:models="using:ToolBax.App.Models"
+        xmlns:views="using:ToolBax.App.Views"
         x:Class="ToolBax.App.Views.MainWindow"
         x:DataType="vm:ShellViewModel"
         Title="toolBax"
@@ -72,16 +73,18 @@
           </ListBox>
         </Border>
 
-        <!-- Content host: tool screens plug in here as they are built. -->
+        <!-- Content host: routes the current tool's VM to its view (DataTemplates). -->
         <Border Grid.Column="1" Background="{StaticResource Layer1Brush}">
-          <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
-            <TextBlock x:Name="ContentTitle"
-                       Text="{Binding CurrentTool.Title}"
-                       FontSize="24" FontWeight="SemiBold"
-                       HorizontalAlignment="Center" Foreground="{StaticResource Text0Brush}" />
-            <TextBlock Text="Screen coming soon"
-                       FontSize="13" HorizontalAlignment="Center" Foreground="{StaticResource Text3Brush}" />
-          </StackPanel>
+          <ContentControl Content="{Binding CurrentContent}">
+            <ContentControl.DataTemplates>
+              <DataTemplate DataType="vm:DualWriteOpsViewModel">
+                <views:DualWriteOpsView />
+              </DataTemplate>
+              <DataTemplate DataType="vm:PlaceholderScreenViewModel">
+                <views:PlaceholderScreenView />
+              </DataTemplate>
+            </ContentControl.DataTemplates>
+          </ContentControl>
         </Border>
       </Grid>
 

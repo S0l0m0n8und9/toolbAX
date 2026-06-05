@@ -19,12 +19,26 @@ public partial class MapRowViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsTransitional))]
+    [NotifyPropertyChangedFor(nameof(StateText))]
     private MapState _state;
 
     [ObservableProperty]
     private bool _isChecked;
 
     public bool IsTransitional => DwActions.IsTransitional(State);
+
+    /// <summary>Friendly state label for the grid (e.g. "pausing…" while transitional).</summary>
+    public string StateText => IsTransitional ? $"{State.ToString().ToLowerInvariant()}…" : State.ToString();
+
+    public string DirectionArrow => Direction switch
+    {
+        DwDirection.Both => "↔",
+        DwDirection.FoToDv => "→",
+        _ => "←",
+    };
+
+    /// <summary>"{fo} {arrow} {dv}" map identity for the Table-map column.</summary>
+    public string MapDisplay => $"{FoEntity} {DirectionArrow} {DvEntity}";
 
     public static MapRowViewModel From(DwMap m) => new()
     {

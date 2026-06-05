@@ -1,8 +1,11 @@
+using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ToolBax.App.Models;
+using ToolBax.App.Services;
+using ToolBax.Core.Services;
 
 namespace ToolBax.App.ViewModels;
 
@@ -17,8 +20,17 @@ public partial class ShellViewModel : ObservableObject
     public ObservableCollection<EnvProfile> Environments { get; }
     public CommandPaletteViewModel Palette { get; }
 
+    // Factory for the (heavier) Operations screen VM, injected so tests can supply fakes. Built once
+    // on first navigation to the Operations tool.
+    private readonly Func<object> _operationsContentFactory;
+    private object? _operationsContent;
+
     [ObservableProperty]
     private NavTool _currentTool;
+
+    /// <summary>The active screen VM the content host renders (routed from <see cref="CurrentTool"/>).</summary>
+    [ObservableProperty]
+    private object? _currentContent;
 
     [ObservableProperty]
     private EnvProfile _activeEnvironment;
@@ -32,8 +44,10 @@ public partial class ShellViewModel : ObservableObject
     [ObservableProperty]
     private bool _isCommandPaletteOpen;
 
-    public ShellViewModel()
+    public ShellViewModel(Func<object>? operationsContentFactory = null)
     {
+        _operationsContentFactory = operationsContentFactory ?? DefaultOperationsContent;
+
         Tools = new[]
         {
             new NavTool("home", "Plugins", '\0'),
@@ -56,6 +70,7 @@ public partial class ShellViewModel : ObservableObject
         _currentTool = Tools[0];
         _activeEnvironment = Environments[0];
         Palette = new CommandPaletteViewModel(Tools, NavigateTo);
+        _currentContent = ResolveContent(_currentTool);
     }
 
     private void NavigateTo(NavTool tool)
@@ -63,6 +78,20 @@ public partial class ShellViewModel : ObservableObject
         CurrentTool = tool;
         IsCommandPaletteOpen = false;
     }
+
+    partial void OnCurrentToolChanged(NavTool value) => CurrentContent = ResolveContent(value);
+
+    private object ResolveContent(NavTool tool) => tool.Id switch
+    {
+        "ops" => _operationsContent ??= _operationsContentFactory(),
+        _ => new PlaceholderScreenViewModel(tool.Title),
+    };
+
+    private static object DefaultOperationsContent() => new DualWriteOpsViewModel(
+        new FakeDualWriteGateway(),
+        new DialogService(),
+        FakeDualWriteGateway.SeedGateway(),
+        FakeDualWriteGateway.SeedMaps());
 
     [RelayCommand]
     private void TogglePane() => IsPaneOpen = !IsPaneOpen;
