@@ -57,6 +57,22 @@ public class DualWriteMapViewModelTests
     }
 
     [Fact]
+    public void Filtering_out_the_selected_map_keeps_the_detail()
+    {
+        var vm = MakeVm();
+        vm.SelectedMap = vm.Maps.Single(m => m.Id == "cust-account");
+        Assert.True(vm.HasBindings);
+
+        // The ListBox nulls SelectedItem when the current row leaves the filtered set; the detail
+        // pane must not be wiped.
+        vm.SelectedMap = null;
+
+        Assert.Equal("cust-account", vm.DetailMap!.Id);
+        Assert.True(vm.HasBindings);
+        Assert.NotEmpty(vm.Bindings);
+    }
+
+    [Fact]
     public void Errors_indicator_reflects_the_selected_map_error_count()
     {
         var vm = MakeVm();

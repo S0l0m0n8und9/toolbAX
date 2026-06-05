@@ -26,8 +26,15 @@ public partial class DualWriteMapViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(Filtered))]
     private string _search = string.Empty;
 
+    // Bound to the ListBox. Filtering can null this out when the selected item leaves the result set;
+    // DetailMap (below) is what actually drives the detail pane so the panel doesn't get wiped.
     [ObservableProperty]
     private DwMapSummary? _selectedMap;
+
+    // The map whose detail is shown. Only ever advanced by a real (non-null) selection, so a search
+    // that hides the current row leaves the detail intact.
+    [ObservableProperty]
+    private DwMapSummary? _detailMap;
 
     [ObservableProperty]
     private bool _hasBindings;
@@ -54,13 +61,22 @@ public partial class DualWriteMapViewModel : ObservableObject
 
     public bool HasValueMaps => ValueMaps.Count > 0;
 
-    public bool HasErrors => SelectedMap?.HasErrors ?? false;
+    public bool HasErrors => DetailMap?.HasErrors ?? false;
 
-    public string NotCachedMessage => SelectedMap is null
+    public string NotCachedMessage => DetailMap is null
         ? string.Empty
-        : $"Field bindings for {SelectedMap.FoEntity} aren't cached — open the map once to fetch its template.";
+        : $"Field bindings for {DetailMap.FoEntity} aren't cached — open the map once to fetch its template.";
 
     partial void OnSelectedMapChanged(DwMapSummary? value)
+    {
+        // Ignore the null the ListBox emits when filtering hides the current row — keep the detail.
+        if (value is not null)
+        {
+            DetailMap = value;
+        }
+    }
+
+    partial void OnDetailMapChanged(DwMapSummary? value)
     {
         LoadDetail(value);
         OnPropertyChanged(nameof(HasErrors));
