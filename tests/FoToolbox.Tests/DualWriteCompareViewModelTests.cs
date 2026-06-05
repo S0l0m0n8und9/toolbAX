@@ -89,6 +89,105 @@ public class DualWriteCompareViewModelTests
 
     [Trait("Category", "DualWrite")]
     [Fact]
+    public async Task Editor_SignIn_StoresDiscoveredGatewayAndDelegatedSession()
+    {
+        // #24: each side authenticates via interactive sign-in (no pasted token); the resolved
+        // gateway URL + delegated session are stored, keyed independently per side.
+        var path = Path.Combine(Path.GetTempPath(), $"dwcmp-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = new DualWriteConnectionStore(path, new PassthroughProtector());
+            var editor = new ConnectionEditorViewModel("Left", "Environment A", store,
+                (_, _) => Task.FromResult<DualWriteSignInResult?>(new DualWriteSignInResult(
+                    new DualWriteToken("acc", "ref", new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)),
+                    "https://gw.discovered")),
+                _ => { })
+            {
+                FoIdentifier = "uat-fo"
+            };
+
+            await editor.SignInCommand.ExecuteAsync();
+
+            var saved = await store.GetAsync("Left", CancellationToken.None);
+            Assert.Equal("https://gw.discovered", saved.GatewayBaseUrl);
+            Assert.Equal("acc", saved.BearerToken);
+            Assert.Equal("ref", saved.RefreshToken);
+            Assert.True(saved.HasDelegatedSession);
+            Assert.Equal("https://gw.discovered", editor.GatewayBaseUrl);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task Editor_SignInCancelled_DoesNotStore()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwcmp-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = new DualWriteConnectionStore(path, new PassthroughProtector());
+            var editor = new ConnectionEditorViewModel("Left", "Environment A", store,
+                (_, _) => Task.FromResult<DualWriteSignInResult?>(null), _ => { })
+            {
+                FoIdentifier = "uat-fo"
+            };
+
+            await editor.SignInCommand.ExecuteAsync();
+
+            var saved = await store.GetAsync("Left", CancellationToken.None);
+            Assert.False(saved.IsComplete);
+            Assert.Contains("cancelled", editor.Summary, StringComparison.OrdinalIgnoreCase);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task Editor_ClearToken_RemovesSession_KeepsGatewayAndIdentifier()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwcmp-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = new DualWriteConnectionStore(path, new PassthroughProtector());
+            await store.SaveAsync(new DualWriteConnectionSettings("Right", "https://gw", "uat-fo", "tok"), CancellationToken.None);
+            var editor = new ConnectionEditorViewModel("Right", "Environment B", store,
+                (_, _) => Task.FromResult<DualWriteSignInResult?>(null), _ => { });
+
+            await editor.ClearTokenCommand.ExecuteAsync();
+
+            var saved = await store.GetAsync("Right", CancellationToken.None);
+            Assert.True(string.IsNullOrEmpty(saved.BearerToken));
+            Assert.Equal("https://gw", saved.GatewayBaseUrl);
+            Assert.Equal("uat-fo", saved.FoIdentifier);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task Editor_SignIn_IsIndependentPerSide()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwcmp-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = new DualWriteConnectionStore(path, new PassthroughProtector());
+            DualWriteSignInResult? Flow(string id, bool clear) =>
+                new DualWriteSignInResult(new DualWriteToken($"acc-{id}", "ref", new DateTimeOffset(2026, 1, 1, 0, 0, 0, TimeSpan.Zero)), $"https://gw-{id}");
+
+            var left = new ConnectionEditorViewModel("Left", "A", store, (id, c) => Task.FromResult(Flow(id, c)), _ => { }) { FoIdentifier = "left-fo" };
+            var right = new ConnectionEditorViewModel("Right", "B", store, (id, c) => Task.FromResult(Flow(id, c)), _ => { }) { FoIdentifier = "right-fo" };
+
+            await left.SignInCommand.ExecuteAsync();
+            await right.SignInCommand.ExecuteAsync();
+
+            Assert.Equal("acc-left-fo", (await store.GetAsync("Left", CancellationToken.None)).BearerToken);
+            Assert.Equal("acc-right-fo", (await store.GetAsync("Right", CancellationToken.None)).BearerToken);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
     public async Task Compare_LoadsBothEnvironments_AndProducesDiffRows()
     {
         var path = Path.Combine(Path.GetTempPath(), $"dwcmp-{Guid.NewGuid():N}.json");
