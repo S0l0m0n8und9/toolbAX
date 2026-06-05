@@ -227,6 +227,7 @@
 
                 <!-- Plugin content -->
                 <ContentControl Grid.Row="1"
+                                AutomationProperties.AutomationId="FoPluginContent"
                                 Content="{Binding ActiveControl}"
                                 Background="{DynamicResource Fo.Ink1Brush}" />
             </Grid>

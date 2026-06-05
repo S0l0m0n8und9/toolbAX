@@ -21,12 +21,17 @@
     <EmbeddedResource Include="PluginManifest.json" />
   </ItemGroup>
 
+  <!-- Copy into a per-plugin subfolder (canonical layout), matching the other plugins. Copying flat
+       into plugins\ root dumps the dependency closure (FoToolbox.Core/SDK, Microsoft.*, SQLitePCLRaw.*)
+       loose in the root, where the host discovers them as unsigned LegacyFlat plugin candidates and
+       pops a blocking "unsigned plugin wants to load" trust prompt that wedges startup once a profile
+       is active. -->
   <Target Name="CopyPluginToHostBin" AfterTargets="Build">
     <ItemGroup>
       <PluginOutput Include="$(TargetDir)**\*.*" />
     </ItemGroup>
     <Copy SourceFiles="@(PluginOutput)"
-          DestinationFiles="@(PluginOutput->'$(RepoRoot)src\\FoToolbox.Host\\bin\\$(Configuration)\\$(TargetFramework)\\plugins\\%(RecursiveDir)%(Filename)%(Extension)')"
+          DestinationFiles="@(PluginOutput->'$(RepoRoot)src\\FoToolbox.Host\\bin\\$(Configuration)\\$(TargetFramework)\\plugins\\HelloPlugin\\%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
   </Target>
 

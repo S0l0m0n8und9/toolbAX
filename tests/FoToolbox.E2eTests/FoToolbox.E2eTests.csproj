@@ -17,6 +17,9 @@
     <ProjectReference Include="..\..\src\FoToolbox.Host\FoToolbox.Host.csproj">
       <ReferenceOutputAssembly>false</ReferenceOutputAssembly>
     </ProjectReference>
+    <!-- Referenced for its types only (ProfileStore / FoEnvironment) so tests can seed profile.db
+         before launch; the app is still driven black-box via the built host exe. -->
+    <ProjectReference Include="..\..\src\FoToolbox.Core\FoToolbox.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>
