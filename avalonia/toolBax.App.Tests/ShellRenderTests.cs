@@ -24,13 +24,20 @@ public class ShellRenderTests
         var window = new MainWindow { DataContext = new ShellViewModel() };
         window.Show();                 // headless: no real window, but layout/binding run
         Dispatcher.UIThread.RunJobs();
+        try
+        {
+            var title = window.GetVisualDescendants()
+                .OfType<TextBlock>()
+                .FirstOrDefault(t => t.Name == "ShellTitle");
 
-        var title = window.GetVisualDescendants()
-            .OfType<TextBlock>()
-            .FirstOrDefault(t => t.Name == "ShellTitle");
-
-        Assert.NotNull(title);
-        Assert.Equal("toolBax", title!.Text);
+            Assert.NotNull(title);
+            Assert.Equal("toolBax", title!.Text);
+        }
+        finally
+        {
+            // Don't leave the window in the shared headless session's window list between tests.
+            window.Close();
+        }
     }
 
     [AvaloniaFact]

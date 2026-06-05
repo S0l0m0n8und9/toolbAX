@@ -14,5 +14,6 @@ public static class TestAppBuilder
 {
     public static AppBuilder BuildAvaloniaApp() =>
         AppBuilder.Configure<ToolBax.App.App>()
+            .WithInterFont()   // embedded font so headless text measurement works with no system fonts
             .UseHeadless(new AvaloniaHeadlessPlatformOptions());
 }

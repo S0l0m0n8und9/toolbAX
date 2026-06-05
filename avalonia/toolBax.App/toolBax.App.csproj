@@ -15,6 +15,9 @@
     <PackageReference Include="Avalonia" />
     <PackageReference Include="Avalonia.Desktop" />
     <PackageReference Include="Avalonia.Themes.Fluent" />
+    <!-- Embedded font so text measures/renders cross-platform (incl. headless Linux CI, where no
+         system font is guaranteed). The Windows target still prefers Segoe via the design tokens. -->
+    <PackageReference Include="Avalonia.Fonts.Inter" />
     <PackageReference Include="CommunityToolkit.Mvvm" />
   </ItemGroup>
 
