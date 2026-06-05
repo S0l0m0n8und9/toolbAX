@@ -60,7 +60,7 @@ public class PluginNavigationFlowTests
                 // prompt) leaves the main window up but empty, which is the failure mode to surface.
                 var windows = driver.App.GetAllTopLevelWindows(driver.Automation);
                 var titles = string.Join(" | ", System.Linq.Enumerable.Select(windows, w => $"'{w.Title}'"));
-                Assert.True(false,
+                Assert.Fail(
                     $"Tab bar did not reach {ExpectedTabCount} tabs (last {TabCount(win)}, navRail {NavRailCount(win)}). " +
                     $"Top-level windows: [{titles}].");
             }
