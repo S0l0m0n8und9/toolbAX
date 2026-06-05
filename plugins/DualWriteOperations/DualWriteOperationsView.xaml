@@ -68,7 +68,7 @@
                     <Button DockPanel.Dock="Left" Content="Sign in…"
                             Command="{Binding SignInCommand}"
                             Padding="10,4" MinWidth="90"
-                            ToolTip="Interactive sign-in: captures a token and auto-discovers the gateway (no manual paste needed)."
+                            ToolTip="Interactive sign-in: captures the token and auto-discovers the gateway."
                             IsEnabled="{Binding IsNotBusy}" />
                     <Button DockPanel.Dock="Left" Content="Switch account…"
                             Command="{Binding SignInFreshCommand}"
