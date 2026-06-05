@@ -1,13 +1,9 @@
 using FoToolbox.Core.Catalog;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.OData;
-using FoToolbox.SDK.Plugins;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
+using FoToolbox.TestHelpers;
 using ODataPostBuilderPlugin;
 using System;
-using System.Collections.Concurrent;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -17,8 +13,9 @@ using Xunit;
 namespace FoToolbox.Tests;
 
 /// <summary>
-/// Regression tests for the OData API Builder "Load Entities" flow (#37): the first load must not
-/// report a false failure, and repeated presses must not start duplicate concurrent loads.
+/// View-model flow tests for the OData API Builder plugin (#37, #34). They run the view model on a
+/// pumped STA "UI thread" (<see cref="UiThreadTestHost"/>) with fake services (<see cref="FakePluginContext"/>),
+/// so plugin flows are covered without a visible desktop session.
 /// </summary>
 public sealed class ODataPostBuilderViewModelTests : IDisposable
 {
@@ -43,11 +40,10 @@ public sealed class ODataPostBuilderViewModelTests : IDisposable
     [Fact]
     public void LoadEntities_first_load_succeeds_and_continues_on_the_calling_thread()
     {
-        RunSta(async () =>
+        UiThreadTestHost.Run(async () =>
         {
             var uiThreadId = Environment.CurrentManagedThreadId;
-            var ctx = new FakeContext(entityCount: 3);
-            var vm = new ODataPostBuilderViewModel(ctx);
+            var vm = new ODataPostBuilderViewModel(new FakePluginContext(new DeferredCatalog(entityCount: 3)));
 
             // The continuation runs the finally that clears IsBusy; capture the thread it runs on.
             var finallyThreadId = -1;
@@ -63,7 +59,7 @@ public sealed class ODataPostBuilderViewModelTests : IDisposable
 
             // The fetch genuinely suspends (cache miss / real async). The continuation mutates the
             // UI-bound entity collection, so it must resume on the calling (UI) thread — not a
-            // thread-pool thread — otherwise WPF throws and the load reports a false failure.
+            // thread-pool thread — otherwise WPF throws and the load reports a false failure (#37).
             Assert.Equal(uiThreadId, finallyThreadId);
             Assert.Equal("Loaded 3 entities.", vm.EntityLoadStatus);
         });
@@ -72,11 +68,11 @@ public sealed class ODataPostBuilderViewModelTests : IDisposable
     [Fact]
     public void LoadEntities_ignores_a_second_press_while_a_load_is_in_progress()
     {
-        RunSta(async () =>
+        UiThreadTestHost.Run(async () =>
         {
             var gate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            var ctx = new FakeContext(entityCount: 2, gate: gate);
-            var vm = new ODataPostBuilderViewModel(ctx);
+            var catalog = new DeferredCatalog(entityCount: 2, gate: gate);
+            var vm = new ODataPostBuilderViewModel(new FakePluginContext(catalog));
 
             var first = vm.LoadEntitiesCommand.ExecuteAsync(CancellationToken.None);
             var second = vm.LoadEntitiesCommand.ExecuteAsync(CancellationToken.None);
@@ -85,32 +81,37 @@ public sealed class ODataPostBuilderViewModelTests : IDisposable
 
             // The second press arrived while the first load was still in flight, so it must be a no-op
             // rather than kicking off a duplicate concurrent fetch.
-            Assert.Equal(1, ctx.Catalog.IndexCallCount);
+            Assert.Equal(1, catalog.IndexCallCount);
         });
     }
 
-    private sealed class FakeContext : IPluginContext
+    [Fact]
+    public void LoadEntities_populates_entities_from_the_catalog()
     {
-        public FakeContext(int entityCount, TaskCompletionSource? gate = null)
+        UiThreadTestHost.Run(async () =>
         {
-            Catalog = new FakeCatalog(entityCount, gate);
-        }
+            // FakePluginContext defaults to the seeded FakeCatalogService (a single "Customers" entity).
+            var vm = new ODataPostBuilderViewModel(new FakePluginContext());
 
-        public FoEnvironment CurrentEnv { get; set; } =
-            new("dev", "Dev", "https://contoso.operations.dynamics.com", "00000000-0000-0000-0000-000000000000", "USMF");
-        public IODataClient OData { get; } = new StubODataClient();
-        public FakeCatalog Catalog { get; }
-        ICatalogService IPluginContext.Catalog => Catalog;
-        public ILogger Logger { get; } = NullLogger.Instance;
+            await vm.LoadEntitiesCommand.ExecuteAsync(CancellationToken.None);
+
+            Assert.Equal("Loaded 1 entities.", vm.EntityLoadStatus);
+            Assert.Contains(vm.Entities, e => e.Name == "Customers");
+        });
     }
 
-    private sealed class FakeCatalog : ICatalogService
+    /// <summary>
+    /// An <see cref="ICatalogService"/> whose entity-index load completes on a thread-pool thread
+    /// (mimicking a cache-miss network fetch), optionally blocked on a gate so a test can hold a load
+    /// "in progress". Only the members exercised by these flows are implemented.
+    /// </summary>
+    private sealed class DeferredCatalog : ICatalogService
     {
         private readonly int _entityCount;
         private readonly TaskCompletionSource? _gate;
         private int _indexCallCount;
 
-        public FakeCatalog(int entityCount, TaskCompletionSource? gate)
+        public DeferredCatalog(int entityCount, TaskCompletionSource? gate = null)
         {
             _entityCount = entityCount;
             _gate = gate;
@@ -127,9 +128,7 @@ public sealed class ODataPostBuilderViewModelTests : IDisposable
             }
             else
             {
-                // Force a genuine async boundary that completes on a thread-pool thread, mimicking a
-                // cache-miss network fetch (so the caller's continuation is exposed to thread hops).
-                await Task.Run(() => { }, ct).ConfigureAwait(false);
+                await Task.Run(() => { }, ct).ConfigureAwait(false); // genuine async boundary on a pool thread
             }
 
             var items = Enumerable.Range(0, _entityCount)
@@ -154,66 +153,5 @@ public sealed class ODataPostBuilderViewModelTests : IDisposable
             => throw new NotSupportedException();
         public string BuildTableBrowserUrl(FoEnvironment env, string tableName) => string.Empty;
         public string BuildODataEntityUrl(FoEnvironment env, string entityName) => $"{env.BaseUrl}/data/{entityName}";
-    }
-
-    private sealed class StubODataClient : IODataClient
-    {
-        public IAsyncEnumerable<ODataPage> StreamAsync(QueryRequest request, CancellationToken cancellationToken = default)
-            => ODataClientExtensions.EmptyPages(cancellationToken);
-    }
-
-    // Runs an async test body on a dedicated STA thread whose awaited continuations are pumped back
-    // onto that same thread (so the test models a single UI thread). Mirrors the helper in
-    // PluginManagerTests; see issue #38.
-    private static void RunSta(Func<Task> action)
-    {
-        Exception? failure = null;
-        var thread = new Thread(() =>
-        {
-            var previousContext = SynchronizationContext.Current;
-            var syncContext = new SingleThreadSynchronizationContext();
-            SynchronizationContext.SetSynchronizationContext(syncContext);
-            try
-            {
-                var task = action();
-                task.ContinueWith(_ => syncContext.Complete(), TaskScheduler.Default);
-                syncContext.RunOnCurrentThread();
-                task.GetAwaiter().GetResult();
-            }
-            catch (Exception ex)
-            {
-                failure = ex;
-            }
-            finally
-            {
-                SynchronizationContext.SetSynchronizationContext(previousContext);
-            }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-
-        if (failure != null)
-        {
-            throw failure;
-        }
-    }
-
-    private sealed class SingleThreadSynchronizationContext : SynchronizationContext
-    {
-        private readonly BlockingCollection<(SendOrPostCallback Callback, object? State)> _queue = new();
-
-        public override void Post(SendOrPostCallback d, object? state) => _queue.Add((d, state));
-        public override void Send(SendOrPostCallback d, object? state) => d(state);
-
-        public void RunOnCurrentThread()
-        {
-            foreach (var work in _queue.GetConsumingEnumerable())
-            {
-                work.Callback(work.State);
-            }
-        }
-
-        public void Complete() => _queue.CompleteAdding();
     }
 }
