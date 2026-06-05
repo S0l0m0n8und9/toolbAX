@@ -29,6 +29,7 @@ public partial class ShellViewModel : ObservableObject
     private object? _operationsContent;
     private object? _profilesContent;
     private object? _metadataContent;
+    private object? _postContent;
 
     [ObservableProperty]
     private NavTool _currentTool;
@@ -88,6 +89,8 @@ public partial class ShellViewModel : ObservableObject
         "profiles" => _profilesContent ??= CreateProfilesContent(),
         // TODO: design-mode FakeMetadataService — swap for the live IMetadataService once available.
         "metadata" => _metadataContent ??= new MetadataViewModel(new FakeMetadataService()),
+        // TODO: design-mode FakeODataClient — swap for the live IODataClient once available.
+        "post" => _postContent ??= new PostBuilderViewModel(new FakeODataClient()),
         _ => new PlaceholderScreenViewModel(tool.Title),
     };
 
