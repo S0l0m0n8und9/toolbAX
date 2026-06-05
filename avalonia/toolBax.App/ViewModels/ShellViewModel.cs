@@ -86,6 +86,7 @@ public partial class ShellViewModel : ObservableObject
     {
         "ops" => _operationsContent ??= _operationsContentFactory(),
         "profiles" => _profilesContent ??= CreateProfilesContent(),
+        // TODO: design-mode FakeMetadataService — swap for the live IMetadataService once available.
         "metadata" => _metadataContent ??= new MetadataViewModel(new FakeMetadataService()),
         _ => new PlaceholderScreenViewModel(tool.Title),
     };

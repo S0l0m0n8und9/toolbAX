@@ -17,14 +17,15 @@ public class MetadataViewRenderTests
     public void Renders_entity_list_and_property_grid_for_a_cached_entity()
     {
         // Default selection (CustomersV3) is cached → the property grid is shown.
-        var view = new MetadataView { DataContext = new MetadataViewModel(new FakeMetadataService()) };
+        var service = new FakeMetadataService();
+        var view = new MetadataView { DataContext = new MetadataViewModel(service) };
         var window = new Window { Content = view, Width = 1000, Height = 700 };
         window.Show();
         Dispatcher.UIThread.RunJobs();
         try
         {
             var list = view.GetVisualDescendants().OfType<ListBox>().First(l => l.Name == "EntityList");
-            Assert.Equal(10, list.ItemCount);
+            Assert.Equal(service.GetEntities().Count, list.ItemCount);
 
             var grid = view.GetVisualDescendants().OfType<DataGrid>().Single();
             Assert.True(grid.IsVisible);

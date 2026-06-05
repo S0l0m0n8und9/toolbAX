@@ -24,9 +24,8 @@ public partial class MetadataViewModel : ObservableObject
     private string _search = string.Empty;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsCached))]
     [NotifyPropertyChangedFor(nameof(HasSelection))]
-    private EntitySet? _selected;
+    private EntitySet? _selected;   // IsCached is updated (and notified) by LoadFields, not here.
 
     [ObservableProperty]
     private bool _isCached;
