@@ -28,6 +28,15 @@ public partial class DualWriteOpsViewModel : ObservableObject
     public ObservableCollection<MapRowViewModel> Maps { get; } = new();
     public ObservableCollection<GatewayLogEntry> Log { get; } = new();
     public IReadOnlyList<DwAction> Actions => DwActions.All;
+
+    // Named actions for the command-bar buttons (each binds RunActionCommand + this as parameter,
+    // so per-button IsEnabled follows CanRun via the command's CanExecute).
+    public DwAction StartAction => Actions.First(a => a.Id == "start");
+    public DwAction StopAction => Actions.First(a => a.Id == "stop");
+    public DwAction PauseAction => Actions.First(a => a.Id == "pause");
+    public DwAction ResumeAction => Actions.First(a => a.Id == "resume");
+    public DwAction InitialAction => Actions.First(a => a.Id == "initial");
+
     public GatewayInfo Gateway { get; }
 
     [ObservableProperty] private bool _isBusy;

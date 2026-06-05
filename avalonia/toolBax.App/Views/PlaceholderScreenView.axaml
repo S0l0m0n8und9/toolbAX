@@ -1,0 +1,13 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ToolBax.App.ViewModels"
+             x:Class="ToolBax.App.Views.PlaceholderScreenView"
+             x:DataType="vm:PlaceholderScreenViewModel">
+  <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="6">
+    <TextBlock x:Name="ContentTitle" Text="{Binding Title}"
+               FontSize="24" FontWeight="SemiBold"
+               HorizontalAlignment="Center" Foreground="{StaticResource Text0Brush}" />
+    <TextBlock Text="Screen coming soon"
+               FontSize="13" HorizontalAlignment="Center" Foreground="{StaticResource Text3Brush}" />
+  </StackPanel>
+</UserControl>

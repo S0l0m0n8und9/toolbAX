@@ -1,0 +1,50 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ToolBax.App.ViewModels"
+        x:Class="ToolBax.App.Views.ConfirmWindow"
+        x:DataType="vm:ConfirmDialogViewModel"
+        Title="Confirm"
+        Width="520" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        CanResize="False"
+        Background="{StaticResource Layer1Brush}">
+
+  <Window.Styles>
+    <!-- Destructive confirm (Stop / Initial sync) gets an Err-filled button as a safety cue. -->
+    <Style Selector="Button.danger">
+      <Setter Property="Background" Value="{StaticResource ErrBrush}" />
+      <Setter Property="Foreground" Value="{StaticResource OnAccentBrush}" />
+    </Style>
+  </Window.Styles>
+
+  <StackPanel Margin="20" Spacing="12">
+    <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource Text0Brush}" />
+    <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}" />
+
+    <Border IsVisible="{Binding HasCaveat}"
+            Background="{StaticResource ErrBgBrush}" CornerRadius="4" Padding="10,6">
+      <TextBlock Text="{Binding Caveat}" TextWrapping="Wrap" Foreground="{StaticResource ErrBrush}" />
+    </Border>
+
+    <Border Background="{StaticResource Layer2Brush}"
+            BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="4"
+            MaxHeight="200">
+      <ScrollViewer>
+        <ItemsControl ItemsSource="{Binding Targets}" Margin="10,6">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="x:String">
+              <TextBlock Text="{Binding}" FontFamily="Cascadia Code,Consolas,monospace"
+                         FontSize="12" Foreground="{StaticResource Text1Brush}" Margin="0,2" />
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Border>
+
+    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
+      <Button Content="Cancel" Click="OnCancel" MinWidth="90" />
+      <Button x:Name="ConfirmButton" Content="{Binding ConfirmLabel}" Click="OnConfirm" MinWidth="90"
+              Classes.danger="{Binding IsDanger}" />
+    </StackPanel>
+  </StackPanel>
+</Window>

@@ -61,4 +61,37 @@ public class ShellViewModelTests
 
         Assert.Equal("uat", shell.ActiveEnvironment.Id);
     }
+
+    [Fact]
+    public void Default_content_is_a_placeholder_for_the_home_tool()
+    {
+        var shell = new ShellViewModel();
+        var placeholder = Assert.IsType<PlaceholderScreenViewModel>(shell.CurrentContent);
+        Assert.Equal("Plugins", placeholder.Title);
+    }
+
+    [Fact]
+    public void Selecting_operations_routes_to_the_ops_screen_via_the_factory()
+    {
+        var built = 0;
+        var shell = new ShellViewModel(() => { built++; return new PlaceholderScreenViewModel("ops-stub"); });
+
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "ops");
+        var content = Assert.IsType<PlaceholderScreenViewModel>(shell.CurrentContent);
+        Assert.Equal("ops-stub", content.Title);
+
+        // Built once and cached across re-navigation.
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "ops");
+        Assert.Equal(1, built);
+    }
+
+    [Fact]
+    public void Other_tools_route_to_a_titled_placeholder()
+    {
+        var shell = new ShellViewModel();
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var placeholder = Assert.IsType<PlaceholderScreenViewModel>(shell.CurrentContent);
+        Assert.Equal("Query Builder", placeholder.Title);
+    }
 }
