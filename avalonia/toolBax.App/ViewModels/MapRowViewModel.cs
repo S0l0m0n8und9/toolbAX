@@ -8,6 +8,7 @@ namespace ToolBax.App.ViewModels;
 public partial class MapRowViewModel : ObservableObject
 {
     public required string TableId { get; init; }
+    public required string Name { get; init; }
     public required string FoEntity { get; init; }
     public required string DvEntity { get; init; }
     public DwDirection Direction { get; init; }
@@ -28,6 +29,7 @@ public partial class MapRowViewModel : ObservableObject
     public static MapRowViewModel From(DwMap m) => new()
     {
         TableId = m.TableId,
+        Name = m.Name,
         FoEntity = m.FoEntity,
         DvEntity = m.DvEntity,
         Direction = m.Direction,

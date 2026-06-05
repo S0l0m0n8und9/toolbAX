@@ -23,6 +23,7 @@ public partial class DualWriteOpsViewModel : ObservableObject
     private readonly IDualWriteGateway _gateway;
     private readonly IDialogService _dialogs;
     private readonly TimeSpan _pollInterval;
+    private readonly TimeSpan _actionTimeout;
 
     public ObservableCollection<MapRowViewModel> Maps { get; } = new();
     public ObservableCollection<GatewayLogEntry> Log { get; } = new();
@@ -39,12 +40,16 @@ public partial class DualWriteOpsViewModel : ObservableObject
         IDialogService dialogs,
         GatewayInfo gatewayInfo,
         IEnumerable<DwMap> maps,
-        TimeSpan? pollInterval = null)
+        TimeSpan? pollInterval = null,
+        TimeSpan? actionTimeout = null)
     {
         _gateway = gateway;
         _dialogs = dialogs;
         Gateway = gatewayInfo;
         _pollInterval = pollInterval ?? TimeSpan.FromMilliseconds(600);
+        // Safety net: never poll a stuck request forever (a crashed/hung gateway worker would
+        // otherwise leave IsBusy true and the UI locked).
+        _actionTimeout = actionTimeout ?? TimeSpan.FromSeconds(120);
 
         foreach (var map in maps)
         {
@@ -92,37 +97,51 @@ public partial class DualWriteOpsViewModel : ObservableObject
         IsBusy = true;
         RunActionCommand.NotifyCanExecuteChanged();
 
-        foreach (var map in targets)
+        using var cts = new CancellationTokenSource(_actionTimeout);
+        var ct = cts.Token;
+        try
         {
-            map.State = DwActions.VerbState(action);
-        }
-
-        var ids = targets.Select(m => m.TableId).ToList();
-        var requestId = await _gateway.SubmitActionAsync(Gateway.Cid, action, ids, CancellationToken.None);
-        ActiveRequestId = requestId;
-        PollTotal = ids.Count;
-        PollDone = 0;
-        AppendLog($"POST · action={action.Code} ({action.Id}) · {ids.Count} map(s)", $"requestId {requestId}", LogKind.Info);
-
-        using var timer = new PeriodicTimer(_pollInterval);
-        while (await timer.WaitForNextTickAsync())
-        {
-            var status = await _gateway.GetStatusAsync(requestId, CancellationToken.None);
-            ApplyStatus(status);
-            if (status.Phase is RequestPhase.Succeeded or RequestPhase.Failed)
+            foreach (var map in targets)
             {
-                var ok = status.Phase == RequestPhase.Succeeded;
-                AppendLog(
-                    $"{(ok ? "OK" : "FAILED")} · action={action.Code} · {ids.Count} map(s)",
-                    $"requestId {requestId}",
-                    ok ? LogKind.Ok : LogKind.Err);
-                break;
+                map.State = DwActions.VerbState(action);
+            }
+
+            var ids = targets.Select(m => m.TableId).ToList();
+            var requestId = await _gateway.SubmitActionAsync(Gateway.Cid, action, ids, ct);
+            ActiveRequestId = requestId;
+            PollTotal = ids.Count;
+            PollDone = 0;
+            AppendLog($"POST · action={action.Code} ({action.Id}) · {ids.Count} map(s)", $"requestId {requestId}", LogKind.Info);
+
+            using var timer = new PeriodicTimer(_pollInterval);
+            while (await timer.WaitForNextTickAsync(ct))
+            {
+                var status = await _gateway.GetStatusAsync(requestId, ct);
+                ApplyStatus(status);
+                if (status.Phase is RequestPhase.Succeeded or RequestPhase.Failed)
+                {
+                    var ok = status.Phase == RequestPhase.Succeeded;
+                    AppendLog(
+                        $"{(ok ? "OK" : "FAILED")} · action={action.Code} · {ids.Count} map(s)",
+                        $"requestId {requestId}",
+                        ok ? LogKind.Ok : LogKind.Err);
+                    break;
+                }
             }
         }
-
-        IsBusy = false;
-        ActiveRequestId = null;
-        RunActionCommand.NotifyCanExecuteChanged();
+        catch (OperationCanceledException)
+        {
+            // Timed out polling (or cancelled): surface it rather than hanging the UI.
+            AppendLog($"TIMED OUT · action={action.Code} after {_actionTimeout.TotalSeconds:0}s",
+                ActiveRequestId is null ? null : $"requestId {ActiveRequestId}", LogKind.Err);
+        }
+        finally
+        {
+            // Always clear busy state so a throw/timeout can't permanently lock the command bar.
+            IsBusy = false;
+            ActiveRequestId = null;
+            RunActionCommand.NotifyCanExecuteChanged();
+        }
     }
 
     private void ApplyStatus(GatewayStatus status)

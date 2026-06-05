@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace ToolBax.Core.Models;
@@ -76,15 +77,18 @@ public static class DwActions
         "pause" => MapState.Pausing,
         "resume" => MapState.Resuming,
         "initial" => MapState.InitialSyncing,
-        _ => MapState.Running,
+        // Surface a missing mapping (e.g. a new gateway action) instead of optimistically
+        // reporting Running, which would give wrong feedback and wrong eligibility.
+        _ => throw new ArgumentOutOfRangeException(nameof(action), action.Id, "No VerbState mapping for this action."),
     };
 
     /// <summary>The terminal state a target map settles to after the action succeeds.</summary>
     public static MapState ResultState(DwAction action) => action.Id switch
     {
+        "start" or "resume" or "initial" => MapState.Running,
         "stop" => MapState.Stopped,
         "pause" => MapState.Paused,
-        _ => MapState.Running, // start, resume, initial
+        _ => throw new ArgumentOutOfRangeException(nameof(action), action.Id, "No ResultState mapping for this action."),
     };
 
     public static bool IsTransitional(MapState state) => state is
