@@ -235,6 +235,16 @@ public sealed class PluginManager
 
     private async Task<LoadedPlugin?> LoadPluginAsync(string assemblyPath, CancellationToken cancellationToken)
     {
+        // Only assemblies that actually carry an embedded plugin manifest are subject to the trust
+        // decision. Probe the manifest from PE metadata first (no code runs, nothing is loaded into an
+        // AssemblyLoadContext), so stray dependency/framework DLLs in the plugin root are skipped
+        // silently instead of popping a blocking "unsigned plugin" consent prompt that wedges startup.
+        if (!PluginManifestReader.HasManifestResource(assemblyPath))
+        {
+            _logger.LogDebug("Skipping {Dll}: no embedded plugin manifest; not a plugin.", assemblyPath);
+            return null;
+        }
+
         if (!ResolvePluginTrust(assemblyPath))
         {
             return null;

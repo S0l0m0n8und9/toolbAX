@@ -456,7 +456,10 @@ public sealed class PluginManagerTests
 
             var plugin = Assert.Single(plugins);
             Assert.Equal("fo.hello", plugin.Manifest.Id);
-            Assert.Contains(logger.Entries, e => e.Level == Microsoft.Extensions.Logging.LogLevel.Error && e.Message.Contains("InvalidPlugin.dll", StringComparison.OrdinalIgnoreCase));
+            // A file that is not a loadable plugin assembly (no embedded manifest) is now classified as
+            // a non-plugin and skipped quietly — it must not be attempted as a plugin, error-logged, or
+            // pop a trust prompt, and it must not block the valid plugin (#54).
+            Assert.DoesNotContain(logger.Entries, e => e.Level == Microsoft.Extensions.Logging.LogLevel.Error && e.Message.Contains("InvalidPlugin.dll", StringComparison.OrdinalIgnoreCase));
         });
     }
 
@@ -570,6 +573,32 @@ public sealed class PluginManagerTests
 
             Assert.Single(plugins, p => p.Manifest.Id == "test.unsigned");
             Assert.False(File.Exists(storePath));
+        });
+    }
+
+    [Fact]
+    public void Discovery_Does_Not_Prompt_For_Trust_On_Non_Plugin_Dll()
+    {
+        RunSta(async () =>
+        {
+            // A stray non-plugin assembly (no embedded PluginManifest) flat in the plugin root —
+            // e.g. a dependency/framework DLL — must never trigger a consent prompt; discovery should
+            // skip it silently rather than blocking startup on an "unsigned plugin" modal (#54).
+            var pluginRoot = Directory.CreateTempSubdirectory("plugins-nonplugin-dll").FullName;
+            var nonPluginDll = typeof(FoEnvironment).Assembly.Location; // FoToolbox.Core.dll: signed, no manifest
+            File.Copy(nonPluginDll, Path.Combine(pluginRoot, Path.GetFileName(nonPluginDll)), overwrite: true);
+
+            var prompt = new FakeConsentPrompt(PluginConsentDecision.LoadOnce);
+            var logger = new CapturingLogger();
+            var manager = new PluginManager(
+                pluginRoot, CreateEnv(), new StubODataClient(), new StubODataWriteClient(), new StubCatalogService(),
+                logger, trustOptions: new PluginTrustOptions(false, Array.Empty<string>()),
+                consentPrompt: prompt);
+
+            var plugins = await manager.DiscoverAsync();
+
+            Assert.Empty(plugins);
+            Assert.Equal(0, prompt.Calls);
         });
     }
 
