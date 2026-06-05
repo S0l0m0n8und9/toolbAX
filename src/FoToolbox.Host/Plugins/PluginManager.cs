@@ -103,7 +103,6 @@ public sealed class PluginManager
         //   QueryBuilder/QueryBuilder.dll (+ deps)
         //   HelloPlugin/HelloPlugin.dll (+ deps)
         // This avoids attempting to load every dependency DLL as if it were a plugin.
-        var allDlls = Directory.GetFiles(_pluginRoot, "*.dll", SearchOption.AllDirectories);
         var candidates = DiscoverPluginCandidates();
 
         foreach (var candidate in candidates)
@@ -111,11 +110,24 @@ public sealed class PluginManager
             _logger.LogInformation("Discovered plugin candidate {Dll} ({Layout}).", candidate.Path, candidate.Layout);
         }
 
+        // Count candidates that are actually plugins (carry an embedded manifest) so the "nothing
+        // loaded" diagnostic below doesn't false-alarm on a directory holding only dependency DLLs.
+        var pluginCandidates = 0;
         foreach (var candidate in candidates)
         {
             cancellationToken.ThrowIfCancellationRequested();
             try
             {
+                // Classify by manifest first (PE metadata only — no code runs, nothing is loaded into
+                // an ALC): dependency/framework DLLs in the plugin root are not plugins and must be
+                // skipped before any trust decision, never popping an "unsigned plugin" prompt (#54).
+                if (!PluginManifestReader.HasManifestResource(candidate.Path))
+                {
+                    _logger.LogDebug("Skipping {Dll}: no embedded plugin manifest; not a plugin.", candidate.Path);
+                    continue;
+                }
+
+                pluginCandidates++;
                 var loaded = await LoadPluginAsync(candidate.Path, cancellationToken);
                 if (loaded is not null)
                 {
@@ -145,10 +157,10 @@ public sealed class PluginManager
             }
         }
 
-        if (allDlls.Length > 0 && results.Count == 0)
+        if (pluginCandidates > 0 && results.Count == 0)
         {
             _logger.LogWarning(
-                "Plugin DLLs were found under {PluginRoot}, but zero plugins loaded. Check plugin layout, signatures, manifests, SDK compatibility, and preceding load errors.",
+                "Plugin assemblies were found under {PluginRoot}, but zero plugins loaded. Check plugin layout, signatures, manifests, SDK compatibility, and preceding load errors.",
                 _pluginRoot);
         }
 
@@ -235,6 +247,8 @@ public sealed class PluginManager
 
     private async Task<LoadedPlugin?> LoadPluginAsync(string assemblyPath, CancellationToken cancellationToken)
     {
+        // Callers (DiscoverAsync) have already confirmed this candidate carries an embedded manifest,
+        // so it is a genuine plugin and the trust decision below is warranted.
         if (!ResolvePluginTrust(assemblyPath))
         {
             return null;
