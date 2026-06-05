@@ -109,7 +109,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         MapsView = CollectionViewSource.GetDefaultView(Maps);
         MapsView.Filter = o => o is DualWriteMapRow row && RowVisible(row);
         // The summary is recomputed once after each bulk load (LoadMaps/RefreshMapStates) and on
-        // search change — avoiding an O(n^2) scan if we recomputed on every per-item Add.
+        // search or column-filter change — avoiding an O(n^2) scan if we recomputed on every per-item Add.
         UpdateMapListSummary();
 
         _ = InitializeAsync();

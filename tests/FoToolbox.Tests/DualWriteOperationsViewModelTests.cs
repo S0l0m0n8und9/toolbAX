@@ -838,6 +838,11 @@ public class DualWriteOperationsViewModelTests
 
             vm.ColumnFilterMap = "   ";
             Assert.Contains("2 of 2", vm.MapListSummary);
+
+            // Combination: a row must pass BOTH the search and the column filter (AND).
+            vm.MapSearch = "cust";        // search matches only Customers
+            vm.ColumnFilterMap = "vend";  // column filter matches only Vendors
+            Assert.Contains("0 of 2", vm.MapListSummary); // disjoint → nothing passes both
         }
         finally { File.Delete(path); }
     }
