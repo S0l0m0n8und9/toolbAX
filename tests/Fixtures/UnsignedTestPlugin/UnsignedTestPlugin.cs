@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using System.Windows.Controls;
 using FoToolbox.SDK.Plugins;
+using FoToolbox.SDK.Wpf;
 
 namespace UnsignedTestPlugin;
 
@@ -22,5 +23,5 @@ public sealed class UnsignedTestPlugin : IFoToolPlugin
 
     public Task InitializeAsync(IPluginContext context) => Task.CompletedTask;
 
-    public UserControl CreateTool() => new UserControl();
+    public IPluginView CreateTool() => new WpfPluginView(new UserControl());
 }

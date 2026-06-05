@@ -1,6 +1,6 @@
 using FoToolbox.SDK.Plugins;
+using FoToolbox.SDK.Wpf;
 using Microsoft.Extensions.Logging;
-using System.Windows.Controls;
 
 namespace DualWriteOperationsPlugin;
 
@@ -27,13 +27,13 @@ public sealed class DualWriteOperationsPlugin : IFoToolPlugin
         return Task.CompletedTask;
     }
 
-    public UserControl CreateTool()
+    public IPluginView CreateTool()
     {
         if (_ctx is null)
         {
             throw new InvalidOperationException("Not initialized");
         }
 
-        return new DualWriteOperationsView(new DualWriteOperationsViewModel(_ctx));
+        return new WpfPluginView(new DualWriteOperationsView(new DualWriteOperationsViewModel(_ctx)));
     }
 }

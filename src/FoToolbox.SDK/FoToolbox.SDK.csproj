@@ -4,7 +4,9 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <UseWPF>true</UseWPF>
+    <!-- No UseWPF: the plugin contract must not depend on WPF (#33). The WPF view adapter lives in
+         the separate FoToolbox.SDK.Wpf assembly. ICommand (used by the command helpers) comes from
+         System.ObjectModel, not WPF. -->
     <SignAssembly>true</SignAssembly>
     <AssemblyOriginatorKeyFile>$(MSBuildProjectDirectory)\..\..\build\fotoolbox.snk</AssemblyOriginatorKeyFile>
   </PropertyGroup>

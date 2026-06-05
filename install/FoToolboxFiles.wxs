@@ -46,6 +46,7 @@
         <File Id="FoToolbox.Host.runtimeconfig.json" Source="$(var.SourceDir)\FoToolbox.Host.runtimeconfig.json" />
         <File Id="FoToolbox.Core.dll" Source="$(var.SourceDir)\FoToolbox.Core.dll" />
         <File Id="FoToolbox.SDK.dll" Source="$(var.SourceDir)\FoToolbox.SDK.dll" />
+        <File Id="FoToolbox.SDK.Wpf.dll" Source="$(var.SourceDir)\FoToolbox.SDK.Wpf.dll" />
         <File Id="FoToolbox.Updater.dll" Source="$(var.SourceDir)\FoToolbox.Updater.dll" />
         <File Id="e_sqlite3.dll" Source="$(var.SourceDir)\e_sqlite3.dll" />
         <File Id="Microsoft.Data.Sqlite.dll" Source="$(var.SourceDir)\Microsoft.Data.Sqlite.dll" />

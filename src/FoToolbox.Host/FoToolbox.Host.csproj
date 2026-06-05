@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\\FoToolbox.SDK\\FoToolbox.SDK.csproj" />
+    <ProjectReference Include="..\\FoToolbox.SDK.Wpf\\FoToolbox.SDK.Wpf.csproj" />
     <ProjectReference Include="..\\FoToolbox.Core\\FoToolbox.Core.csproj" />
     <ProjectReference Include="..\\FoToolbox.Updater\\FoToolbox.Updater.csproj" />
     <ProjectReference Include="..\\..\\plugins\\DualWriteMapBrowser\\DualWriteMapBrowser.csproj" ReferenceOutputAssembly="false" />

@@ -21,7 +21,7 @@ namespace FoToolbox.Host.ViewModels;
 internal sealed class PluginEntry
 {
     public required string Name { get; init; }
-    public required UserControl Control { get; init; }
+    public required FrameworkElement Control { get; init; }
     public LoadedPlugin? Loaded { get; init; }
 
     /// <summary>Resolved icon geometry for the left rail / tab bar.</summary>
@@ -90,7 +90,7 @@ internal sealed class MainWindowViewModel : INotifyPropertyChanged
         }
     }
 
-    public UserControl? ActiveControl => Selected?.Control;
+    public FrameworkElement? ActiveControl => Selected?.Control;
 
     public PipState ShellPipState => Shell.ConnectionStatus switch
     {

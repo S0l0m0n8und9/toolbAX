@@ -28,10 +28,12 @@ public interface IFoToolPlugin
     Task InitializeAsync(IPluginContext context);
 
     /// <summary>
-    /// Creates the WPF control that is displayed as a tab in the host window.
-    /// Called once after <see cref="InitializeAsync"/> completes.
+    /// Creates the view that is displayed as a tab in the host window. The returned
+    /// <see cref="IPluginView"/> is adapted by the host to its concrete UI type (the WPF host wraps a
+    /// control with <c>FoToolbox.SDK.Wpf.WpfPluginView</c>). Called once after
+    /// <see cref="InitializeAsync"/> completes.
     /// </summary>
-    System.Windows.Controls.UserControl CreateTool();
+    IPluginView CreateTool();
 }
 
 /// <summary>
