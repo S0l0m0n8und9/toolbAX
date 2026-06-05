@@ -83,6 +83,9 @@
               <DataTemplate DataType="vm:ProfilesViewModel">
                 <views:ProfilesView />
               </DataTemplate>
+              <DataTemplate DataType="vm:MetadataViewModel">
+                <views:MetadataView />
+              </DataTemplate>
               <DataTemplate DataType="vm:PlaceholderScreenViewModel">
                 <views:PlaceholderScreenView />
               </DataTemplate>
