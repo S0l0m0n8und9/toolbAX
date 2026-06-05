@@ -26,6 +26,7 @@
     <ProjectReference Include="..\\..\\plugins\\DualWriteOperations\\DualWriteOperations.csproj" />
     <ProjectReference Include="..\\..\\plugins\\DualWriteCompare\\DualWriteCompare.csproj" />
     <ProjectReference Include="..\\..\\tests\\Fixtures\\UnsignedTestPlugin\\UnsignedTestPlugin.csproj" />
+    <ProjectReference Include="..\FoToolbox.TestHelpers\FoToolbox.TestHelpers.csproj" />
   </ItemGroup>
 
   <ItemGroup>
