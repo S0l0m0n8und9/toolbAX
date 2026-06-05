@@ -1,6 +1,6 @@
 using FoToolbox.SDK.Plugins;
+using FoToolbox.SDK.Wpf;
 using Microsoft.Extensions.Logging;
-using System.Windows.Controls;
 
 namespace TableEntityBrowserPlugin;
 
@@ -27,9 +27,9 @@ public sealed class TableEntityBrowserPlugin : IFoToolPlugin
         return Task.CompletedTask;
     }
 
-    public UserControl CreateTool()
+    public IPluginView CreateTool()
     {
         if (_ctx is null) throw new InvalidOperationException("Not initialized");
-        return new TableEntityBrowserView(new TableEntityBrowserViewModel(_ctx));
+        return new WpfPluginView(new TableEntityBrowserView(new TableEntityBrowserViewModel(_ctx)));
     }
 }

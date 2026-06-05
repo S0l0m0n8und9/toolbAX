@@ -11,6 +11,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\FoToolbox.SDK\FoToolbox.SDK.csproj" />
+    <ProjectReference Include="..\..\..\src\FoToolbox.SDK.Wpf\FoToolbox.SDK.Wpf.csproj" />
   </ItemGroup>
 
   <ItemGroup>

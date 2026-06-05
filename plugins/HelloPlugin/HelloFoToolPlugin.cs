@@ -1,8 +1,8 @@
 using FoToolbox.Core.Models;
 using FoToolbox.Core.OData;
 using FoToolbox.SDK.Plugins;
+using FoToolbox.SDK.Wpf;
 using Microsoft.Extensions.Logging;
-using System.Windows.Controls;
 
 namespace HelloPlugin;
 
@@ -30,14 +30,14 @@ public sealed class HelloFoToolPlugin : IFoToolPlugin
         return Task.CompletedTask;
     }
 
-    public UserControl CreateTool()
+    public IPluginView CreateTool()
     {
         if (_context is null)
         {
             throw new InvalidOperationException("Plugin not initialized.");
         }
 
-        return new HelloTool(new HelloToolViewModel(_context));
+        return new WpfPluginView(new HelloTool(new HelloToolViewModel(_context)));
     }
 }
 

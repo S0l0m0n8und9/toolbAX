@@ -1,7 +1,7 @@
 using FoToolbox.SDK.Plugins;
+using FoToolbox.SDK.Wpf;
 using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
-using System.Windows.Controls;
 
 namespace QueryBuilderPlugin;
 
@@ -28,11 +28,11 @@ public sealed class QueryBuilderPlugin : IFoToolPlugin, IFoToolPluginNavigation
         return Task.CompletedTask;
     }
 
-    public UserControl CreateTool()
+    public IPluginView CreateTool()
     {
         if (_ctx is null) throw new InvalidOperationException("Not initialized");
         _viewModel = new QueryBuilderViewModel(_ctx);
-        return new QueryBuilderView(_viewModel);
+        return new WpfPluginView(new QueryBuilderView(_viewModel));
     }
 
     public void OnNavigateTo(IReadOnlyDictionary<string, string> parameters)

@@ -3,10 +3,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
-using System.Windows.Controls;
+using System.Windows;
 using FoToolbox.Host.ViewModels;
 using FoToolbox.Host.Views;
 using FoToolbox.SDK.Plugins;
+using FoToolbox.SDK.Wpf;
 using FoToolbox.UiTests.Infrastructure;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -33,7 +34,7 @@ internal static class ViewRegistry
             var dbPath = Path.Combine(dir, Guid.NewGuid().ToString("N") + ".db");
             // ProfilesView.Loaded auto-runs RefreshCommand against this empty temp store.
             var vm = new ProfilesViewModel(dbPath, NullLogger.Instance, _ => { });
-            return Task.FromResult<UserControl>(new ProfilesView(vm));
+            return Task.FromResult<FrameworkElement>(new ProfilesView(vm));
         });
     }
 
@@ -42,6 +43,6 @@ internal static class ViewRegistry
         {
             var plugin = create();
             await plugin.InitializeAsync(new FakePluginContext());
-            return plugin.CreateTool();
+            return WpfPluginViews.Resolve(plugin.CreateTool());
         });
 }

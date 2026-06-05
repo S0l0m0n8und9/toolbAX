@@ -4,6 +4,7 @@ using FoToolbox.SDK;
 using FoToolbox.Core.OData;
 using FoToolbox.Core.Catalog;
 using FoToolbox.SDK.Plugins;
+using FoToolbox.SDK.Wpf;
 using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
@@ -275,7 +276,8 @@ public sealed class PluginManager
             ? new PluginContextWrite(_env, _odata, _odataWrite, _catalog, _logger, _dataverseEnv, _dataverseHttp, _navBus)
             : new PluginContext(_env, _odata, _catalog, _logger, _dataverseEnv, _dataverseHttp, _navBus);
         await plugin.InitializeAsync(ctx);
-        var control = plugin.CreateTool();
+        var view = plugin.CreateTool();
+        var control = WpfPluginViews.Resolve(view);
 
         return new LoadedPlugin
         {

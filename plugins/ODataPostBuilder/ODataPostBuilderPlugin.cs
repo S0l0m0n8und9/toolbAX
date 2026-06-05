@@ -1,7 +1,7 @@
 using FoToolbox.SDK.Plugins;
+using FoToolbox.SDK.Wpf;
 using Microsoft.Extensions.Logging;
 using System.Collections.Generic;
-using System.Windows.Controls;
 
 namespace ODataPostBuilderPlugin;
 
@@ -28,11 +28,11 @@ public sealed class ODataPostBuilderPlugin : IFoToolPlugin, IFoToolPluginNavigat
         return Task.CompletedTask;
     }
 
-    public UserControl CreateTool()
+    public IPluginView CreateTool()
     {
         if (_ctx is null) throw new InvalidOperationException("Not initialized");
         _viewModel = new ODataPostBuilderViewModel(_ctx);
-        return new ODataPostBuilderView(_viewModel);
+        return new WpfPluginView(new ODataPostBuilderView(_viewModel));
     }
 
     public void OnNavigateTo(IReadOnlyDictionary<string, string> parameters)

@@ -1,6 +1,6 @@
 using System;
 using System.Threading.Tasks;
-using System.Windows.Controls;
+using System.Windows;
 
 namespace FoToolbox.UiTests;
 
@@ -12,7 +12,7 @@ namespace FoToolbox.UiTests;
 /// </summary>
 internal sealed record ViewCase(
     string Name,
-    Func<Task<UserControl>> Factory,
+    Func<Task<FrameworkElement>> Factory,
     Action<object?>? WarmUp = null)
 {
     public override string ToString() => Name;

@@ -15,6 +15,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\FoToolbox.SDK\FoToolbox.SDK.csproj" />
     <ProjectReference Include="..\..\src\FoToolbox.Core\FoToolbox.Core.csproj" />
+    <ProjectReference Include="..\..\src\FoToolbox.SDK.Wpf\FoToolbox.SDK.Wpf.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -29,9 +30,7 @@
     <ItemGroup>
       <PluginOutput Include="$(TargetDir)**\*.*" />
     </ItemGroup>
-    <Copy SourceFiles="@(PluginOutput)"
-          DestinationFiles="@(PluginOutput->'$(RepoRoot)src\FoToolbox.Host\bin\$(Configuration)\$(TargetFramework)\plugins\DualWriteOperations\%(RecursiveDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(PluginOutput)" DestinationFiles="@(PluginOutput->'$(RepoRoot)src\FoToolbox.Host\bin\$(Configuration)\$(TargetFramework)\plugins\DualWriteOperations\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
   </Target>
 
 </Project>
