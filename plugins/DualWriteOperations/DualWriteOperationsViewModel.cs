@@ -21,9 +21,9 @@ namespace DualWriteOperationsPlugin;
 /// <summary>
 /// Drives the Dual-write Management gateway: resolve environment, list maps, and run
 /// lifecycle actions (start/stop/pause/resume/initial-sync) with live status polling.
-/// Connection settings (gateway URL, F&amp;O identifier, bearer token) are owned by the
-/// plugin via <see cref="DualWriteConnectionStore"/> — the host auth/profile schema is
-/// untouched for this bearer-token-now v1.
+/// Connection settings (gateway URL and F&amp;O identifier) are owned by the plugin via
+/// <see cref="DualWriteConnectionStore"/>; tokens are obtained exclusively through the
+/// interactive sign-in flow and stored DPAPI-protected. The host auth/profile schema is untouched.
 /// </summary>
 public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
 {
@@ -37,7 +37,6 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     private DualWriteEnvironment? _environment;
     private string _gatewayBaseUrl = string.Empty;
     private string _foIdentifier = string.Empty;
-    private string _bearerToken = string.Empty;
     private string _applyVersionAuthorFilter = string.Empty;
     private bool _forceReset;
     private string _mapSearch = string.Empty;
@@ -202,12 +201,6 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         set { if (_foIdentifier != value) { _foIdentifier = value; OnPropertyChanged(); } }
     }
 
-    public string BearerToken
-    {
-        get => _bearerToken;
-        set { if (_bearerToken != value) { _bearerToken = value; OnPropertyChanged(); } }
-    }
-
     public string StatusMessage
     {
         get => _statusMessage;
@@ -321,28 +314,20 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     {
         var url = GatewayBaseUrl?.Trim() ?? string.Empty;
         var identifier = FoIdentifier?.Trim() ?? string.Empty;
-        DualWriteConnectionSettings settings;
-        if (!string.IsNullOrWhiteSpace(BearerToken))
-        {
-            // A freshly pasted token is a static session; drop any delegated refresh token.
-            settings = new DualWriteConnectionSettings(_envId, url, identifier, BearerToken);
-        }
-        else
-        {
-            // Blank token box: keep whatever is stored (including a delegated sign-in session),
-            // just update the URL/identifier.
-            var existing = await _store.GetAsync(_envId, ct);
-            settings = existing with { GatewayBaseUrl = url, FoIdentifier = identifier };
-        }
+
+        // Tokens are never entered in the UI — they come from the interactive sign-in flow only.
+        // Saving the connection just updates the gateway URL / identifier and keeps whatever
+        // sign-in session is already stored.
+        var existing = await _store.GetAsync(_envId, ct);
+        var settings = existing with { GatewayBaseUrl = url, FoIdentifier = identifier };
 
         await _store.SaveAsync(settings, ct);
-        BearerToken = string.Empty;
         _gateway = null;
         _cid = null;
         UpdateConnectionSummary(settings);
         StatusMessage = settings.IsComplete
             ? "Connection saved. Click Load Maps."
-            : "Saved. Provide the gateway URL, F&O identifier and bearer token to enable operations.";
+            : "Saved. Provide the gateway URL and F&O identifier, then sign in to enable operations.";
     }
 
     private async Task ClearTokenAsync(CancellationToken ct)
@@ -350,11 +335,10 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         var existing = await _store.GetAsync(_envId, ct);
         var cleared = new DualWriteConnectionSettings(_envId, existing.GatewayBaseUrl, existing.FoIdentifier, null);
         await _store.SaveAsync(cleared, ct);
-        BearerToken = string.Empty;
         _gateway = null;
         _cid = null;
         UpdateConnectionSummary(cleared);
-        StatusMessage = "Connection token cleared. Sign in again (or paste a bearer token) and Save before loading maps.";
+        StatusMessage = "Sign-in session cleared. Sign in again before loading maps.";
     }
 
     private async Task LoadMapsAsync(CancellationToken ct)
@@ -362,7 +346,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         var settings = await _store.GetAsync(_envId, ct);
         if (!settings.IsComplete)
         {
-            StatusMessage = "Configure the gateway URL, F&O identifier and bearer token, then Save.";
+            StatusMessage = "Configure the gateway URL and F&O identifier, sign in, then Load Maps.";
             return;
         }
 
@@ -835,7 +819,7 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     {
         ConnectionSummary = settings.IsComplete
             ? $"Configured for {settings.GatewayBaseUrl} (identifier: {settings.FoIdentifier})."
-            : "Not connected — gateway URL, identifier and token required.";
+            : "Not connected — configure the gateway URL and F&O identifier, then sign in.";
     }
 
     // #27: never surface the raw connection id (cid, a GUID) in user-facing text. Prefer the

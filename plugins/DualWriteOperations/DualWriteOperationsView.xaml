@@ -51,7 +51,6 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" />
                         <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
 
                     <TextBlock Grid.Row="0" Grid.Column="0" Text="Gateway base URL" VerticalAlignment="Center" Margin="0,0,8,4" />
@@ -59,22 +58,17 @@
                              Text="{Binding GatewayBaseUrl, UpdateSourceTrigger=PropertyChanged}"
                              ToolTip="e.g. https://projectmanagementservice.&lt;region&gt;.gateway.prod.island.powerapps.com" />
 
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="F&amp;O identifier" VerticalAlignment="Center" Margin="0,0,8,4" />
-                    <TextBox Grid.Row="1" Grid.Column="1" Margin="0,0,0,4"
+                    <TextBlock Grid.Row="1" Grid.Column="0" Text="F&amp;O identifier" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBox Grid.Row="1" Grid.Column="1"
                              Text="{Binding FoIdentifier, UpdateSourceTrigger=PropertyChanged}"
                              ToolTip="The F&amp;O environment identifier used for the Environments lookup." />
-
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Bearer token" VerticalAlignment="Center" Margin="0,0,8,0" />
-                    <PasswordBox Grid.Row="2" Grid.Column="1" x:Name="BearerTokenBox"
-                                 PasswordChanged="BearerTokenBox_PasswordChanged"
-                                 ToolTip="Paste a dual-write token from the Power Platform portal (F12 network tab). Stored DPAPI-protected; leave blank to keep the saved token." />
                 </Grid>
 
                 <DockPanel Margin="0,8,0,0">
                     <Button DockPanel.Dock="Left" Content="Sign in…"
                             Command="{Binding SignInCommand}"
                             Padding="10,4" MinWidth="90"
-                            ToolTip="Interactive sign-in: captures a token and auto-discovers the gateway (no manual paste needed)."
+                            ToolTip="Interactive sign-in: captures the token and auto-discovers the gateway."
                             IsEnabled="{Binding IsNotBusy}" />
                     <Button DockPanel.Dock="Left" Content="Switch account…"
                             Command="{Binding SignInFreshCommand}"
@@ -87,7 +81,7 @@
                     <Button DockPanel.Dock="Left" Content="Clear Token"
                             Command="{Binding ClearTokenCommand}"
                             Padding="10,4" MinWidth="100" Margin="6,0,0,0"
-                            ToolTip="Remove the stored bearer/refresh token for this environment (keeps the gateway URL and identifier). Sign in again or paste a new token before loading maps."
+                            ToolTip="Remove the stored sign-in session for this environment (keeps the gateway URL and identifier). Sign in again before loading maps."
                             IsEnabled="{Binding IsNotBusy}" />
                     <Button DockPanel.Dock="Left" Content="Load Maps"
                             Command="{Binding LoadMapsCommand}"
