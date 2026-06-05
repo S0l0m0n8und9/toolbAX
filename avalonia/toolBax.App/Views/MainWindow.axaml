@@ -89,6 +89,9 @@
               <DataTemplate DataType="vm:PostBuilderViewModel">
                 <views:PostBuilderView />
               </DataTemplate>
+              <DataTemplate DataType="vm:QueryBuilderViewModel">
+                <views:QueryBuilderView />
+              </DataTemplate>
               <DataTemplate DataType="vm:PlaceholderScreenViewModel">
                 <views:PlaceholderScreenView />
               </DataTemplate>
