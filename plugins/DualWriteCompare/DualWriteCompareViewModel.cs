@@ -1,4 +1,5 @@
 using FoToolbox.Core.DualWrite;
+using FoToolbox.Core.DualWrite.Auth;
 using FoToolbox.Core.Profiles;
 using FoToolbox.SDK.Commands;
 using FoToolbox.SDK.Plugins;
@@ -36,18 +37,18 @@ public sealed class DualWriteCompareViewModel : INotifyPropertyChanged
         _store = store ?? throw new ArgumentNullException(nameof(store));
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
 
-        Left = new ConnectionEditorViewModel("Left", "Environment A (left)");
-        Right = new ConnectionEditorViewModel("Right", "Environment B (right)");
-
-        RowsView = CollectionViewSource.GetDefaultView(Rows);
-        RowsView.Filter = FilterRow;
-
         Action<Exception> onError = ex =>
         {
             _ctx.Logger.LogError(ex, "DualWriteCompare command failed.");
             StatusMessage = $"Command failed: {ex.Message}";
             IsBusy = false;
         };
+
+        Left = new ConnectionEditorViewModel("Left", "Environment A (left)", _store, (id, clear) => SignInFlow(id, clear), onError);
+        Right = new ConnectionEditorViewModel("Right", "Environment B (right)", _store, (id, clear) => SignInFlow(id, clear), onError);
+
+        RowsView = CollectionViewSource.GetDefaultView(Rows);
+        RowsView.Filter = FilterRow;
 
         SaveLeftCommand = new AsyncRelayCommand(ct => SaveSideAsync(Left, ct), onError);
         SaveRightCommand = new AsyncRelayCommand(ct => SaveSideAsync(Right, ct), onError);
@@ -60,6 +61,12 @@ public sealed class DualWriteCompareViewModel : INotifyPropertyChanged
         : this(ctx, new DualWriteConnectionStore(ProfilePaths.ResolveAppDataPath("dualwrite-compare-connections.json")), new DualWriteGatewayFactory())
     {
     }
+
+    /// <summary>
+    /// Injectable interactive sign-in flow — the WebView2 portal window by default, overridable in
+    /// tests. Each editor authenticates through this; <c>(identifier, switchAccount) =&gt; result</c>.
+    /// </summary>
+    internal Func<string, bool, Task<DualWriteSignInResult?>> SignInFlow { get; set; } = DefaultSignInAsync;
 
     public ConnectionEditorViewModel Left { get; }
     public ConnectionEditorViewModel Right { get; }
@@ -122,37 +129,39 @@ public sealed class DualWriteCompareViewModel : INotifyPropertyChanged
 
     private async Task SaveSideAsync(ConnectionEditorViewModel editor, CancellationToken ct)
     {
-        var settings = await BuildSettingsAsync(editor, ct);
+        // Persist the gateway URL / identifier edits while keeping the stored sign-in session (the
+        // token comes from Sign in, never the UI).
+        var existing = await _store.GetAsync(editor.Key, ct);
+        var settings = existing with
+        {
+            GatewayBaseUrl = editor.GatewayBaseUrl?.Trim() ?? string.Empty,
+            FoIdentifier = editor.FoIdentifier?.Trim() ?? string.Empty
+        };
         await _store.SaveAsync(settings, ct);
-        editor.BearerToken = string.Empty;
-        editor.Summary = settings.IsComplete ? $"Saved: {settings.GatewayBaseUrl}" : "Saved (incomplete — needs URL, identifier, token).";
+        editor.Summary = settings.IsComplete ? $"Saved: {settings.GatewayBaseUrl}" : "Saved — sign in to add a session.";
         StatusMessage = $"{editor.Title} connection saved.";
     }
 
-    private async Task<DualWriteConnectionSettings> BuildSettingsAsync(ConnectionEditorViewModel editor, CancellationToken ct)
+    private static async Task<DualWriteSignInResult?> DefaultSignInAsync(string foIdentifier, bool clearCachedAccount)
     {
-        // Preserve a stored token when the box is blank so users can re-compare without re-pasting.
-        var token = editor.BearerToken;
-        if (string.IsNullOrWhiteSpace(token))
+        var window = new DualWriteSignInWindow(foIdentifier, clearCachedAccount);
+        var main = System.Windows.Application.Current?.MainWindow;
+        if (main is not null && !ReferenceEquals(main, window))
         {
-            var existing = await _store.GetAsync(editor.Key, ct);
-            token = existing.BearerToken ?? string.Empty;
+            window.Owner = main;
         }
 
-        return new DualWriteConnectionSettings(
-            editor.Key,
-            editor.GatewayBaseUrl?.Trim() ?? string.Empty,
-            editor.FoIdentifier?.Trim() ?? string.Empty,
-            token);
+        return await window.SignInAsync();
     }
 
     private async Task CompareAsync(CancellationToken ct)
     {
-        var left = await BuildSettingsAsync(Left, ct);
-        var right = await BuildSettingsAsync(Right, ct);
+        // Both sides authenticate via Sign in, which stores the resolved gateway URL + session.
+        var left = await _store.GetAsync(Left.Key, ct);
+        var right = await _store.GetAsync(Right.Key, ct);
         if (!left.IsComplete || !right.IsComplete)
         {
-            StatusMessage = "Both environments need a gateway URL, F&O identifier and bearer token.";
+            StatusMessage = "Both environments need a gateway URL, F&O identifier and token — sign in to both first.";
             return;
         }
 

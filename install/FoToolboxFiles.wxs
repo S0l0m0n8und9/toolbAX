@@ -82,8 +82,13 @@
         <File Id="Microsoft.Web.WebView2.Wpf.dll" Source="$(var.SourceDir)\plugins\DualWriteOperations\Microsoft.Web.WebView2.Wpf.dll" />
         <File Id="WebView2Loader.dll" Source="$(var.SourceDir)\plugins\DualWriteOperations\WebView2Loader.dll" />
       </Component>
+      <!-- DualWriteCompare also carries its private WebView2 dependencies (per-environment
+           interactive sign-in); these are staged next to the plugin DLL by install/build.ps1. -->
       <Component Id="FoToolboxPluginDualWriteCompare" Guid="{CCA5EF8A-D7DA-4FB4-A5C1-7A8A0AE39CA6}" Directory="PLUGIN_DUALWRITECOMPARE">
         <File Id="DualWriteCompare.dll" Source="$(var.SourceDir)\plugins\DualWriteCompare\DualWriteCompare.dll" KeyPath="yes" />
+        <File Id="Compare.Microsoft.Web.WebView2.Core.dll" Source="$(var.SourceDir)\plugins\DualWriteCompare\Microsoft.Web.WebView2.Core.dll" />
+        <File Id="Compare.Microsoft.Web.WebView2.Wpf.dll" Source="$(var.SourceDir)\plugins\DualWriteCompare\Microsoft.Web.WebView2.Wpf.dll" />
+        <File Id="Compare.WebView2Loader.dll" Source="$(var.SourceDir)\plugins\DualWriteCompare\WebView2Loader.dll" />
       </Component>
 
       <!-- Start menu shortcut -->

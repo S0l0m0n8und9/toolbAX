@@ -35,8 +35,14 @@
                                 <TextBox Text="{Binding GatewayBaseUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,4" />
                                 <TextBlock Text="F&amp;O identifier" Margin="0,0,0,2" />
                                 <TextBox Text="{Binding FoIdentifier, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,4" />
-                                <TextBlock Text="Bearer token" Margin="0,0,0,2" />
-                                <PasswordBox x:Name="LeftTokenBox" PasswordChanged="LeftTokenBox_PasswordChanged" />
+                                <WrapPanel Margin="0,2,0,0">
+                                    <Button Content="Sign in…" Command="{Binding SignInCommand}" Padding="10,3" MinWidth="80"
+                                            ToolTip="Interactive sign-in: captures the token and discovers the gateway for this environment (no manual paste)." />
+                                    <Button Content="Switch account…" Command="{Binding SwitchAccountCommand}" Padding="10,3" MinWidth="110" Margin="6,0,0,0"
+                                            ToolTip="Forget the cached browser session and sign in as a different account." />
+                                    <Button Content="Clear Token" Command="{Binding ClearTokenCommand}" Padding="10,3" MinWidth="90" Margin="6,0,0,0"
+                                            ToolTip="Remove the stored token/session for this environment (keeps the gateway URL and identifier)." />
+                                </WrapPanel>
                                 <TextBlock Text="{Binding Summary}" Opacity="0.8" Margin="0,4,0,0" TextTrimming="CharacterEllipsis" />
                             </StackPanel>
                         </Border>
@@ -57,8 +63,14 @@
                                 <TextBox Text="{Binding GatewayBaseUrl, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,4" />
                                 <TextBlock Text="F&amp;O identifier" Margin="0,0,0,2" />
                                 <TextBox Text="{Binding FoIdentifier, UpdateSourceTrigger=PropertyChanged}" Margin="0,0,0,4" />
-                                <TextBlock Text="Bearer token" Margin="0,0,0,2" />
-                                <PasswordBox x:Name="RightTokenBox" PasswordChanged="RightTokenBox_PasswordChanged" />
+                                <WrapPanel Margin="0,2,0,0">
+                                    <Button Content="Sign in…" Command="{Binding SignInCommand}" Padding="10,3" MinWidth="80"
+                                            ToolTip="Interactive sign-in: captures the token and discovers the gateway for this environment (no manual paste)." />
+                                    <Button Content="Switch account…" Command="{Binding SwitchAccountCommand}" Padding="10,3" MinWidth="110" Margin="6,0,0,0"
+                                            ToolTip="Forget the cached browser session and sign in as a different account." />
+                                    <Button Content="Clear Token" Command="{Binding ClearTokenCommand}" Padding="10,3" MinWidth="90" Margin="6,0,0,0"
+                                            ToolTip="Remove the stored token/session for this environment (keeps the gateway URL and identifier)." />
+                                </WrapPanel>
                                 <TextBlock Text="{Binding Summary}" Opacity="0.8" Margin="0,4,0,0" TextTrimming="CharacterEllipsis" />
                             </StackPanel>
                         </Border>
