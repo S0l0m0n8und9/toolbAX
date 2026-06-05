@@ -41,7 +41,7 @@ injected services — but every one must be routed through an abstraction before
 |---|---|---|
 | **Avalonia** (recommended) | Smallest | XAML + MVVM, very close to WPF; views port with find/replace-scale edits (namespaces, a few control names); reuses VMs (post-abstraction) + Core; cross-platform desktop; WebView2 → Avalonia `WebView`. Best effort/return for this codebase. |
 | **Uno / WinUI** | Small–medium | WinUI XAML cross-platform; viable but heavier tooling; closer to UWP idioms. |
-| **Blazor / web** | Largest | Full view rewrite in Razor; unlocks web/`claude.ai/code`-style delivery, but VMs need an even cleaner separation and async/streaming UI rethink. Highest cost, highest strategic upside. |
+| **Blazor / web** | Largest | Full view rewrite in Razor; unlocks browser-based delivery, but VMs need an even cleaner separation and async/streaming UI rethink. Highest cost, highest strategic upside. |
 | **MAUI** | Medium | Desktop+mobile; XAML-ish but less proven for dense desktop tooling UIs. |
 
 ## The cost is in the views, not the contract
