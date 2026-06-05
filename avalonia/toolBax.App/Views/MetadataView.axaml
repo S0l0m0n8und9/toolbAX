@@ -1,0 +1,71 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ToolBax.App.ViewModels"
+             xmlns:models="using:ToolBax.Core.Models"
+             x:Class="ToolBax.App.Views.MetadataView"
+             x:DataType="vm:MetadataViewModel">
+
+  <Grid ColumnDefinitions="300,*">
+
+    <!-- Master: entity sets -->
+    <Border Grid.Column="0" Background="{StaticResource MicaBrush}"
+            BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,0,1,0">
+      <DockPanel Margin="10">
+        <TextBox DockPanel.Dock="Top" Text="{Binding Search, Mode=TwoWay}"
+                 PlaceholderText="Search entities…" Margin="0,0,0,8" />
+        <ListBox x:Name="EntityList"
+                 ItemsSource="{Binding Filtered}"
+                 SelectedItem="{Binding Selected, Mode=TwoWay}"
+                 Background="Transparent" BorderThickness="0">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="models:EntitySet">
+              <StackPanel Spacing="1" Margin="0,2">
+                <TextBlock Text="{Binding Name}" FontSize="13"
+                           FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text0Brush}" />
+                <TextBlock FontSize="11" Foreground="{StaticResource Text3Brush}"
+                           Text="{Binding FieldCount, StringFormat='{}{0} props'}" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <!-- Detail -->
+    <Grid Grid.Column="1" Margin="24,16" RowDefinitions="Auto,*"
+          IsVisible="{Binding HasSelection}">
+
+      <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,12">
+        <TextBlock FontSize="10" Foreground="{StaticResource Text3Brush}"
+                   Text="{Binding Selected.Module, StringFormat='ENTITY · {0}'}" />
+        <TextBlock x:Name="DetailTitle" Text="{Binding Selected.Name}"
+                   FontSize="24" FontWeight="SemiBold"
+                   FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text0Brush}" />
+        <TextBlock FontSize="12" Foreground="{StaticResource Text2Brush}"
+                   Text="{Binding Selected.Pk, StringFormat='pk: {0}'}" />
+      </StackPanel>
+
+      <!-- Property table when cached -->
+      <DataGrid Grid.Row="1" x:Name="FieldsGrid"
+                IsVisible="{Binding IsCached}"
+                ItemsSource="{Binding Fields}" IsReadOnly="True"
+                GridLinesVisibility="Horizontal" Background="{StaticResource Layer1Brush}">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="Property" Binding="{Binding Name}" Width="2*" />
+          <DataGridTextColumn Header="Type" Binding="{Binding TypeDisplay}" Width="*" />
+          <DataGridTextColumn Header="Key" Binding="{Binding IsKey}" Width="Auto" />
+          <DataGridTextColumn Header="Nullable" Binding="{Binding Nullable}" Width="Auto" />
+        </DataGrid.Columns>
+      </DataGrid>
+
+      <!-- Not-cached hint -->
+      <Border Grid.Row="1" VerticalAlignment="Top"
+              IsVisible="{Binding !IsCached}"
+              Background="{StaticResource InfoBgBrush}"
+              BorderBrush="{StaticResource InfoBrush}" BorderThickness="1" CornerRadius="8"
+              Padding="12,8">
+        <TextBlock Text="{Binding NotCachedMessage}" TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}" />
+      </Border>
+    </Grid>
+  </Grid>
+</UserControl>
