@@ -77,7 +77,8 @@
                             IsEnabled="{Binding IsNotBusy}" />
                     <Button DockPanel.Dock="Left" Content="Save Connection"
                             Command="{Binding SaveConnectionCommand}"
-                            Padding="10,4" MinWidth="130" Margin="6,0,0,0" />
+                            Padding="10,4" MinWidth="130" Margin="6,0,0,0"
+                            ToolTip="Saves the gateway URL and F&amp;O identifier for this environment (keeps the stored sign-in session). Does not contact the gateway." />
                     <Button DockPanel.Dock="Left" Content="Clear Token"
                             Command="{Binding ClearTokenCommand}"
                             Padding="10,4" MinWidth="100" Margin="6,0,0,0"
@@ -86,6 +87,7 @@
                     <Button DockPanel.Dock="Left" Content="Load Maps"
                             Command="{Binding LoadMapsCommand}"
                             Padding="10,4" MinWidth="110" Margin="6,0,0,0"
+                            ToolTip="Read-only. Resolves the connection and lists every dual-write map for this environment. Sign in (or save a connection) first."
                             IsEnabled="{Binding IsNotBusy}" />
                     <TextBlock VerticalAlignment="Center" Margin="12,0,0,0"
                                TextTrimming="CharacterEllipsis"
@@ -133,24 +135,35 @@
                 CornerRadius="{DynamicResource Fo.CornerRadius.Card}">
             <StackPanel>
                 <WrapPanel>
-                    <Button Content="Start" Command="{Binding StartCommand}" Padding="12,4" MinWidth="84" IsEnabled="{Binding IsNotBusy}" />
-                    <Button Content="Stop" Command="{Binding StopCommand}" Padding="12,4" MinWidth="84" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
-                    <Button Content="Pause" Command="{Binding PauseCommand}" Padding="12,4" MinWidth="84" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
-                    <Button Content="Resume" Command="{Binding ResumeCommand}" Padding="12,4" MinWidth="84" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
-                    <Button Content="Initial Sync" Command="{Binding InitialSyncCommand}" Padding="12,4" MinWidth="100" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
+                    <Button Content="Start" Command="{Binding StartCommand}" Padding="12,4" MinWidth="84" IsEnabled="{Binding IsNotBusy}"
+                            ToolTip="Mutating · checked map(s) · LIVE. Brings the selected map(s) online without re-running initial sync. Load maps and tick at least one first." />
+                    <Button Content="Stop" Command="{Binding StopCommand}" Padding="12,4" MinWidth="84" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}"
+                            ToolTip="Mutating · checked map(s) · LIVE. Stops the selected map(s). Load maps and tick at least one first." />
+                    <Button Content="Pause" Command="{Binding PauseCommand}" Padding="12,4" MinWidth="84" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}"
+                            ToolTip="Mutating · checked map(s) · LIVE. Pauses the selected map(s). Load maps and tick at least one first." />
+                    <Button Content="Resume" Command="{Binding ResumeCommand}" Padding="12,4" MinWidth="84" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}"
+                            ToolTip="Mutating · checked map(s) · LIVE. Resumes the selected map(s). Load maps and tick at least one first." />
+                    <Button Content="Initial Sync" Command="{Binding InitialSyncCommand}" Padding="12,4" MinWidth="100" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}"
+                            ToolTip="Mutating · checked map(s) · LIVE. Re-runs the initial data sync for the selected map(s); can be long-running." />
                     <Border Width="1" Margin="10,2" Background="{DynamicResource Fo.BorderBrush}" />
-                    <Button Content="Apply Latest Version" Command="{Binding ApplyLatestVersionCommand}" Padding="12,4" MinWidth="140" IsEnabled="{Binding IsNotBusy}" />
-                    <Button Content="Refresh Tables" Command="{Binding RefreshTablesCommand}" Padding="12,4" MinWidth="110" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
-                    <Button Content="Export Config" Command="{Binding ExportConfigCommand}" Padding="12,4" MinWidth="110" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}" />
+                    <Button Content="Apply Latest Version" Command="{Binding ApplyLatestVersionCommand}" Padding="12,4" MinWidth="140" IsEnabled="{Binding IsNotBusy}"
+                            ToolTip="Mutating · checked map(s) · LIVE. Activates the latest template version on the selected map(s), restricted to the 'Apply-version author(s)' filter. Tick at least one map first." />
+                    <Button Content="Refresh Tables" Command="{Binding RefreshTablesCommand}" Padding="12,4" MinWidth="110" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}"
+                            ToolTip="Mutating · checked map(s). Refreshes the table / field-mapping metadata for the selected map(s). Tick at least one map first." />
+                    <Button Content="Export Config" Command="{Binding ExportConfigCommand}" Padding="12,4" MinWidth="110" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}"
+                            ToolTip="Read-only. Exports all loaded maps to a JSON file you choose. Does not change the environment or depend on the checkboxes." />
                     <TextBlock Text="Apply-version author(s):" VerticalAlignment="Center" Margin="8,0,4,0"
                                ToolTip="Scopes the 'Apply Latest Version' button only — restricts which template author's versions are considered. It does not filter the map list or affect Start/Stop/Pause/Resume, Refresh Tables, Export, Reset Link, or Apply Integration Keys." />
                     <TextBox Width="160" VerticalAlignment="Center"
                              Text="{Binding ApplyVersionAuthorFilter, UpdateSourceTrigger=PropertyChanged}"
                              ToolTip="Comma-separated template authors used only by 'Apply Latest Version' (blank = any author). Does not filter the map list or affect Start/Stop/Pause/Resume, Refresh Tables, Export, Reset Link, or Apply Integration Keys." />
                     <Border Width="1" Margin="10,2" Background="{DynamicResource Fo.BorderBrush}" />
-                    <Button Content="Reset Link" Command="{Binding ResetLinkCommand}" Padding="12,4" MinWidth="100" IsEnabled="{Binding IsNotBusy}" />
-                    <CheckBox Content="Force reset" VerticalAlignment="Center" Margin="8,0,0,0" IsChecked="{Binding ForceReset}" />
-                    <Button Content="Apply Integration Keys" Command="{Binding ApplyIntegrationKeysCommand}" Padding="12,4" MinWidth="160" Margin="8,0,0,0" IsEnabled="{Binding IsNotBusy}" />
+                    <Button Content="Reset Link" Command="{Binding ResetLinkCommand}" Padding="12,4" MinWidth="100" IsEnabled="{Binding IsNotBusy}"
+                            ToolTip="Mutating · whole connection set · LIVE. Re-initialises the dual-write link for the connection set's legal entities — disruptive to running maps. Does not use the checkboxes; sign in first." />
+                    <CheckBox Content="Force reset" VerticalAlignment="Center" Margin="8,0,0,0" IsChecked="{Binding ForceReset}"
+                              ToolTip="When ticked, Reset Link forces the reset even if the link is currently active." />
+                    <Button Content="Apply Integration Keys" Command="{Binding ApplyIntegrationKeysCommand}" Padding="12,4" MinWidth="160" Margin="8,0,0,0" IsEnabled="{Binding IsNotBusy}"
+                            ToolTip="Mutating · checked map(s) · LIVE. Applies integration keys (from the connection set) for the selected map(s)' CE entities; maps without a resolved key are skipped. Tick at least one map first." />
                 </WrapPanel>
                 <DockPanel Margin="0,8,0,0">
                     <ProgressBar DockPanel.Dock="Left"
