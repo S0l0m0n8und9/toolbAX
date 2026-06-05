@@ -12,30 +12,33 @@ using Xunit;
 namespace ToolBax.App.Tests;
 
 /// <summary>
-/// The de-risking milestone (headless-testing.md): prove an Avalonia view renders + binds in the
-/// headless harness with no display server, and that the design-token resources resolve. Screens are
-/// only built once this stays green.
+/// Headless render smoke for the shell (control-map §0): the view instantiates, binds the current
+/// tool into the content host, renders the nav rail, and the design tokens resolve — all with no
+/// display server. View-binding breaks the pure-VM tests can't catch surface here.
 /// </summary>
 public class ShellRenderTests
 {
     [AvaloniaFact]
-    public void MainWindow_renders_and_binds_the_shell_title()
+    public void Shell_renders_and_binds_current_tool_and_nav_rail()
     {
         var window = new MainWindow { DataContext = new ShellViewModel() };
-        window.Show();                 // headless: no real window, but layout/binding run
+        window.Show();
         Dispatcher.UIThread.RunJobs();
         try
         {
-            var title = window.GetVisualDescendants()
+            var contentTitle = window.GetVisualDescendants()
                 .OfType<TextBlock>()
-                .FirstOrDefault(t => t.Name == "ShellTitle");
+                .FirstOrDefault(t => t.Name == "ContentTitle");
+            Assert.NotNull(contentTitle);
+            Assert.Equal("Plugins", contentTitle!.Text);   // default tool is the Plugins home
 
-            Assert.NotNull(title);
-            Assert.Equal("toolBax", title!.Text);
+            var navRail = window.GetVisualDescendants()
+                .OfType<ListBox>()
+                .First(lb => lb.Name == "NavRail");
+            Assert.Equal(8, navRail.ItemCount);
         }
         finally
         {
-            // Don't leave the window in the shared headless session's window list between tests.
             window.Close();
         }
     }
@@ -43,7 +46,6 @@ public class ShellRenderTests
     [AvaloniaFact]
     public void Design_tokens_resolve_from_application_resources()
     {
-        // The app-merged Tokens.axaml must supply the brand brushes every screen binds to.
         var found = Application.Current!.Resources.TryGetResource(
             "AccentBrush", ThemeVariant.Dark, out var accent);
 
