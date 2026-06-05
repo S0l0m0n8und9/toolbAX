@@ -21,4 +21,8 @@
     <PackageReference Include="CommunityToolkit.Mvvm" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\toolBax.Core\toolBax.Core.csproj" />
+  </ItemGroup>
+
 </Project>
