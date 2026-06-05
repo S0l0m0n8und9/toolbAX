@@ -55,11 +55,19 @@ public class ShellViewModelTests
     public void SetActiveEnvironment_changes_the_active_environment()
     {
         var shell = new ShellViewModel();
-        var uat = shell.Environments.Single(e => e.Id == "uat");
+        var uat = shell.Environments.Single(e => e.Id == "uat-eur");
 
         shell.SetActiveEnvironmentCommand.Execute(uat);
 
-        Assert.Equal("uat", shell.ActiveEnvironment.Id);
+        Assert.Equal("uat-eur", shell.ActiveEnvironment.Id);
+    }
+
+    [Fact]
+    public void Selecting_profiles_routes_to_the_profiles_screen()
+    {
+        var shell = new ShellViewModel();
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
+        Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
     }
 
     [Fact]

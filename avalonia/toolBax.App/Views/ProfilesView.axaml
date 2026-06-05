@@ -1,0 +1,70 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ToolBax.App.ViewModels"
+             xmlns:models="using:ToolBax.Core.Models"
+             x:Class="ToolBax.App.Views.ProfilesView"
+             x:DataType="vm:ProfilesViewModel">
+
+  <Grid ColumnDefinitions="280,*">
+
+    <!-- Master: search + environment list -->
+    <Border Grid.Column="0" Background="{StaticResource MicaBrush}"
+            BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,0,1,0">
+      <DockPanel Margin="10">
+        <TextBox DockPanel.Dock="Top" Text="{Binding Search, Mode=TwoWay}"
+                 PlaceholderText="Search environments…" Margin="0,0,0,8" />
+        <ListBox x:Name="ProfilesList"
+                 ItemsSource="{Binding Filtered}"
+                 SelectedItem="{Binding Selected, Mode=TwoWay}"
+                 Background="Transparent" BorderThickness="0">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="models:EnvProfile">
+              <StackPanel Spacing="1" Margin="0,2">
+                <TextBlock Text="{Binding Name}" FontSize="13" Foreground="{StaticResource Text0Brush}" />
+                <TextBlock FontSize="11" Foreground="{StaticResource Text3Brush}"
+                           Text="{Binding Legal, StringFormat='{}{0} · '}" />
+              </StackPanel>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <!-- Detail -->
+    <ScrollViewer Grid.Column="1">
+      <StackPanel Margin="24,16" Spacing="14" IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}">
+
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <TextBlock x:Name="DetailTitle" Text="{Binding Selected.Name}"
+                     FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource Text0Brush}" />
+          <Border IsVisible="{Binding IsSelectedActive}" VerticalAlignment="Center"
+                  Background="{StaticResource AccentTintBrush}" CornerRadius="999" Padding="8,2">
+            <TextBlock Text="active" FontSize="11" Foreground="{StaticResource AccentBrush}" />
+          </Border>
+        </StackPanel>
+
+        <!-- FO Environment fields (read-only this slice; editable form is a follow-up) -->
+        <StackPanel Spacing="8">
+          <TextBlock Text="FO ENVIRONMENT" FontSize="10" Foreground="{StaticResource Text3Brush}" />
+          <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="Base URL" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+            <TextBox Grid.Row="0" Grid.Column="1" IsReadOnly="True"
+                     Text="{Binding Selected.Url}" FontFamily="Cascadia Code,Consolas,monospace" />
+            <TextBlock Grid.Row="1" Grid.Column="0" Text="Tenant ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+            <TextBox Grid.Row="1" Grid.Column="1" IsReadOnly="True"
+                     Text="{Binding Selected.Tenant}" FontFamily="Cascadia Code,Consolas,monospace" />
+            <TextBlock Grid.Row="2" Grid.Column="0" Text="Default company" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+            <TextBox Grid.Row="2" Grid.Column="1" IsReadOnly="True" Text="{Binding Selected.Legal}" />
+          </Grid>
+        </StackPanel>
+
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Content="Set active" Command="{Binding SetActiveCommand}" />
+          <Button Content="Save" Command="{Binding SaveCommand}" />
+        </StackPanel>
+
+        <TextBlock Text="{Binding Status}" FontSize="12" Foreground="{StaticResource Text2Brush}" />
+      </StackPanel>
+    </ScrollViewer>
+  </Grid>
+</UserControl>

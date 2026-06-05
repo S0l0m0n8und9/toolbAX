@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ToolBax.App.Models;
 using ToolBax.App.Services;
+using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 
 namespace ToolBax.App.ViewModels;
@@ -24,6 +25,7 @@ public partial class ShellViewModel : ObservableObject
     // on first navigation to the Operations tool.
     private readonly Func<object> _operationsContentFactory;
     private object? _operationsContent;
+    private object? _profilesContent;
 
     [ObservableProperty]
     private NavTool _currentTool;
@@ -60,12 +62,7 @@ public partial class ShellViewModel : ObservableObject
             new NavTool("profiles", "Profiles", 'E'),
         };
 
-        Environments = new ObservableCollection<EnvProfile>
-        {
-            new("usmf", "Contoso USMF", "USMF", EnvStatus.Connected),
-            new("uat", "Contoso UAT", "USMF", EnvStatus.TokenExpired),
-            new("dev", "Contoso Dev", "DAT", EnvStatus.Disconnected),
-        };
+        Environments = new ObservableCollection<EnvProfile>(FakeProfileStore.Seed());
 
         _currentTool = Tools[0];
         _activeEnvironment = Environments[0];
@@ -84,6 +81,7 @@ public partial class ShellViewModel : ObservableObject
     private object ResolveContent(NavTool tool) => tool.Id switch
     {
         "ops" => _operationsContent ??= _operationsContentFactory(),
+        "profiles" => _profilesContent ??= new ProfilesViewModel(new FakeProfileStore()),
         _ => new PlaceholderScreenViewModel(tool.Title),
     };
 
