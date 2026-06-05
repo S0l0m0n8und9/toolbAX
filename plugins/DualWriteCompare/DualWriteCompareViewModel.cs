@@ -50,8 +50,6 @@ public sealed class DualWriteCompareViewModel : INotifyPropertyChanged
         RowsView = CollectionViewSource.GetDefaultView(Rows);
         RowsView.Filter = FilterRow;
 
-        SaveLeftCommand = new AsyncRelayCommand(ct => SaveSideAsync(Left, ct), onError);
-        SaveRightCommand = new AsyncRelayCommand(ct => SaveSideAsync(Right, ct), onError);
         CompareCommand = new AsyncRelayCommand(CompareAsync, onError);
 
         _ = InitializeAsync();
@@ -73,8 +71,6 @@ public sealed class DualWriteCompareViewModel : INotifyPropertyChanged
     public ObservableCollection<DualWriteMapComparisonRow> Rows { get; } = new();
     public ICollectionView RowsView { get; }
 
-    public AsyncRelayCommand SaveLeftCommand { get; }
-    public AsyncRelayCommand SaveRightCommand { get; }
     public AsyncRelayCommand CompareCommand { get; }
 
     public string StatusMessage
@@ -125,21 +121,6 @@ public sealed class DualWriteCompareViewModel : INotifyPropertyChanged
         editor.GatewayBaseUrl = settings.GatewayBaseUrl;
         editor.FoIdentifier = string.IsNullOrWhiteSpace(settings.FoIdentifier) ? defaultIdentifier : settings.FoIdentifier;
         editor.Summary = settings.IsComplete ? $"Configured: {settings.GatewayBaseUrl}" : "Not configured.";
-    }
-
-    private async Task SaveSideAsync(ConnectionEditorViewModel editor, CancellationToken ct)
-    {
-        // Persist the gateway URL / identifier edits while keeping the stored sign-in session (the
-        // token comes from Sign in, never the UI).
-        var existing = await _store.GetAsync(editor.Key, ct);
-        var settings = existing with
-        {
-            GatewayBaseUrl = editor.GatewayBaseUrl?.Trim() ?? string.Empty,
-            FoIdentifier = editor.FoIdentifier?.Trim() ?? string.Empty
-        };
-        await _store.SaveAsync(settings, ct);
-        editor.Summary = settings.IsComplete ? $"Saved: {settings.GatewayBaseUrl}" : "Saved — sign in to add a session.";
-        StatusMessage = $"{editor.Title} connection saved.";
     }
 
     private static async Task<DualWriteSignInResult?> DefaultSignInAsync(string foIdentifier, bool clearCachedAccount)

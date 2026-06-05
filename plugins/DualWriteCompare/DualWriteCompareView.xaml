@@ -81,9 +81,7 @@
 
         <!-- Action bar -->
         <DockPanel Grid.Row="1" Margin="8">
-            <Button DockPanel.Dock="Left" Content="Save A" Command="{Binding SaveLeftCommand}" Padding="10,4" MinWidth="80" />
-            <Button DockPanel.Dock="Left" Content="Save B" Command="{Binding SaveRightCommand}" Padding="10,4" MinWidth="80" Margin="6,0,0,0" />
-            <Button DockPanel.Dock="Left" Content="Compare" Command="{Binding CompareCommand}" Padding="14,4" MinWidth="100" Margin="12,0,0,0" IsEnabled="{Binding IsNotBusy}" />
+            <Button DockPanel.Dock="Left" Content="Compare" Command="{Binding CompareCommand}" Padding="14,4" MinWidth="100" IsEnabled="{Binding IsNotBusy}" />
             <CheckBox DockPanel.Dock="Left" Content="Show only differences" VerticalAlignment="Center" Margin="12,0,0,0"
                       IsChecked="{Binding ShowOnlyDifferences}" />
             <TextBlock VerticalAlignment="Center" Margin="12,0,0,0" TextTrimming="CharacterEllipsis" Text="{Binding SummaryMessage}" />
