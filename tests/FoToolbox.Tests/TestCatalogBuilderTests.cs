@@ -1,4 +1,3 @@
-using System.Linq;
 using FoToolbox.Core.Catalog;
 using FoToolbox.Core.Models;
 using FoToolbox.TestHelpers;
@@ -25,6 +24,7 @@ public class TestCatalogBuilderTests
         Assert.False(account.Nullable);
 
         var name = Assert.Single(entity.Properties, p => p.Name == "Name");
+        Assert.Equal("Edm.String", name.Type);
         Assert.True(name.Nullable);
     }
 
