@@ -54,7 +54,8 @@
         <Border Grid.Column="0"
                 Background="{StaticResource MicaBrush}"
                 BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,0,1,0">
-          <ListBox ItemsSource="{Binding Tools}"
+          <ListBox x:Name="NavRail"
+                   ItemsSource="{Binding Tools}"
                    SelectedItem="{Binding CurrentTool, Mode=TwoWay}"
                    Background="Transparent" BorderThickness="0" Padding="6">
             <ListBox.ItemTemplate>

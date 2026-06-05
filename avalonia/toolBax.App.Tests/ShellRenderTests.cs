@@ -32,7 +32,9 @@ public class ShellRenderTests
             Assert.NotNull(contentTitle);
             Assert.Equal("Plugins", contentTitle!.Text);   // default tool is the Plugins home
 
-            var navRail = window.GetVisualDescendants().OfType<ListBox>().First();
+            var navRail = window.GetVisualDescendants()
+                .OfType<ListBox>()
+                .First(lb => lb.Name == "NavRail");
             Assert.Equal(8, navRail.ItemCount);
         }
         finally

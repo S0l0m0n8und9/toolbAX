@@ -19,15 +19,16 @@ public partial class MainWindow : Window
         }
     }
 
-    // Enter in the palette search box runs the top result.
+    // Enter in the palette search box runs the highlighted result, falling back to the top result.
     private void OnPaletteKeyDown(object? sender, KeyEventArgs e)
     {
         if (e.Key == Key.Enter && DataContext is ShellViewModel shell)
         {
-            var first = shell.Palette.FilteredCommands.FirstOrDefault();
-            if (first is not null)
+            var target = PaletteResults.SelectedItem as NavTool
+                         ?? shell.Palette.FilteredCommands.FirstOrDefault();
+            if (target is not null)
             {
-                Invoke(first);
+                Invoke(target);
                 e.Handled = true;
             }
         }
