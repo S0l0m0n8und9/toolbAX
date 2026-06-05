@@ -71,6 +71,20 @@ public class ShellViewModelTests
     }
 
     [Fact]
+    public void Activating_a_profile_in_profiles_updates_the_shell_switcher()
+    {
+        // Shell + Profiles share one IProfileStore, and Profiles' SetActive syncs the shell switcher.
+        var shell = new ShellViewModel();
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
+        var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
+
+        profiles.Selected = profiles.Profiles.Single(p => p.Id == "uat-eur");
+        profiles.SetActiveCommand.Execute(null);
+
+        Assert.Equal("uat-eur", shell.ActiveEnvironment.Id);
+    }
+
+    [Fact]
     public void Default_content_is_a_placeholder_for_the_home_tool()
     {
         var shell = new ShellViewModel();

@@ -21,8 +21,7 @@
             <DataTemplate x:DataType="models:EnvProfile">
               <StackPanel Spacing="1" Margin="0,2">
                 <TextBlock Text="{Binding Name}" FontSize="13" Foreground="{StaticResource Text0Brush}" />
-                <TextBlock FontSize="11" Foreground="{StaticResource Text3Brush}"
-                           Text="{Binding Legal, StringFormat='{}{0} · '}" />
+                <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="{StaticResource Text3Brush}" />
               </StackPanel>
             </DataTemplate>
           </ListBox.ItemTemplate>

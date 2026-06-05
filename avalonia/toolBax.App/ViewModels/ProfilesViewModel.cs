@@ -25,9 +25,11 @@ public partial class ProfilesViewModel : ObservableObject
     private string _search = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSelectedActive))]
     private EnvProfile? _selected;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSelectedActive))]
     private string? _activeId;
 
     [ObservableProperty]
@@ -50,6 +52,9 @@ public partial class ProfilesViewModel : ObservableObject
 
     public bool IsSelectedActive => Selected is not null && Selected.Id == ActiveId;
 
+    /// <summary>Raised when the active profile changes, so the shell's switcher can stay in sync.</summary>
+    public event Action<string>? ActiveChanged;
+
     [RelayCommand]
     private void SetActive()
     {
@@ -60,8 +65,8 @@ public partial class ProfilesViewModel : ObservableObject
 
         ActiveId = Selected.Id;
         _store.ActiveId = Selected.Id;
-        OnPropertyChanged(nameof(IsSelectedActive));
         Status = $"'{Selected.Name}' is now the active environment.";
+        ActiveChanged?.Invoke(Selected.Id);
     }
 
     [RelayCommand]
@@ -75,6 +80,4 @@ public partial class ProfilesViewModel : ObservableObject
         _store.Save(Selected);
         Status = $"Saved '{Selected.Name}'.";
     }
-
-    partial void OnSelectedChanged(EnvProfile? value) => OnPropertyChanged(nameof(IsSelectedActive));
 }

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ToolBax.App.Models;
@@ -24,6 +25,7 @@ public partial class ShellViewModel : ObservableObject
     // Factory for the (heavier) Operations screen VM, injected so tests can supply fakes. Built once
     // on first navigation to the Operations tool.
     private readonly Func<object> _operationsContentFactory;
+    private readonly IProfileStore _profileStore;
     private object? _operationsContent;
     private object? _profilesContent;
 
@@ -46,9 +48,10 @@ public partial class ShellViewModel : ObservableObject
     [ObservableProperty]
     private bool _isCommandPaletteOpen;
 
-    public ShellViewModel(Func<object>? operationsContentFactory = null)
+    public ShellViewModel(Func<object>? operationsContentFactory = null, IProfileStore? profileStore = null)
     {
         _operationsContentFactory = operationsContentFactory ?? DefaultOperationsContent;
+        _profileStore = profileStore ?? new FakeProfileStore();
 
         Tools = new[]
         {
@@ -62,10 +65,10 @@ public partial class ShellViewModel : ObservableObject
             new NavTool("profiles", "Profiles", 'E'),
         };
 
-        Environments = new ObservableCollection<EnvProfile>(FakeProfileStore.Seed());
+        Environments = new ObservableCollection<EnvProfile>(_profileStore.GetAll());
 
         _currentTool = Tools[0];
-        _activeEnvironment = Environments[0];
+        _activeEnvironment = Environments.FirstOrDefault(e => e.Id == _profileStore.ActiveId) ?? Environments[0];
         Palette = new CommandPaletteViewModel(Tools, NavigateTo);
         _currentContent = ResolveContent(_currentTool);
     }
@@ -81,9 +84,25 @@ public partial class ShellViewModel : ObservableObject
     private object ResolveContent(NavTool tool) => tool.Id switch
     {
         "ops" => _operationsContent ??= _operationsContentFactory(),
-        "profiles" => _profilesContent ??= new ProfilesViewModel(new FakeProfileStore()),
+        "profiles" => _profilesContent ??= CreateProfilesContent(),
         _ => new PlaceholderScreenViewModel(tool.Title),
     };
+
+    // Profiles shares the shell's single IProfileStore; activating a profile there keeps the shell's
+    // environment switcher in sync.
+    private ProfilesViewModel CreateProfilesContent()
+    {
+        var profiles = new ProfilesViewModel(_profileStore);
+        profiles.ActiveChanged += id =>
+        {
+            var match = Environments.FirstOrDefault(e => e.Id == id);
+            if (match is not null)
+            {
+                ActiveEnvironment = match;
+            }
+        };
+        return profiles;
+    }
 
     // TODO: design-mode only — wired to FakeDualWriteGateway with prototype seed data. Replace with
     // the live IDualWriteGateway (resolving the gateway + loading maps async) once it's implemented;
@@ -113,6 +132,7 @@ public partial class ShellViewModel : ObservableObject
         if (env is not null)
         {
             ActiveEnvironment = env;
+            _profileStore.ActiveId = env.Id;
         }
     }
 }

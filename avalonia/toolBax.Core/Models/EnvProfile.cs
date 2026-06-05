@@ -25,6 +25,9 @@ public sealed record EnvProfile(
     EnvStatus Status,
     int? LatencyMs = null)
 {
+    /// <summary>List-item subtitle, e.g. "USMF · Tier 1".</summary>
+    public string Subtitle => $"{Legal} · {Tier}";
+
     /// <summary>Two-letter chip initials derived from the name (e.g. "USMF Dev" → "UD").</summary>
     public string Initials
     {
