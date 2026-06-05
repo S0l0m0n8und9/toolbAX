@@ -39,10 +39,19 @@ public partial class QueryBuilderViewModel : ObservableObject
     private string _queryUrl = string.Empty;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RunCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
     private bool _hasRun;
+
+    /// <summary>True only when the last run returned a 2xx — gates the success badge.</summary>
+    [ObservableProperty]
+    private bool _runSucceeded;
+
+    /// <summary>The last run's "{code} {reason}" (e.g. "200 OK", "404 Not Found").</summary>
+    [ObservableProperty]
+    private string _statusBadge = string.Empty;
 
     [ObservableProperty]
     private int _rowCount;
@@ -142,7 +151,9 @@ public partial class QueryBuilderViewModel : ObservableObject
     private IEnumerable<string> SelectedColumns() =>
         Fields.Where(f => f.IsSelected).Select(f => f.Name);
 
-    [RelayCommand(IncludeCancelCommand = true)]
+    private bool CanRun() => !IsBusy;
+
+    [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanRun))]
     private async Task Run(CancellationToken ct)
     {
         if (SelectedEntity is null)
@@ -158,8 +169,10 @@ public partial class QueryBuilderViewModel : ObservableObject
             var path = BuildQueryUrl()["GET ".Length..];
             var response = await _client.SendAsync("GET", path, body: null, ct);
 
-            ResultColumns = columns;
+            // Clear stale rows before swapping columns so the grid never renders old rows under new
+            // headers (the column rebuild keys off ResultColumns changing).
             ResultRows.Clear();
+            ResultColumns = columns;
             if (response.IsSuccess)
             {
                 foreach (var row in ParseRows(response.Body, columns))
@@ -169,11 +182,14 @@ public partial class QueryBuilderViewModel : ObservableObject
             }
 
             RowCount = ResultRows.Count;
+            RunSucceeded = response.IsSuccess;
+            StatusBadge = $"{response.StatusCode} {response.ReasonPhrase}";
             StatusText = $"{RowCount} rows · {response.StatusLine}";
             HasRun = true;
         }
         catch (Exception ex)
         {
+            RunSucceeded = false;
             StatusText = $"Query failed: {ex.Message}";
         }
         finally
