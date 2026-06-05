@@ -144,7 +144,7 @@
                     <Button Content="Resume" Command="{Binding ResumeCommand}" Padding="12,4" MinWidth="84" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}"
                             ToolTip="Mutating · checked map(s) · LIVE. Resumes the selected map(s). Load maps and tick at least one first." />
                     <Button Content="Initial Sync" Command="{Binding InitialSyncCommand}" Padding="12,4" MinWidth="100" Margin="6,0,0,0" IsEnabled="{Binding IsNotBusy}"
-                            ToolTip="Mutating · checked map(s) · LIVE. Re-runs the initial data sync for the selected map(s); can be long-running." />
+                            ToolTip="Mutating · checked map(s) · LIVE. Re-runs the initial data sync for the selected map(s); can be long-running. Load maps and tick at least one first." />
                     <Border Width="1" Margin="10,2" Background="{DynamicResource Fo.BorderBrush}" />
                     <Button Content="Apply Latest Version" Command="{Binding ApplyLatestVersionCommand}" Padding="12,4" MinWidth="140" IsEnabled="{Binding IsNotBusy}"
                             ToolTip="Mutating · checked map(s) · LIVE. Activates the latest template version on the selected map(s), restricted to the 'Apply-version author(s)' filter. Tick at least one map first." />
