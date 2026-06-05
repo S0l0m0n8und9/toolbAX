@@ -123,4 +123,8 @@ public sealed record DwError(
 {
     /// <summary>The mono detail line: "ts · code · key · field".</summary>
     public string MetaLine => $"{Timestamp} · {Code} · {Key} · {Field}";
+
+    public bool IsError => Severity == DwErrorSeverity.Error;
+
+    public bool IsWarning => Severity == DwErrorSeverity.Warning;
 }

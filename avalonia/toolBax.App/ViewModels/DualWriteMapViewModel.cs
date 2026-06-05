@@ -98,12 +98,17 @@ public partial class DualWriteMapViewModel : ObservableObject
         Errors.Clear();
         OnPropertyChanged(nameof(HasRuns));
         OnPropertyChanged(nameof(HasErrorDetails));
+
+        // Cancel the now-stale in-flight load (so a real endpoint doesn't keep a dead request
+        // running) before starting the new one.
+        LoadHistoryCommand.Cancel();
         LoadHistoryCommand.Execute(null);
     }
 
     // Runs + errors come from live (async) run-history / dead-letter endpoints, so they load
-    // separately from the cached template detail. Guards against a stale map id finishing last.
-    [RelayCommand]
+    // separately from the cached template detail. AllowConcurrentExecutions keeps a newer selection
+    // from being gated by an in-flight load; the stale-id guard is the sole arbiter of what applies.
+    [RelayCommand(AllowConcurrentExecutions = true)]
     private async Task LoadHistory(CancellationToken ct)
     {
         var map = DetailMap;
