@@ -43,9 +43,11 @@ internal static class PluginManifestReader
 
             return false;
         }
-        catch
+        catch (BadImageFormatException)
         {
-            // Unreadable / not a managed assembly → treat as "not a plugin" (never prompts).
+            // Not a managed assembly (native DLL, non-PE file, or corrupt metadata) → not a plugin.
+            // IO/access errors are deliberately NOT swallowed: they may indicate a genuine plugin DLL
+            // that is temporarily locked or ACL-blocked, and should surface as a load error upstream.
             return false;
         }
     }
