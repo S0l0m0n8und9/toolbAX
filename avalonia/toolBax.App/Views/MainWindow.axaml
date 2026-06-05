@@ -92,6 +92,9 @@
               <DataTemplate DataType="vm:QueryBuilderViewModel">
                 <views:QueryBuilderView />
               </DataTemplate>
+              <DataTemplate DataType="vm:DualWriteMapViewModel">
+                <views:DualWriteMapView />
+              </DataTemplate>
               <DataTemplate DataType="vm:PlaceholderScreenViewModel">
                 <views:PlaceholderScreenView />
               </DataTemplate>
