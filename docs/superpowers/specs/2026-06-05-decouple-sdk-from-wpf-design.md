@@ -62,11 +62,40 @@ verified in Phase 1 by building the SDK with `UseWPF=false`.
 **Recommendation: B**, with the lightest possible marker. The contract returns a UI-agnostic
 `IPluginView`; the WPF host owns a single adapter (`IPluginView` → `FrameworkElement`). For the common
 case, the SDK provides a `WpfPluginView` (in a *separate* `FoToolbox.SDK.Wpf` assembly that keeps
-`UseWPF=true`) wrapping a `UserControl`, so existing plugins change one line
-(`return new WpfPluginView(control);`) and the core `FoToolbox.SDK` drops its WPF dependency entirely.
+`UseWPF=true`) wrapping a `UserControl`, and the core `FoToolbox.SDK` drops its WPF dependency entirely.
+
+**Adapter accessor (must be explicit).** To stop the host from casting to the concrete `WpfPluginView`
+(which would re-couple it), `FoToolbox.SDK.Wpf` owns the resolution surface:
+
+```csharp
+public sealed class WpfPluginView : IPluginView
+{
+    public WpfPluginView(FrameworkElement content) => Content = content;
+    public FrameworkElement Content { get; }
+}
+
+public static class WpfPluginViews
+{
+    // Host calls this; only FoToolbox.SDK.Wpf knows the concrete type.
+    public static FrameworkElement Resolve(IPluginView view) =>
+        (view as WpfPluginView)?.Content
+        ?? throw new InvalidOperationException($"View {view.GetType()} is not a WPF view.");
+}
+```
+
+The WPF host references `FoToolbox.SDK.Wpf` (it *is* WPF, so that's fine) and calls
+`WpfPluginViews.Resolve(view)` — it never sees `WpfPluginView`'s internals. A future non-WPF host
+ships its own `IPluginView` adapter the same way.
 
 This splits the contract (UI-agnostic, in `FoToolbox.SDK`) from the WPF convenience (in
 `FoToolbox.SDK.Wpf`), which is the clean long-term shape for #35.
+
+**Per-plugin cost (not literally one line).** Each plugin gains a `ProjectReference` to
+`FoToolbox.SDK.Wpf` in its `.csproj`, a `using FoToolbox.SDK.Wpf;`, and changes its `CreateTool` body
+to `return new WpfPluginView(control);` — small and mechanical, but a build-graph change, not a single
+edit. The installer (`build.ps1` staging + `FoToolboxFiles.wxs`) must stage `FoToolbox.SDK.Wpf.dll`
+into each plugin folder (or confirm host-provided resolution covers it) — tests won't catch a missing
+installer entry.
 
 ## Phased plan
 
@@ -78,7 +107,9 @@ This splits the contract (UI-agnostic, in `FoToolbox.SDK`) from the WPF convenie
   - Host: `PluginManager` resolves the `FrameworkElement` from the returned `IPluginView`;
     `LoadedPlugin.ToolControl`/`PluginEntry.Control`/`ActiveControl` widen `UserControl`→`FrameworkElement`.
   - Set `UseWPF=false` on `FoToolbox.SDK` and confirm `ICommand` still resolves.
-  - Each plugin: `return new WpfPluginView(theUserControl);` (one line).
+  - Each plugin (×7): add a `ProjectReference` to `FoToolbox.SDK.Wpf` + `using FoToolbox.SDK.Wpf;`,
+    and change `CreateTool` to `return new WpfPluginView(theUserControl);`. Stage
+    `FoToolbox.SDK.Wpf.dll` per plugin in `build.ps1` + add the `FoToolboxFiles.wxs` component.
   - **Backwards-compat:** all plugins are first-party here (rebuilt together), so a contract change is
     acceptable; no third-party plugins to break. Trust/strong-naming unaffected (new assembly is
     signed with the same key).
@@ -108,5 +139,7 @@ loads), and leaves behaviour identical while removing WPF from the core contract
 
 - `FoToolbox.UiTests` (binding harness) and `PluginManagerTests` already exercise every plugin's
   view + load path; they become the Phase 1 regression net.
-- Add an SDK-level test asserting `FoToolbox.SDK` carries **no** reference to `PresentationFramework`
-  (guards the decoupling from regressing).
+- Add an SDK-level test asserting `FoToolbox.SDK` carries **no** WPF reference. WPF spans three
+  assemblies — `PresentationFramework`, `PresentationCore`, **and** `WindowsBase` — so the guard must
+  check all three (a stray `WindowsBase`/`PresentationCore` type would otherwise slip through). Most
+  robustly, assert the SDK's resulting `*.deps.json` has no `UseWPF`/WPF framework reference at all.
