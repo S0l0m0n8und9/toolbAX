@@ -58,6 +58,7 @@ public sealed partial class ODataPostBuilderViewModel : INotifyPropertyChanged
 
     private string _status = "Ready";
     private bool _isBusy;
+    private bool _loadingEntities;
     private bool _confirmedThisSession;
     private CancellationTokenSource? _entitySearchCts;
     private CancellationTokenSource? _selectedEntityDetailsCts;
