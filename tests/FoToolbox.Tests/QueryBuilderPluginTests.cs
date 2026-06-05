@@ -18,7 +18,7 @@ public class QueryBuilderPluginTests
         {
             CurrentEnv = new FoToolbox.Core.Models.FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com", "tenant", "USMF");
             OData = new FakeODataClient();
-            Catalog = new FakeCatalogService();
+            Catalog = new FoToolbox.TestHelpers.FakeCatalogService();
             Logger = NullLogger.Instance;
         }
 
@@ -61,36 +61,4 @@ public class QueryBuilderPluginTests
     }
 #pragma warning restore xUnit1031
 
-    private sealed class FakeCatalogService : ICatalogService
-    {
-        public Task<TableCatalog> GetTablesAsync(FoToolbox.Core.Models.FoEnvironment env, CatalogRefreshMode mode, System.Threading.CancellationToken ct = default)
-            => Task.FromResult(new TableCatalog("test", "Test", System.DateTime.UtcNow, System.Array.Empty<TableInfo>()));
-
-        public Task<ODataMetadata> GetODataMetadataAsync(FoToolbox.Core.Models.FoEnvironment env, CatalogRefreshMode mode, System.Threading.CancellationToken ct = default)
-        {
-            var entity = new ODataEntity("Customers", new[] { new ODataProperty("AccountNumber", "Edm.String", false), new ODataProperty("Name", "Edm.String", true) }, System.Array.Empty<ODataNavigationProperty>());
-            return Task.FromResult(new ODataMetadata(new[] { entity }, System.Array.Empty<ODataEnumType>(), null));
-        }
-
-        public Task<CatalogSnapshot> GetSnapshotAsync(FoToolbox.Core.Models.FoEnvironment env, CatalogRefreshMode mode, System.Threading.CancellationToken ct = default)
-            => Task.FromResult(new CatalogSnapshot(env.Id, env.BaseUrl, new TableCatalog("test", "Test", System.DateTime.UtcNow, System.Array.Empty<TableInfo>()), new ODataMetadata(System.Array.Empty<ODataEntity>(), System.Array.Empty<ODataEnumType>(), null), System.DateTime.UtcNow));
-
-        public Task RefreshAsync(FoToolbox.Core.Models.FoEnvironment env, CatalogRefreshScope scope, System.Threading.CancellationToken ct = default)
-            => Task.CompletedTask;
-
-        public Task<TableCatalog> ImportTableCatalogAsync(FoToolbox.Core.Models.FoEnvironment env, string json, System.Threading.CancellationToken ct = default)
-            => Task.FromResult(new TableCatalog("import", "UserImport", System.DateTime.UtcNow, System.Array.Empty<TableInfo>()));
-
-        public Task<string> GetTableBrowserUrlTemplateAsync(System.Threading.CancellationToken ct = default)
-            => Task.FromResult("{BaseUrl}/?mi=SysTableBrowser&table={TableName}");
-
-        public Task SetTableBrowserUrlTemplateAsync(string template, System.Threading.CancellationToken ct = default)
-            => Task.CompletedTask;
-
-        public string BuildTableBrowserUrl(FoToolbox.Core.Models.FoEnvironment env, string tableName)
-            => $"{env.BaseUrl}/?mi=SysTableBrowser&table={tableName}";
-
-        public string BuildODataEntityUrl(FoToolbox.Core.Models.FoEnvironment env, string entityName)
-            => $"{env.BaseUrl}/data/{entityName}";
-    }
 }
