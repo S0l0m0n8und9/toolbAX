@@ -1,0 +1,208 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ToolBax.App.ViewModels"
+             xmlns:models="using:ToolBax.Core.Models"
+             x:Class="ToolBax.App.Views.DualWriteMapView"
+             x:DataType="vm:DualWriteMapViewModel">
+
+  <Grid ColumnDefinitions="320,*">
+
+    <!-- Master -->
+    <Border Grid.Column="0" Background="{StaticResource MicaBrush}"
+            BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,0,1,0">
+      <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" FontWeight="SemiBold" FontSize="14" Margin="2,2,0,8"
+                   Text="{Binding Maps.Count, StringFormat='Table maps · {0}'}" />
+        <TextBox DockPanel.Dock="Top" Text="{Binding Search, Mode=TwoWay}"
+                 PlaceholderText="Filter maps…" Margin="0,0,0,8" />
+        <ListBox x:Name="MapList"
+                 ItemsSource="{Binding Filtered}"
+                 SelectedItem="{Binding SelectedMap, Mode=TwoWay}"
+                 Background="Transparent" BorderThickness="0">
+          <ListBox.ItemTemplate>
+            <DataTemplate x:DataType="models:DwMapSummary">
+              <Grid ColumnDefinitions="Auto,*" Margin="0,3">
+                <Ellipse Grid.Column="0" Width="8" Height="8" Margin="0,5,8,0"
+                         VerticalAlignment="Top" Fill="{StaticResource Text3Brush}" />
+                <StackPanel Grid.Column="1" Spacing="2">
+                  <Grid ColumnDefinitions="*,Auto,*">
+                    <TextBlock Grid.Column="0" Text="{Binding FoEntity}" FontSize="12"
+                               FontFamily="Cascadia Code,Consolas,monospace"
+                               Foreground="{StaticResource Text0Brush}" TextTrimming="CharacterEllipsis" />
+                    <TextBlock Grid.Column="1" Text="{Binding DirectionArrow}" FontSize="12" Margin="5,0"
+                               Foreground="{StaticResource AccentBrush}" />
+                    <TextBlock Grid.Column="2" Text="{Binding DvEntity}" FontSize="12"
+                               FontFamily="Cascadia Code,Consolas,monospace"
+                               Foreground="{StaticResource Text2Brush}" TextTrimming="CharacterEllipsis"
+                               TextAlignment="Right" />
+                  </Grid>
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="{Binding VersionLabel}" FontSize="10.5"
+                               FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text3Brush}" />
+                    <TextBlock Text="{Binding LastRun}" FontSize="10.5" Foreground="{StaticResource Text3Brush}" />
+                    <TextBlock Text="{Binding Errors24h, StringFormat='{}{0} err'}" FontSize="10.5"
+                               Foreground="{StaticResource ErrBrush}" IsVisible="{Binding HasErrors}" />
+                  </StackPanel>
+                </StackPanel>
+              </Grid>
+            </DataTemplate>
+          </ListBox.ItemTemplate>
+        </ListBox>
+      </DockPanel>
+    </Border>
+
+    <!-- Detail -->
+    <Grid Grid.Column="1" RowDefinitions="Auto,*" Margin="24,16,24,0"
+          IsVisible="{Binding SelectedMap, Converter={x:Static ObjectConverters.IsNotNull}}">
+
+      <StackPanel Grid.Row="0" Spacing="10">
+
+        <!-- Read-only inspector banner -->
+        <Border Background="{StaticResource InfoBgBrush}" BorderBrush="{StaticResource InfoBrush}"
+                BorderThickness="1" CornerRadius="8" Padding="12,8">
+          <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}"
+                     Text="Read-only inspector. To start, stop, pause or sync a map, open Dual-Write Operations." />
+        </Border>
+
+        <!-- Eyebrow + badges -->
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <TextBlock Text="DUAL-WRITE MAP" FontSize="11" VerticalAlignment="Center"
+                     Foreground="{StaticResource Text3Brush}" />
+          <Border Background="{StaticResource Layer3Brush}" CornerRadius="999" Padding="8,2">
+            <TextBlock Text="{Binding SelectedMap.StateText}" FontSize="10.5" Foreground="{StaticResource Text1Brush}" />
+          </Border>
+          <Border Background="{StaticResource Layer3Brush}" CornerRadius="999" Padding="8,2">
+            <TextBlock Text="{Binding SelectedMap.DirectionArrow}" FontSize="10.5" Foreground="{StaticResource Text1Brush}" />
+          </Border>
+          <Border Background="{StaticResource Layer3Brush}" CornerRadius="999" Padding="8,2">
+            <TextBlock Text="{Binding SelectedMap.VersionLabel}" FontSize="10.5" Foreground="{StaticResource Text1Brush}" />
+          </Border>
+        </StackPanel>
+
+        <!-- Title + KPIs + sparkline -->
+        <Grid ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" VerticalAlignment="Center">
+          <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="12" VerticalAlignment="Bottom">
+            <TextBlock Text="{Binding SelectedMap.FoEntity}" FontSize="22"
+                       FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text0Brush}" />
+            <TextBlock Text="{Binding SelectedMap.DirectionArrow}" FontSize="24"
+                       Foreground="{StaticResource AccentBrush}" />
+            <TextBlock Text="{Binding SelectedMap.DvEntity}" FontSize="22"
+                       FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text2Brush}" />
+          </StackPanel>
+
+          <StackPanel Grid.Column="2" Margin="18,0,0,0" MinWidth="86">
+            <TextBlock Text="ROWS 24H" FontSize="10" Foreground="{StaticResource Text3Brush}" />
+            <TextBlock Text="{Binding SelectedMap.Rows24h, StringFormat='{}{0:N0}'}" FontSize="19"
+                       FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text0Brush}" />
+          </StackPanel>
+          <StackPanel Grid.Column="3" Margin="18,0,0,0" MinWidth="86">
+            <TextBlock Text="ERRORS 24H" FontSize="10" Foreground="{StaticResource Text3Brush}" />
+            <TextBlock Text="{Binding SelectedMap.Errors24h, StringFormat='{}{0:N0}'}" FontSize="19"
+                       FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text1Brush}" />
+          </StackPanel>
+          <StackPanel Grid.Column="4" Margin="18,0,0,0" MinWidth="86">
+            <TextBlock Text="LATENCY P95" FontSize="10" Foreground="{StaticResource Text3Brush}" />
+            <TextBlock Text="{Binding LatencyP95}" FontSize="19"
+                       FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text0Brush}" />
+          </StackPanel>
+          <StackPanel Grid.Column="5" Margin="18,0,0,0">
+            <TextBlock Text="ACTIVITY · 24H" FontSize="10" Foreground="{StaticResource Text3Brush}" Margin="0,0,0,4" />
+            <Border Width="150" Height="32">
+              <Path x:Name="SparkPath" Stroke="{StaticResource AccentBrush}" StrokeThickness="1.5"
+                    StrokeLineCap="Round" StrokeJoin="Round" />
+            </Border>
+          </StackPanel>
+        </Grid>
+      </StackPanel>
+
+      <!-- Pivot tabs -->
+      <TabControl Grid.Row="1" Margin="0,12,0,0">
+        <TabItem Header="Bindings">
+          <Grid>
+            <DataGrid x:Name="BindingsGrid" ItemsSource="{Binding Bindings}" IsReadOnly="True"
+                      IsVisible="{Binding HasBindings}" AutoGenerateColumns="False"
+                      GridLinesVisibility="Horizontal" Background="{StaticResource Layer1Brush}">
+              <DataGrid.Columns>
+                <DataGridTextColumn Header="#" Binding="{Binding OrdinalLabel}" Width="Auto" />
+                <DataGridTextColumn Header="F&amp;O field" Binding="{Binding FoField}" Width="2*" />
+                <DataGridTextColumn Header="Flow" Binding="{Binding FlowGlyph}" Width="Auto" />
+                <DataGridTextColumn Header="Dataverse field" Binding="{Binding DvField}" Width="2*" />
+                <DataGridTextColumn Header="Transform" Binding="{Binding Transform}" Width="2*" />
+                <DataGridTextColumn Header="Flags" Binding="{Binding Flags}" Width="*" />
+              </DataGrid.Columns>
+            </DataGrid>
+            <Border IsVisible="{Binding !HasBindings}" VerticalAlignment="Top" Margin="0,12"
+                    Background="{StaticResource InfoBgBrush}" BorderBrush="{StaticResource InfoBrush}"
+                    BorderThickness="1" CornerRadius="8" Padding="12,8">
+              <TextBlock Text="{Binding NotCachedMessage}" TextWrapping="Wrap"
+                         Foreground="{StaticResource Text1Brush}" />
+            </Border>
+          </Grid>
+        </TabItem>
+
+        <TabItem Header="Value maps">
+          <Grid>
+            <ScrollViewer IsVisible="{Binding HasValueMaps}">
+              <ItemsControl ItemsSource="{Binding ValueMaps}" Margin="0,12">
+                <ItemsControl.ItemTemplate>
+                  <DataTemplate x:DataType="models:DwValueMap">
+                    <Border Background="{StaticResource Layer1Brush}" BorderBrush="{StaticResource StrokeBrush}"
+                            BorderThickness="1" CornerRadius="8" Padding="14" Margin="0,0,0,12">
+                      <StackPanel Spacing="8">
+                        <TextBlock Text="{Binding Name}" FontWeight="SemiBold"
+                                   FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text0Brush}" />
+                        <ItemsControl ItemsSource="{Binding Entries}">
+                          <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="models:DwValueMapEntry">
+                              <Grid ColumnDefinitions="*,Auto,*" Margin="0,2">
+                                <TextBlock Grid.Column="0" Text="{Binding From}" FontSize="12"
+                                           FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text1Brush}" />
+                                <TextBlock Grid.Column="1" Text="→" FontSize="12" Margin="10,0"
+                                           Foreground="{StaticResource Text3Brush}" />
+                                <TextBlock Grid.Column="2" Text="{Binding To}" FontSize="12"
+                                           FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text1Brush}" />
+                              </Grid>
+                            </DataTemplate>
+                          </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="{Binding MoreLabel}" IsVisible="{Binding HasMore}" FontSize="11"
+                                   Foreground="{StaticResource Text3Brush}" />
+                      </StackPanel>
+                    </Border>
+                  </DataTemplate>
+                </ItemsControl.ItemTemplate>
+              </ItemsControl>
+            </ScrollViewer>
+            <TextBlock IsVisible="{Binding !HasValueMaps}" Margin="0,16"
+                       Text="No value maps defined for this table map." Foreground="{StaticResource Text3Brush}" />
+          </Grid>
+        </TabItem>
+
+        <TabItem Header="Runs">
+          <Border VerticalAlignment="Top" Margin="0,12"
+                  Background="{StaticResource InfoBgBrush}" BorderBrush="{StaticResource InfoBrush}"
+                  BorderThickness="1" CornerRadius="8" Padding="12,8">
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}"
+                       Text="Run history loads from the live run-history endpoint — arriving in the §4 follow-up." />
+          </Border>
+        </TabItem>
+
+        <TabItem>
+          <TabItem.Header>
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <TextBlock Text="Errors" />
+              <Ellipse Width="7" Height="7" Fill="{StaticResource ErrBrush}" VerticalAlignment="Center"
+                       IsVisible="{Binding HasErrors}" />
+            </StackPanel>
+          </TabItem.Header>
+          <Border VerticalAlignment="Top" Margin="0,12"
+                  Background="{StaticResource InfoBgBrush}" BorderBrush="{StaticResource InfoBrush}"
+                  BorderThickness="1" CornerRadius="8" Padding="12,8">
+            <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}"
+                       Text="Error details load from the live error/dead-letter endpoint — arriving in the §4 follow-up." />
+          </Border>
+        </TabItem>
+      </TabControl>
+    </Grid>
+  </Grid>
+</UserControl>

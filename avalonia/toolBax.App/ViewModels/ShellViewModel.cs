@@ -31,6 +31,7 @@ public partial class ShellViewModel : ObservableObject
     private object? _metadataContent;
     private object? _postContent;
     private object? _queryContent;
+    private object? _mapBrowserContent;
 
     [ObservableProperty]
     private NavTool _currentTool;
@@ -94,6 +95,8 @@ public partial class ShellViewModel : ObservableObject
         "post" => _postContent ??= new PostBuilderViewModel(new FakeODataClient()),
         // TODO: design-mode fakes — swap for the live IMetadataService + IODataClient once available.
         "query" => _queryContent ??= new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient()),
+        // TODO: design-mode FakeDualWriteMapService — swap for the live IDualWriteMapService once available.
+        "mapbrowser" => _mapBrowserContent ??= new DualWriteMapViewModel(new FakeDualWriteMapService()),
         _ => new PlaceholderScreenViewModel(tool.Title),
     };
 
