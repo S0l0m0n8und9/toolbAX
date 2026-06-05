@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>toolBax · Avalonia Fluent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"/>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin/>
+<link href="https://fonts.googleapis.com/css2?family=Cascadia+Code:wght@400;600&display=swap" rel="stylesheet"/>
+<link rel="stylesheet" href="avalonia.css"/>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+
+<script src="data.js"></script>
+<script type="text/babel" src="components/ui.jsx"></script>
+<script type="text/babel" src="components/av-shell.jsx"></script>
+<script type="text/babel" src="components/av-home.jsx"></script>
+<script type="text/babel" src="components/av-ops.jsx"></script>
+<script type="text/babel" src="components/av-profiles.jsx"></script>
+<script type="text/babel" src="components/av-mapbrowser.jsx"></script>
+<script type="text/babel" src="components/av-extra.jsx"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect } = React;
+
+function AvApp() {
+  const [env, setEnv] = useState(window.ENVS[0]);
+  const [view, setView] = useState("home");
+  const [cmd, setCmd] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") { e.preventDefault(); setCmd(c => !c); }
+      if (e.key === "Escape") setCmd(false);
+      if (e.altKey && !e.metaKey && !e.ctrlKey) {
+        const map = { h: "home", q: "query", o: "dwops", d: "dualwrite", c: "dwcompare", m: "metadata", p: "postbuilder", e: "profiles" };
+        const k = e.key.toLowerCase();
+        if (map[k]) { e.preventDefault(); setView(map[k]); }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const label = (window.AV_NAV.find(n => n.id === view) || {}).label || "Plugins";
+
+  return (
+    <div style={{ height: "100%", display: "flex", flexDirection: "column", background: "var(--app-bg)" }}>
+      <AvCaption env={env} onCmd={() => setCmd(true)}/>
+      <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+        <AvNavView view={view} onView={setView} env={env} onEnvChange={setEnv}/>
+        <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", background: "var(--app-bg)" }}>
+          <div style={{ flex: 1, minHeight: 0, overflow: "hidden" }}>
+            {view === "home"        && <AvHome env={env} onOpen={setView}/>}
+            {view === "query"       && <AvQuery env={env}/>}
+            {view === "dwops"       && <AvOps env={env}/>}
+            {view === "dualwrite"   && <AvMapBrowser env={env}/>}
+            {view === "dwcompare"   && <AvCompare env={env}/>}
+            {view === "metadata"    && <AvMetadata env={env}/>}
+            {view === "postbuilder" && <AvPost env={env}/>}
+            {view === "profiles"    && <AvProfiles env={env}/>}
+          </div>
+        </div>
+      </div>
+      <AvStatusStrip env={env} viewLabel={label} busy={false}/>
+      {cmd && <AvCommandPalette onClose={() => setCmd(false)} onView={setView}/>}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<AvApp/>);
+</script>
+</body>
+</html>
