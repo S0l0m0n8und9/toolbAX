@@ -1,0 +1,50 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ToolBax.App.ViewModels"
+             x:Class="ToolBax.App.Views.PostBuilderView"
+             x:DataType="vm:PostBuilderViewModel">
+
+  <Grid RowDefinitions="Auto,Auto,*" Margin="20,16">
+
+    <TextBlock Grid.Row="0" Text="POST Builder" FontSize="24" FontWeight="SemiBold"
+               Foreground="{StaticResource Text0Brush}" />
+
+    <!-- Method + path + send -->
+    <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto" Margin="0,12" ColumnSpacing="8">
+      <ComboBox Grid.Column="0" Width="120" ItemsSource="{Binding Methods}"
+                SelectedItem="{Binding Method, Mode=TwoWay}" />
+      <TextBox Grid.Column="1" Text="{Binding Path, Mode=TwoWay}"
+               FontFamily="Cascadia Code,Consolas,monospace" />
+      <!-- SendCommand (AsyncRelayCommand) disables itself while running, so no explicit IsEnabled. -->
+      <Button Grid.Column="2" x:Name="SendButton" Content="Send"
+              Command="{Binding SendCommand}" />
+    </Grid>
+
+    <!-- Request | response -->
+    <Grid Grid.Row="2" ColumnDefinitions="*,*" ColumnSpacing="12">
+      <DockPanel Grid.Column="0">
+        <TextBlock DockPanel.Dock="Top" Text="REQUEST" FontSize="10"
+                   Foreground="{StaticResource Text3Brush}" Margin="0,0,0,4" />
+        <TextBox Text="{Binding RequestBody, Mode=TwoWay}"
+                 AcceptsReturn="True" TextWrapping="NoWrap"
+                 FontFamily="Cascadia Code,Consolas,monospace"
+                 VerticalContentAlignment="Top" />
+      </DockPanel>
+
+      <DockPanel Grid.Column="1">
+        <Border DockPanel.Dock="Top" Margin="0,0,0,4">
+          <TextBlock x:Name="StatusText" Text="{Binding StatusText}" FontSize="11.5"
+                     FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text2Brush}" />
+        </Border>
+        <Border Background="{StaticResource Layer1Brush}"
+                BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="4">
+          <ScrollViewer>
+            <TextBlock Text="{Binding ResponseBody}" Margin="10"
+                       FontFamily="Cascadia Code,Consolas,monospace" FontSize="12"
+                       TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}" />
+          </ScrollViewer>
+        </Border>
+      </DockPanel>
+    </Grid>
+  </Grid>
+</UserControl>
