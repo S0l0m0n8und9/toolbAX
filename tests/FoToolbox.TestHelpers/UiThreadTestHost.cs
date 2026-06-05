@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Runtime.ExceptionServices;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -54,7 +55,9 @@ public static class UiThreadTestHost
 
         if (failure is not null)
         {
-            throw failure;
+            // Preserve the original stack trace (and throw site inside the test body) rather than
+            // resetting it with a bare `throw failure;` — important for a shared test helper.
+            ExceptionDispatchInfo.Capture(failure).Throw();
         }
     }
 
