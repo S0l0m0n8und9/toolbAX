@@ -112,8 +112,8 @@ public class ShellViewModelTests
     public void Other_tools_route_to_a_titled_placeholder()
     {
         var shell = new ShellViewModel();
-        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "compare");
         var placeholder = Assert.IsType<PlaceholderScreenViewModel>(shell.CurrentContent);
-        Assert.Equal("Query Builder", placeholder.Title);
+        Assert.Equal("Dual-Write Compare", placeholder.Title);
     }
 }
