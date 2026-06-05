@@ -127,7 +127,10 @@ public class PluginNavigationFlowTests
 
         var left = navRail.BoundingRectangle.Right;
         var top = tabBar.BoundingRectangle.Bottom;
-        var bottom = win.BoundingRectangle.Bottom - 60; // exclude the status-bar strip
+        // Exclude the bottom status-bar strip. Derive the offset from the tab bar's measured height
+        // (≈ the status bar's height) rather than a fixed pixel count: both rectangles are in physical
+        // pixels, so this stays correct under display scaling instead of going vacuous at high DPI.
+        var bottom = win.BoundingRectangle.Bottom - (tabBar.BoundingRectangle.Height * 2);
 
         foreach (var d in win.FindAllDescendants())
         {

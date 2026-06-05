@@ -87,9 +87,12 @@ internal sealed class AppDriver : IDisposable
             if (!Directory.Exists(src)) return;
             var dst = Path.Combine(AppContext.BaseDirectory, "e2e-logs");
             Directory.CreateDirectory(dst);
+            // The host names its log by date (FoToolbox-yyyyMMdd.log), so prefix with this launch's
+            // unique run id; otherwise sequential same-day runs would overwrite each other's logs.
+            var runId = Path.GetFileName(_tempLocalAppData);
             foreach (var f in Directory.GetFiles(src, "*.log"))
             {
-                File.Copy(f, Path.Combine(dst, Path.GetFileName(f)), overwrite: true);
+                File.Copy(f, Path.Combine(dst, $"{runId}-{Path.GetFileName(f)}"), overwrite: true);
             }
         }
         catch { /* best-effort */ }
