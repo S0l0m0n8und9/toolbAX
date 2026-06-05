@@ -1,0 +1,63 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!--
+    Design tokens for toolBax (see docs/design_handoff_avalonia/design-tokens.md). FluentTheme dark
+    is the base; this dictionary supplies the Mica-layered neutral surfaces, the white-over-dark
+    stroke/text ramps (encoded as ARGB alpha), and the brand amber accent (also mapped onto Fluent's
+    SystemAccentColor* so native controls pick it up). Colours/spacing here are the high-fidelity
+    source of truth for every screen.
+  -->
+
+  <!-- Surfaces -->
+  <SolidColorBrush x:Key="AppBackgroundBrush" Color="#1D1D20" />
+  <SolidColorBrush x:Key="MicaBrush" Color="#222226" />
+  <SolidColorBrush x:Key="Layer1Brush" Color="#272729" />
+  <SolidColorBrush x:Key="Layer2Brush" Color="#2D2D31" />
+  <SolidColorBrush x:Key="Layer3Brush" Color="#36363B" />
+  <SolidColorBrush x:Key="Layer4Brush" Color="#404048" />
+
+  <!-- Strokes & dividers (white over dark, alpha-encoded) -->
+  <SolidColorBrush x:Key="StrokeBrush" Color="#16FFFFFF" />
+  <SolidColorBrush x:Key="Stroke2Brush" Color="#24FFFFFF" />
+  <SolidColorBrush x:Key="DividerBrush" Color="#0FFFFFFF" />
+  <SolidColorBrush x:Key="SubtleHoverBrush" Color="#12FFFFFF" />
+
+  <!-- Text ramp -->
+  <SolidColorBrush x:Key="Text0Brush" Color="#EBFFFFFF" />
+  <SolidColorBrush x:Key="Text1Brush" Color="#C7FFFFFF" />
+  <SolidColorBrush x:Key="Text2Brush" Color="#8CFFFFFF" />
+  <SolidColorBrush x:Key="Text3Brush" Color="#61FFFFFF" />
+
+  <!-- Accent (brand amber) -->
+  <SolidColorBrush x:Key="AccentBrush" Color="#E3A83F" />
+  <SolidColorBrush x:Key="AccentHoverBrush" Color="#EAB863" />
+  <SolidColorBrush x:Key="AccentPressedBrush" Color="#C8902F" />
+  <SolidColorBrush x:Key="OnAccentBrush" Color="#1A1611" />
+  <SolidColorBrush x:Key="AccentTintBrush" Color="#24E3A83F" />
+  <SolidColorBrush x:Key="AccentTint2Brush" Color="#38E3A83F" />
+
+  <!-- Status palette (foreground + 12% bg of same hue) -->
+  <SolidColorBrush x:Key="OkBrush" Color="#5FCE8E" />
+  <SolidColorBrush x:Key="OkBgBrush" Color="#1F5FCE8E" />
+  <SolidColorBrush x:Key="WarnBrush" Color="#E9C45A" />
+  <SolidColorBrush x:Key="WarnBgBrush" Color="#1FE9C45A" />
+  <SolidColorBrush x:Key="ErrBrush" Color="#F2655E" />
+  <SolidColorBrush x:Key="ErrBgBrush" Color="#1FF2655E" />
+  <SolidColorBrush x:Key="InfoBrush" Color="#5BB4F2" />
+  <SolidColorBrush x:Key="InfoBgBrush" Color="#1F5BB4F2" />
+
+  <!-- Fluent accent override: native controls inherit the brand amber. -->
+  <Color x:Key="SystemAccentColor">#E3A83F</Color>
+  <Color x:Key="SystemAccentColorLight1">#EAB863</Color>
+  <Color x:Key="SystemAccentColorLight2">#EFC781</Color>
+  <Color x:Key="SystemAccentColorLight3">#F4D6A0</Color>
+  <Color x:Key="SystemAccentColorDark1">#C8902F</Color>
+  <Color x:Key="SystemAccentColorDark2">#A87724</Color>
+  <Color x:Key="SystemAccentColorDark3">#875E19</Color>
+
+  <!-- Shape -->
+  <CornerRadius x:Key="CornerRadiusControl">4</CornerRadius>
+  <CornerRadius x:Key="CornerRadiusCard">8</CornerRadius>
+  <CornerRadius x:Key="CornerRadiusPill">999</CornerRadius>
+
+</ResourceDictionary>

@@ -117,3 +117,40 @@ jobs:
             ${{ github.workspace }}\E2eResults
             ${{ github.workspace }}\tests\FoToolbox.E2eTests\bin\Release\net10.0-windows\e2e-screenshots
           if-no-files-found: ignore
+
+  # Alternate UI host spike (#35): the toolBax Avalonia app + its headless UI tests. Runs on
+  # ubuntu-latest with NO display server — the reason Avalonia was chosen over WPF/WinUI. No xvfb,
+  # no virtual desktop; if this stays green on a bare Linux runner the framework choice is paying off.
+  avalonia-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Build.props
+            Directory.Packages.props
+
+      - name: Restore
+        run: dotnet restore ./avalonia/toolBax.slnx
+
+      - name: Build
+        run: dotnet build ./avalonia/toolBax.slnx -c Release --no-restore
+
+      - name: Run Avalonia headless tests (no display server)
+        run: dotnet test ./avalonia/toolBax.App.Tests/toolBax.App.Tests.csproj -c Release --no-build --blame-hang --blame-hang-timeout 90s --blame-hang-dump-type mini --results-directory ${{ github.workspace }}/AvaloniaTestResults
+
+      - name: Upload Avalonia test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: avalonia-test-results
+          path: ${{ github.workspace }}/AvaloniaTestResults
+          if-no-files-found: ignore

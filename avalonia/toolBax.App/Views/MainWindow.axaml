@@ -1,0 +1,43 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:ToolBax.App.ViewModels"
+        x:Class="ToolBax.App.Views.MainWindow"
+        x:DataType="vm:ShellViewModel"
+        Title="toolBax"
+        Width="1280" Height="800"
+        Background="{StaticResource AppBackgroundBrush}">
+
+  <Grid RowDefinitions="40,*">
+
+    <!-- Caption bar (Mica) -->
+    <Border Grid.Row="0"
+            Background="{StaticResource MicaBrush}"
+            BorderBrush="{StaticResource StrokeBrush}"
+            BorderThickness="0,0,0,1">
+      <TextBlock Text="{Binding Title}"
+                 VerticalAlignment="Center"
+                 Margin="16,0"
+                 FontSize="13"
+                 FontWeight="SemiBold"
+                 Foreground="{StaticResource Text1Brush}" />
+    </Border>
+
+    <!-- Content placeholder (the nav rail + tool host land in the shell PR) -->
+    <StackPanel Grid.Row="1"
+                HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                Spacing="6">
+      <TextBlock x:Name="ShellTitle"
+                 Text="{Binding Title}"
+                 FontSize="28"
+                 FontWeight="SemiBold"
+                 HorizontalAlignment="Center"
+                 Foreground="{StaticResource Text0Brush}" />
+      <TextBlock Text="{Binding Subtitle}"
+                 FontSize="13.5"
+                 HorizontalAlignment="Center"
+                 Foreground="{StaticResource Text2Brush}" />
+    </StackPanel>
+
+  </Grid>
+</Window>

@@ -1,0 +1,231 @@
+/* ============================================================================
+   toolBax — Avalonia 12 "Fluent" theme (dark)
+   An HONEST rendering of what Avalonia's FluentTheme ships for this app:
+   neutral Mica greys, Segoe UI Variable type, 4px control radii, native
+   control idioms (NavigationView, InfoBar, DataGrid, ToggleSwitch, ContentDialog).
+   Brand amber kept as the custom accent — i.e. FluentTheme + AccentColor override.
+   Compare against styles.css (the warm terminal/IDE skin).
+   ============================================================================ */
+
+:root {
+  /* Fluent dark neutrals (Mica-layered surfaces) */
+  --app-bg:    #1d1d20;
+  --mica:      #222226;
+  --layer-1:   #272729;   /* cards, content panes */
+  --layer-2:   #2d2d31;   /* control fill rest */
+  --layer-3:   #36363b;   /* control fill hover */
+  --layer-4:   #404048;   /* pressed / chip */
+  --subtle:    rgba(255,255,255,0.038);  /* list hover */
+  --subtle-2:  rgba(255,255,255,0.07);
+
+  --stroke:    rgba(255,255,255,0.085);  /* card / control stroke */
+  --stroke-2:  rgba(255,255,255,0.14);
+  --divider:   rgba(255,255,255,0.06);
+
+  /* Fluent text ramp */
+  --txt-0: rgba(255,255,255,0.92);
+  --txt-1: rgba(255,255,255,0.78);
+  --txt-2: rgba(255,255,255,0.55);
+  --txt-3: rgba(255,255,255,0.38);
+
+  /* Brand amber kept as the Fluent AccentColor */
+  --accent:      #e3a83f;
+  --accent-2:    #eab863;   /* hover (lighter, Fluent accent hover) */
+  --accent-3:    #c8902f;   /* pressed */
+  --on-accent:   #1a1611;   /* dark text on accent fill */
+  --accent-tint: rgba(227,168,63,0.14);
+  --accent-tint-2: rgba(227,168,63,0.22);
+
+  /* Fluent status palette */
+  --ok:   #5fce8e;   --ok-bg:   rgba(95,206,142,0.12);
+  --warn: #e9c45a;   --warn-bg: rgba(233,196,90,0.12);
+  --err:  #f2655e;   --err-bg:  rgba(242,101,94,0.12);
+  --info: #5bb4f2;   --info-bg: rgba(91,180,242,0.12);
+
+  --font-ui: "Segoe UI Variable Text", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --font-disp: "Segoe UI Variable Display", "Segoe UI Variable", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Cascadia Code", "Cascadia Mono", Consolas, ui-monospace, monospace;
+
+  --r-ctrl: 4px;
+  --r-card: 8px;
+  --r-pill: 999px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%;
+  background: var(--app-bg);
+  color: var(--txt-0);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.4;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+#root { height: 100%; }
+
+/* Fluent scrollbar: thin, fades in (we keep it visible & subtle) */
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: rgba(255,255,255,0.18);
+  border-radius: 8px; border: 3px solid transparent; background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); background-clip: padding-box; }
+
+.mono { font-family: var(--font-mono); font-feature-settings: "tnum"; }
+.dim  { color: var(--txt-2); }
+.t3   { color: var(--txt-3); }
+.truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* ---- Buttons (Fluent) ---------------------------------------------------- */
+.fl-btn {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 32px; padding: 0 12px;
+  font-family: var(--font-ui); font-size: 13.5px;
+  color: var(--txt-0);
+  background: var(--layer-2);
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-ctrl);
+  cursor: pointer; white-space: nowrap;
+  transition: background .09s ease, border-color .09s ease;
+}
+.fl-btn:hover { background: var(--layer-3); }
+.fl-btn:active { background: var(--layer-2); color: var(--txt-1); }
+.fl-btn:disabled { opacity: 0.4; cursor: default; background: var(--layer-2); }
+.fl-btn.sm { height: 28px; padding: 0 10px; font-size: 12.5px; }
+.fl-btn.icon { width: 32px; padding: 0; justify-content: center; }
+.fl-btn.subtle { background: transparent; border-color: transparent; }
+.fl-btn.subtle:hover { background: var(--subtle-2); }
+.fl-btn.accent {
+  background: var(--accent); color: var(--on-accent); border-color: transparent; font-weight: 600;
+}
+.fl-btn.accent:hover { background: var(--accent-2); }
+.fl-btn.accent:active { background: var(--accent-3); }
+.fl-btn.danger { color: var(--err); border-color: rgba(242,101,94,0.4); }
+.fl-btn.danger:hover { background: var(--err-bg); }
+.fl-btn.danger-accent { background: var(--err); color: #1a0e0d; border-color: transparent; font-weight: 600; }
+
+/* ---- Text inputs / combo ------------------------------------------------- */
+.fl-input {
+  height: 32px; padding: 0 10px;
+  background: var(--layer-2);
+  border: 1px solid var(--stroke);
+  border-bottom: 1px solid var(--stroke-2);
+  border-radius: var(--r-ctrl);
+  color: var(--txt-0); font-family: var(--font-ui); font-size: 13.5px;
+  outline: none; transition: border-color .1s ease;
+}
+.fl-input.mono { font-family: var(--font-mono); font-size: 12.5px; }
+.fl-input:focus { border-bottom: 2px solid var(--accent); padding-bottom: 1px; }
+.fl-input::placeholder { color: var(--txt-3); }
+.fl-combo {
+  height: 32px; padding: 0 32px 0 10px;
+  background: var(--layer-2);
+  border: 1px solid var(--stroke); border-radius: var(--r-ctrl);
+  color: var(--txt-0); font-family: var(--font-ui); font-size: 13.5px;
+  outline: none; cursor: pointer; appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23ffffff99' stroke-width='2' stroke-linecap='round'><path d='m6 9 6 6 6-6'/></svg>");
+  background-repeat: no-repeat; background-position: right 9px center;
+}
+.fl-combo:hover { background-color: var(--layer-3); }
+
+/* ---- Cards / expander ---------------------------------------------------- */
+.fl-card {
+  background: var(--layer-1);
+  border: 1px solid var(--stroke);
+  border-radius: var(--r-card);
+  overflow: hidden;
+}
+.fl-card-h {
+  padding: 11px 16px; border-bottom: 1px solid var(--divider);
+  font-size: 14px; color: var(--txt-0); font-weight: 600;
+  display: flex; align-items: center; gap: 8px;
+}
+
+/* ---- InfoBar (native Fluent control) ------------------------------------- */
+.fl-infobar {
+  display: flex; align-items: flex-start; gap: 11px;
+  padding: 11px 14px; border-radius: var(--r-card);
+  border: 1px solid var(--stroke); font-size: 13px; line-height: 1.5;
+}
+.fl-infobar .ib-icon { flex-shrink: 0; margin-top: 1px; display: grid; place-items: center; }
+.fl-infobar.warn { background: var(--warn-bg); border-color: rgba(233,196,90,0.32); }
+.fl-infobar.warn .ib-icon { color: var(--warn); }
+.fl-infobar.err  { background: var(--err-bg);  border-color: rgba(242,101,94,0.32); }
+.fl-infobar.err .ib-icon { color: var(--err); }
+.fl-infobar.info { background: var(--info-bg); border-color: rgba(91,180,242,0.32); }
+.fl-infobar.info .ib-icon { color: var(--info); }
+
+/* ---- Badge / InfoBadge --------------------------------------------------- */
+.fl-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 22px; padding: 0 9px; border-radius: var(--r-pill);
+  font-size: 12px; font-weight: 500; white-space: nowrap;
+  background: var(--layer-3); color: var(--txt-1); border: 1px solid var(--stroke);
+}
+.fl-badge .d { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.fl-badge.ok   { color: var(--ok);   background: var(--ok-bg);   border-color: transparent; }
+.fl-badge.warn { color: var(--warn); background: var(--warn-bg); border-color: transparent; }
+.fl-badge.err  { color: var(--err);  background: var(--err-bg);  border-color: transparent; }
+.fl-badge.info { color: var(--info); background: var(--info-bg); border-color: transparent; }
+.fl-badge.neutral { color: var(--txt-2); }
+
+/* ---- ToggleSwitch -------------------------------------------------------- */
+.fl-switch {
+  width: 40px; height: 20px; border-radius: var(--r-pill);
+  background: var(--layer-3); border: 1px solid var(--stroke-2);
+  position: relative; cursor: pointer; transition: background .12s ease, border-color .12s ease; flex-shrink: 0;
+}
+.fl-switch .knob {
+  position: absolute; top: 50%; left: 3px; transform: translateY(-50%);
+  width: 12px; height: 12px; border-radius: 50%; background: var(--txt-1);
+  transition: left .12s ease, background .12s ease, width .12s ease;
+}
+.fl-switch.on { background: var(--accent); border-color: var(--accent); }
+.fl-switch.on .knob { left: 22px; background: var(--on-accent); }
+
+/* ---- DataGrid ------------------------------------------------------------ */
+.fl-grid { width: 100%; border-collapse: collapse; font-size: 13px; }
+.fl-grid thead th {
+  position: sticky; top: 0; z-index: 2;
+  background: var(--mica); color: var(--txt-2); font-weight: 600;
+  text-align: left; padding: 0 14px; height: 38px; white-space: nowrap;
+  border-bottom: 1px solid var(--stroke);
+  font-size: 12.5px;
+}
+.fl-grid tbody td { padding: 0 14px; height: 40px; border-bottom: 1px solid var(--divider); color: var(--txt-1); }
+.fl-grid tbody tr { transition: background .06s ease; }
+.fl-grid tbody tr:hover { background: var(--subtle); }
+.fl-grid tbody tr.sel { background: var(--accent-tint); box-shadow: inset 3px 0 0 var(--accent); }
+.fl-grid tbody tr.sel:hover { background: var(--accent-tint-2); }
+
+/* ---- Caption / window-control buttons ------------------------------------ */
+.fl-caption-btn {
+  width: 46px; height: 100%; display: grid; place-items: center;
+  background: transparent; border: 0; color: var(--txt-1); cursor: pointer;
+}
+.fl-caption-btn:hover { background: var(--subtle-2); }
+.fl-caption-btn.close:hover { background: #c42b1c; color: #fff; }
+
+/* ---- NavigationView item ------------------------------------------------- */
+.fl-nav-item {
+  display: flex; align-items: center; gap: 12px;
+  height: 38px; margin: 2px 6px; padding: 0 12px; border-radius: var(--r-ctrl);
+  color: var(--txt-1); cursor: pointer; position: relative; font-size: 13.5px;
+  transition: background .08s ease;
+}
+.fl-nav-item:hover { background: var(--subtle-2); }
+.fl-nav-item.sel { background: var(--layer-3); color: var(--txt-0); box-shadow: inset 3px 0 0 var(--accent); }
+
+.fl-kbd {
+  font-family: var(--font-mono); font-size: 11px; color: var(--txt-2);
+  background: var(--layer-2); border: 1px solid var(--stroke);
+  border-radius: 4px; padding: 1px 6px; white-space: nowrap;
+}
+
+.vr { width: 1px; background: var(--stroke); align-self: stretch; margin: 6px 0; }
+
+@keyframes fl-blink { 0%,49%{opacity:1} 50%,100%{opacity:0.25} }
+.fl-pulse { animation: fl-blink 1s steps(1) infinite; }

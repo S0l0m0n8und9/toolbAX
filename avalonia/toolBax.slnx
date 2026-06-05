@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="toolBax.App.Tests/toolBax.App.Tests.csproj" />
+  <Project Path="toolBax.App/toolBax.App.csproj" />
+</Solution>
