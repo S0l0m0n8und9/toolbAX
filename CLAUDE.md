@@ -33,7 +33,9 @@ dotnet test   .\FoToolbox.sln -c Release --no-build
 ## Plugin model
 
 - Implement `IFoToolPlugin` (`src/FoToolbox.SDK/Plugins/IFoToolPlugin.cs`): `Id` must match `PluginManifest.json`,
-  host calls `InitializeAsync(IPluginContext)` then `CreateTool()` (returns a WPF `UserControl` shown as a tab).
+  host calls `InitializeAsync(IPluginContext)` then `CreateTool()` (returns a UI-agnostic `IPluginView`;
+  WPF plugins return `new WpfPluginView(control)` from `FoToolbox.SDK.Wpf`, shown as a tab). The core
+  `FoToolbox.SDK` carries no WPF dependency (#33); WPF types live in `FoToolbox.SDK.Wpf`.
 - `IPluginContext` is read-only (OData read client, catalog, logger). Cast to `IPluginContextWrite` /
   `IPluginContextDataverse` / `IPluginContextNavigation` for extended capabilities.
 - Plugins load via `AssemblyLoadContext` (`PluginLoadContext`). Trust is governed by `PluginTrustOptions`
