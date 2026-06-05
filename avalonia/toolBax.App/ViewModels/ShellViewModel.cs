@@ -87,6 +87,9 @@ public partial class ShellViewModel : ObservableObject
         _ => new PlaceholderScreenViewModel(tool.Title),
     };
 
+    // TODO: design-mode only — wired to FakeDualWriteGateway with prototype seed data. Replace with
+    // the live IDualWriteGateway (resolving the gateway + loading maps async) once it's implemented;
+    // do not ship the fake as the default.
     private static object DefaultOperationsContent() => new DualWriteOpsViewModel(
         new FakeDualWriteGateway(),
         new DialogService(),

@@ -9,6 +9,14 @@
         CanResize="False"
         Background="{StaticResource Layer1Brush}">
 
+  <Window.Styles>
+    <!-- Destructive confirm (Stop / Initial sync) gets an Err-filled button as a safety cue. -->
+    <Style Selector="Button.danger">
+      <Setter Property="Background" Value="{StaticResource ErrBrush}" />
+      <Setter Property="Foreground" Value="{StaticResource OnAccentBrush}" />
+    </Style>
+  </Window.Styles>
+
   <StackPanel Margin="20" Spacing="12">
     <TextBlock Text="{Binding Title}" FontSize="16" FontWeight="SemiBold" Foreground="{StaticResource Text0Brush}" />
     <TextBlock Text="{Binding Message}" TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}" />
@@ -35,7 +43,8 @@
 
     <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Spacing="8">
       <Button Content="Cancel" Click="OnCancel" MinWidth="90" />
-      <Button x:Name="ConfirmButton" Content="{Binding ConfirmLabel}" Click="OnConfirm" MinWidth="90" />
+      <Button x:Name="ConfirmButton" Content="{Binding ConfirmLabel}" Click="OnConfirm" MinWidth="90"
+              Classes.danger="{Binding IsDanger}" />
     </StackPanel>
   </StackPanel>
 </Window>
