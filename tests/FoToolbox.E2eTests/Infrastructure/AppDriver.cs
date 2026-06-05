@@ -28,11 +28,18 @@ internal sealed class AppDriver : IDisposable
         _tempLocalAppData = tempLocalAppData;
     }
 
-    public static AppDriver Launch()
+    /// <summary>
+    /// Launches the host with an isolated, offline data dir. <paramref name="seedAppDataDir"/>, if
+    /// supplied, runs against that throwaway dir <b>before</b> launch — e.g. to seed a profile into
+    /// <c>profile.db</c> so the plugin tabs load (plugins only load when a profile is active).
+    /// </summary>
+    public static AppDriver Launch(Action<string>? seedAppDataDir = null)
     {
         var exe = LocateHostExe();
         var tmp = Path.Combine(Path.GetTempPath(), "fotoolbox-e2e", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tmp);
+
+        seedAppDataDir?.Invoke(tmp);
 
         var psi = new ProcessStartInfo(exe)
         {
@@ -64,6 +71,26 @@ internal sealed class AppDriver : IDisposable
             var dir = Path.Combine(AppContext.BaseDirectory, "e2e-screenshots");
             Directory.CreateDirectory(dir);
             Capture.Screen().ToFile(Path.Combine(dir, name + ".png"));
+        }
+        catch { /* best-effort */ }
+    }
+
+    /// <summary>
+    /// Copies the host's log dir out of the throwaway data dir (which is about to be deleted) into a
+    /// persistent <c>e2e-logs</c> folder under the test output, so a failed launch can be triaged.
+    /// </summary>
+    private void PreserveHostLogs()
+    {
+        try
+        {
+            var src = Path.Combine(_tempLocalAppData, "logs");
+            if (!Directory.Exists(src)) return;
+            var dst = Path.Combine(AppContext.BaseDirectory, "e2e-logs");
+            Directory.CreateDirectory(dst);
+            foreach (var f in Directory.GetFiles(src, "*.log"))
+            {
+                File.Copy(f, Path.Combine(dst, Path.GetFileName(f)), overwrite: true);
+            }
         }
         catch { /* best-effort */ }
     }
@@ -118,6 +145,7 @@ internal sealed class AppDriver : IDisposable
 
         try { if (App is { HasExited: false }) App.Kill(); } catch { /* ignore */ }
         try { Automation?.Dispose(); } catch { /* ignore */ }
+        PreserveHostLogs();
         try { if (Directory.Exists(_tempLocalAppData)) Directory.Delete(_tempLocalAppData, recursive: true); }
         catch { /* best-effort */ }
     }
