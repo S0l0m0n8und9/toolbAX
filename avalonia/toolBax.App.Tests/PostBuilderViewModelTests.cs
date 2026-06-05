@@ -44,4 +44,16 @@ public class PostBuilderViewModelTests
 
         Assert.Contains("400", vm.StatusText);
     }
+
+    [Fact]
+    public async Task Patch_returns_204()
+    {
+        var vm = MakeVm();
+        vm.Method = "PATCH";
+
+        await vm.SendCommand.ExecuteAsync(null);
+
+        Assert.Contains("204", vm.StatusText);
+        Assert.False(vm.IsBusy);
+    }
 }

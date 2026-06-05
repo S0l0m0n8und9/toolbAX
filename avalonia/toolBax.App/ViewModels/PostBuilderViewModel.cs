@@ -38,15 +38,18 @@ public partial class PostBuilderViewModel : ObservableObject
 
     public PostBuilderViewModel(IODataClient client) => _client = client;
 
-    [RelayCommand]
-    private async Task Send()
+    // IncludeCancelCommand: surfaces SendCancelCommand and lets the generated AsyncRelayCommand carry
+    // the token's lifecycle, so an in-flight send can be cancelled on navigate-away/shutdown once a
+    // live IODataClient replaces the fake.
+    [RelayCommand(IncludeCancelCommand = true)]
+    private async Task Send(CancellationToken ct)
     {
         IsBusy = true;
         StatusText = "Sending…";
         try
         {
             var body = string.Equals(Method, "DELETE", StringComparison.OrdinalIgnoreCase) ? null : RequestBody;
-            var response = await _client.SendAsync(Method, Path, body, CancellationToken.None);
+            var response = await _client.SendAsync(Method, Path, body, ct);
             StatusText = response.StatusLine;
             ResponseBody = response.Body;
         }

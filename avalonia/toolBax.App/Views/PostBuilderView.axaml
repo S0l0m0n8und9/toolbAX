@@ -15,8 +15,9 @@
                 SelectedItem="{Binding Method, Mode=TwoWay}" />
       <TextBox Grid.Column="1" Text="{Binding Path, Mode=TwoWay}"
                FontFamily="Cascadia Code,Consolas,monospace" />
+      <!-- SendCommand (AsyncRelayCommand) disables itself while running, so no explicit IsEnabled. -->
       <Button Grid.Column="2" x:Name="SendButton" Content="Send"
-              Command="{Binding SendCommand}" IsEnabled="{Binding !IsBusy}" />
+              Command="{Binding SendCommand}" />
     </Grid>
 
     <!-- Request | response -->
