@@ -74,7 +74,7 @@ public sealed record DwMapSummary(
 
 /// <summary>
 /// The cached "template" detail for a map: KPIs, 24h activity series, field bindings, and value maps.
-/// Run history + errors are loaded separately (live endpoints) — see the §4 follow-up.
+/// Run history + errors are loaded separately (live endpoints) — see <see cref="DwRun"/>/<see cref="DwError"/>.
 /// </summary>
 public sealed record DwMapDetail(
     DwMapSummary Summary,
@@ -82,3 +82,45 @@ public sealed record DwMapDetail(
     IReadOnlyList<double> Activity,
     IReadOnlyList<DwBinding> Bindings,
     IReadOnlyList<DwValueMap> ValueMaps);
+
+/// <summary>Outcome of a sync run (Map Browser §4, Runs tab).</summary>
+public enum DwRunResult
+{
+    Ok,
+    Partial,
+    Failed,
+}
+
+/// <summary>One run-history entry for a map (Map Browser §4, Runs tab).</summary>
+public sealed record DwRun(
+    string Time,
+    string Trigger,
+    bool InitialSync,
+    long Rows,
+    long Ok,
+    long Failed,
+    string Duration,
+    DwRunResult Result)
+{
+    public string ResultText => Result.ToString().ToLowerInvariant();
+}
+
+/// <summary>Severity of a dual-write error (Map Browser §4, Errors tab).</summary>
+public enum DwErrorSeverity
+{
+    Error,
+    Warning,
+}
+
+/// <summary>One error/dead-letter entry for a map (Map Browser §4, Errors tab).</summary>
+public sealed record DwError(
+    DwErrorSeverity Severity,
+    string Message,
+    string Timestamp,
+    string Code,
+    string Key,
+    string Field)
+{
+    /// <summary>The mono detail line: "ts · code · key · field".</summary>
+    public string MetaLine => $"{Timestamp} · {Code} · {Key} · {Field}";
+}

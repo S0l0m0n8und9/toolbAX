@@ -1,4 +1,5 @@
 using System.Linq;
+using System.Threading.Tasks;
 using ToolBax.App.Services;
 using ToolBax.App.ViewModels;
 using Xunit;
@@ -82,5 +83,33 @@ public class DualWriteMapViewModelTests
 
         vm.SelectedMap = vm.Maps.Single(m => m.Id == "vend-account");
         Assert.False(vm.HasErrors);
+    }
+
+    [Fact]
+    public async Task Selecting_a_failing_map_loads_runs_and_errors()
+    {
+        var vm = MakeVm();
+        vm.SelectedMap = vm.Maps.Single(m => m.Id == "so-salesorder");
+
+        await vm.LoadHistoryCommand.ExecuteAsync(null);
+
+        Assert.True(vm.HasRuns);
+        Assert.NotEmpty(vm.Runs);
+        Assert.True(vm.HasErrorDetails);
+        Assert.NotEmpty(vm.Errors);
+        Assert.False(vm.IsLoadingHistory);
+    }
+
+    [Fact]
+    public async Task Healthy_map_has_runs_but_no_error_details()
+    {
+        var vm = MakeVm();
+        vm.SelectedMap = vm.Maps.Single(m => m.Id == "vend-account");
+
+        await vm.LoadHistoryCommand.ExecuteAsync(null);
+
+        Assert.True(vm.HasRuns);
+        Assert.False(vm.HasErrorDetails);
+        Assert.Empty(vm.Errors);
     }
 }

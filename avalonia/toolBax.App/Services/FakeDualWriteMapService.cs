@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 
@@ -75,5 +77,49 @@ public sealed class FakeDualWriteMapService : IDualWriteMapService
         return Enumerable.Range(0, 24)
             .Select(i => 18 + Math.Abs(Math.Sin(i * 0.6 + seed)) * 80)
             .ToArray();
+    }
+
+    // TODO: design-mode illustrative history — back GetRunsAsync/GetErrorsAsync with the live
+    // run-history + dead-letter endpoints once confirmed (see §4 handoff note).
+    public Task<IReadOnlyList<DwRun>> GetRunsAsync(string mapId, CancellationToken ct = default)
+    {
+        var summary = Maps.FirstOrDefault(m => m.Id == mapId);
+        if (summary is null || summary.State == MapState.Idle)
+        {
+            return Task.FromResult<IReadOnlyList<DwRun>>(Array.Empty<DwRun>());
+        }
+
+        var failed = summary.Errors24h;
+        var rows = Math.Max(summary.Rows24h / 6, failed);
+        var ok = Math.Max(0, rows - failed);
+        var result = failed == 0 ? DwRunResult.Ok : failed > rows / 4 ? DwRunResult.Failed : DwRunResult.Partial;
+
+        IReadOnlyList<DwRun> runs = new[]
+        {
+            new DwRun("just now", "scheduled", false, rows, ok, failed, "412 ms", result),
+            new DwRun("10m ago", "scheduled", false, rows, rows, 0, "388 ms", DwRunResult.Ok),
+            new DwRun("1h ago", "initial-sync", true, summary.Rows24h, summary.Rows24h, 0, "3m 12s", DwRunResult.Ok),
+        };
+        return Task.FromResult(runs);
+    }
+
+    public Task<IReadOnlyList<DwError>> GetErrorsAsync(string mapId, CancellationToken ct = default)
+    {
+        var summary = Maps.FirstOrDefault(m => m.Id == mapId);
+        if (summary is null || summary.Errors24h == 0)
+        {
+            return Task.FromResult<IReadOnlyList<DwError>>(Array.Empty<DwError>());
+        }
+
+        IReadOnlyList<DwError> errors = new[]
+        {
+            new DwError(DwErrorSeverity.Error, "Lookup 'transactioncurrencyid' could not be resolved.",
+                "just now", "0x80040217", $"{summary.FoEntity}#US-9001", "CurrencyCode"),
+            new DwError(DwErrorSeverity.Error, "Duplicate key on target record.",
+                "3m ago", "0x80060891", $"{summary.FoEntity}#US-8842", "accountnumber"),
+            new DwError(DwErrorSeverity.Warning, "Value truncated to target field length.",
+                "12m ago", "0x80040E07", $"{summary.FoEntity}#US-8710", "name"),
+        };
+        return Task.FromResult(errors);
     }
 }
