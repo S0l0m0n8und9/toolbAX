@@ -106,6 +106,33 @@
                          Text="{Binding MapSearch, UpdateSourceTrigger=PropertyChanged}"
                          ToolTip="Case-insensitive search across map name, CE entity, version, author, state and id. Filters the list only; it does not change which maps an action targets (use the checkboxes)." />
             </DockPanel>
+            <!-- Per-column filters (#30): ANDed with the search; filter the displayed list only. -->
+            <!-- Each label+input pair is a horizontal StackPanel so it wraps as a unit (the outer
+                 WrapPanel wraps at pair boundaries, never splitting a label from its TextBox). -->
+            <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,4"
+                       ToolTip="Per-column filters (case-insensitive, combined with Search). They narrow the displayed list only and do not change which maps an action targets.">
+                <TextBlock Text="Column filters —" VerticalAlignment="Center" Margin="0,0,6,0" Foreground="{DynamicResource Fo.SubtleTextBrush}" />
+                <StackPanel Orientation="Horizontal" Margin="0,0,8,0">
+                    <TextBlock Text="Map:" VerticalAlignment="Center" Margin="0,0,3,0" />
+                    <TextBox Width="110" VerticalAlignment="Center" Text="{Binding ColumnFilterMap, UpdateSourceTrigger=PropertyChanged}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,8,0">
+                    <TextBlock Text="CE:" VerticalAlignment="Center" Margin="0,0,3,0" />
+                    <TextBox Width="90" VerticalAlignment="Center" Text="{Binding ColumnFilterCeEntity, UpdateSourceTrigger=PropertyChanged}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,8,0">
+                    <TextBlock Text="Version:" VerticalAlignment="Center" Margin="0,0,3,0" />
+                    <TextBox Width="70" VerticalAlignment="Center" Text="{Binding ColumnFilterVersion, UpdateSourceTrigger=PropertyChanged}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,8,0">
+                    <TextBlock Text="Author:" VerticalAlignment="Center" Margin="0,0,3,0" />
+                    <TextBox Width="90" VerticalAlignment="Center" Text="{Binding ColumnFilterAuthor, UpdateSourceTrigger=PropertyChanged}" />
+                </StackPanel>
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="State:" VerticalAlignment="Center" Margin="0,0,3,0" />
+                    <TextBox Width="80" VerticalAlignment="Center" Text="{Binding ColumnFilterState, UpdateSourceTrigger=PropertyChanged}" />
+                </StackPanel>
+            </WrapPanel>
             <DataGrid ItemsSource="{Binding MapsView}"
                       AutoGenerateColumns="False"
                       CanUserAddRows="False"

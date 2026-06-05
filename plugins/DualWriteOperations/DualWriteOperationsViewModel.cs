@@ -40,6 +40,11 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
     private string _applyVersionAuthorFilter = string.Empty;
     private bool _forceReset;
     private string _mapSearch = string.Empty;
+    private string _columnFilterMap = string.Empty;
+    private string _columnFilterCeEntity = string.Empty;
+    private string _columnFilterVersion = string.Empty;
+    private string _columnFilterAuthor = string.Empty;
+    private string _columnFilterState = string.Empty;
     private string _mapListSummary = "Showing 0 of 0 map(s)";
     private string _statusMessage = "Configure the connection, then Load Maps.";
     private string _connectionSummary = "Not connected.";
@@ -102,9 +107,9 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
         ClearTokenCommand = new AsyncRelayCommand(ClearTokenAsync, onError);
 
         MapsView = CollectionViewSource.GetDefaultView(Maps);
-        MapsView.Filter = o => o is DualWriteMapRow row && row.Matches(MapSearch);
+        MapsView.Filter = o => o is DualWriteMapRow row && RowVisible(row);
         // The summary is recomputed once after each bulk load (LoadMaps/RefreshMapStates) and on
-        // search change — avoiding an O(n^2) scan if we recomputed on every per-item Add.
+        // search or column-filter change — avoiding an O(n^2) scan if we recomputed on every per-item Add.
         UpdateMapListSummary();
 
         _ = InitializeAsync();
@@ -163,22 +168,67 @@ public sealed class DualWriteOperationsViewModel : INotifyPropertyChanged
 
             _mapSearch = value;
             OnPropertyChanged();
-            MapsView.Refresh();
-            UpdateMapListSummary();
+            RefreshMapView();
         }
     }
 
-    /// <summary>"Showing X of Y map(s)" — reflects the active search so the empty-result state is clear.</summary>
+    /// <summary>Per-column filter for the Map column (#30). ANDed with the search and other columns.</summary>
+    public string ColumnFilterMap
+    {
+        get => _columnFilterMap;
+        set { if (_columnFilterMap != value) { _columnFilterMap = value; OnPropertyChanged(); RefreshMapView(); } }
+    }
+
+    /// <summary>Per-column filter for the CE Entity column (#30).</summary>
+    public string ColumnFilterCeEntity
+    {
+        get => _columnFilterCeEntity;
+        set { if (_columnFilterCeEntity != value) { _columnFilterCeEntity = value; OnPropertyChanged(); RefreshMapView(); } }
+    }
+
+    /// <summary>Per-column filter for the Version column (#30).</summary>
+    public string ColumnFilterVersion
+    {
+        get => _columnFilterVersion;
+        set { if (_columnFilterVersion != value) { _columnFilterVersion = value; OnPropertyChanged(); RefreshMapView(); } }
+    }
+
+    /// <summary>Per-column filter for the Author column (#30). Distinct from the apply-version author filter.</summary>
+    public string ColumnFilterAuthor
+    {
+        get => _columnFilterAuthor;
+        set { if (_columnFilterAuthor != value) { _columnFilterAuthor = value; OnPropertyChanged(); RefreshMapView(); } }
+    }
+
+    /// <summary>Per-column filter for the State column (#30).</summary>
+    public string ColumnFilterState
+    {
+        get => _columnFilterState;
+        set { if (_columnFilterState != value) { _columnFilterState = value; OnPropertyChanged(); RefreshMapView(); } }
+    }
+
+    /// <summary>"Showing X of Y map(s)" — reflects the active search/filters so the empty-result state is clear.</summary>
     public string MapListSummary
     {
         get => _mapListSummary;
         private set { if (_mapListSummary != value) { _mapListSummary = value; OnPropertyChanged(); } }
     }
 
+    /// <summary>True when a row passes the search and every active per-column filter (#31/#30).</summary>
+    private bool RowVisible(DualWriteMapRow row) =>
+        row.Matches(MapSearch) &&
+        row.MatchesColumnFilters(ColumnFilterMap, ColumnFilterCeEntity, ColumnFilterVersion, ColumnFilterAuthor, ColumnFilterState);
+
+    private void RefreshMapView()
+    {
+        MapsView.Refresh();
+        UpdateMapListSummary();
+    }
+
     private void UpdateMapListSummary()
     {
         var total = Maps.Count;
-        var visible = string.IsNullOrWhiteSpace(MapSearch) ? total : Maps.Count(r => r.Matches(MapSearch));
+        var visible = Maps.Count(RowVisible);
         MapListSummary = $"Showing {visible} of {total} map(s)";
     }
 
