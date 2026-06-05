@@ -167,6 +167,14 @@ public sealed partial class ODataPostBuilderViewModel
 
     private async Task LoadEntitiesAsync(CancellationToken ct)
     {
+        // Guard against re-entrancy: a second press while a load is already in flight must not start a
+        // duplicate concurrent fetch.
+        if (_loadingEntities)
+        {
+            return;
+        }
+        _loadingEntities = true;
+
         IsBusy = true;
         Status = "Loading entities...";
         EntityLoadStatus = "Loading...";
@@ -182,7 +190,11 @@ public sealed partial class ODataPostBuilderViewModel
             PayloadStatus = "No payload yet.";
             ResponseDetails = "No response yet.";
 
-            var index = await _ctx.Catalog.GetODataEntityIndexAsync(_ctx.CurrentEnv, CatalogRefreshMode.UseCacheIfFresh, ct).ConfigureAwait(false);
+            // No ConfigureAwait(false): the continuation below mutates the UI-bound entity collection
+            // and refreshes its view, so it must resume on the UI thread. On a cache miss this await
+            // genuinely suspends — ConfigureAwait(false) would resume on a thread-pool thread and WPF
+            // would throw, surfacing a false "load failed" even though the fetch succeeded (#37).
+            var index = await _ctx.Catalog.GetODataEntityIndexAsync(_ctx.CurrentEnv, CatalogRefreshMode.UseCacheIfFresh, ct);
             _enumMembersByType = index.Enums
                 .GroupBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
                 .ToDictionary(g => g.Key, g => (IReadOnlyList<string>)g.First().Members, StringComparer.OrdinalIgnoreCase);
@@ -214,6 +226,7 @@ public sealed partial class ODataPostBuilderViewModel
         finally
         {
             IsBusy = false;
+            _loadingEntities = false;
         }
     }
 
@@ -301,7 +314,10 @@ public sealed partial class ODataPostBuilderViewModel
     {
         try
         {
-            var entity = await _ctx.Catalog.GetODataEntityDetailsAsync(_ctx.CurrentEnv, entityName, CatalogRefreshMode.UseCacheIfFresh, ct).ConfigureAwait(false);
+            // No ConfigureAwait(false): the continuation populates the UI-bound field collection and
+            // updates bound state, so it must resume on the UI thread (same rationale as the entity
+            // index load above — avoids a false "failed to load fields" on a cache miss). See #37.
+            var entity = await _ctx.Catalog.GetODataEntityDetailsAsync(_ctx.CurrentEnv, entityName, CatalogRefreshMode.UseCacheIfFresh, ct);
             if (ct.IsCancellationRequested) return;
 
             if (entity is null)
