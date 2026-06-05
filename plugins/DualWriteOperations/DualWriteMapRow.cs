@@ -60,6 +60,24 @@ public sealed class DualWriteMapRow : INotifyPropertyChanged
             !string.IsNullOrEmpty(value) && value.Contains(term, StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// True when the row satisfies every supplied per-column filter (#30). A blank/null filter for a
+    /// column does not constrain it; a non-blank filter must be contained (case-insensitive) in that
+    /// column's value. Filters are ANDed together.
+    /// </summary>
+    public bool MatchesColumnFilters(string? name, string? ceEntity, string? version, string? author, string? state)
+    {
+        return Column(Name, name)
+            && Column(CeEntity, ceEntity)
+            && Column(Version, version)
+            && Column(Author, author)
+            && Column(State, state);
+
+        static bool Column(string? value, string? filter) =>
+            string.IsNullOrWhiteSpace(filter)
+            || (!string.IsNullOrEmpty(value) && value.Contains(filter.Trim(), StringComparison.OrdinalIgnoreCase));
+    }
+
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>

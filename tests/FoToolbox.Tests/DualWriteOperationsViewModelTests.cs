@@ -798,6 +798,52 @@ public class DualWriteOperationsViewModelTests
 
     [Trait("Category", "DualWrite")]
     [Fact]
+    public void MapRow_MatchesColumnFilters_BlankFiltersMatchAll()
+    {
+        // #30: per-column filters; a blank filter for a column does not constrain that column.
+        Assert.True(Row("Customers V3", ce: "accounts", author: "MS", state: "Running", version: "1.0")
+            .MatchesColumnFilters(name: "", ceEntity: " ", version: null, author: "", state: null));
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void MapRow_MatchesColumnFilters_PerColumnCaseInsensitive_AndAnded()
+    {
+        var row = Row("Customers V3", ce: "accounts", author: "Contoso", state: "Paused", version: "2.5.0");
+
+        // Each column matches its own filter (case-insensitive), ANDed together.
+        Assert.True(row.MatchesColumnFilters(name: "customers", ceEntity: "ACC", version: "2.5", author: "contoso", state: "paus"));
+        // A non-matching filter on any one column excludes the row.
+        Assert.False(row.MatchesColumnFilters(name: "customers", ceEntity: "vendors", version: null, author: null, state: null));
+        Assert.False(row.MatchesColumnFilters(name: null, ceEntity: null, version: null, author: null, state: "running"));
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task ColumnFilter_NarrowsMapListSummary_AndCombinesWithSearch()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"dwc-{Guid.NewGuid():N}.json");
+        try
+        {
+            var store = await SeededStoreAsync(path);
+            var gateway = new FakeGateway();
+            gateway.MapsList.Add(Map("a", "Customers"));
+            gateway.MapsList.Add(Map("b", "Vendors"));
+            var vm = new DualWriteOperationsViewModel(new FakeContext(), store, new FakeFactory(gateway));
+            await vm.LoadMapsCommand.ExecuteAsync();
+            Assert.Equal(2, vm.Maps.Count);
+
+            vm.ColumnFilterMap = "vend";
+            Assert.Contains("1 of 2", vm.MapListSummary);
+
+            vm.ColumnFilterMap = "   ";
+            Assert.Contains("2 of 2", vm.MapListSummary);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
     public async Task MapSearch_FiltersMapListSummary_AndClearingRestores()
     {
         // #31: typing a search narrows the visible-count summary; clearing it restores the full set.
