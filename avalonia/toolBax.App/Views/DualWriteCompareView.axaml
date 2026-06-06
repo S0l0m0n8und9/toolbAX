@@ -1,0 +1,102 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ToolBax.App.ViewModels"
+             xmlns:models="using:ToolBax.Core.Models"
+             xmlns:conv="using:ToolBax.App.Converters"
+             x:Class="ToolBax.App.Views.DualWriteCompareView"
+             x:DataType="vm:DualWriteCompareViewModel">
+
+  <Grid RowDefinitions="Auto,Auto,*" Margin="24,16,24,0">
+
+    <!-- Header: title + source → target + Compare -->
+    <StackPanel Grid.Row="0" Spacing="14">
+      <TextBlock Text="Dual-Write Compare" FontSize="24" FontWeight="SemiBold"
+                 Foreground="{StaticResource Text0Brush}" />
+      <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*" VerticalAlignment="Bottom">
+        <StackPanel Grid.Column="0" Spacing="4">
+          <TextBlock Text="SOURCE" FontSize="10.5" Foreground="{StaticResource Text3Brush}" />
+          <ComboBox x:Name="SourcePick" Width="240" ItemsSource="{Binding Environments}"
+                    SelectedItem="{Binding SelectedSource, Mode=TwoWay}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="models:EnvProfile">
+                <TextBlock Text="{Binding PickerLabel}" FontFamily="Cascadia Code,Consolas,monospace" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </StackPanel>
+
+        <TextBlock Grid.Column="1" Text="→" FontSize="22" Margin="14,0" VerticalAlignment="Bottom"
+                   Foreground="{StaticResource AccentBrush}" />
+
+        <StackPanel Grid.Column="2" Spacing="4">
+          <TextBlock Text="TARGET" FontSize="10.5" Foreground="{StaticResource Text3Brush}" />
+          <ComboBox x:Name="TargetPick" Width="240" ItemsSource="{Binding Environments}"
+                    SelectedItem="{Binding SelectedTarget, Mode=TwoWay}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="models:EnvProfile">
+                <TextBlock Text="{Binding PickerLabel}" FontFamily="Cascadia Code,Consolas,monospace" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </StackPanel>
+
+        <Button Grid.Column="3" Content="Compare" Margin="16,0,0,0" Command="{Binding CompareCommand}"
+                Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}"
+                VerticalAlignment="Bottom" />
+
+        <TextBlock Grid.Column="4" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                   FontSize="12" Foreground="{StaticResource Text3Brush}"
+                   Text="shared Data Integrator credential" />
+      </Grid>
+    </StackPanel>
+
+    <!-- Summary chips -->
+    <ItemsControl Grid.Row="1" ItemsSource="{Binding Summary}" IsVisible="{Binding HasResult}" Margin="0,14,0,12">
+      <ItemsControl.ItemsPanel>
+        <ItemsPanelTemplate>
+          <WrapPanel />
+        </ItemsPanelTemplate>
+      </ItemsControl.ItemsPanel>
+      <ItemsControl.ItemTemplate>
+        <DataTemplate x:DataType="vm:DiffBucket">
+          <Border Background="{StaticResource Layer3Brush}" CornerRadius="999" Padding="10,3" Margin="0,0,8,0">
+            <TextBlock Text="{Binding Label}" FontSize="11.5"
+                       Foreground="{Binding Kind, Converter={x:Static conv:DiffKindToBrushConverter.Instance}}" />
+          </Border>
+        </DataTemplate>
+      </ItemsControl.ItemTemplate>
+    </ItemsControl>
+
+    <!-- Body: same-env prompt, or the diff grid -->
+    <Grid Grid.Row="2">
+      <Border IsVisible="{Binding ShowSamePrompt}" VerticalAlignment="Top" Margin="0,12"
+              Background="{StaticResource InfoBgBrush}" BorderBrush="{StaticResource InfoBrush}"
+              BorderThickness="1" CornerRadius="8" Padding="12,8">
+        <TextBlock Text="Pick two different environments to compare."
+                   Foreground="{StaticResource Text1Brush}" />
+      </Border>
+
+      <DataGrid x:Name="DiffGrid" ItemsSource="{Binding DiffRows}" IsReadOnly="True"
+                IsVisible="{Binding HasResult}" AutoGenerateColumns="False"
+                GridLinesVisibility="Horizontal" Background="{StaticResource Layer1Brush}">
+        <DataGrid.Columns>
+          <DataGridTextColumn Header="Table map" Binding="{Binding MapDisplay}" Width="2*" />
+          <DataGridTextColumn Header="Src · state" Binding="{Binding SourceState}" Width="*" />
+          <DataGridTextColumn Header="Src · template" Binding="{Binding SourceVersion}" Width="*" />
+          <DataGridTextColumn Header="Src · rows" Binding="{Binding SourceRows}" Width="Auto" />
+          <DataGridTextColumn Header="Tgt · state" Binding="{Binding TargetState}" Width="*" />
+          <DataGridTextColumn Header="Tgt · template" Binding="{Binding TargetVersion}" Width="*" />
+          <DataGridTextColumn Header="Tgt · rows" Binding="{Binding TargetRows}" Width="Auto" />
+          <DataGridTemplateColumn Header="Diff" Width="*">
+            <DataGridTemplateColumn.CellTemplate>
+              <DataTemplate x:DataType="models:CompareRow">
+                <TextBlock Text="{Binding DiffLabel}" VerticalAlignment="Center" Margin="8,0" FontSize="12"
+                           Foreground="{Binding Diff, Converter={x:Static conv:DiffKindToBrushConverter.Instance}}" />
+              </DataTemplate>
+            </DataGridTemplateColumn.CellTemplate>
+          </DataGridTemplateColumn>
+        </DataGrid.Columns>
+      </DataGrid>
+    </Grid>
+  </Grid>
+</UserControl>

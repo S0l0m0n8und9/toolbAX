@@ -26,6 +26,18 @@ public enum DwDirection
     DvToFo,
 }
 
+/// <summary>Shared glyphs for a sync direction (both ↔, fo→dv →, dv→fo ←).</summary>
+public static class DwDirectionExtensions
+{
+    public static string Arrow(this DwDirection direction) => direction switch
+    {
+        DwDirection.Both => "↔",
+        DwDirection.FoToDv => "→",
+        DwDirection.DvToFo => "←",
+        _ => "·",
+    };
+}
+
 /// <summary>A dual-write table map (Operations grid row source).</summary>
 public sealed record DwMap(
     string TableId,

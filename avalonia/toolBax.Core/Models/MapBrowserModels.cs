@@ -57,13 +57,7 @@ public sealed record DwMapSummary(
     int Errors24h,
     string LastRun)
 {
-    public string DirectionArrow => Direction switch
-    {
-        DwDirection.Both => "↔",
-        DwDirection.FoToDv => "→",
-        DwDirection.DvToFo => "←",
-        _ => "·",
-    };
+    public string DirectionArrow => Direction.Arrow();
 
     public string StateText => State.ToString().ToLowerInvariant();
 

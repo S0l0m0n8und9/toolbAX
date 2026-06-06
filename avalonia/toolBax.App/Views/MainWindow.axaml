@@ -95,6 +95,9 @@
               <DataTemplate DataType="vm:DualWriteMapViewModel">
                 <views:DualWriteMapView />
               </DataTemplate>
+              <DataTemplate DataType="vm:DualWriteCompareViewModel">
+                <views:DualWriteCompareView />
+              </DataTemplate>
               <DataTemplate DataType="vm:PlaceholderScreenViewModel">
                 <views:PlaceholderScreenView />
               </DataTemplate>
