@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.IO;
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -29,7 +30,9 @@ public sealed class InMemoryMsalTokenCacheStore : IMsalTokenCacheStore
 /// <summary>
 /// DPAPI-encrypted, file-backed cache store (CurrentUser scope). The cache blob never leaves the
 /// signed-in Windows user's profile in plaintext. One file per cache key (hashed to a safe name).
+/// Windows-only (DPAPI).
 /// </summary>
+[SupportedOSPlatform("windows")]
 public sealed class DpapiFileMsalTokenCacheStore : IMsalTokenCacheStore
 {
     private readonly string _directory;

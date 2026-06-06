@@ -31,12 +31,23 @@ public sealed class DualWriteConnectionStore
     private bool _loaded;
     private Dictionary<string, DualWriteConnectionRecord> _items = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <param name="path">Override the on-disk connection file path (defaults under %LocalAppData%).</param>
+    /// <param name="protector">
+    /// Token-at-rest protector. Optional <b>on Windows</b> (defaults to DPAPI). On non-Windows it is
+    /// <b>required</b>: the constructor throws <see cref="PlatformNotSupportedException"/> when null
+    /// rather than persist tokens in plaintext.
+    /// </param>
     public DualWriteConnectionStore(string? path = null, ITokenProtector? protector = null)
     {
         _path = string.IsNullOrWhiteSpace(path)
             ? ProfilePaths.ResolveAppDataPath("dualwrite-connections.json")
             : path!;
-        _protector = protector ?? new DpapiTokenProtector();
+        // DPAPI protection is Windows-only; a non-Windows host must supply an ITokenProtector so
+        // tokens are never written to disk in plaintext.
+        _protector = protector ?? (OperatingSystem.IsWindows()
+            ? new DpapiTokenProtector()
+            : throw new PlatformNotSupportedException(
+                "A non-Windows host must supply an ITokenProtector; DPAPI protection is Windows-only."));
     }
 
     public async Task<DualWriteConnectionSettings> GetAsync(string key, CancellationToken ct)

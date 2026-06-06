@@ -135,8 +135,12 @@ public sealed class MsalInteractiveTokenProvider : IInteractiveTokenProvider
     }
 
     private static IMsalTokenCacheStore DefaultCacheStore() =>
-        new DpapiFileMsalTokenCacheStore(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "FoToolbox",
-            "msal-cache"));
+        // DPAPI cache is Windows-only; elsewhere fall back to a transient in-memory cache (the host
+        // can inject a platform-appropriate persistent store).
+        OperatingSystem.IsWindows()
+            ? new DpapiFileMsalTokenCacheStore(Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "FoToolbox",
+                "msal-cache"))
+            : new InMemoryMsalTokenCacheStore();
 }
