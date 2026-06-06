@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -227,6 +228,32 @@ public class ProfilesViewModelTests
         vm.SaveSecretCommand.Execute(null);
 
         Assert.False(vm.HasSecret);
+    }
+
+    [Fact]
+    public async Task Test_connection_reports_success_when_a_token_is_acquired()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore(), auth: new FakeAuthService());
+        vm.Selected = vm.Profiles.First();
+
+        await vm.TestConnectionCommand.ExecuteAsync(null);
+
+        Assert.Contains("Connected", vm.Status);
+        Assert.False(vm.IsTestingConnection);
+    }
+
+    [Fact]
+    public async Task Test_connection_reports_the_failure_message()
+    {
+        var failing = new FakeAuthService(_ => throw new InvalidOperationException("AADSTS700016: app not found"));
+        var vm = new ProfilesViewModel(new FakeProfileStore(), auth: failing);
+        vm.Selected = vm.Profiles.First();
+
+        await vm.TestConnectionCommand.ExecuteAsync(null);
+
+        Assert.Contains("failed", vm.Status);
+        Assert.Contains("AADSTS700016", vm.Status);
+        Assert.False(vm.IsTestingConnection);
     }
 
     [Fact]
