@@ -33,18 +33,108 @@ public static class DualWriteMapParser
     public static string MapsPath() =>
         $"msdyn_dualwriteentitymaps?$select={Uri.EscapeDataString(SelectColumns)}&$orderby=modifiedon%20desc";
 
-    /// <summary>
-    /// Parses one Web API response page. Tolerates null/blank/malformed input (returns an empty page)
-    /// so a transient bad response never throws into the UI.
-    /// </summary>
-    public static DwMapPage ParsePage(string? json)
+    /// <summary>Component type for a dual-write entity map in <c>solutioncomponents</c>.</summary>
+    public const int DualWriteMapComponentType = 500;
+
+    private static readonly string SolutionSelectColumns = string.Join(",",
+        "solutionid", "uniquename", "friendlyname", "version", "_publisherid_value");
+
+    /// <summary>The relative Web API path for the first page of solutions (with publisher expanded).</summary>
+    public static string SolutionsPath() =>
+        $"solutions?$select={Uri.EscapeDataString(SolutionSelectColumns)}" +
+        "&$expand=publisherid($select=uniquename,friendlyname)&$orderby=uniquename%20asc";
+
+    /// <summary>The relative Web API path for a solution's dual-write-map components (object ids).</summary>
+    public static string SolutionComponentsPath(string solutionUniqueName)
     {
-        if (string.IsNullOrWhiteSpace(json))
+        var escaped = (solutionUniqueName ?? string.Empty).Replace("'", "''", StringComparison.Ordinal);
+        var filter = $"(componenttype eq {DualWriteMapComponentType}) and (solutionid/uniquename eq '{escaped}')";
+        return $"solutioncomponents?$select=objectid&$filter={Uri.EscapeDataString(filter)}";
+    }
+
+    /// <summary>Parses one page of solutions (tolerates null/blank/malformed input).</summary>
+    public static DwSolutionPage ParseSolutionPage(string? json)
+    {
+        if (!TryGetValueArray(json, out var valueArray, out var root))
         {
-            return new DwMapPage(Array.Empty<DwMapRecord>(), null);
+            return new DwSolutionPage(Array.Empty<DwSolution>(), null);
         }
 
-        JsonElement root;
+        var solutions = new List<DwSolution>();
+        foreach (var item in valueArray.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.Object)
+            {
+                solutions.Add(ParseSolution(item));
+            }
+        }
+
+        return new DwSolutionPage(solutions, GetValueAsString(root, "@odata.nextLink"));
+    }
+
+    /// <summary>Parses one page of solution-component object ids (tolerates null/blank/malformed input).</summary>
+    public static DwComponentIdPage ParseComponentIdPage(string? json)
+    {
+        if (!TryGetValueArray(json, out var valueArray, out var root))
+        {
+            return new DwComponentIdPage(Array.Empty<Guid>(), null);
+        }
+
+        var ids = new List<Guid>();
+        foreach (var item in valueArray.EnumerateArray())
+        {
+            if (item.ValueKind == JsonValueKind.Object && Guid.TryParse(GetValueAsString(item, "objectid"), out var id))
+            {
+                ids.Add(id);
+            }
+        }
+
+        return new DwComponentIdPage(ids, GetValueAsString(root, "@odata.nextLink"));
+    }
+
+    private static DwSolution ParseSolution(JsonElement item)
+    {
+        var publisherUnique = string.Empty;
+        var publisherDisplay = GetValueAsString(item, "_publisherid_value@OData.Community.Display.V1.FormattedValue")
+            ?? string.Empty;
+        if (item.TryGetProperty("publisherid", out var publisher) && publisher.ValueKind == JsonValueKind.Object)
+        {
+            publisherUnique = GetValueAsString(publisher, "uniquename") ?? string.Empty;
+            var friendly = GetValueAsString(publisher, "friendlyname") ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(friendly))
+            {
+                publisherDisplay = friendly;
+            }
+        }
+
+        if (string.IsNullOrWhiteSpace(publisherUnique))
+        {
+            publisherUnique = GetValueAsString(item, "_publisherid_value") ?? string.Empty;
+        }
+
+        if (string.IsNullOrWhiteSpace(publisherDisplay))
+        {
+            publisherDisplay = string.IsNullOrWhiteSpace(publisherUnique) ? "(Unknown Publisher)" : publisherUnique;
+        }
+
+        return new DwSolution(
+            Id: GetValueAsString(item, "solutionid") ?? string.Empty,
+            UniqueName: GetValueAsString(item, "uniquename") ?? string.Empty,
+            FriendlyName: GetValueAsString(item, "friendlyname") ?? string.Empty,
+            Version: GetValueAsString(item, "version") ?? string.Empty,
+            PublisherUniqueName: publisherUnique,
+            PublisherDisplayName: publisherDisplay);
+    }
+
+    private static bool TryGetValueArray(string? json, out JsonElement valueArray, out JsonElement root)
+    {
+        valueArray = default;
+        root = default;
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return false;
+        }
+
         try
         {
             using var document = JsonDocument.Parse(json);
@@ -52,12 +142,21 @@ public static class DualWriteMapParser
         }
         catch (JsonException)
         {
-            return new DwMapPage(Array.Empty<DwMapRecord>(), null);
+            return false;
         }
 
-        if (root.ValueKind != JsonValueKind.Object ||
-            !root.TryGetProperty("value", out var valueArray) ||
-            valueArray.ValueKind != JsonValueKind.Array)
+        return root.ValueKind == JsonValueKind.Object
+            && root.TryGetProperty("value", out valueArray)
+            && valueArray.ValueKind == JsonValueKind.Array;
+    }
+
+    /// <summary>
+    /// Parses one Web API response page. Tolerates null/blank/malformed input (returns an empty page)
+    /// so a transient bad response never throws into the UI.
+    /// </summary>
+    public static DwMapPage ParsePage(string? json)
+    {
+        if (!TryGetValueArray(json, out var valueArray, out var root))
         {
             return new DwMapPage(Array.Empty<DwMapRecord>(), null);
         }
