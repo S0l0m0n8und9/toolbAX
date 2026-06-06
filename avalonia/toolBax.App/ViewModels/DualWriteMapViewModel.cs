@@ -24,6 +24,7 @@ public partial class DualWriteMapViewModel : ObservableObject
     private readonly IDualWriteMapReader _reader;
     private bool _loaded;
     private bool _suppressReload;          // guards the initial selection setup from triggering reloads
+    private int _activeLoads;              // overlapping reloads in flight; the last to finish clears IsLoading
     private List<DwSolution> _allSolutions = new();
 
     public ObservableCollection<DwMapRecord> Maps { get; } = new();
@@ -131,6 +132,7 @@ public partial class DualWriteMapViewModel : ObservableObject
     private async Task LoadMapsAsync(CancellationToken ct)
     {
         var solutionName = CurrentSolutionFilter();
+        _activeLoads++;
         IsLoading = true;
         try
         {
@@ -174,7 +176,12 @@ public partial class DualWriteMapViewModel : ObservableObject
         }
         finally
         {
-            IsLoading = false;
+            // Only the last overlapping load clears the indicator, so a cancelled/stale load finishing
+            // first doesn't switch it off while a newer load is still running.
+            if (--_activeLoads == 0)
+            {
+                IsLoading = false;
+            }
         }
     }
 
@@ -188,12 +195,21 @@ public partial class DualWriteMapViewModel : ObservableObject
         foreach (var publisher in _allSolutions
                      .Where(s => !string.IsNullOrWhiteSpace(s.PublisherUniqueName))
                      .GroupBy(s => s.PublisherUniqueName, StringComparer.OrdinalIgnoreCase)
-                     .Select(g => new DwPublisher(g.Key, g.First().PublisherDisplayName, g.Count()))
+                     .Select(g => new DwPublisher(g.Key, StablePublisherName(g), g.Count()))
                      .OrderBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase))
         {
             Publishers.Add(publisher);
         }
     }
+
+    // Deterministic display name for a publisher whose solutions might carry slightly different
+    // friendlyname casings/values — the alphabetically-first non-empty one, falling back to the key.
+    private static string StablePublisherName(IEnumerable<DwSolution> group) =>
+        group.Select(s => s.PublisherDisplayName)
+            .Where(d => !string.IsNullOrWhiteSpace(d))
+            .OrderBy(d => d, StringComparer.Ordinal)
+            .FirstOrDefault()
+        ?? group.First().PublisherUniqueName;
 
     private void RebuildSolutions()
     {

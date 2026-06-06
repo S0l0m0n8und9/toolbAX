@@ -59,6 +59,20 @@ public class DualWriteMapViewModelTests
         public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => Task.FromResult(NoSolutions);
     }
 
+    // Holds each map load open on a per-call gate, so overlapping reloads can be orchestrated.
+    private sealed class GatedReader : IDualWriteMapReader
+    {
+        public List<TaskCompletionSource> Gates { get; } = new();
+        public async Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default)
+        {
+            var gate = new TaskCompletionSource();
+            Gates.Add(gate);
+            await gate.Task;
+            return DwMapLoadResult.Ok(Array.Empty<DwMapRecord>());
+        }
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => Task.FromResult(NoSolutions);
+    }
+
     // Two distinct records (fresh instances each call, so refresh restores by Id, not reference).
     private static IReadOnlyList<DwMapRecord> TwoMaps() => DualWriteMapParser.ParsePage("""
         { "value": [
@@ -273,6 +287,28 @@ public class DualWriteMapViewModelTests
 
         Assert.True(vm.SelectedSolution!.IsAll);  // the hidden solution fell back to "All"
         Assert.Equal(3, vm.Maps.Count);            // …and the maps reloaded unfiltered
+    }
+
+    [Fact]
+    public async Task IsLoading_stays_true_until_the_last_overlapping_reload_finishes()
+    {
+        var reader = new GatedReader();
+        var vm = MakeVm(reader);
+
+        var initTask = vm.InitializeCommand.ExecuteAsync(null); // solutions (sync) then map load A (gated)
+        Assert.Single(reader.Gates);
+        Assert.True(vm.IsLoading);
+
+        vm.ReloadMapsCommand.Execute(null);                     // overlapping map load B (gated)
+        Assert.Equal(2, reader.Gates.Count);
+
+        reader.Gates[0].SetResult();                            // finish A while B is still in flight
+        await initTask;
+        Assert.True(vm.IsLoading);                              // must NOT flip off — B is still loading
+
+        reader.Gates[1].SetResult();                            // finish B
+        await vm.ReloadMapsCommand.ExecutionTask!;
+        Assert.False(vm.IsLoading);
     }
 
     [Fact]
