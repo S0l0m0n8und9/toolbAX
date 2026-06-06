@@ -17,6 +17,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\toolBax.App\toolBax.App.csproj" />
+    <ProjectReference Include="..\..\src\FoToolbox.Core\FoToolbox.Core.csproj" />
   </ItemGroup>
 
 </Project>
