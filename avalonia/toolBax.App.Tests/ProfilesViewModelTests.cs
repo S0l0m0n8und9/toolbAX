@@ -239,7 +239,7 @@ public class ProfilesViewModelTests
         await vm.TestConnectionCommand.ExecuteAsync(null);
 
         Assert.Contains("Connected", vm.Status);
-        Assert.False(vm.IsTestingConnection);
+        Assert.False(vm.IsTestingFoConnection);
     }
 
     [Fact]
@@ -253,7 +253,7 @@ public class ProfilesViewModelTests
 
         Assert.Contains("failed", vm.Status);
         Assert.Contains("AADSTS700016", vm.Status);
-        Assert.False(vm.IsTestingConnection);
+        Assert.False(vm.IsTestingFoConnection);
     }
 
     [Fact]
@@ -266,7 +266,7 @@ public class ProfilesViewModelTests
 
         Assert.Contains("Dataverse", vm.Status);
         Assert.Contains("Connected", vm.Status);
-        Assert.False(vm.IsTestingConnection);
+        Assert.False(vm.IsTestingDataverseConnection);
     }
 
     [Fact]
@@ -282,7 +282,7 @@ public class ProfilesViewModelTests
         Assert.Contains("Dataverse", vm.Status);
         Assert.Contains("failed", vm.Status);
         Assert.Contains("AADSTS500011", vm.Status);
-        Assert.False(vm.IsTestingConnection);
+        Assert.False(vm.IsTestingDataverseConnection);
     }
 
     [Fact]

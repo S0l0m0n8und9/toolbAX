@@ -70,7 +70,7 @@
                 <Button Content="Set active" Command="{Binding SetActiveCommand}" />
                 <Button Content="Save" Command="{Binding SaveCommand}" />
                 <Button Content="Test connection" Command="{Binding TestConnectionCommand}" />
-                <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingConnection}" Width="90" Height="4"
+                <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingFoConnection}" Width="90" Height="4"
                              VerticalAlignment="Center" />
               </StackPanel>
             </StackPanel>
@@ -113,7 +113,7 @@
 
               <StackPanel Orientation="Horizontal" Spacing="10">
                 <Button Content="Test Dataverse connection" Command="{Binding TestDataverseConnectionCommand}" />
-                <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingConnection}" Width="90" Height="4"
+                <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingDataverseConnection}" Width="90" Height="4"
                              VerticalAlignment="Center" />
               </StackPanel>
 

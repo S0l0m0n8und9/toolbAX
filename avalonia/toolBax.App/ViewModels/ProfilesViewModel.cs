@@ -47,8 +47,13 @@ public partial class ProfilesViewModel : ObservableObject
     [ObservableProperty]
     private string _status = "Ready.";
 
+    // Separate busy flags so each tab's spinner reflects only its own test (no cross-tab bleed) and a
+    // test still in flight can't have its indicator cleared by the other finishing first.
     [ObservableProperty]
-    private bool _isTestingConnection;
+    private bool _isTestingFoConnection;
+
+    [ObservableProperty]
+    private bool _isTestingDataverseConnection;
 
     // Editable drafts of the selected profile's FO fields, committed by Save. Kept separate from the
     // immutable EnvProfile record so edits can be made (and discarded by re-selecting).
@@ -204,7 +209,7 @@ public partial class ProfilesViewModel : ObservableObject
             return;
         }
 
-        IsTestingConnection = true;
+        IsTestingFoConnection = true;
         Status = $"Testing connection to '{Selected.Name}'…";
         try
         {
@@ -217,7 +222,7 @@ public partial class ProfilesViewModel : ObservableObject
         }
         finally
         {
-            IsTestingConnection = false;
+            IsTestingFoConnection = false;
         }
     }
 
@@ -229,7 +234,7 @@ public partial class ProfilesViewModel : ObservableObject
             return;
         }
 
-        IsTestingConnection = true;
+        IsTestingDataverseConnection = true;
         Status = $"Testing Dataverse connection for '{Selected.Name}'…";
         try
         {
@@ -242,7 +247,7 @@ public partial class ProfilesViewModel : ObservableObject
         }
         finally
         {
-            IsTestingConnection = false;
+            IsTestingDataverseConnection = false;
         }
     }
 

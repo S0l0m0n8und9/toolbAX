@@ -38,6 +38,11 @@ public sealed class CoreAuthService : IAuthService
 
     public async Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(env.Tenant))
+        {
+            throw new InvalidOperationException("No tenant ID is configured for this environment.");
+        }
+
         var sp = await _profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Fo, ct).ConfigureAwait(false)
             ?? throw new InvalidOperationException("No F&O service principal is configured (set a client ID on the Auth tab).");
         if (string.IsNullOrEmpty(sp.SecretRef))
@@ -58,6 +63,11 @@ public sealed class CoreAuthService : IAuthService
         if (string.IsNullOrWhiteSpace(env.DataverseUrl))
         {
             throw new InvalidOperationException("No Dataverse URL is configured for this environment.");
+        }
+
+        if (string.IsNullOrWhiteSpace(env.Tenant))
+        {
+            throw new InvalidOperationException("No tenant ID is configured for this environment.");
         }
 
         var sp = await _profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Dataverse, ct).ConfigureAwait(false)
