@@ -17,6 +17,16 @@ public sealed class FakeAuthService : IAuthService
     public FakeAuthService(Func<EnvProfile, string>? token = null) =>
         _token = token ?? (_ => "fake-fo-token");
 
-    public Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default) =>
-        Task.FromResult(_token(env));
+    public Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default)
+    {
+        // Surface a throwing delegate as a faulted task (TAP contract), not a synchronous throw.
+        try
+        {
+            return Task.FromResult(_token(env));
+        }
+        catch (Exception ex)
+        {
+            return Task.FromException<string>(ex);
+        }
+    }
 }

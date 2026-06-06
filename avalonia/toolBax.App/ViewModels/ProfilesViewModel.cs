@@ -179,7 +179,7 @@ public partial class ProfilesViewModel : ObservableObject
     public event Action<string>? ProfileDeleted;
 
     [RelayCommand]
-    private async Task TestConnection()
+    private async Task TestConnection(CancellationToken ct)
     {
         if (Selected is null)
         {
@@ -190,7 +190,7 @@ public partial class ProfilesViewModel : ObservableObject
         Status = $"Testing connection to '{Selected.Name}'…";
         try
         {
-            await _auth.AcquireFoTokenAsync(Selected);
+            await _auth.AcquireFoTokenAsync(Selected, ct);
             Status = $"Connected to '{Selected.Name}' — token acquired.";
         }
         catch (Exception ex)
