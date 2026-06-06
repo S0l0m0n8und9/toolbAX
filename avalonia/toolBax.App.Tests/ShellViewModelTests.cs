@@ -1,7 +1,9 @@
+using System;
 using System.Linq;
 using ToolBax.App.Models;
 using ToolBax.App.Services;
 using ToolBax.App.ViewModels;
+using ToolBax.Core.Models;
 using Xunit;
 
 namespace ToolBax.App.Tests;
@@ -61,7 +63,7 @@ public class ShellViewModelTests
 
         shell.SetActiveEnvironmentCommand.Execute(uat);
 
-        Assert.Equal("uat-eur", shell.ActiveEnvironment.Id);
+        Assert.Equal("uat-eur", shell.ActiveEnvironment!.Id);
     }
 
     [Fact]
@@ -83,7 +85,7 @@ public class ShellViewModelTests
         profiles.Selected = profiles.Profiles.Single(p => p.Id == "uat-eur");
         profiles.SetActiveCommand.Execute(null);
 
-        Assert.Equal("uat-eur", shell.ActiveEnvironment.Id);
+        Assert.Equal("uat-eur", shell.ActiveEnvironment!.Id);
     }
 
     [Fact]
@@ -141,7 +143,7 @@ public class ShellViewModelTests
     public void Renaming_the_active_profile_refreshes_the_shell_environment()
     {
         var shell = new ShellViewModel();
-        var activeId = shell.ActiveEnvironment.Id;
+        var activeId = shell.ActiveEnvironment!.Id;
         shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
         var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
 
@@ -149,8 +151,18 @@ public class ShellViewModelTests
         profiles.DraftName = "Renamed Env";
         profiles.SaveCommand.Execute(null);
 
-        Assert.Equal("Renamed Env", shell.ActiveEnvironment.Name);
+        Assert.Equal("Renamed Env", shell.ActiveEnvironment!.Name);
         Assert.Contains(shell.Environments, e => e.Name == "Renamed Env");
+    }
+
+    [Fact]
+    public void Empty_profile_store_does_not_crash_the_shell()
+    {
+        var shell = new ShellViewModel(profileStore: new FakeProfileStore(Array.Empty<EnvProfile>()));
+
+        Assert.Empty(shell.Environments);
+        Assert.Null(shell.ActiveEnvironment);
+        Assert.IsType<PluginsHomeViewModel>(shell.CurrentContent); // still routes the default tool
     }
 
     [Fact]

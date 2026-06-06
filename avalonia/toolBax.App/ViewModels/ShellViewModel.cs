@@ -45,8 +45,9 @@ public partial class ShellViewModel : ObservableObject
     [ObservableProperty]
     private object? _currentContent;
 
+    // Nullable: a fresh profile store can be empty (no environments configured yet).
     [ObservableProperty]
-    private EnvProfile _activeEnvironment;
+    private EnvProfile? _activeEnvironment;
 
     [ObservableProperty]
     private bool _isBusy;
@@ -88,7 +89,8 @@ public partial class ShellViewModel : ObservableObject
         Environments = new ObservableCollection<EnvProfile>(_profileStore.GetAll());
 
         _currentTool = Tools[0];
-        _activeEnvironment = Environments.FirstOrDefault(e => e.Id == _profileStore.ActiveId) ?? Environments[0];
+        _activeEnvironment = Environments.FirstOrDefault(e => e.Id == _profileStore.ActiveId)
+            ?? Environments.FirstOrDefault();
         Palette = new CommandPaletteViewModel(Tools, NavigateTo);
         _currentContent = ResolveContent(_currentTool);
     }
@@ -113,7 +115,7 @@ public partial class ShellViewModel : ObservableObject
     partial void OnCurrentToolChanged(NavTool value) => CurrentContent = ResolveContent(value);
 
     // Keep the (cached) Plugins-home subtitle in sync with the active environment.
-    partial void OnActiveEnvironmentChanged(EnvProfile value)
+    partial void OnActiveEnvironmentChanged(EnvProfile? value)
     {
         if (_homeContent is PluginsHomeViewModel home)
         {
@@ -161,7 +163,7 @@ public partial class ShellViewModel : ObservableObject
                 Environments[Environments.IndexOf(existing)] = updated;
             }
 
-            if (ActiveEnvironment.Id == updated.Id)
+            if (ActiveEnvironment?.Id == updated.Id)
             {
                 ActiveEnvironment = updated; // refresh the header / home subtitle with the new name
             }
