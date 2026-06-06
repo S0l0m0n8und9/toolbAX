@@ -26,16 +26,44 @@ public class ShellRenderTests
         Dispatcher.UIThread.RunJobs();
         try
         {
-            var contentTitle = window.GetVisualDescendants()
+            // The default tool routes the Plugins home into the content host.
+            Assert.NotNull(window.GetVisualDescendants().OfType<PluginsHomeView>().FirstOrDefault());
+
+            var statusToolLabel = window.GetVisualDescendants()
                 .OfType<TextBlock>()
-                .FirstOrDefault(t => t.Name == "ContentTitle");
-            Assert.NotNull(contentTitle);
-            Assert.Equal("Plugins", contentTitle!.Text);   // default tool is the Plugins home
+                .FirstOrDefault(t => t.Name == "StatusToolLabel");
+            Assert.NotNull(statusToolLabel);
+            Assert.Equal("Plugins", statusToolLabel!.Text);   // default tool is the Plugins home
 
             var navRail = window.GetVisualDescendants()
                 .OfType<ListBox>()
                 .First(lb => lb.Name == "NavRail");
             Assert.Equal(8, navRail.ItemCount);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void Opening_a_plugin_card_navigates_the_shell()
+    {
+        var shell = new ShellViewModel();
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            var card = window.GetVisualDescendants().OfType<PluginsHomeView>().First()
+                .GetVisualDescendants().OfType<Button>()
+                .First(b => (b.CommandParameter as string) == "query");
+
+            Assert.NotNull(card.Command); // the $parent-scoped command binding resolved
+            card.Command!.Execute(card.CommandParameter);
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal("query", shell.CurrentTool.Id);
         }
         finally
         {

@@ -1,4 +1,5 @@
 using System.Linq;
+using ToolBax.App.Models;
 using ToolBax.App.ViewModels;
 using Xunit;
 
@@ -85,11 +86,10 @@ public class ShellViewModelTests
     }
 
     [Fact]
-    public void Default_content_is_a_placeholder_for_the_home_tool()
+    public void Default_content_is_the_plugins_home()
     {
         var shell = new ShellViewModel();
-        var placeholder = Assert.IsType<PlaceholderScreenViewModel>(shell.CurrentContent);
-        Assert.Equal("Plugins", placeholder.Title);
+        Assert.IsType<PluginsHomeViewModel>(shell.CurrentContent);
     }
 
     [Fact]
@@ -109,11 +109,11 @@ public class ShellViewModelTests
     }
 
     [Fact]
-    public void Other_tools_route_to_a_titled_placeholder()
+    public void Unknown_tools_route_to_a_titled_placeholder()
     {
         var shell = new ShellViewModel();
-        shell.CurrentTool = shell.Tools.Single(t => t.Id == "home");
+        shell.CurrentTool = new NavTool("unknown-x", "Unknown Tool", '\0');
         var placeholder = Assert.IsType<PlaceholderScreenViewModel>(shell.CurrentContent);
-        Assert.Equal("Plugins", placeholder.Title);
+        Assert.Equal("Unknown Tool", placeholder.Title);
     }
 }
