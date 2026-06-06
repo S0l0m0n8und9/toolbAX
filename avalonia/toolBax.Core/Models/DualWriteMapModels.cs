@@ -107,6 +107,65 @@ public sealed record DwMapProperty(string Key, string Type, string Value);
 /// <summary>One page of dual-write map records plus the server-driven paging link (if any).</summary>
 public sealed record DwMapPage(IReadOnlyList<DwMapRecord> Records, string? NextLink);
 
+/// <summary>
+/// A Dataverse solution (for the Map Browser's "filter maps by solution" picker). <see cref="All"/> is
+/// the sentinel "no filter" entry shown first in the dropdown.
+/// </summary>
+public sealed record DwSolution(
+    string Id,
+    string UniqueName,
+    string FriendlyName,
+    string Version,
+    string PublisherUniqueName,
+    string PublisherDisplayName)
+{
+    /// <summary>The "All solutions" sentinel — selecting it clears the solution filter.</summary>
+    public static DwSolution All { get; } = new(string.Empty, string.Empty, string.Empty, string.Empty, string.Empty, string.Empty);
+
+    public bool IsAll => string.IsNullOrEmpty(Id) && string.IsNullOrEmpty(UniqueName);
+
+    /// <summary>Dropdown label, e.g. "Customer Master [cust_master] v1.0.0.3".</summary>
+    public string Display
+    {
+        get
+        {
+            if (IsAll)
+            {
+                return "All solutions";
+            }
+
+            var head = string.IsNullOrWhiteSpace(FriendlyName) ? UniqueName : $"{FriendlyName} [{UniqueName}]";
+            return string.IsNullOrWhiteSpace(Version) ? head : $"{head} v{Version}";
+        }
+    }
+}
+
+/// <summary>A solution publisher (secondary filter for the solution picker). <see cref="All"/> = no filter.</summary>
+public sealed record DwPublisher(string UniqueName, string DisplayName, int SolutionCount)
+{
+    public static DwPublisher All { get; } = new(string.Empty, string.Empty, 0);
+
+    public bool IsAll => string.IsNullOrEmpty(UniqueName);
+
+    public string Label => IsAll ? "All publishers" : $"{DisplayName} ({SolutionCount})";
+}
+
+/// <summary>One page of solutions plus the server-driven paging link (if any).</summary>
+public sealed record DwSolutionPage(IReadOnlyList<DwSolution> Solutions, string? NextLink);
+
+/// <summary>One page of solution-component object ids (dual-write maps in a solution) plus paging link.</summary>
+public sealed record DwComponentIdPage(IReadOnlyList<Guid> ObjectIds, string? NextLink);
+
+/// <summary>Outcome of loading the solution list: the solutions, or an error to surface.</summary>
+public sealed record DwSolutionLoadResult(IReadOnlyList<DwSolution> Solutions, string? Error)
+{
+    public bool IsSuccess => Error is null;
+
+    public static DwSolutionLoadResult Ok(IReadOnlyList<DwSolution> solutions) => new(solutions, null);
+
+    public static DwSolutionLoadResult Fail(string error) => new(Array.Empty<DwSolution>(), error);
+}
+
 /// <summary>Outcome of loading the dual-write map catalogue: the records, or an error to surface.</summary>
 public sealed record DwMapLoadResult(IReadOnlyList<DwMapRecord> Maps, string? Error)
 {

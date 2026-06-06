@@ -14,9 +14,25 @@
         <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="2,2,0,8">
           <TextBlock Grid.Column="0" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center"
                      Text="{Binding Maps.Count, StringFormat='Table maps · {0}'}" />
-          <Button Grid.Column="1" Content="Refresh" Command="{Binding RefreshCommand}"
+          <Button Grid.Column="1" Content="Refresh" Command="{Binding ReloadMapsCommand}"
                   IsEnabled="{Binding !IsLoading}" />
         </Grid>
+        <ComboBox DockPanel.Dock="Top" Margin="0,0,0,6" HorizontalAlignment="Stretch"
+                  ItemsSource="{Binding Publishers}" SelectedItem="{Binding SelectedPublisher, Mode=TwoWay}">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="models:DwPublisher">
+              <TextBlock Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <ComboBox DockPanel.Dock="Top" Margin="0,0,0,8" HorizontalAlignment="Stretch"
+                  ItemsSource="{Binding Solutions}" SelectedItem="{Binding SelectedSolution, Mode=TwoWay}">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="models:DwSolution">
+              <TextBlock Text="{Binding Display}" TextTrimming="CharacterEllipsis" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
         <TextBox DockPanel.Dock="Top" Text="{Binding Search, Mode=TwoWay}"
                  PlaceholderText="Filter maps…" Margin="0,0,0,8" />
         <TextBlock DockPanel.Dock="Top" Text="Loading maps…" Margin="2,4" FontSize="12"

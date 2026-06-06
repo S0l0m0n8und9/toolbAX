@@ -1,4 +1,6 @@
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ToolBax.Core.Models;
@@ -7,10 +9,11 @@ using ToolBax.Core.Services;
 namespace ToolBax.App.Services;
 
 /// <summary>
-/// Real <see cref="IDualWriteMapReader"/>: pages through <c>msdyn_dualwriteentitymap</c> via the
-/// <see cref="IDataverseClient"/> (following each <c>@odata.nextLink</c>) and reshapes the records with
-/// <see cref="DualWriteMapParser"/>. A non-2xx response on any page stops the load and is returned as an
-/// error (rather than thrown) so the Map Browser can surface it.
+/// Real <see cref="IDualWriteMapReader"/>: pages through Dataverse via the <see cref="IDataverseClient"/>
+/// (following each <c>@odata.nextLink</c>) and reshapes records with <see cref="DualWriteMapParser"/>.
+/// A non-2xx response on any page stops the load and is returned as an error (rather than thrown) so the
+/// Map Browser can surface it. When a solution is given, the maps are constrained to that solution's
+/// dual-write-map components.
 /// </summary>
 public sealed class CoreDualWriteMapReader : IDualWriteMapReader
 {
@@ -18,28 +21,96 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
 
     public CoreDualWriteMapReader(IDataverseClient dataverse) => _dataverse = dataverse;
 
-    public async Task<DwMapLoadResult> GetMapsAsync(CancellationToken ct = default)
+    public async Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default)
     {
-        var all = new List<DwMapRecord>();
-        string? pathOrUrl = DualWriteMapParser.MapsPath();
+        HashSet<Guid>? solutionComponentIds = null;
+        if (!string.IsNullOrWhiteSpace(solutionUniqueName))
+        {
+            var componentIds = new List<Guid>();
+            var componentError = await PageAllAsync(
+                DualWriteMapParser.SolutionComponentsPath(solutionUniqueName),
+                body =>
+                {
+                    var page = DualWriteMapParser.ParseComponentIdPage(body);
+                    return (page.ObjectIds, page.NextLink);
+                },
+                componentIds, "solution components", ct).ConfigureAwait(false);
 
+            if (componentError is not null)
+            {
+                return DwMapLoadResult.Fail(componentError);
+            }
+
+            solutionComponentIds = componentIds.ToHashSet();
+        }
+
+        var maps = new List<DwMapRecord>();
+        var error = await PageAllAsync(
+            DualWriteMapParser.MapsPath(),
+            body =>
+            {
+                var page = DualWriteMapParser.ParsePage(body);
+                return (page.Records, page.NextLink);
+            },
+            maps, "dual-write maps", ct).ConfigureAwait(false);
+
+        if (error is not null)
+        {
+            return DwMapLoadResult.Fail(error);
+        }
+
+        if (solutionComponentIds is not null)
+        {
+            maps = maps
+                .Where(m => Guid.TryParse(m.Id, out var id) && solutionComponentIds.Contains(id))
+                .ToList();
+        }
+
+        return DwMapLoadResult.Ok(maps);
+    }
+
+    public async Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default)
+    {
+        var solutions = new List<DwSolution>();
+        var error = await PageAllAsync(
+            DualWriteMapParser.SolutionsPath(),
+            body =>
+            {
+                var page = DualWriteMapParser.ParseSolutionPage(body);
+                return (page.Solutions, page.NextLink);
+            },
+            solutions, "solutions", ct).ConfigureAwait(false);
+
+        return error is not null ? DwSolutionLoadResult.Fail(error) : DwSolutionLoadResult.Ok(solutions);
+    }
+
+    // Pages a Dataverse query into <paramref name="sink"/>, following each nextLink. Returns null on
+    // success or a banner-ready error string on the first non-2xx response.
+    private async Task<string?> PageAllAsync<T>(
+        string firstPath,
+        Func<string, (IReadOnlyList<T> Items, string? NextLink)> parse,
+        List<T> sink,
+        string subject,
+        CancellationToken ct)
+    {
+        string? pathOrUrl = firstPath;
         while (pathOrUrl is not null)
         {
             var response = await _dataverse.GetAsync(pathOrUrl, ct).ConfigureAwait(false);
             if (!response.IsSuccess)
             {
-                return DwMapLoadResult.Fail(DescribeFailure(response));
+                return DescribeFailure(response, subject);
             }
 
-            var page = DualWriteMapParser.ParsePage(response.Body);
-            all.AddRange(page.Records);
-            pathOrUrl = page.NextLink; // absolute URL; the client uses it verbatim
+            var (items, nextLink) = parse(response.Body);
+            sink.AddRange(items);
+            pathOrUrl = nextLink; // absolute URL; the client uses it verbatim
         }
 
-        return DwMapLoadResult.Ok(all);
+        return null;
     }
 
-    private static string DescribeFailure(ODataResponse response)
+    private static string DescribeFailure(ODataResponse response, string subject)
     {
         var reason = string.IsNullOrWhiteSpace(response.ReasonPhrase)
             ? $"HTTP {response.StatusCode}"
@@ -47,7 +118,7 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         var body = response.Body.Trim();
         if (string.IsNullOrEmpty(body))
         {
-            return $"Couldn't load dual-write maps — {reason}.";
+            return $"Couldn't load {subject} — {reason}.";
         }
 
         // Keep the banner readable; the full Dataverse error JSON can be long.
@@ -56,6 +127,6 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
             body = body[..500] + "…";
         }
 
-        return $"Couldn't load dual-write maps — {reason}: {body}";
+        return $"Couldn't load {subject} — {reason}: {body}";
     }
 }

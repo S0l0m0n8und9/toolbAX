@@ -15,16 +15,24 @@ namespace ToolBax.App.ViewModels;
 /// Dual-Write Map Browser (control-map §4): a read-only inspector over the <c>msdyn_dualwriteentitymap</c>
 /// records in Dataverse. The master list + search drive a selected map; the detail pane shows the parsed
 /// <c>msdyn_mapping</c> (summary, legs, field mappings, value transforms) and <c>msdyn_properties</c>.
+/// A solution picker (optionally narrowed by publisher) filters the catalogue to one solution's maps.
 /// No mutations — acting on a map is the Operations screen's job. Maps load on first view (Initialize)
-/// and can be reloaded (Refresh). A load/auth failure surfaces in <see cref="LoadError"/> rather than a
-/// silently blank list.
+/// and reload on filter change / Refresh. A load/auth failure surfaces in <see cref="LoadError"/>.
 /// </summary>
 public partial class DualWriteMapViewModel : ObservableObject
 {
     private readonly IDualWriteMapReader _reader;
     private bool _loaded;
+    private bool _suppressReload;          // guards the initial selection setup from triggering reloads
+    private List<DwSolution> _allSolutions = new();
 
     public ObservableCollection<DwMapRecord> Maps { get; } = new();
+
+    /// <summary>Solutions for the picker (an "All" sentinel first, then the publisher-filtered list).</summary>
+    public ObservableCollection<DwSolution> Solutions { get; } = new();
+
+    /// <summary>Publishers for the secondary filter ("All" first, then distinct publishers with counts).</summary>
+    public ObservableCollection<DwPublisher> Publishers { get; } = new();
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Filtered))]
@@ -41,6 +49,12 @@ public partial class DualWriteMapViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(HasSelection))]
     [NotifyPropertyChangedFor(nameof(ShowSelectPrompt))]
     private DwMapRecord? _detailMap;
+
+    [ObservableProperty]
+    private DwSolution? _selectedSolution;
+
+    [ObservableProperty]
+    private DwPublisher? _selectedPublisher;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowEmptyState))]
@@ -78,11 +92,11 @@ public partial class DualWriteMapViewModel : ObservableObject
     /// <summary>Shown only after a successful load that returned nothing (not while loading or on error).</summary>
     public bool ShowEmptyState => _loaded && !IsLoading && !HasLoadError && Maps.Count == 0;
 
-    /// <summary>"Select a map" prompt — only when there's nothing else to show (no selection/error/empty/loading).</summary>
+    /// <summary>"Select a map" prompt — only when there's nothing else to show.</summary>
     public bool ShowSelectPrompt => !HasSelection && !HasLoadError && !ShowEmptyState && !IsLoading;
 
-    // Loads the catalogue when the view first appears; the cached VM only reloads on explicit Refresh,
-    // so re-navigating is cheap. With the fake reader this resolves synchronously over seeded data.
+    // Loads the catalogue (solutions + maps) when the view first appears; the cached VM only reloads on
+    // an explicit Refresh or a filter change, so re-navigating is cheap.
     [RelayCommand]
     private async Task Initialize(CancellationToken ct)
     {
@@ -91,23 +105,46 @@ public partial class DualWriteMapViewModel : ObservableObject
             return;
         }
 
-        await LoadAsync(ct);
+        await LoadSolutionsAsync(ct);
+        await LoadMapsAsync(ct);
     }
 
-    [RelayCommand(IncludeCancelCommand = true)]
-    private Task Refresh(CancellationToken ct) => LoadAsync(ct);
+    // Reloads the maps for the current solution filter. Triggered by Refresh and by filter changes;
+    // concurrent + cancellable so a newer filter selection isn't gated by an in-flight load.
+    [RelayCommand(IncludeCancelCommand = true, AllowConcurrentExecutions = true)]
+    private async Task ReloadMaps(CancellationToken ct) => await LoadMapsAsync(ct);
 
-    private async Task LoadAsync(CancellationToken ct)
+    private async Task LoadSolutionsAsync(CancellationToken ct)
     {
+        var result = await _reader.GetSolutionsAsync(ct);
+        // A solutions failure shouldn't block the maps; just leave the picker with only "All".
+        _allSolutions = result.IsSuccess ? result.Solutions.ToList() : new List<DwSolution>();
+
+        _suppressReload = true;
+        RebuildPublishers();
+        SelectedPublisher = Publishers.FirstOrDefault();
+        RebuildSolutions();
+        SelectedSolution = Solutions.FirstOrDefault();
+        _suppressReload = false;
+    }
+
+    private async Task LoadMapsAsync(CancellationToken ct)
+    {
+        var solutionName = CurrentSolutionFilter();
         IsLoading = true;
         try
         {
-            var result = await _reader.GetMapsAsync(ct);
+            var result = await _reader.GetMapsAsync(solutionName, ct);
+
+            // Drop a stale result if the solution filter moved on while this load was in flight.
+            if (CurrentSolutionFilter() != solutionName)
+            {
+                return;
+            }
 
             if (result.IsSuccess)
             {
-                // Preserve the inspected map across a refresh when it's still present (by id), so a
-                // reload doesn't yank the user back to the first row.
+                // Preserve the inspected map across a reload when it's still present (by id).
                 var previousId = DetailMap?.Id;
 
                 Maps.Clear();
@@ -127,19 +164,93 @@ public partial class DualWriteMapViewModel : ObservableObject
             }
             else
             {
-                // A failed load (e.g. expired token) keeps the stale-but-useful catalogue + selection
-                // and just shows the error banner, rather than wiping the list.
+                // A failed load keeps the stale-but-useful catalogue + selection and shows the banner.
                 LoadError = result.Error ?? "Couldn't load dual-write maps.";
             }
         }
         catch (OperationCanceledException)
         {
-            // A cancelled refresh leaves the current list + selection intact.
+            // A cancelled reload leaves the current list + selection intact.
         }
         finally
         {
             IsLoading = false;
         }
+    }
+
+    private string? CurrentSolutionFilter() =>
+        SelectedSolution is { IsAll: false } solution ? solution.UniqueName : null;
+
+    private void RebuildPublishers()
+    {
+        Publishers.Clear();
+        Publishers.Add(DwPublisher.All);
+        foreach (var publisher in _allSolutions
+                     .Where(s => !string.IsNullOrWhiteSpace(s.PublisherUniqueName))
+                     .GroupBy(s => s.PublisherUniqueName, StringComparer.OrdinalIgnoreCase)
+                     .Select(g => new DwPublisher(g.Key, g.First().PublisherDisplayName, g.Count()))
+                     .OrderBy(p => p.DisplayName, StringComparer.OrdinalIgnoreCase))
+        {
+            Publishers.Add(publisher);
+        }
+    }
+
+    private void RebuildSolutions()
+    {
+        Solutions.Clear();
+        Solutions.Add(DwSolution.All);
+
+        var publisher = SelectedPublisher;
+        IEnumerable<DwSolution> visible = _allSolutions;
+        if (publisher is { IsAll: false })
+        {
+            visible = visible.Where(s =>
+                string.Equals(s.PublisherUniqueName, publisher.UniqueName, StringComparison.OrdinalIgnoreCase));
+        }
+
+        foreach (var solution in visible
+                     .OrderBy(s => s.FriendlyName, StringComparer.OrdinalIgnoreCase)
+                     .ThenBy(s => s.UniqueName, StringComparer.OrdinalIgnoreCase))
+        {
+            Solutions.Add(solution);
+        }
+    }
+
+    partial void OnSelectedPublisherChanged(DwPublisher? value)
+    {
+        if (_suppressReload)
+        {
+            return;
+        }
+
+        var previous = SelectedSolution;
+
+        // Suppress while we rebuild the list + restore the selection, so the transient null the bound
+        // picker emits when its items are cleared doesn't fire an intermediate reload.
+        _suppressReload = true;
+        RebuildSolutions();
+        var restored = previous is not null && Solutions.Contains(previous) ? previous : Solutions.FirstOrDefault();
+        SelectedSolution = restored;
+        _suppressReload = false;
+
+        // Reload only if the effective solution filter actually changed (e.g. the prior solution was
+        // hidden by the new publisher and fell back to "All").
+        if (!Equals(previous, restored))
+        {
+            ReloadMapsCommand.Cancel();
+            ReloadMapsCommand.Execute(null);
+        }
+    }
+
+    partial void OnSelectedSolutionChanged(DwSolution? value)
+    {
+        if (_suppressReload)
+        {
+            return;
+        }
+
+        ReloadMapsCommand.Cancel();
+        ReloadMapsCommand.Execute(null);
     }
 
     partial void OnSelectedMapChanged(DwMapRecord? value)

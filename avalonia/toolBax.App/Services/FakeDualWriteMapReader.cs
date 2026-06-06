@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ToolBax.Core.Models;
@@ -16,10 +18,30 @@ public sealed class FakeDualWriteMapReader : IDualWriteMapReader
 {
     // Lazy so a (hypothetical) parser/seed-shape break surfaces as a clear exception at first use,
     // pointing at the seed JSON — not as a TypeInitializationException on every member access.
-    private static readonly Lazy<DwMapLoadResult> Seed =
-        new(() => DwMapLoadResult.Ok(DualWriteMapParser.ParsePage(SeedJson).Records));
+    private static readonly Lazy<IReadOnlyList<DwMapRecord>> AllMaps =
+        new(() => DualWriteMapParser.ParsePage(SeedJson).Records);
 
-    public Task<DwMapLoadResult> GetMapsAsync(CancellationToken ct = default) => Task.FromResult(Seed.Value);
+    // Two solutions whose ids match the seed maps' solutionid, so the solution filter is exercisable.
+    private static readonly Lazy<IReadOnlyList<DwSolution>> Solutions = new(() => new[]
+    {
+        new DwSolution("aaaaaaaa-0000-0000-0000-000000000001", "dualwrite_core", "Dual-write Core", "1.0.0.5", "msdyn", "Microsoft Dynamics"),
+        new DwSolution("aaaaaaaa-0000-0000-0000-000000000002", "sales_ext", "Sales Extensions", "2.1.0.0", "contoso", "Contoso Ltd"),
+    });
+
+    public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default)
+    {
+        IReadOnlyList<DwMapRecord> maps = AllMaps.Value;
+        if (!string.IsNullOrWhiteSpace(solutionUniqueName))
+        {
+            var solutionId = Solutions.Value.FirstOrDefault(s => s.UniqueName == solutionUniqueName)?.Id;
+            maps = maps.Where(m => m.SolutionId == solutionId).ToList();
+        }
+
+        return Task.FromResult(DwMapLoadResult.Ok(maps));
+    }
+
+    public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) =>
+        Task.FromResult(DwSolutionLoadResult.Ok(Solutions.Value));
 
     private const string SeedJson = """
     {

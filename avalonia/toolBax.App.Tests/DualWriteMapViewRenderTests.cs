@@ -41,6 +41,25 @@ public class DualWriteMapViewRenderTests
     }
 
     [AvaloniaFact]
+    public void Renders_the_solution_and_publisher_filter_dropdowns()
+    {
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader());
+        var (view, window) = Show(vm);
+        try
+        {
+            var combos = view.GetVisualDescendants().OfType<ComboBox>().ToList();
+            Assert.True(combos.Count >= 2); // publisher + solution
+            // Initialize ran on Loaded, so the solution picker is populated (All sentinel + seeded).
+            Assert.Contains(vm.Solutions, s => s.IsAll);
+            Assert.Contains(vm.Solutions, s => s.UniqueName == "dualwrite_core");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
     public void Field_mappings_tab_binds_the_selected_maps_fields()
     {
         var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader());
