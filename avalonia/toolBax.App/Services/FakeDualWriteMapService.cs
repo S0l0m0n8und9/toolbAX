@@ -122,4 +122,8 @@ public sealed class FakeDualWriteMapService : IDualWriteMapService
         };
         return Task.FromResult(errors);
     }
+
+    // Design-mode: a retry always "succeeds". TODO: call the live dead-letter retry endpoint.
+    public Task<bool> RetryErrorAsync(string mapId, DwError error, CancellationToken ct = default) =>
+        Task.FromResult(true);
 }

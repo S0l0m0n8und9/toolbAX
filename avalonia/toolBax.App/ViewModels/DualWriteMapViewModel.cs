@@ -149,6 +149,22 @@ public partial class DualWriteMapViewModel : ObservableObject
         }
     }
 
+    // Targeted dead-letter retry (the screen's one write). On success the record leaves the list.
+    [RelayCommand]
+    private async Task RetryError(DwError? error)
+    {
+        if (error is null || DetailMap is null)
+        {
+            return;
+        }
+
+        if (await _service.RetryErrorAsync(DetailMap.Id, error))
+        {
+            Errors.Remove(error);
+            OnPropertyChanged(nameof(HasErrorDetails));
+        }
+    }
+
     private void LoadDetail(DwMapSummary? summary)
     {
         Bindings.Clear();

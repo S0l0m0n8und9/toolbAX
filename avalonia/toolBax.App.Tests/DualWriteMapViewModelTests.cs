@@ -35,6 +35,9 @@ public class DualWriteMapViewModelTests
             await Gate.Task;
             return await _inner.GetErrorsAsync(mapId, ct);
         }
+
+        public Task<bool> RetryErrorAsync(string mapId, DwError error, CancellationToken ct = default) =>
+            _inner.RetryErrorAsync(mapId, error, ct);
     }
 
     [Fact]
@@ -150,6 +153,21 @@ public class DualWriteMapViewModelTests
 
         Assert.Contains(vm.Errors, e => e.IsWarning);
         Assert.Contains(vm.Errors, e => e.IsError);
+    }
+
+    [Fact]
+    public async Task Retrying_an_error_removes_it_from_the_list()
+    {
+        var vm = MakeVm();
+        vm.SelectedMap = vm.Maps.Single(m => m.Id == "so-salesorder");
+        await vm.LoadHistoryCommand.ExecuteAsync(null);
+        var before = vm.Errors.Count;
+        var target = vm.Errors.First();
+
+        await vm.RetryErrorCommand.ExecuteAsync(target);
+
+        Assert.DoesNotContain(target, vm.Errors);
+        Assert.Equal(before - 1, vm.Errors.Count);
     }
 
     [Fact]
