@@ -137,8 +137,8 @@ public partial class ShellViewModel : ObservableObject
         _ => new PlaceholderScreenViewModel(tool.Title),
     };
 
-    // Profiles shares the shell's single IProfileStore; activating a profile there keeps the shell's
-    // environment switcher in sync.
+    // Profiles shares the shell's single IProfileStore; activating or editing a profile there keeps
+    // the shell's environment switcher in sync.
     private ProfilesViewModel CreateProfilesContent()
     {
         var profiles = new ProfilesViewModel(_profileStore, _secretStore, _authBroker);
@@ -148,6 +148,19 @@ public partial class ShellViewModel : ObservableObject
             if (match is not null)
             {
                 ActiveEnvironment = match;
+            }
+        };
+        profiles.ProfileSaved += updated =>
+        {
+            var existing = Environments.FirstOrDefault(e => e.Id == updated.Id);
+            if (existing is not null)
+            {
+                Environments[Environments.IndexOf(existing)] = updated;
+            }
+
+            if (ActiveEnvironment.Id == updated.Id)
+            {
+                ActiveEnvironment = updated; // refresh the header / home subtitle with the new name
             }
         };
         return profiles;

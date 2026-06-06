@@ -152,6 +152,9 @@ public partial class ProfilesViewModel : ObservableObject
     /// <summary>Raised when the active profile changes, so the shell's switcher can stay in sync.</summary>
     public event Action<string>? ActiveChanged;
 
+    /// <summary>Raised with the updated profile after Save, so the shell can refresh its env list.</summary>
+    public event Action<EnvProfile>? ProfileSaved;
+
     [RelayCommand]
     private void SaveSecret()
     {
@@ -287,5 +290,6 @@ public partial class ProfilesViewModel : ObservableObject
 
         Selected = updated;
         Status = $"Saved '{updated.Name}'.";
+        ProfileSaved?.Invoke(updated);
     }
 }

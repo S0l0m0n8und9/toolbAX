@@ -138,6 +138,22 @@ public class ShellViewModelTests
     }
 
     [Fact]
+    public void Renaming_the_active_profile_refreshes_the_shell_environment()
+    {
+        var shell = new ShellViewModel();
+        var activeId = shell.ActiveEnvironment.Id;
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
+        var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
+
+        profiles.Selected = profiles.Profiles.Single(p => p.Id == activeId);
+        profiles.DraftName = "Renamed Env";
+        profiles.SaveCommand.Execute(null);
+
+        Assert.Equal("Renamed Env", shell.ActiveEnvironment.Name);
+        Assert.Contains(shell.Environments, e => e.Name == "Renamed Env");
+    }
+
+    [Fact]
     public void Unknown_tools_route_to_a_titled_placeholder()
     {
         var shell = new ShellViewModel();
