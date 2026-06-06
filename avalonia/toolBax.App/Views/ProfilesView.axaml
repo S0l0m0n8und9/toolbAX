@@ -96,8 +96,23 @@
                 <TextBox Grid.Row="4" Grid.Column="1" IsReadOnly="True" Text="{Binding DataverseWebApi, Mode=OneWay}"
                          FontFamily="Cascadia Code,Consolas,monospace" />
               </Grid>
+
+              <Grid ColumnDefinitions="130,*,Auto,Auto" ColumnSpacing="8">
+                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                  <TextBlock Text="Client secret" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                  <Border IsVisible="{Binding HasDataverseSecret}" Background="{StaticResource OkBgBrush}"
+                          CornerRadius="999" Padding="6,1" VerticalAlignment="Center">
+                    <TextBlock Text="set" FontSize="10" Foreground="{StaticResource OkBrush}" />
+                  </Border>
+                </StackPanel>
+                <TextBox Grid.Column="1" Text="{Binding DataverseSecretInput, Mode=TwoWay}" PasswordChar="●"
+                         PlaceholderText="Enter a new Dataverse secret to store" FontFamily="Cascadia Code,Consolas,monospace" />
+                <Button Grid.Column="2" Content="Store" Command="{Binding SaveDataverseSecretCommand}" />
+                <Button Grid.Column="3" Content="Clear" Command="{Binding ClearDataverseSecretCommand}" />
+              </Grid>
+
               <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}"
-                         Text="The linked Dataverse environment + its app registration (used by Dual-Write). The Dataverse client ID is a separate app reg from the FO one; the tenant is shared with the FO environment. (The Auth tab stores the FO client secret; a Dataverse client secret entry is a follow-up.)" />
+                         Text="The linked Dataverse environment + its own app registration (used by Dual-Write). The Dataverse client ID is a separate app reg from the FO one; the tenant is shared with the FO environment. The client secret is DPAPI-protected at rest and never displayed or logged." />
             </StackPanel>
           </TabItem>
 

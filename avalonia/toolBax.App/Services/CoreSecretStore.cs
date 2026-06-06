@@ -25,15 +25,15 @@ public sealed class CoreSecretStore : ISecretStore
         _vault = vault;
     }
 
-    public bool HasSecret(string key)
+    public bool HasSecret(string key, SecretTarget target = SecretTarget.Fo)
     {
-        var sp = LoadFoSp(key);
+        var sp = LoadSp(key, target);
         return !string.IsNullOrEmpty(sp?.SecretRef);
     }
 
-    public void SetSecret(string key, string plaintext)
+    public void SetSecret(string key, string plaintext, SecretTarget target = SecretTarget.Fo)
     {
-        var sp = LoadFoSp(key);
+        var sp = LoadSp(key, target);
         if (sp is null || string.IsNullOrEmpty(plaintext))
         {
             // Nothing to attach the secret to (set a client id first) — no-op.
@@ -47,7 +47,7 @@ public sealed class CoreSecretStore : ISecretStore
         }
 
         var previousRef = sp.SecretRef;
-        var secretRef = ProtectInVault(plaintext);
+        var secretRef = ProtectInVault(plaintext, target);
         RunBlocking(() => _profiles.UpsertServicePrincipalAsync(sp with { SecretRef = secretRef }, CancellationToken.None));
 
         // Rotation: the SP now points at the new blob, so drop the previous one (no orphan accrual).
@@ -60,12 +60,15 @@ public sealed class CoreSecretStore : ISecretStore
     // Windows-only (DPAPI). Isolated so the [SupportedOSPlatform] annotation satisfies CA1416 inside
     // the lambda; SetSecret only calls this after an OperatingSystem.IsWindows() guard.
     [SupportedOSPlatform("windows")]
-    private string ProtectInVault(string plaintext) =>
-        RunBlocking(() => _vault!.StoreSecretAsync("fo-client-secret", plaintext, CancellationToken.None));
+    private string ProtectInVault(string plaintext, SecretTarget target) =>
+        RunBlocking(() => _vault!.StoreSecretAsync(
+            target == SecretTarget.Dataverse ? "dataverse-client-secret" : "fo-client-secret",
+            plaintext,
+            CancellationToken.None));
 
-    public void ClearSecret(string key)
+    public void ClearSecret(string key, SecretTarget target = SecretTarget.Fo)
     {
-        var sp = LoadFoSp(key);
+        var sp = LoadSp(key, target);
         if (sp is null || string.IsNullOrEmpty(sp.SecretRef))
         {
             return;
@@ -77,8 +80,15 @@ public sealed class CoreSecretStore : ISecretStore
         RunBlocking(() => _profiles.DeleteSecretAsync(secretRef, CancellationToken.None));
     }
 
-    private ServicePrincipal? LoadFoSp(string envId) =>
-        RunBlocking(() => _profiles.GetServicePrincipalAsync(envId, AuthTarget.Fo, CancellationToken.None));
+    private ServicePrincipal? LoadSp(string envId, SecretTarget target) =>
+        RunBlocking(() => _profiles.GetServicePrincipalAsync(
+            envId,
+            target switch
+            {
+                SecretTarget.Dataverse => AuthTarget.Dataverse,
+                _ => AuthTarget.Fo,
+            },
+            CancellationToken.None));
 
     private static void RunBlocking(Func<Task> work) => Task.Run(work).GetAwaiter().GetResult();
 

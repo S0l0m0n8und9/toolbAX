@@ -33,6 +33,7 @@ public partial class ProfilesViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsSelectedActive))]
     [NotifyPropertyChangedFor(nameof(HasSecret))]
+    [NotifyPropertyChangedFor(nameof(HasDataverseSecret))]
     private EnvProfile? _selected;
 
     /// <summary>The Auth-tab client-secret entry. Write-only: stored on save, never loaded back.</summary>
@@ -76,6 +77,10 @@ public partial class ProfilesViewModel : ObservableObject
 
     [ObservableProperty]
     private FoAuthMode _draftDataverseAuthMode = FoAuthMode.ClientSecret;
+
+    /// <summary>The Dataverse client-secret entry. Write-only, like the F&amp;O Auth secret.</summary>
+    [ObservableProperty]
+    private string _dataverseSecretInput = string.Empty;
 
     // F&O service-principal (app-only) drafts.
     [ObservableProperty]
@@ -136,6 +141,7 @@ public partial class ProfilesViewModel : ObservableObject
     {
         LoadDrafts(value);
         SecretInput = string.Empty; // never carry an entry across environments
+        DataverseSecretInput = string.Empty;
         DiSecretInput = string.Empty;
         DiStatus = string.Empty;
         OnPropertyChanged(nameof(HasDiSecret));
@@ -174,6 +180,9 @@ public partial class ProfilesViewModel : ObservableObject
 
     /// <summary>Whether the selected environment has a client secret stored (Auth tab).</summary>
     public bool HasSecret => Selected is not null && _secrets.HasSecret(Selected.Id);
+
+    /// <summary>Whether the selected environment has a Dataverse client secret stored (CE tab).</summary>
+    public bool HasDataverseSecret => Selected is not null && _secrets.HasSecret(Selected.Id, SecretTarget.Dataverse);
 
     /// <summary>Whether the selected environment has a DI ROPC service-account secret stored.</summary>
     public bool HasDiSecret => Selected is not null && _secrets.HasSecret(DiKey(Selected.Id));
@@ -261,8 +270,16 @@ public partial class ProfilesViewModel : ObservableObject
         }
 
         _secrets.SetSecret(Selected.Id, SecretInput);
-        SecretInput = string.Empty; // don't keep plaintext around after it's protected
         OnPropertyChanged(nameof(HasSecret));
+        if (!HasSecret)
+        {
+            // The store no-ops when there's no F&O service principal yet; keep the entry and say so
+            // rather than report a false success and lose what the user typed.
+            Status = "Set a client ID and save the profile before storing its secret.";
+            return;
+        }
+
+        SecretInput = string.Empty; // don't keep plaintext around after it's protected
         Status = $"Secret stored for '{Selected.Name}'.";
     }
 
@@ -277,6 +294,41 @@ public partial class ProfilesViewModel : ObservableObject
         _secrets.ClearSecret(Selected.Id);
         OnPropertyChanged(nameof(HasSecret));
         Status = $"Secret cleared for '{Selected.Name}'.";
+    }
+
+    [RelayCommand]
+    private void SaveDataverseSecret()
+    {
+        if (Selected is null || string.IsNullOrEmpty(DataverseSecretInput))
+        {
+            return;
+        }
+
+        _secrets.SetSecret(Selected.Id, DataverseSecretInput, SecretTarget.Dataverse);
+        OnPropertyChanged(nameof(HasDataverseSecret));
+        if (!HasDataverseSecret)
+        {
+            // The store no-ops when there's no Dataverse service principal yet; keep the entry and say
+            // so rather than report a false success and lose what the user typed.
+            Status = "Set a Dataverse client ID and save the profile before storing its secret.";
+            return;
+        }
+
+        DataverseSecretInput = string.Empty; // don't keep plaintext around after it's protected
+        Status = $"Dataverse secret stored for '{Selected.Name}'.";
+    }
+
+    [RelayCommand]
+    private void ClearDataverseSecret()
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        _secrets.ClearSecret(Selected.Id, SecretTarget.Dataverse);
+        OnPropertyChanged(nameof(HasDataverseSecret));
+        Status = $"Dataverse secret cleared for '{Selected.Name}'.";
     }
 
     [RelayCommand]

@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.Profiles;
 using ToolBax.App.Services;
+using ToolBax.Core.Services;
 using Xunit;
 
 namespace ToolBax.App.Tests;
@@ -89,6 +90,56 @@ public sealed class CoreSecretStoreTests : IDisposable
         cmd.CommandText = "SELECT COUNT(*) FROM SecretVault WHERE Id = $id";
         cmd.Parameters.AddWithValue("$id", id);
         return System.Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
+    private async Task SeedDataverseSpAsync(string envId, string? secretRef)
+    {
+        var svc = NewService();
+        await svc.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await svc.UpsertEnvironmentAsync(new FoEnvironment(envId, "Env", "https://e", "t", null), TestContext.Current.CancellationToken);
+        await svc.UpsertServicePrincipalAsync(
+            new ServicePrincipal($"{envId}:dataverse", envId, "dv-client", AuthMode.ClientSecret, secretRef, null, AuthTarget.Dataverse),
+            TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Dataverse_secret_presence_tracks_the_dataverse_service_principal()
+    {
+        await SeedDataverseSpAsync("env1", secretRef: null);
+        var store = new CoreSecretStore(NewService(), NewVault());
+        Assert.False(store.HasSecret("env1", SecretTarget.Dataverse));
+
+        await SeedDataverseSpAsync("env2", secretRef: "dv-vault-ref");
+        Assert.True(new CoreSecretStore(NewService(), NewVault()).HasSecret("env2", SecretTarget.Dataverse));
+    }
+
+    [Fact]
+    public async Task Fo_and_dataverse_secrets_are_tracked_independently()
+    {
+        // F&O SP has a secret; Dataverse SP does not — presence must not bleed across targets.
+        await SeedFoSpAsync("env1", secretRef: "fo-ref");
+        await SeedDataverseSpAsync("env1", secretRef: null);
+        var store = new CoreSecretStore(NewService(), NewVault());
+
+        Assert.True(store.HasSecret("env1")); // F&O (default target)
+        Assert.False(store.HasSecret("env1", SecretTarget.Dataverse));
+    }
+
+    [Fact]
+    public async Task Clear_dataverse_secret_nulls_only_the_dataverse_ref()
+    {
+        await SeedFoSpAsync("env1", secretRef: "fo-ref");
+        await SeedDataverseSpAsync("env1", secretRef: "dv-row-1");
+        InsertVaultRow("dv-row-1");
+        var store = new CoreSecretStore(NewService(), NewVault());
+
+        store.ClearSecret("env1", SecretTarget.Dataverse);
+
+        Assert.False(store.HasSecret("env1", SecretTarget.Dataverse));
+        Assert.True(store.HasSecret("env1")); // F&O secret untouched
+        var dvSp = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Dataverse, TestContext.Current.CancellationToken);
+        Assert.Null(dvSp!.SecretRef);
+        Assert.Equal(0, CountVaultRows("dv-row-1"));
     }
 
     [Fact]
