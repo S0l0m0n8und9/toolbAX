@@ -24,6 +24,9 @@
 
   <ItemGroup>
     <ProjectReference Include="..\toolBax.Core\toolBax.Core.csproj" />
+    <!-- Real services for parity: consume the multi-targeted FoToolbox.Core (net10.0 flavor) so the
+         Avalonia app reuses the WPF app's auth/OData/profiles/dual-write rather than reinventing. -->
+    <ProjectReference Include="..\..\src\FoToolbox.Core\FoToolbox.Core.csproj" />
   </ItemGroup>
 
 </Project>
