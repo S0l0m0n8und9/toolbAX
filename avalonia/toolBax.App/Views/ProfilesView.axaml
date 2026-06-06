@@ -42,7 +42,7 @@
           </Border>
         </StackPanel>
 
-        <!-- FO Environment fields (read-only this slice; editable form is a follow-up) -->
+        <!-- FO Environment fields (editable; committed by Save). -->
         <StackPanel Spacing="8">
           <TextBlock Text="FO ENVIRONMENT" FontSize="10" Foreground="{StaticResource Text3Brush}" />
           <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
