@@ -43,13 +43,14 @@ public partial class App : Application
     {
         try
         {
-            var dbPath = ProfilePaths.ResolveProfileDbPath();
-            var profiles = new ProfileService(new ProfileStore(dbPath));
+            var store = new ProfileStore(ProfilePaths.ResolveProfileDbPath());
+            var profiles = new ProfileService(store);
             var profileStore = CoreProfileStore.CreateAsync(profiles).GetAwaiter().GetResult();
 
-            // The DPAPI secret vault is Windows-only; elsewhere fall back to the in-memory fake.
+            // The DPAPI secret vault is Windows-only; elsewhere fall back to the in-memory fake. Reuse
+            // ProfileStore's connection string (properly escaped, foreign keys on) rather than rebuild it.
             ISecretStore secretStore = OperatingSystem.IsWindows()
-                ? new CoreSecretStore(profiles, new SecretVaultService($"Data Source={dbPath}"))
+                ? new CoreSecretStore(profiles, new SecretVaultService(store.ConnectionString))
                 : new FakeSecretStore();
 
             return (profileStore, secretStore);
