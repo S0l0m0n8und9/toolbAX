@@ -32,6 +32,16 @@ public static class DiAuthModeExtensions
 }
 
 /// <summary>
+/// How the F&amp;O service principal (app-only, client-credentials) authenticates. Mirrors the
+/// FoToolbox.Core AuthMode values the Avalonia layer can express.
+/// </summary>
+public enum FoAuthMode
+{
+    ClientSecret,
+    Certificate,
+}
+
+/// <summary>
 /// An F&amp;O environment profile. Shared by the shell's environment switcher and the Profiles screen.
 /// (Auth/Dataverse/Data-Integrator detail lands with the auth tabs; persistence is via
 /// <see cref="ToolBax.Core.Services.IProfileStore"/>.)
@@ -47,7 +57,9 @@ public sealed record EnvProfile(
     int? LatencyMs = null,
     string? DataverseUrl = null,
     string? DataIntegratorClientId = null,
-    DiAuthMode DataIntegratorMode = DiAuthMode.Interactive)
+    DiAuthMode DataIntegratorMode = DiAuthMode.Interactive,
+    string? ClientId = null,
+    FoAuthMode AuthMode = FoAuthMode.ClientSecret)
 {
 
     /// <summary>List-item subtitle, e.g. "USMF · Tier 1".</summary>

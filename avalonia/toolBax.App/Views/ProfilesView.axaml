@@ -108,6 +108,15 @@
                 </Border>
               </StackPanel>
 
+              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto" RowSpacing="6">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Client ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding DraftClientId, Mode=TwoWay}"
+                         PlaceholderText="App (client) ID" FontFamily="Cascadia Code,Consolas,monospace" />
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Auth mode" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                <ComboBox Grid.Row="1" Grid.Column="1" Width="220" HorizontalAlignment="Left"
+                          ItemsSource="{Binding AuthModes}" SelectedItem="{Binding DraftAuthMode, Mode=TwoWay}" />
+              </Grid>
+
               <Grid ColumnDefinitions="130,*,Auto,Auto" ColumnSpacing="8">
                 <TextBlock Grid.Column="0" Text="Client secret" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
                 <TextBox Grid.Column="1" Text="{Binding SecretInput, Mode=TwoWay}" PasswordChar="●"
