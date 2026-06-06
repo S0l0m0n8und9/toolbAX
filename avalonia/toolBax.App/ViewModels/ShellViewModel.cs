@@ -29,6 +29,7 @@ public partial class ShellViewModel : ObservableObject
     private readonly ISecretStore _secretStore;
     private readonly IInteractiveAuthBroker _authBroker;
     private readonly IClipboardService _clipboard;
+    private readonly IAuthService _authService;
     private object? _operationsContent;
     private object? _profilesContent;
     private object? _metadataContent;
@@ -63,16 +64,17 @@ public partial class ShellViewModel : ObservableObject
         IProfileStore? profileStore = null,
         ISecretStore? secretStore = null,
         IInteractiveAuthBroker? authBroker = null,
-        IClipboardService? clipboard = null)
+        IClipboardService? clipboard = null,
+        IAuthService? authService = null)
     {
         _operationsContentFactory = operationsContentFactory ?? DefaultOperationsContent;
         _profileStore = profileStore ?? new FakeProfileStore();
-        // TODO: design-mode fakes — swap the secret store (DPAPI) + interactive broker (WebView2) for
-        // the real Windows implementations once the live services are wired (the whole app currently
-        // runs on in-memory fakes).
+        // TODO: design-mode fakes — swap the interactive broker (WebView2) + auth service for the real
+        // Windows implementations as they're wired (profiles + secrets are already real on Windows).
         _secretStore = secretStore ?? new FakeSecretStore();
         _authBroker = authBroker ?? new FakeInteractiveAuthBroker();
         _clipboard = clipboard ?? new FakeClipboardService();
+        _authService = authService ?? new FakeAuthService();
 
         Tools = new[]
         {
@@ -146,7 +148,7 @@ public partial class ShellViewModel : ObservableObject
     // the shell's environment switcher in sync.
     private ProfilesViewModel CreateProfilesContent()
     {
-        var profiles = new ProfilesViewModel(_profileStore, _secretStore, _authBroker);
+        var profiles = new ProfilesViewModel(_profileStore, _secretStore, _authBroker, _authService);
         profiles.ActiveChanged += id =>
         {
             var match = Environments.FirstOrDefault(e => e.Id == id);

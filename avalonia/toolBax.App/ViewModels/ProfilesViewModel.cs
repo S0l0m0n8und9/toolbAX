@@ -22,6 +22,7 @@ public partial class ProfilesViewModel : ObservableObject
     private readonly IProfileStore _store;
     private readonly ISecretStore _secrets;
     private readonly IInteractiveAuthBroker _broker;
+    private readonly IAuthService _auth;
 
     public ObservableCollection<EnvProfile> Profiles { get; }
 
@@ -44,6 +45,9 @@ public partial class ProfilesViewModel : ObservableObject
 
     [ObservableProperty]
     private string _status = "Ready.";
+
+    [ObservableProperty]
+    private bool _isTestingConnection;
 
     // Editable drafts of the selected profile's FO fields, committed by Save. Kept separate from the
     // immutable EnvProfile record so edits can be made (and discarded by re-selecting).
@@ -96,11 +100,16 @@ public partial class ProfilesViewModel : ObservableObject
 
     public DiAuthMode[] DiModes { get; } = { DiAuthMode.Interactive, DiAuthMode.Ropc };
 
-    public ProfilesViewModel(IProfileStore store, ISecretStore? secrets = null, IInteractiveAuthBroker? broker = null)
+    public ProfilesViewModel(
+        IProfileStore store,
+        ISecretStore? secrets = null,
+        IInteractiveAuthBroker? broker = null,
+        IAuthService? auth = null)
     {
         _store = store;
         _secrets = secrets ?? new FakeSecretStore();
         _broker = broker ?? new FakeInteractiveAuthBroker();
+        _auth = auth ?? new FakeAuthService();
         Profiles = new ObservableCollection<EnvProfile>(store.GetAll());
         _activeId = store.ActiveId;
         _selected = Profiles.FirstOrDefault(p => p.Id == _activeId) ?? Profiles.FirstOrDefault();
@@ -168,6 +177,31 @@ public partial class ProfilesViewModel : ObservableObject
 
     /// <summary>Raised with the deleted profile id, so the shell can drop it from its env list.</summary>
     public event Action<string>? ProfileDeleted;
+
+    [RelayCommand]
+    private async Task TestConnection()
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        IsTestingConnection = true;
+        Status = $"Testing connection to '{Selected.Name}'…";
+        try
+        {
+            await _auth.AcquireFoTokenAsync(Selected);
+            Status = $"Connected to '{Selected.Name}' — token acquired.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Connection to '{Selected.Name}' failed: {ex.Message}";
+        }
+        finally
+        {
+            IsTestingConnection = false;
+        }
+    }
 
     [RelayCommand]
     private void AddProfile()
