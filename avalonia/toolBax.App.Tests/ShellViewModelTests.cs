@@ -156,6 +156,39 @@ public class ShellViewModelTests
     }
 
     [Fact]
+    public void Adding_then_deleting_a_profile_syncs_the_shell_switcher()
+    {
+        var shell = new ShellViewModel();
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
+        var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
+        var before = shell.Environments.Count;
+
+        profiles.AddProfileCommand.Execute(null);
+        var addedId = profiles.Selected!.Id;
+        Assert.Equal(before + 1, shell.Environments.Count);
+        Assert.Contains(shell.Environments, e => e.Id == addedId);
+
+        profiles.DeleteProfileCommand.Execute(null);
+        Assert.Equal(before, shell.Environments.Count);
+        Assert.DoesNotContain(shell.Environments, e => e.Id == addedId);
+    }
+
+    [Fact]
+    public void Deleting_the_active_profile_picks_another_active_environment()
+    {
+        var shell = new ShellViewModel();
+        var activeId = shell.ActiveEnvironment!.Id;
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
+        var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
+        profiles.Selected = profiles.Profiles.Single(p => p.Id == activeId);
+
+        profiles.DeleteProfileCommand.Execute(null);
+
+        Assert.NotEqual(activeId, shell.ActiveEnvironment?.Id);
+        Assert.DoesNotContain(shell.Environments, e => e.Id == activeId);
+    }
+
+    [Fact]
     public void Empty_profile_store_does_not_crash_the_shell()
     {
         var shell = new ShellViewModel(profileStore: new FakeProfileStore(Array.Empty<EnvProfile>()));

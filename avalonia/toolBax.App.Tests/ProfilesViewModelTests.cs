@@ -128,6 +128,40 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
+    public void Add_profile_creates_selects_and_persists_a_new_environment()
+    {
+        var store = new FakeProfileStore();
+        var vm = new ProfilesViewModel(store);
+        var before = vm.Profiles.Count;
+        EnvProfile? added = null;
+        vm.ProfileSaved += p => added = p;
+
+        vm.AddProfileCommand.Execute(null);
+
+        Assert.Equal(before + 1, vm.Profiles.Count);
+        Assert.NotNull(vm.Selected);
+        Assert.Equal(vm.Selected, added);
+        Assert.Contains(store.GetAll(), p => p.Id == vm.Selected!.Id); // persisted
+    }
+
+    [Fact]
+    public void Delete_profile_removes_it_and_reports_the_id()
+    {
+        var store = new FakeProfileStore();
+        var vm = new ProfilesViewModel(store);
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+        string? deletedId = null;
+        vm.ProfileDeleted += id => deletedId = id;
+
+        vm.DeleteProfileCommand.Execute(null);
+
+        Assert.Equal("uat-eur", deletedId);
+        Assert.DoesNotContain(vm.Profiles, p => p.Id == "uat-eur");
+        Assert.DoesNotContain(store.GetAll(), p => p.Id == "uat-eur");
+        Assert.NotNull(vm.Selected); // reselected another
+    }
+
+    [Fact]
     public void Storing_a_secret_marks_it_present_and_clears_the_input()
     {
         var secrets = new FakeSecretStore();

@@ -15,6 +15,9 @@ public interface IProfileStore
     /// <summary>Upserts a profile by <see cref="EnvProfile.Id"/>.</summary>
     void Save(EnvProfile profile);
 
+    /// <summary>Removes the profile with the given id (no-op if absent).</summary>
+    void Delete(string id);
+
     /// <summary>Id of the active profile, or null if none is active.</summary>
     string? ActiveId { get; set; }
 }

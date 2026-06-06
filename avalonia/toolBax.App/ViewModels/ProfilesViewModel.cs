@@ -155,6 +155,40 @@ public partial class ProfilesViewModel : ObservableObject
     /// <summary>Raised with the updated profile after Save, so the shell can refresh its env list.</summary>
     public event Action<EnvProfile>? ProfileSaved;
 
+    /// <summary>Raised with the deleted profile id, so the shell can drop it from its env list.</summary>
+    public event Action<string>? ProfileDeleted;
+
+    [RelayCommand]
+    private void AddProfile()
+    {
+        var profile = new EnvProfile(
+            Guid.NewGuid().ToString("N"), "New environment", string.Empty, string.Empty, string.Empty,
+            string.Empty, EnvStatus.Disconnected);
+
+        _store.Save(profile);
+        Profiles.Add(profile);
+        Selected = profile; // load its (blank) drafts for editing
+        ProfileSaved?.Invoke(profile);
+        Status = "Added a new environment — fill in the details and Save.";
+    }
+
+    [RelayCommand]
+    private void DeleteProfile()
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        var id = Selected.Id;
+        var name = Selected.Name;
+        _store.Delete(id);
+        Profiles.Remove(Selected);
+        Selected = Profiles.FirstOrDefault();
+        ProfileDeleted?.Invoke(id);
+        Status = $"Deleted '{name}'.";
+    }
+
     [RelayCommand]
     private void SaveSecret()
     {
