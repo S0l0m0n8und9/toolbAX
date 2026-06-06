@@ -36,7 +36,12 @@ public sealed class DualWriteConnectionStore
         _path = string.IsNullOrWhiteSpace(path)
             ? ProfilePaths.ResolveAppDataPath("dualwrite-connections.json")
             : path!;
-        _protector = protector ?? new DpapiTokenProtector();
+        // DPAPI protection is Windows-only; a non-Windows host must supply an ITokenProtector so
+        // tokens are never written to disk in plaintext.
+        _protector = protector ?? (OperatingSystem.IsWindows()
+            ? new DpapiTokenProtector()
+            : throw new PlatformNotSupportedException(
+                "A non-Windows host must supply an ITokenProtector; DPAPI protection is Windows-only."));
     }
 
     public async Task<DualWriteConnectionSettings> GetAsync(string key, CancellationToken ct)

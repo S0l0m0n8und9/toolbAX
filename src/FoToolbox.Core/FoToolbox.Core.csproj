@@ -1,7 +1,10 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- Multi-target so the cross-platform Avalonia app can consume the same real services as the
+         WPF host. WPF + tests consume net10.0-windows (unchanged); Avalonia consumes net10.0.
+         DPAPI/Windows-only types are [SupportedOSPlatform("windows")]-annotated for CA1416. -->
+    <TargetFrameworks>net10.0;net10.0-windows</TargetFrameworks>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <SignAssembly>true</SignAssembly>

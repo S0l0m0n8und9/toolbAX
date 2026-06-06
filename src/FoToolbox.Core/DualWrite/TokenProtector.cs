@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 
@@ -13,8 +14,9 @@ public interface ITokenProtector
 
 /// <summary>
 /// DPAPI (CurrentUser) protector. The token never leaves the signed-in Windows user's
-/// profile in plaintext, so the on-disk connection file is useless to other users.
+/// profile in plaintext, so the on-disk connection file is useless to other users. Windows-only.
 /// </summary>
+[SupportedOSPlatform("windows")]
 public sealed class DpapiTokenProtector : ITokenProtector
 {
     public string Protect(string plaintext)

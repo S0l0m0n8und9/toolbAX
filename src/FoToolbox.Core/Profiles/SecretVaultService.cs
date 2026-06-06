@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
@@ -9,8 +10,10 @@ using Microsoft.Data.Sqlite;
 namespace FoToolbox.Core.Profiles;
 
 /// <summary>
-/// DPAPI-backed secret vault stored in SQLite.
+/// DPAPI-backed secret vault stored in SQLite. Windows-only (DPAPI); non-Windows hosts must use a
+/// platform-appropriate secret store.
 /// </summary>
+[SupportedOSPlatform("windows")]
 public sealed class SecretVaultService
 {
     private readonly string _connectionString;
