@@ -18,6 +18,7 @@ namespace ToolBax.App.ViewModels;
 public partial class MetadataViewModel : ObservableObject
 {
     private readonly IMetadataService _metadata;
+    private readonly EntityCatalogLoader _loader;
 
     public ObservableCollection<EntitySet> Entities { get; }
     public ObservableCollection<EntityField> Fields { get; } = new();
@@ -33,9 +34,14 @@ public partial class MetadataViewModel : ObservableObject
     [ObservableProperty]
     private bool _isCached;
 
+    // Surfaces a $metadata load/auth failure so the view shows it instead of a silently blank list.
+    [ObservableProperty]
+    private string? _loadError;
+
     public MetadataViewModel(IMetadataService metadata)
     {
         _metadata = metadata;
+        _loader = new EntityCatalogLoader(metadata);
         // The fake seeds its catalogue synchronously, so this populates immediately; the real service
         // starts empty and fills in via InitializeAsync (triggered by the view on load).
         Entities = new ObservableCollection<EntitySet>(metadata.GetEntities());
@@ -48,11 +54,9 @@ public partial class MetadataViewModel : ObservableObject
     [RelayCommand]
     private async Task Initialize(CancellationToken ct)
     {
-        await _metadata.LoadEntitiesAsync(ct);
-        var loaded = _metadata.GetEntities();
-        // Replace only when the catalogue actually changed (the fake already seeded the same list in
-        // the ctor, so this is a no-op for it — avoids churning the selection on every view load).
-        if (loaded.Count > 0 && !Entities.Select(e => e.Name).SequenceEqual(loaded.Select(e => e.Name)))
+        var loaded = await _loader.LoadEntitiesAsync(Entities.Select(e => e.Name).ToList(), ct);
+        LoadError = _loader.LastError;
+        if (loaded is not null)
         {
             var previous = Selected?.Name;
             Entities.Clear();
@@ -75,13 +79,14 @@ public partial class MetadataViewModel : ObservableObject
     private async Task LoadSelectedFieldsAsync(CancellationToken ct)
     {
         var entity = Selected;
-        if (entity is null || _metadata.GetFields(entity.Name) is not null)
+        if (entity is null)
         {
             return;
         }
 
-        await _metadata.LoadFieldsAsync(entity.Name, ct);
-        if (Selected == entity)
+        var fetched = await _loader.EnsureFieldsAsync(entity.Name, ct);
+        LoadError = _loader.LastError;
+        if (fetched && Selected == entity)
         {
             LoadFields();
         }

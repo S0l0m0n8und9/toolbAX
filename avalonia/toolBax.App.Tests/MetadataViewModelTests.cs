@@ -44,6 +44,28 @@ public class MetadataViewModelTests
         Assert.NotEmpty(vm.Fields);
     }
 
+    // Mimics a live failure (token denied / OData unreachable) so the fetch can't silently no-op.
+    private sealed class ThrowingMetadata : IMetadataService
+    {
+        public IReadOnlyList<EntitySet> GetEntities() => Array.Empty<EntitySet>();
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default) =>
+            Task.FromException(new InvalidOperationException("metadata endpoint unreachable"));
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) =>
+            Task.FromException<bool>(new InvalidOperationException("metadata endpoint unreachable"));
+    }
+
+    [Fact]
+    public async Task Initialize_surfaces_a_load_failure_as_LoadError()
+    {
+        var vm = new MetadataViewModel(new ThrowingMetadata());
+
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        Assert.Contains("unreachable", vm.LoadError);
+        Assert.Empty(vm.Entities);
+    }
+
     [Fact]
     public void Cached_entity_populates_fields()
     {

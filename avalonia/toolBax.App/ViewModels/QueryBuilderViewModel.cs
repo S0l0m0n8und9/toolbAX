@@ -24,6 +24,7 @@ public partial class QueryBuilderViewModel : ObservableObject
     private const int TopRows = 50;
 
     private readonly IMetadataService _metadata;
+    private readonly EntityCatalogLoader _loader;
     private readonly IODataClient _client;
     private readonly IClipboardService _clipboard;
 
@@ -36,6 +37,10 @@ public partial class QueryBuilderViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _hasFields;
+
+    // Surfaces a $metadata load/auth failure so the view shows it instead of a silently blank list.
+    [ObservableProperty]
+    private string? _loadError;
 
     [ObservableProperty]
     private string _queryUrl = string.Empty;
@@ -68,6 +73,7 @@ public partial class QueryBuilderViewModel : ObservableObject
     public QueryBuilderViewModel(IMetadataService metadata, IODataClient client, IClipboardService? clipboard = null)
     {
         _metadata = metadata;
+        _loader = new EntityCatalogLoader(metadata);
         _client = client;
         _clipboard = clipboard ?? new FakeClipboardService();
         // The fake seeds its catalogue synchronously; the real service starts empty and fills in via
@@ -85,11 +91,9 @@ public partial class QueryBuilderViewModel : ObservableObject
     [RelayCommand]
     private async Task Initialize(CancellationToken ct)
     {
-        await _metadata.LoadEntitiesAsync(ct);
-        var loaded = _metadata.GetEntities();
-        // Replace only when the catalogue actually changed (the fake already seeded the same list in
-        // the ctor, so this is a no-op for it — avoids churning the selection on every view load).
-        if (loaded.Count > 0 && !Entities.Select(e => e.Name).SequenceEqual(loaded.Select(e => e.Name)))
+        var loaded = await _loader.LoadEntitiesAsync(Entities.Select(e => e.Name).ToList(), ct);
+        LoadError = _loader.LastError;
+        if (loaded is not null)
         {
             var previous = SelectedEntity?.Name;
             Entities.Clear();
@@ -118,13 +122,14 @@ public partial class QueryBuilderViewModel : ObservableObject
     private async Task LoadSelectedFieldsAsync(CancellationToken ct)
     {
         var entity = SelectedEntity;
-        if (entity is null || _metadata.GetFields(entity.Name) is not null)
+        if (entity is null)
         {
             return;
         }
 
-        await _metadata.LoadFieldsAsync(entity.Name, ct);
-        if (SelectedEntity == entity)
+        var fetched = await _loader.EnsureFieldsAsync(entity.Name, ct);
+        LoadError = _loader.LastError;
+        if (fetched && SelectedEntity == entity)
         {
             LoadFields();
             OnPropertyChanged(nameof(NotCachedMessage));

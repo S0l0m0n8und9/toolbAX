@@ -11,6 +11,9 @@
     <Border Grid.Column="0" Background="{StaticResource MicaBrush}"
             BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,0,1,0">
       <DockPanel Margin="10">
+        <TextBlock DockPanel.Dock="Top" Text="{Binding LoadError}"
+                   IsVisible="{Binding LoadError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                   Foreground="{StaticResource ErrBrush}" TextWrapping="Wrap" FontSize="12" Margin="0,0,0,8" />
         <TextBox DockPanel.Dock="Top" Text="{Binding Search, Mode=TwoWay}"
                  PlaceholderText="Search entities…" Margin="0,0,0,8" />
         <ListBox x:Name="EntityList"
