@@ -3,6 +3,7 @@ using System.Diagnostics;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using FoToolbox.Core.Profiles;
 using ToolBax.App.Services;
 using ToolBax.App.ViewModels;
 using ToolBax.App.Views;
@@ -20,12 +21,14 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // Create the window first so the clipboard service can bind to its TopLevel, then hand it
-            // to the shell. Profiles are real (the shared FoToolbox profile.db); the remaining seams
-            // stay design-mode fakes pending live wiring. Loading the profile store synchronously here
+            // to the shell. Profiles + secrets are real (the shared FoToolbox profile.db); the remaining
+            // seams stay design-mode fakes pending live wiring. Building the stores synchronously here
             // is safe — it runs once at startup before the dispatcher loop begins.
             var window = new MainWindow();
+            var (profileStore, secretStore) = BuildProfileServices();
             window.DataContext = new ShellViewModel(
-                profileStore: LoadProfileStore(),
+                profileStore: profileStore,
+                secretStore: secretStore,
                 clipboard: new WindowClipboardService(window));
             desktop.MainWindow = window;
         }
@@ -33,19 +36,29 @@ public partial class App : Application
         base.OnFrameworkInitializationCompleted();
     }
 
-    private static IProfileStore LoadProfileStore()
+    // Profile + secret stores share ONE ProfileService so service-principal reads/writes stay
+    // consistent across them. On a DB failure (locked/corrupt/unreadable) we degrade to in-memory
+    // fakes rather than crash before the window opens.
+    private static (IProfileStore Profiles, ISecretStore Secrets) BuildProfileServices()
     {
         try
         {
-            return CoreProfileStore.CreateDefaultAsync().GetAwaiter().GetResult();
+            var store = new ProfileStore(ProfilePaths.ResolveProfileDbPath());
+            var profiles = new ProfileService(store);
+            var profileStore = CoreProfileStore.CreateAsync(profiles).GetAwaiter().GetResult();
+
+            // The DPAPI secret vault is Windows-only; elsewhere fall back to the in-memory fake. Reuse
+            // ProfileStore's connection string (properly escaped, foreign keys on) rather than rebuild it.
+            ISecretStore secretStore = OperatingSystem.IsWindows()
+                ? new CoreSecretStore(profiles, new SecretVaultService(store.ConnectionString))
+                : new FakeSecretStore();
+
+            return (profileStore, secretStore);
         }
         catch (Exception ex)
         {
-            // The profile DB is unavailable (locked by another instance, corrupt, or unreadable).
-            // Launch in degraded mode with an empty in-memory store rather than crashing before the
-            // window opens — the user can still navigate and re-create profiles.
-            Trace.TraceError($"Profile store unavailable; starting with an empty in-memory store. {ex}");
-            return new FakeProfileStore(Array.Empty<EnvProfile>());
+            Trace.TraceError($"Profile store unavailable; starting with empty in-memory stores. {ex}");
+            return (new FakeProfileStore(Array.Empty<EnvProfile>()), new FakeSecretStore());
         }
     }
 }
