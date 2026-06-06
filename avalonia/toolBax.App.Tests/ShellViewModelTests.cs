@@ -1,5 +1,6 @@
 using System.Linq;
 using ToolBax.App.Models;
+using ToolBax.App.Services;
 using ToolBax.App.ViewModels;
 using Xunit;
 
@@ -118,6 +119,22 @@ public class ShellViewModelTests
         shell.SetActiveEnvironmentCommand.Execute(other);
 
         Assert.Equal(other.Name, home.EnvName);
+    }
+
+    [Fact]
+    public void Shell_wires_its_secret_store_into_profiles()
+    {
+        var secrets = new FakeSecretStore();
+        var shell = new ShellViewModel(secretStore: secrets);
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
+        var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
+
+        profiles.Selected = profiles.Profiles.First();
+        profiles.SecretInput = "spn-secret";
+        profiles.SaveSecretCommand.Execute(null);
+
+        // The secret reached the shell's store, not a hidden per-VM fallback.
+        Assert.True(secrets.HasSecret(profiles.Selected!.Id));
     }
 
     [Fact]
