@@ -41,14 +41,14 @@ public partial class MapLegCountRow : ObservableObject
     [ObservableProperty]
     private string _ceStatus = string.Empty;
 
-    public MapLegCountRow(DwMapLeg leg)
+    public MapLegCountRow(DwMapLeg leg, string? resolvedFoEntity = null)
     {
         LegId = leg.LegId;
         SourceSchema = leg.SourceSchema;
         DestinationSchema = leg.DestinationSchema;
         FoFilter = leg.SourceFilterOData;
         CeFilter = leg.ReversedSourceFilter;
-        _foEntity = GuessFoEntity(leg.SourceSchema);
+        _foEntity = !string.IsNullOrWhiteSpace(resolvedFoEntity) ? resolvedFoEntity : GuessFoEntity(leg.SourceSchema);
     }
 
     // Correcting the entity invalidates any previously fetched F&O count (and its comparison).

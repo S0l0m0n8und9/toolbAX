@@ -25,6 +25,8 @@ public partial class DualWriteMapViewModel : ObservableObject
     private readonly IDualWriteMapReader _reader;
     private readonly IFileSaveService _fileSave;
     private readonly IODataClient _odata;
+    private readonly IMetadataService _metadata;
+    private IReadOnlyList<string> _foEntityNames = Array.Empty<string>();
     private bool _loaded;
     private bool _suppressReload;          // guards the initial selection setup from triggering reloads
     private int _activeLoads;              // overlapping reloads in flight; the last to finish clears IsLoading
@@ -80,11 +82,13 @@ public partial class DualWriteMapViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(ShowSelectPrompt))]
     private string _loadError = string.Empty;
 
-    public DualWriteMapViewModel(IDualWriteMapReader reader, IFileSaveService? fileSave = null, IODataClient? odata = null)
+    public DualWriteMapViewModel(IDualWriteMapReader reader, IFileSaveService? fileSave = null,
+        IODataClient? odata = null, IMetadataService? metadata = null)
     {
         _reader = reader;
         _fileSave = fileSave ?? new FakeFileSaveService();
         _odata = odata ?? new FakeODataClient();
+        _metadata = metadata ?? new FakeMetadataService();
     }
 
     public IEnumerable<DwMapRecord> Filtered =>
@@ -123,7 +127,25 @@ public partial class DualWriteMapViewModel : ObservableObject
         }
 
         await LoadSolutionsAsync(ct);
+        await LoadFoEntityNamesAsync(ct);
         await LoadMapsAsync(ct);
+    }
+
+    private async Task LoadFoEntityNamesAsync(CancellationToken ct)
+    {
+        // Best-effort: the F&O entity catalogue only sharpens the auto-guessed count entity. If it can't
+        // be loaded (e.g. no F&O auth while Dataverse works), the Row counts tab still works with the
+        // simple fallback guess + manual edit, so a failure here is non-fatal.
+        try
+        {
+            await _metadata.LoadEntitiesAsync(ct);
+        }
+        catch (Exception) when (!ct.IsCancellationRequested)
+        {
+            // keep whatever entity names are already cached
+        }
+
+        _foEntityNames = _metadata.GetEntities().Select(e => e.Name).ToList();
     }
 
     // Reloads the maps for the current solution filter. Triggered by Refresh and by filter changes;
@@ -323,7 +345,8 @@ public partial class DualWriteMapViewModel : ObservableObject
         {
             foreach (var leg in value.Legs)
             {
-                CountRows.Add(new MapLegCountRow(leg));
+                var resolved = DualWriteFoEntityResolver.Resolve(leg.SourceSchema, leg.SourceSchemaDistinctName, _foEntityNames);
+                CountRows.Add(new MapLegCountRow(leg, resolved));
             }
         }
     }
