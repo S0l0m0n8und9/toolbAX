@@ -26,6 +26,7 @@ public partial class ShellViewModel : ObservableObject
     // on first navigation to the Operations tool.
     private readonly Func<object> _operationsContentFactory;
     private readonly IProfileStore _profileStore;
+    private readonly ISecretStore _secretStore;
     private object? _operationsContent;
     private object? _profilesContent;
     private object? _metadataContent;
@@ -54,10 +55,16 @@ public partial class ShellViewModel : ObservableObject
     [ObservableProperty]
     private bool _isCommandPaletteOpen;
 
-    public ShellViewModel(Func<object>? operationsContentFactory = null, IProfileStore? profileStore = null)
+    public ShellViewModel(
+        Func<object>? operationsContentFactory = null,
+        IProfileStore? profileStore = null,
+        ISecretStore? secretStore = null)
     {
         _operationsContentFactory = operationsContentFactory ?? DefaultOperationsContent;
         _profileStore = profileStore ?? new FakeProfileStore();
+        // TODO: design-mode FakeSecretStore — swap for the DPAPI-backed store once the live services
+        // are wired (the whole app currently runs on in-memory fakes).
+        _secretStore = secretStore ?? new FakeSecretStore();
 
         Tools = new[]
         {
@@ -130,7 +137,7 @@ public partial class ShellViewModel : ObservableObject
     // environment switcher in sync.
     private ProfilesViewModel CreateProfilesContent()
     {
-        var profiles = new ProfilesViewModel(_profileStore);
+        var profiles = new ProfilesViewModel(_profileStore, _secretStore);
         profiles.ActiveChanged += id =>
         {
             var match = Environments.FirstOrDefault(e => e.Id == id);

@@ -106,4 +106,64 @@ public class ProfilesViewModelTests
 
         Assert.Equal(uat.Name, vm.DraftName); // edit was not committed
     }
+
+    [Fact]
+    public void Storing_a_secret_marks_it_present_and_clears_the_input()
+    {
+        var secrets = new FakeSecretStore();
+        var vm = new ProfilesViewModel(new FakeProfileStore(), secrets);
+        var uat = vm.Profiles.Single(p => p.Id == "uat-eur");
+        vm.Selected = uat;
+
+        vm.SecretInput = "super-secret-value";
+        vm.SaveSecretCommand.Execute(null);
+
+        Assert.True(vm.HasSecret);
+        Assert.True(secrets.HasSecret("uat-eur"));
+        Assert.Equal(string.Empty, vm.SecretInput); // plaintext not retained in the VM
+    }
+
+    [Fact]
+    public void Clearing_a_secret_removes_it()
+    {
+        var secrets = new FakeSecretStore();
+        var vm = new ProfilesViewModel(new FakeProfileStore(), secrets);
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+        vm.SecretInput = "x";
+        vm.SaveSecretCommand.Execute(null);
+
+        vm.ClearSecretCommand.Execute(null);
+
+        Assert.False(vm.HasSecret);
+        Assert.False(secrets.HasSecret("uat-eur"));
+    }
+
+    [Fact]
+    public void Empty_secret_input_is_not_stored()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore(), new FakeSecretStore());
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+
+        vm.SecretInput = "";
+        vm.SaveSecretCommand.Execute(null);
+
+        Assert.False(vm.HasSecret);
+    }
+
+    [Fact]
+    public void Has_secret_tracks_the_selection()
+    {
+        var secrets = new FakeSecretStore();
+        var vm = new ProfilesViewModel(new FakeProfileStore(), secrets);
+        var uat = vm.Profiles.Single(p => p.Id == "uat-eur");
+        vm.Selected = uat;
+        vm.SecretInput = "x";
+        vm.SaveSecretCommand.Execute(null);
+
+        vm.Selected = vm.Profiles.Single(p => p.Id == "prd-apac");
+        Assert.False(vm.HasSecret);
+
+        vm.Selected = uat;
+        Assert.True(vm.HasSecret);
+    }
 }
