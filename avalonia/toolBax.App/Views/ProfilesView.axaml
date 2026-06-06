@@ -2,6 +2,7 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:ToolBax.App.ViewModels"
              xmlns:models="using:ToolBax.Core.Models"
+             xmlns:conv="using:ToolBax.App.Converters"
              x:Class="ToolBax.App.Views.ProfilesView"
              x:DataType="vm:ProfilesViewModel">
 
@@ -128,7 +129,13 @@
               <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto" RowSpacing="6">
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Mode" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
                 <ComboBox Grid.Row="0" Grid.Column="1" Width="220" HorizontalAlignment="Left"
-                          ItemsSource="{Binding DiModes}" SelectedItem="{Binding DraftDiMode, Mode=TwoWay}" />
+                          ItemsSource="{Binding DiModes}" SelectedItem="{Binding DraftDiMode, Mode=TwoWay}">
+                  <ComboBox.ItemTemplate>
+                    <DataTemplate x:DataType="models:DiAuthMode">
+                      <TextBlock Text="{Binding Converter={x:Static conv:DiAuthModeLabelConverter.Instance}}" />
+                    </DataTemplate>
+                  </ComboBox.ItemTemplate>
+                </ComboBox>
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Client ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
                 <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding DraftDiClientId, Mode=TwoWay}"
                          PlaceholderText="Data Integrator app (client) ID" FontFamily="Cascadia Code,Consolas,monospace" />
