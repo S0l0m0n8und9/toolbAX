@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -20,14 +21,22 @@ public static class QueryCsv
         return sb.ToString();
     }
 
-    // Quote fields containing a comma, quote, CR or LF; double any embedded quotes.
+    // Characters that make a spreadsheet treat a leading cell as a formula (CSV/formula injection).
+    private static readonly char[] FormulaLeaders = { '=', '+', '-', '@', '\t', '\r' };
+    private static readonly char[] QuoteTriggers = { ',', '"', '\n', '\r' };
+
+    // Quote fields containing a comma/quote/newline (doubling embedded quotes), and neutralise
+    // formula-injection by prefixing a leading =,+,-,@,TAB,CR with an apostrophe so the value is
+    // treated as literal text when the CSV is opened in Excel/Sheets.
     private static string Escape(string value)
     {
-        if (value.IndexOfAny(new[] { ',', '"', '\n', '\r' }) < 0)
+        var needsFormulaGuard = value.Length > 0 && Array.IndexOf(FormulaLeaders, value[0]) >= 0;
+        if (!needsFormulaGuard && value.IndexOfAny(QuoteTriggers) < 0)
         {
             return value;
         }
 
-        return $"\"{value.Replace("\"", "\"\"")}\"";
+        var body = needsFormulaGuard ? "'" + value : value;
+        return $"\"{body.Replace("\"", "\"\"")}\"";
     }
 }

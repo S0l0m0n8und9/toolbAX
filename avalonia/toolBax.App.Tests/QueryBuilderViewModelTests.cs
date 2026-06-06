@@ -123,6 +123,21 @@ public class QueryBuilderViewModelTests
         Assert.Equal("Name,Note\n\"Acme, Inc.\",\"say \"\"hi\"\"\"", csv);
     }
 
+    [Theory]
+    [InlineData("=1+2")]
+    [InlineData("+44")]
+    [InlineData("-5")]
+    [InlineData("@SUM(A1)")]
+    public void Csv_builder_neutralises_formula_injection(string dangerous)
+    {
+        var rows = new[] { new QueryResultRow(new Dictionary<string, string> { ["C"] = dangerous }) };
+
+        var cell = QueryCsv.Build(new[] { "C" }, rows).Split('\n')[1];
+
+        // Quoted and apostrophe-prefixed so a spreadsheet treats it as literal text.
+        Assert.Equal($"\"'{dangerous}\"", cell);
+    }
+
     [Fact]
     public async Task Export_csv_copies_header_and_rows_to_the_clipboard()
     {
