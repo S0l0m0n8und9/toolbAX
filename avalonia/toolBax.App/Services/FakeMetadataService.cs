@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 
@@ -47,4 +49,11 @@ public sealed class FakeMetadataService : IMetadataService
 
     public IReadOnlyList<EntityField>? GetFields(string entityName) =>
         Fields.TryGetValue(entityName, out var fields) ? fields : null;
+
+    // The fake's data is seeded, so loading is a no-op; LoadFieldsAsync reports whether the entity
+    // has cached fields (CustomersV3 only) to preserve the "not cached" demo state.
+    public Task LoadEntitiesAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+    public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) =>
+        Task.FromResult(Fields.ContainsKey(entityName));
 }

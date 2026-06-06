@@ -1,8 +1,10 @@
 using System;
 using System.Diagnostics;
+using System.Net.Http;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using FoToolbox.Core.Catalog;
 using FoToolbox.Core.Profiles;
 using ToolBax.App.Services;
 using ToolBax.App.ViewModels;
@@ -25,21 +27,24 @@ public partial class App : Application
             // seams stay design-mode fakes pending live wiring. Building the stores synchronously here
             // is safe — it runs once at startup before the dispatcher loop begins.
             var window = new MainWindow();
-            var (profileStore, secretStore, authService, odataFactory) = BuildServices();
+            var (profileStore, secretStore, authService, odataFactory, metadataFactory) = BuildServices();
 
-            // The OData client mints a token for whichever environment is active *at send time*, so it
-            // reads the shell's ActiveEnvironment through a closure. The shell is assigned below before
-            // any send can fire (the user must navigate + click). `shell` stays genuinely nullable and
-            // the closure null-conditional, so even an unexpected eager evaluation yields a graceful
-            // "no active environment" response rather than a NullReferenceException.
+            // The OData client + metadata service resolve a token / $metadata for whichever environment
+            // is active *at call time*, so they read the shell's ActiveEnvironment through a closure. The
+            // shell is assigned below before any of those can fire (the user must navigate + act). `shell`
+            // stays genuinely nullable and the closure null-conditional, so even an unexpected eager
+            // evaluation yields a graceful "no active environment" result rather than a NullReferenceException.
             ShellViewModel? shell = null;
-            var odataClient = odataFactory(() => shell?.ActiveEnvironment);
+            Func<EnvProfile?> activeEnv = () => shell?.ActiveEnvironment;
+            var odataClient = odataFactory(activeEnv);
+            var metadataService = metadataFactory(activeEnv);
             shell = new ShellViewModel(
                 profileStore: profileStore,
                 secretStore: secretStore,
                 clipboard: new WindowClipboardService(window),
                 authService: authService,
-                odataClient: odataClient);
+                odataClient: odataClient,
+                metadataService: metadataService);
             window.DataContext = shell;
             desktop.MainWindow = window;
         }
@@ -50,11 +55,12 @@ public partial class App : Application
     // Profile + secret + auth services share ONE ProfileService (and, on Windows, one SecretVault) so
     // service-principal reads/writes stay consistent across them. The DPAPI vault + MSAL auth are
     // Windows-only; elsewhere (and on a DB failure) we degrade to in-memory fakes rather than crash.
-    // The OData factory takes the shell's active-environment accessor (only known after the shell is
-    // built) and pairs a real authed client with the real auth path, or the fake sample client with
-    // the degraded one — so an offline/non-Windows run still demos without firing real HTTP.
+    // The OData + metadata factories take the shell's active-environment accessor (only known after the
+    // shell is built) and pair real authed services with the real auth path, or fake sample services
+    // with the degraded one — so an offline/non-Windows run still demos without firing real HTTP.
     private static (IProfileStore Profiles, ISecretStore Secrets, IAuthService Auth,
-        Func<Func<EnvProfile?>, IODataClient> ODataFactory) BuildServices()
+        Func<Func<EnvProfile?>, IODataClient> ODataFactory,
+        Func<Func<EnvProfile?>, IMetadataService> MetadataFactory) BuildServices()
     {
         try
         {
@@ -68,16 +74,29 @@ public partial class App : Application
                 var vault = new SecretVaultService(store.ConnectionString);
                 var auth = new CoreAuthService(profiles, vault);
                 return (profileStore, new CoreSecretStore(profiles, vault), auth,
-                    activeEnv => new CoreODataClient(auth, activeEnv));
+                    activeEnv => new CoreODataClient(auth, activeEnv),
+                    activeEnv => CreateMetadataService(store, auth, activeEnv));
             }
 
-            return (profileStore, new FakeSecretStore(), new FakeAuthService(), _ => new FakeODataClient());
+            return (profileStore, new FakeSecretStore(), new FakeAuthService(),
+                _ => new FakeODataClient(), _ => new FakeMetadataService());
         }
         catch (Exception ex)
         {
             Trace.TraceError($"Profile store unavailable; starting with empty in-memory stores. {ex}");
             return (new FakeProfileStore(Array.Empty<EnvProfile>()), new FakeSecretStore(),
-                new FakeAuthService(), _ => new FakeODataClient());
+                new FakeAuthService(), _ => new FakeODataClient(), _ => new FakeMetadataService());
         }
+    }
+
+    // FoToolbox.Core's CatalogService fetches + caches OData $metadata over a plain HttpClient; wrap one
+    // with AuthenticatedHttpHandler so it carries the active environment's bearer token, and cache to a
+    // SQLite catalog.db under %LocalAppData% (cross-platform, no DPAPI).
+    private static IMetadataService CreateMetadataService(ProfileStore store, IAuthService auth, Func<EnvProfile?> activeEnv)
+    {
+        var http = new HttpClient(new AuthenticatedHttpHandler(auth, activeEnv) { InnerHandler = new HttpClientHandler() });
+        var catalogStore = new CatalogStore(ProfilePaths.ResolveAppDataPath("catalog.db"));
+        var catalog = new CatalogService(http, store, catalogStore);
+        return new CoreMetadataService(catalog, activeEnv);
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -51,6 +52,37 @@ public class ShellViewModelTests
         await query.RunCommand.ExecuteAsync(null);
 
         Assert.Equal("GET", recorder.LastMethod);
+    }
+
+    // Returns a single distinctive entity so a test can prove the shell handed THIS metadata service
+    // (not a hidden per-VM FakeMetadataService) to the Metadata Browser / Query Builder.
+    private sealed class OneEntityMetadata : IMetadataService
+    {
+        public IReadOnlyList<EntitySet> GetEntities() =>
+            new[] { new EntitySet("ZZTopEntity", "M", 1, "k", false, "t") };
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) => Task.FromResult(false);
+    }
+
+    [Fact]
+    public void Shell_routes_its_metadata_service_into_the_metadata_browser()
+    {
+        var shell = new ShellViewModel(metadataService: new OneEntityMetadata());
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "metadata");
+        var metadata = Assert.IsType<MetadataViewModel>(shell.CurrentContent);
+
+        Assert.Contains(metadata.Entities, e => e.Name == "ZZTopEntity");
+    }
+
+    [Fact]
+    public void Shell_routes_its_metadata_service_into_the_query_builder()
+    {
+        var shell = new ShellViewModel(metadataService: new OneEntityMetadata());
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var query = Assert.IsType<QueryBuilderViewModel>(shell.CurrentContent);
+
+        Assert.Contains(query.Entities, e => e.Name == "ZZTopEntity");
     }
 
     [Fact]

@@ -24,6 +24,7 @@ public partial class QueryBuilderViewModel : ObservableObject
     private const int TopRows = 50;
 
     private readonly IMetadataService _metadata;
+    private readonly EntityCatalogLoader _loader;
     private readonly IODataClient _client;
     private readonly IClipboardService _clipboard;
 
@@ -36,6 +37,10 @@ public partial class QueryBuilderViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _hasFields;
+
+    // Surfaces a $metadata load/auth failure so the view shows it instead of a silently blank list.
+    [ObservableProperty]
+    private string? _loadError;
 
     [ObservableProperty]
     private string _queryUrl = string.Empty;
@@ -68,8 +73,11 @@ public partial class QueryBuilderViewModel : ObservableObject
     public QueryBuilderViewModel(IMetadataService metadata, IODataClient client, IClipboardService? clipboard = null)
     {
         _metadata = metadata;
+        _loader = new EntityCatalogLoader(metadata);
         _client = client;
         _clipboard = clipboard ?? new FakeClipboardService();
+        // The fake seeds its catalogue synchronously; the real service starts empty and fills in via
+        // InitializeAsync (triggered by the view on load).
         Entities = new ObservableCollection<EntitySet>(metadata.GetEntities());
         SelectedEntity = Entities.FirstOrDefault();
     }
@@ -78,10 +86,54 @@ public partial class QueryBuilderViewModel : ObservableObject
         ? string.Empty
         : $"$metadata for {SelectedEntity.Name} isn't cached — run once to populate the field list.";
 
+    // Fetches the entity list (and the selected entity's fields) from the active environment's live
+    // $metadata. The view calls this on load; with the fake it's a no-op over already-seeded data.
+    [RelayCommand]
+    private async Task Initialize(CancellationToken ct)
+    {
+        var loaded = await _loader.LoadEntitiesAsync(Entities.Select(e => e.Name).ToList(), ct);
+        LoadError = _loader.LastError;
+        if (loaded is not null)
+        {
+            var previous = SelectedEntity?.Name;
+            Entities.Clear();
+            foreach (var e in loaded)
+            {
+                Entities.Add(e);
+            }
+
+            SelectedEntity = Entities.FirstOrDefault(e => e.Name == previous) ?? Entities.FirstOrDefault();
+        }
+
+        await LoadSelectedFieldsAsync(ct);
+    }
+
     partial void OnSelectedEntityChanged(EntitySet? value)
     {
-        LoadFields();
+        LoadFields();                              // show what's cached immediately
         OnPropertyChanged(nameof(NotCachedMessage));
+        LoadSelectedFieldsCommand.Execute(null);   // then fetch from $metadata if not cached yet
+    }
+
+    // Fetches the selected entity's fields if they aren't cached yet, then rebuilds the field chips.
+    [RelayCommand]
+    private Task LoadSelectedFields(CancellationToken ct) => LoadSelectedFieldsAsync(ct);
+
+    private async Task LoadSelectedFieldsAsync(CancellationToken ct)
+    {
+        var entity = SelectedEntity;
+        if (entity is null)
+        {
+            return;
+        }
+
+        var fetched = await _loader.EnsureFieldsAsync(entity.Name, ct);
+        LoadError = _loader.LastError;
+        if (fetched && SelectedEntity == entity)
+        {
+            LoadFields();
+            OnPropertyChanged(nameof(NotCachedMessage));
+        }
     }
 
     private void LoadFields()

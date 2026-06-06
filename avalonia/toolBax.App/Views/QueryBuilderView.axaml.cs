@@ -34,6 +34,8 @@ public partial class QueryBuilderView : UserControl
     {
         Subscribe();
         RebuildColumns();
+        // Kick off the live $metadata fetch; the cached VM only refetches if the catalogue changes.
+        _vm?.InitializeCommand.Execute(null);
     }
 
     private void OnUnloaded(object? sender, RoutedEventArgs e) => Unsubscribe();

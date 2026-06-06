@@ -31,6 +31,7 @@ public partial class ShellViewModel : ObservableObject
     private readonly IClipboardService _clipboard;
     private readonly IAuthService _authService;
     private readonly IODataClient _odataClient;
+    private readonly IMetadataService _metadataService;
     private object? _operationsContent;
     private object? _profilesContent;
     private object? _metadataContent;
@@ -67,7 +68,8 @@ public partial class ShellViewModel : ObservableObject
         IInteractiveAuthBroker? authBroker = null,
         IClipboardService? clipboard = null,
         IAuthService? authService = null,
-        IODataClient? odataClient = null)
+        IODataClient? odataClient = null,
+        IMetadataService? metadataService = null)
     {
         _operationsContentFactory = operationsContentFactory ?? DefaultOperationsContent;
         _profileStore = profileStore ?? new FakeProfileStore();
@@ -78,6 +80,7 @@ public partial class ShellViewModel : ObservableObject
         _clipboard = clipboard ?? new FakeClipboardService();
         _authService = authService ?? new FakeAuthService();
         _odataClient = odataClient ?? new FakeODataClient();
+        _metadataService = metadataService ?? new FakeMetadataService();
 
         Tools = new[]
         {
@@ -134,11 +137,9 @@ public partial class ShellViewModel : ObservableObject
         "home" => _homeContent ??= new PluginsHomeViewModel(new FakePluginCatalog(), ActiveEnvironment?.Name, OpenToolById),
         "ops" => _operationsContent ??= _operationsContentFactory(),
         "profiles" => _profilesContent ??= CreateProfilesContent(),
-        // TODO: design-mode FakeMetadataService — swap for the live IMetadataService once available.
-        "metadata" => _metadataContent ??= new MetadataViewModel(new FakeMetadataService()),
+        "metadata" => _metadataContent ??= new MetadataViewModel(_metadataService),
         "post" => _postContent ??= new PostBuilderViewModel(_odataClient),
-        // TODO: design-mode FakeMetadataService — swap for the live IMetadataService once available.
-        "query" => _queryContent ??= new QueryBuilderViewModel(new FakeMetadataService(), _odataClient, _clipboard),
+        "query" => _queryContent ??= new QueryBuilderViewModel(_metadataService, _odataClient, _clipboard),
         // TODO: design-mode FakeDualWriteMapService — swap for the live IDualWriteMapService once available.
         "mapbrowser" => _mapBrowserContent ??= new DualWriteMapViewModel(new FakeDualWriteMapService()),
         // TODO: design-mode fakes — swap for the live IProfileStore + IDualWriteCompareService once available.
