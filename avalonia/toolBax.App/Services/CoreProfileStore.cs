@@ -37,7 +37,8 @@ public sealed class CoreProfileStore : IProfileStore
         {
             var dataverse = await profiles.GetDataverseEnvironmentAsync(env.Id, ct).ConfigureAwait(false);
             var sp = await profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Fo, ct).ConfigureAwait(false);
-            cache.Add(Map(env, dataverse?.BaseUrl, sp));
+            var dvSp = await profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Dataverse, ct).ConfigureAwait(false);
+            cache.Add(Map(env, dataverse?.BaseUrl, sp, dvSp));
         }
 
         var activeId = await profiles.GetDefaultEnvironmentIdAsync(ct).ConfigureAwait(false);
@@ -76,6 +77,7 @@ public sealed class CoreProfileStore : IProfileStore
             new DataverseEnvironment(profile.Id, profile.DataverseUrl ?? string.Empty, profile.Tenant)));
 
         SaveFoServicePrincipal(profile);
+        SaveDataverseServicePrincipal(profile);
 
         var index = _cache.FindIndex(p => p.Id == profile.Id);
         if (index >= 0)
@@ -132,7 +134,34 @@ public sealed class CoreProfileStore : IProfileStore
             AuthTarget.Fo)));
     }
 
-    private static EnvProfile Map(FoEnvironment env, string? dataverseUrl, ServicePrincipal? sp) => new(
+    // Persists the Dataverse (app-only) service principal, mirroring the F&O one but Target=Dataverse:
+    // upsert when a Dataverse client id is set, delete the row when cleared. The SecretRef is preserved
+    // across edits so changing the client id / auth mode doesn't drop a stored Dataverse secret.
+    private void SaveDataverseServicePrincipal(EnvProfile profile)
+    {
+        var existing = RunBlocking(() => _profiles.GetServicePrincipalAsync(profile.Id, AuthTarget.Dataverse, CancellationToken.None));
+
+        if (string.IsNullOrWhiteSpace(profile.DataverseClientId))
+        {
+            if (existing is not null)
+            {
+                RunBlocking(() => _profiles.DeleteServicePrincipalAsync(existing.Id));
+            }
+
+            return;
+        }
+
+        RunBlocking(() => _profiles.UpsertServicePrincipalAsync(new ServicePrincipal(
+            existing?.Id ?? $"{profile.Id}:dataverse",
+            profile.Id,
+            profile.DataverseClientId!,
+            ToCoreAuthMode(profile.DataverseAuthMode),
+            existing?.SecretRef,
+            existing?.CertThumbprint,
+            AuthTarget.Dataverse)));
+    }
+
+    private static EnvProfile Map(FoEnvironment env, string? dataverseUrl, ServicePrincipal? sp, ServicePrincipal? dataverseSp) => new(
         env.Id,
         env.Name,
         env.BaseUrl,
@@ -145,7 +174,9 @@ public sealed class CoreProfileStore : IProfileStore
         DataIntegratorClientId: null,
         DataIntegratorMode: DiAuthMode.Interactive,
         ClientId: sp?.ClientId,
-        AuthMode: FromCoreAuthMode(sp?.AuthMode));
+        AuthMode: FromCoreAuthMode(sp?.AuthMode),
+        DataverseClientId: dataverseSp?.ClientId,
+        DataverseAuthMode: FromCoreAuthMode(dataverseSp?.AuthMode));
 
     private static AuthMode ToCoreAuthMode(FoAuthMode mode) =>
         mode == FoAuthMode.Certificate ? AuthMode.Certificate : AuthMode.ClientSecret;

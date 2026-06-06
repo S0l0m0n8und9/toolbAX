@@ -79,19 +79,25 @@
           <!-- CE / Dataverse: linked Dataverse environment for dual-write. -->
           <TabItem Header="CE · Dataverse">
             <StackPanel Spacing="12" Margin="0,12,0,0">
-              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
+              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Dataverse URL" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
                 <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding DraftDataverseUrl, Mode=TwoWay}"
                          PlaceholderText="org.crm.dynamics.com" FontFamily="Cascadia Code,Consolas,monospace" />
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Tenant ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
                 <TextBox Grid.Row="1" Grid.Column="1" IsReadOnly="True" Text="{Binding DraftTenant}"
                          FontFamily="Cascadia Code,Consolas,monospace" />
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="Web API" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <TextBox Grid.Row="2" Grid.Column="1" IsReadOnly="True" Text="{Binding DataverseWebApi, Mode=OneWay}"
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Client ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding DraftDataverseClientId, Mode=TwoWay}"
+                         PlaceholderText="Dataverse app (client) ID" FontFamily="Cascadia Code,Consolas,monospace" />
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Auth mode" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                <ComboBox Grid.Row="3" Grid.Column="1" HorizontalAlignment="Stretch"
+                          ItemsSource="{Binding AuthModes}" SelectedItem="{Binding DraftDataverseAuthMode, Mode=TwoWay}" />
+                <TextBlock Grid.Row="4" Grid.Column="0" Text="Web API" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                <TextBox Grid.Row="4" Grid.Column="1" IsReadOnly="True" Text="{Binding DataverseWebApi, Mode=OneWay}"
                          FontFamily="Cascadia Code,Consolas,monospace" />
               </Grid>
               <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}"
-                         Text="The linked Dataverse environment used by Dual-Write. Saved with the profile; the tenant is shared with the FO environment." />
+                         Text="The linked Dataverse environment + its app registration (used by Dual-Write). The Dataverse client ID is a separate app reg from the FO one; the tenant is shared with the FO environment. The client secret is set on the Auth tab." />
             </StackPanel>
           </TabItem>
 

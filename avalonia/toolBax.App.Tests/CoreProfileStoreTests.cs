@@ -197,6 +197,61 @@ public sealed class CoreProfileStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Save_round_trips_the_dataverse_service_principal()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        store.Save(new EnvProfile("env1", "One", "https://one", "t", "USMF", "", EnvStatus.Disconnected)
+        {
+            DataverseUrl = "https://ce.example",
+            DataverseClientId = "99999999-8888-7777-6666-555555555555",
+            DataverseAuthMode = FoAuthMode.Certificate,
+        });
+
+        var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
+        var profile = reopened.GetAll().Single(p => p.Id == "env1");
+        Assert.Equal("99999999-8888-7777-6666-555555555555", profile.DataverseClientId);
+        Assert.Equal(FoAuthMode.Certificate, profile.DataverseAuthMode);
+
+        // Verified at the FoToolbox layer: a Target=Dataverse service principal exists, distinct from F&O.
+        var sp = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Dataverse, ct);
+        Assert.NotNull(sp);
+        Assert.Equal("99999999-8888-7777-6666-555555555555", sp!.ClientId);
+        Assert.Equal(AuthTarget.Dataverse, sp.Target);
+    }
+
+    [Fact]
+    public async Task Clearing_dataverse_client_id_removes_the_dataverse_service_principal()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        store.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected) { DataverseClientId = "abc" });
+
+        store.Save(store.GetAll().Single() with { DataverseClientId = null });
+
+        Assert.Null(await NewService().GetServicePrincipalAsync("env1", AuthTarget.Dataverse, ct));
+        var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
+        Assert.Null(reopened.GetAll().Single().DataverseClientId);
+    }
+
+    [Fact]
+    public async Task Fo_and_dataverse_service_principals_coexist()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        store.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected)
+        {
+            ClientId = "fo-client",
+            DataverseClientId = "dv-client",
+        });
+
+        var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
+        var profile = reopened.GetAll().Single();
+        Assert.Equal("fo-client", profile.ClientId);
+        Assert.Equal("dv-client", profile.DataverseClientId);
+    }
+
+    [Fact]
     public async Task Empty_database_yields_no_profiles()
     {
         var store = await CoreProfileStore.CreateAsync(NewService(), TestContext.Current.CancellationToken);
