@@ -1,9 +1,12 @@
 using System;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using ToolBax.App.Models;
 using ToolBax.App.Services;
 using ToolBax.App.ViewModels;
 using ToolBax.Core.Models;
+using ToolBax.Core.Services;
 using Xunit;
 
 namespace ToolBax.App.Tests;
@@ -11,6 +14,45 @@ namespace ToolBax.App.Tests;
 /// <summary>Pure VM logic for the shell — fast, headless, no view (control-map §0).</summary>
 public class ShellViewModelTests
 {
+    // Records the verb of the last call so a test can prove the shell handed THIS client (not a
+    // hidden per-VM FakeODataClient fallback) to the Query / POST builders.
+    private sealed class RecordingODataClient : IODataClient
+    {
+        public string? LastMethod { get; private set; }
+
+        public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
+        {
+            LastMethod = method;
+            return Task.FromResult(new ODataResponse(200, "OK", "{\"value\":[]}", 1));
+        }
+    }
+
+    [Fact]
+    public async Task Shell_routes_its_odata_client_into_the_post_builder()
+    {
+        var recorder = new RecordingODataClient();
+        var shell = new ShellViewModel(odataClient: recorder);
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "post");
+        var post = Assert.IsType<PostBuilderViewModel>(shell.CurrentContent);
+
+        await post.SendCommand.ExecuteAsync(null);
+
+        Assert.Equal("POST", recorder.LastMethod);
+    }
+
+    [Fact]
+    public async Task Shell_routes_its_odata_client_into_the_query_builder()
+    {
+        var recorder = new RecordingODataClient();
+        var shell = new ShellViewModel(odataClient: recorder);
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var query = Assert.IsType<QueryBuilderViewModel>(shell.CurrentContent);
+
+        await query.RunCommand.ExecuteAsync(null);
+
+        Assert.Equal("GET", recorder.LastMethod);
+    }
+
     [Fact]
     public void Default_tool_is_the_plugins_home()
     {
