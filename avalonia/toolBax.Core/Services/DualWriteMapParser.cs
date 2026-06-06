@@ -263,6 +263,7 @@ public static class DualWriteMapParser
                 fieldCount = fieldMappings.GetArrayLength();
             }
 
+            var sourceFilter = GetJsonString(leg, "sourceFilter");
             rows.Add(new DwMapLeg(
                 LegId: GetJsonString(leg, "id"),
                 SourceSchema: GetJsonString(leg, "sourceSchema"),
@@ -270,8 +271,9 @@ public static class DualWriteMapParser
                 DestinationSchema: GetJsonString(leg, "destinationSchema"),
                 SourceEnvironmentType: GetJsonString(leg, "sourceEnvironmentType"),
                 DestinationEnvironmentType: GetJsonString(leg, "destinationEnvironmentType"),
-                SourceFilter: GetJsonString(leg, "sourceFilter"),
+                SourceFilter: sourceFilter,
                 ReversedSourceFilter: GetJsonString(leg, "reversedSourceFilter"),
+                SourceFilterOData: DualWriteFilterConverter.XppToOData(sourceFilter),
                 FieldMappings: fieldCount));
         }
 

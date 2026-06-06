@@ -65,6 +65,7 @@ public sealed record DwMapLeg(
     string DestinationEnvironmentType,
     string SourceFilter,
     string ReversedSourceFilter,
+    string SourceFilterOData,
     int FieldMappings)
 {
     public bool HasSourceFilter => !string.IsNullOrWhiteSpace(SourceFilter);
