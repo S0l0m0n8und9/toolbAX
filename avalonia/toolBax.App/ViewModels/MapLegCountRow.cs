@@ -51,6 +51,13 @@ public partial class MapLegCountRow : ObservableObject
         _foEntity = GuessFoEntity(leg.SourceSchema);
     }
 
+    // Correcting the entity invalidates any previously fetched F&O count (and its comparison).
+    partial void OnFoEntityChanged(string value)
+    {
+        FoCount = null;
+        FoStatus = string.Empty;
+    }
+
     public string FoCountLabel => FoCount?.ToString("N0") ?? "—";
 
     public string CeCountLabel => CeCount?.ToString("N0") ?? "—";

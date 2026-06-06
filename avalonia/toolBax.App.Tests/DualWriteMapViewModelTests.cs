@@ -452,6 +452,22 @@ public class DualWriteMapViewModelTests
     }
 
     [Fact]
+    public async Task Editing_the_fo_entity_clears_a_stale_fo_count()
+    {
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(), odata: new CountODataClient(250));
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+        var row = vm.CountRows[0];
+        Assert.NotNull(row.FoCount);
+
+        row.FoEntity = "ADifferentEntity"; // the prior count no longer applies
+
+        Assert.Null(row.FoCount);
+        Assert.Equal("—", row.ComparisonLabel);
+    }
+
+    [Fact]
     public async Task Count_rows_reports_a_mismatch()
     {
         var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(), odata: new CountODataClient(999));
