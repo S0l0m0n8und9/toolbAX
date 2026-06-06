@@ -451,6 +451,44 @@ public class DualWriteMapViewModelTests
         Assert.StartsWith("/data/", odata.LastPath); // counted via the F&O OData endpoint
     }
 
+    // Metadata service exposing a fixed entity catalogue for F&O-entity resolution.
+    private sealed class StubMetadataService : IMetadataService
+    {
+        private readonly List<EntitySet> _entities;
+        public StubMetadataService(params string[] names) =>
+            _entities = names.Select(n => new EntitySet(n, "Module", 0, "Id", false, "Table")).ToList();
+        public IReadOnlyList<EntitySet> GetEntities() => _entities;
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) => Task.FromResult(false);
+    }
+
+    [Fact]
+    public async Task Fo_entity_default_is_resolved_from_the_metadata_catalogue()
+    {
+        // The customer leg's source schema is CustCustomerV3Entity → resolves to the CustCustomerV3 set.
+        var metadata = new StubMetadataService("CustCustomerV3", "VendVendorV2", "SalesOrderHeadersV2");
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(), metadata: metadata);
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        Assert.Equal("CustCustomerV3", vm.CountRows[0].FoEntity);
+    }
+
+    [Fact]
+    public async Task Fo_entity_default_falls_back_to_a_guess_without_metadata()
+    {
+        // Empty catalogue → no confident match → the simple "drop Entity suffix" guess.
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(), metadata: new StubMetadataService());
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        // No confident catalogue match → the simple "drop Entity suffix" guess.
+        Assert.Equal("CustCustomerV3", vm.CountRows[0].FoEntity);
+    }
+
     [Fact]
     public async Task Editing_the_fo_entity_clears_a_stale_fo_count()
     {
