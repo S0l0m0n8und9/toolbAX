@@ -90,6 +90,13 @@ public sealed class CoreProfileStore : IProfileStore
 
     public void Delete(string id)
     {
+        // Explicitly remove the env's service principals (don't rely on a FK cascade), so a reused
+        // env id can't inherit a stale SecretRef/CertThumbprint.
+        foreach (var sp in RunBlocking(() => _profiles.GetServicePrincipalsAsync(id, CancellationToken.None)))
+        {
+            RunBlocking(() => _profiles.DeleteServicePrincipalAsync(sp.Id));
+        }
+
         RunBlocking(() => _profiles.DeleteEnvironmentAsync(id));
         _cache.RemoveAll(p => p.Id == id);
         if (_activeId == id)
@@ -103,7 +110,7 @@ public sealed class CoreProfileStore : IProfileStore
     // changing the client id / auth mode doesn't drop a stored secret.
     private void SaveFoServicePrincipal(EnvProfile profile)
     {
-        var existing = RunBlocking(() => _profiles.GetServicePrincipalAsync(profile.Id, AuthTarget.Fo));
+        var existing = RunBlocking(() => _profiles.GetServicePrincipalAsync(profile.Id, AuthTarget.Fo, CancellationToken.None));
 
         if (string.IsNullOrWhiteSpace(profile.ClientId))
         {

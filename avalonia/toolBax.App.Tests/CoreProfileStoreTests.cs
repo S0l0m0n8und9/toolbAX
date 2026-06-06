@@ -184,6 +184,19 @@ public sealed class CoreProfileStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Delete_also_removes_the_service_principal()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        store.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected) { ClientId = "abc" });
+        Assert.NotNull(await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct));
+
+        store.Delete("env1");
+
+        Assert.Null(await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct)); // no orphan
+    }
+
+    [Fact]
     public async Task Empty_database_yields_no_profiles()
     {
         var store = await CoreProfileStore.CreateAsync(NewService(), TestContext.Current.CancellationToken);
