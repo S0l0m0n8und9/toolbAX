@@ -43,6 +43,10 @@ public sealed class FakeDualWriteMapReader : IDualWriteMapReader
     public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) =>
         Task.FromResult(DwSolutionLoadResult.Ok(Solutions.Value));
 
+    // Deterministic design-mode counts: fewer rows when a leg filter is applied.
+    public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) =>
+        Task.FromResult(DwCountResult.Ok(string.IsNullOrWhiteSpace(odataFilter) ? 1000 : 250));
+
     private const string SeedJson = """
     {
       "value": [

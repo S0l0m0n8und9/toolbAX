@@ -21,4 +21,10 @@ public interface IDualWriteMapReader
 
     /// <summary>Loads the Dataverse solutions (with publisher info) for the "filter by solution" picker.</summary>
     Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Counts the rows of a Dataverse entity set (the CE side of a dual-write map leg), optionally
+    /// constrained by an OData <paramref name="odataFilter"/> (e.g. the leg's reversed source filter).
+    /// </summary>
+    Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default);
 }

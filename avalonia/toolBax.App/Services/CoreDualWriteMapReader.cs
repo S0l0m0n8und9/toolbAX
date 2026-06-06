@@ -69,6 +69,25 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         return DwMapLoadResult.Ok(maps);
     }
 
+    public async Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(entitySet))
+        {
+            return DwCountResult.Fail("No Dataverse entity is set for this leg.");
+        }
+
+        var response = await _dataverse.GetAsync(DualWriteMapParser.CountPath(entitySet, odataFilter), ct).ConfigureAwait(false);
+        if (!response.IsSuccess)
+        {
+            return DwCountResult.Fail(DescribeFailure(response, $"the row count for '{entitySet}'"));
+        }
+
+        var count = DualWriteMapParser.ParseCount(response.Body);
+        return count is null
+            ? DwCountResult.Fail($"Dataverse returned no count for '{entitySet}'.")
+            : DwCountResult.Ok(count.Value);
+    }
+
     public async Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default)
     {
         var solutions = new List<DwSolution>();

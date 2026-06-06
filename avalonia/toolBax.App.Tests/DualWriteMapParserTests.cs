@@ -165,6 +165,29 @@ public class DualWriteMapParserTests
     }
 
     [Fact]
+    public void CountPath_requests_a_top1_count()
+    {
+        Assert.Equal("accounts?$top=1&$count=true", DualWriteMapParser.CountPath("accounts", null));
+
+        var filtered = DualWriteMapParser.CountPath("accounts", "accounttype eq 'vendor'");
+        Assert.StartsWith("accounts?$top=1&$count=true&$filter=", filtered);
+        Assert.Contains(System.Uri.EscapeDataString("accounttype eq 'vendor'"), filtered);
+    }
+
+    [Theory]
+    [InlineData("{\"@odata.count\":42,\"value\":[]}", 42L)]
+    [InlineData("{\"@odata.count\":\"7\",\"value\":[]}", 7L)]
+    public void ParseCount_reads_the_odata_count(string json, long expected) =>
+        Assert.Equal(expected, DualWriteMapParser.ParseCount(json));
+
+    [Theory]
+    [InlineData("{\"value\":[]}")]
+    [InlineData("not json")]
+    [InlineData(null)]
+    public void ParseCount_is_null_when_absent_or_unparseable(string? json) =>
+        Assert.Null(DualWriteMapParser.ParseCount(json));
+
+    [Fact]
     public void ParsePage_with_no_more_pages_has_a_null_next_link()
     {
         var page = DualWriteMapParser.ParsePage("{\"value\":[]}");

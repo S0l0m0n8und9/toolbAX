@@ -29,6 +29,7 @@ public class DualWriteMapViewModelTests
         public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
             Task.FromResult(DwMapLoadResult.Fail(_error));
         public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => Task.FromResult(NoSolutions);
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) => Task.FromResult(DwCountResult.Ok(0));
     }
 
     private sealed class EmptyReader : IDualWriteMapReader
@@ -36,6 +37,7 @@ public class DualWriteMapViewModelTests
         public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
             Task.FromResult(DwMapLoadResult.Ok(Array.Empty<DwMapRecord>()));
         public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => Task.FromResult(NoSolutions);
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) => Task.FromResult(DwCountResult.Ok(0));
     }
 
     private sealed class CountingReader : IDualWriteMapReader
@@ -47,6 +49,7 @@ public class DualWriteMapViewModelTests
             return Task.FromResult(DwMapLoadResult.Ok(Array.Empty<DwMapRecord>()));
         }
         public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => Task.FromResult(NoSolutions);
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) => Task.FromResult(DwCountResult.Ok(0));
     }
 
     // Returns each queued map result in turn (last one repeats), to model successive loads/refreshes.
@@ -57,6 +60,7 @@ public class DualWriteMapViewModelTests
         public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
             Task.FromResult(_results.Count > 1 ? _results.Dequeue() : _results.Peek());
         public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => Task.FromResult(NoSolutions);
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) => Task.FromResult(DwCountResult.Ok(0));
     }
 
     // Holds each map load open on a per-call gate, so overlapping reloads can be orchestrated.
@@ -71,6 +75,7 @@ public class DualWriteMapViewModelTests
             return DwMapLoadResult.Ok(Array.Empty<DwMapRecord>());
         }
         public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => Task.FromResult(NoSolutions);
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) => Task.FromResult(DwCountResult.Ok(0));
     }
 
     // Two distinct records (fresh instances each call, so refresh restores by Id, not reference).
@@ -359,6 +364,32 @@ public class DualWriteMapViewModelTests
         var vm = MakeVm(new EmptyReader());
 
         Assert.False(vm.ExportMarkdownCommand.CanExecute(null)); // nothing loaded/selected yet
+    }
+
+    [Fact]
+    public async Task Selecting_a_map_builds_an_uncounted_row_per_leg()
+    {
+        var vm = MakeVm();
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        Assert.Equal(vm.DetailMap!.Legs.Count, vm.CountRows.Count);
+        Assert.All(vm.CountRows, r => Assert.Null(r.CeCount)); // not counted until requested
+    }
+
+    [Fact]
+    public async Task Count_ce_rows_fills_each_legs_count()
+    {
+        var vm = MakeVm();
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        await vm.CountCeRowsCommand.ExecuteAsync(null);
+
+        Assert.NotEmpty(vm.CountRows);
+        Assert.All(vm.CountRows, r => Assert.NotNull(r.CeCount));
+        Assert.Equal(250, vm.CountRows[0].CeCount); // filtered leg → the fake's filtered count
     }
 
     [Fact]

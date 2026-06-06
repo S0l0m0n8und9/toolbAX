@@ -31,6 +31,9 @@ public partial class DualWriteMapViewModel : ObservableObject
 
     public ObservableCollection<DwMapRecord> Maps { get; } = new();
 
+    /// <summary>Per-leg Dataverse (CE) row-count rows for the inspected map (filled on demand).</summary>
+    public ObservableCollection<MapLegCountRow> CountRows { get; } = new();
+
     /// <summary>Solutions for the picker (an "All" sentinel first, then the publisher-filtered list).</summary>
     public ObservableCollection<DwSolution> Solutions { get; } = new();
 
@@ -305,6 +308,41 @@ public partial class DualWriteMapViewModel : ObservableObject
         }
     }
 
-    // A stale "Exported to …" message shouldn't linger once a different map is inspected.
-    partial void OnDetailMapChanged(DwMapRecord? value) => ExportStatus = string.Empty;
+    partial void OnDetailMapChanged(DwMapRecord? value)
+    {
+        // A stale "Exported to …" message shouldn't linger once a different map is inspected.
+        ExportStatus = string.Empty;
+
+        // Rebuild the (un-counted) row-count rows for the newly inspected map.
+        CountRows.Clear();
+        if (value is not null)
+        {
+            foreach (var leg in value.Legs)
+            {
+                CountRows.Add(new MapLegCountRow(leg));
+            }
+        }
+    }
+
+    // Counts the Dataverse (CE) rows for each leg, applying the leg's reversed source filter. (The F&O
+    // side + side-by-side comparison are a follow-up.) Concurrent-safe via the cancel command.
+    [RelayCommand(IncludeCancelCommand = true)]
+    private async Task CountCeRows(CancellationToken ct)
+    {
+        foreach (var row in CountRows)
+        {
+            row.CeStatus = "Counting…";
+            var filter = string.IsNullOrWhiteSpace(row.CeFilter) ? null : row.CeFilter;
+            var result = await _reader.GetCeRowCountAsync(row.DestinationSchema, filter, ct);
+            if (result.IsSuccess)
+            {
+                row.CeCount = result.Count;
+                row.CeStatus = string.Empty;
+            }
+            else
+            {
+                row.CeStatus = result.Error ?? "Count failed.";
+            }
+        }
+    }
 }

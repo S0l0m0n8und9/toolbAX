@@ -157,6 +157,16 @@ public sealed record DwSolutionPage(IReadOnlyList<DwSolution> Solutions, string?
 /// <summary>One page of solution-component object ids (dual-write maps in a solution) plus paging link.</summary>
 public sealed record DwComponentIdPage(IReadOnlyList<Guid> ObjectIds, string? NextLink);
 
+/// <summary>Outcome of a row-count query: the count, or an error to surface.</summary>
+public sealed record DwCountResult(long? Count, string? Error)
+{
+    public bool IsSuccess => Error is null;
+
+    public static DwCountResult Ok(long count) => new(count, null);
+
+    public static DwCountResult Fail(string error) => new(null, error);
+}
+
 /// <summary>Outcome of loading the solution list: the solutions, or an error to surface.</summary>
 public sealed record DwSolutionLoadResult(IReadOnlyList<DwSolution> Solutions, string? Error)
 {
