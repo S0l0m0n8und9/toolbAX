@@ -165,7 +165,8 @@
                 <DataGridTextColumn Header="Source env" Binding="{Binding SourceEnvironmentType}" Width="Auto" />
                 <DataGridTextColumn Header="Dest env" Binding="{Binding DestinationEnvironmentType}" Width="Auto" />
                 <DataGridTextColumn Header="Fields" Binding="{Binding FieldMappings}" Width="Auto" />
-                <DataGridTextColumn Header="Source filter" Binding="{Binding SourceFilter}" Width="3*" />
+                <DataGridTextColumn Header="Source filter (X++)" Binding="{Binding SourceFilter}" Width="3*" />
+                <DataGridTextColumn Header="Source filter (OData)" Binding="{Binding SourceFilterOData}" Width="3*" />
               </DataGrid.Columns>
             </DataGrid>
           </TabItem>

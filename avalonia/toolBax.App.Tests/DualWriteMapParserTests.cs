@@ -102,6 +102,16 @@ public class DualWriteMapParserTests
     }
 
     [Fact]
+    public void Leg_exposes_its_source_filter_as_odata()
+    {
+        var record = DualWriteMapParser.ParsePage(SampleResponse).Records.Single();
+        var leg = Assert.Single(record.Legs);
+
+        Assert.Equal("VendGroup == 'DOM'", leg.SourceFilter);
+        Assert.Equal("VendGroup eq 'DOM'", leg.SourceFilterOData); // X++ == translated to OData eq
+    }
+
+    [Fact]
     public void ParsePage_flattens_field_mappings_with_sync_direction_and_lookup()
     {
         var record = DualWriteMapParser.ParsePage(SampleResponse).Records.Single();
