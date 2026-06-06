@@ -109,6 +109,18 @@ public class ShellViewModelTests
     }
 
     [Fact]
+    public void Switching_environment_updates_the_cached_home_subtitle()
+    {
+        var shell = new ShellViewModel();
+        var home = Assert.IsType<PluginsHomeViewModel>(shell.CurrentContent);
+        var other = shell.Environments.First(e => e.Name != home.EnvName);
+
+        shell.SetActiveEnvironmentCommand.Execute(other);
+
+        Assert.Equal(other.Name, home.EnvName);
+    }
+
+    [Fact]
     public void Unknown_tools_route_to_a_titled_placeholder()
     {
         var shell = new ShellViewModel();

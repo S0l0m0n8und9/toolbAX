@@ -49,4 +49,12 @@ public class PluginsHomeViewModelTests
 
         Assert.Contains(vm.Plugins, p => !p.Signed);
     }
+
+    [Fact]
+    public void Has_env_is_false_when_no_environment_is_supplied()
+    {
+        var vm = MakeVm(env: null);
+
+        Assert.False(vm.HasEnv);
+    }
 }

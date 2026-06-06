@@ -98,6 +98,15 @@ public partial class ShellViewModel : ObservableObject
 
     partial void OnCurrentToolChanged(NavTool value) => CurrentContent = ResolveContent(value);
 
+    // Keep the (cached) Plugins-home subtitle in sync with the active environment.
+    partial void OnActiveEnvironmentChanged(EnvProfile value)
+    {
+        if (_homeContent is PluginsHomeViewModel home)
+        {
+            home.EnvName = value?.Name;
+        }
+    }
+
     private object ResolveContent(NavTool tool) => tool.Id switch
     {
         // TODO: design-mode FakePluginCatalog — swap for the live IPluginCatalog once available.

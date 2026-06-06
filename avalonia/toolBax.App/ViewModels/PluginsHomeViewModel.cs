@@ -19,17 +19,22 @@ public partial class PluginsHomeViewModel : ObservableObject
 
     public ObservableCollection<PluginCard> Plugins { get; }
 
-    /// <summary>Active environment name shown in the subtitle (null when none).</summary>
-    public string? EnvName { get; }
+    /// <summary>Active environment name shown in the subtitle; updated by the shell on env switch.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasEnv))]
+    private string? _envName;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(FilteredPlugins))]
     private string _filter = string.Empty;
 
+    /// <summary>Whether to show the "Connected to {env}" subtitle clause.</summary>
+    public bool HasEnv => !string.IsNullOrWhiteSpace(EnvName);
+
     public PluginsHomeViewModel(IPluginCatalog catalog, string? envName = null, Action<string>? openTool = null)
     {
         _openTool = openTool;
-        EnvName = envName;
+        _envName = envName;
         Plugins = new ObservableCollection<PluginCard>(catalog.Plugins);
     }
 
