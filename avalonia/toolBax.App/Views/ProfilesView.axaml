@@ -68,6 +68,25 @@
             </StackPanel>
           </TabItem>
 
+          <!-- CE / Dataverse: linked Dataverse environment for dual-write. -->
+          <TabItem Header="CE · Dataverse">
+            <StackPanel Spacing="12" Margin="0,12,0,0">
+              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Dataverse URL" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding DraftDataverseUrl, Mode=TwoWay}"
+                         PlaceholderText="org.crm.dynamics.com" FontFamily="Cascadia Code,Consolas,monospace" />
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Tenant ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                <TextBox Grid.Row="1" Grid.Column="1" IsReadOnly="True" Text="{Binding DraftTenant}"
+                         FontFamily="Cascadia Code,Consolas,monospace" />
+                <TextBlock Grid.Row="2" Grid.Column="0" Text="Web API" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                <TextBox Grid.Row="2" Grid.Column="1" IsReadOnly="True" Text="{Binding DataverseWebApi, Mode=OneWay}"
+                         FontFamily="Cascadia Code,Consolas,monospace" />
+              </Grid>
+              <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}"
+                         Text="The linked Dataverse environment used by Dual-Write. Saved with the profile; the tenant is shared with the FO environment." />
+            </StackPanel>
+          </TabItem>
+
           <!-- Auth: service-principal client secret, protected at rest (set/clear only). -->
           <TabItem Header="Auth">
             <StackPanel Spacing="12" Margin="0,12,0,0">

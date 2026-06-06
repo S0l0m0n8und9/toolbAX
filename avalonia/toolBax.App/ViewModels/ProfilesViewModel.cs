@@ -59,6 +59,10 @@ public partial class ProfilesViewModel : ObservableObject
     [ObservableProperty]
     private string _draftTier = string.Empty;
 
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(DataverseWebApi))]
+    private string _draftDataverseUrl = string.Empty;
+
     public ProfilesViewModel(IProfileStore store, ISecretStore? secrets = null)
     {
         _store = store;
@@ -82,7 +86,14 @@ public partial class ProfilesViewModel : ObservableObject
         DraftTenant = profile?.Tenant ?? string.Empty;
         DraftLegal = profile?.Legal ?? string.Empty;
         DraftTier = profile?.Tier ?? string.Empty;
+        DraftDataverseUrl = profile?.DataverseUrl ?? string.Empty;
     }
+
+    /// <summary>Derived Dataverse Web API endpoint from the edited CE base URL (empty when none).</summary>
+    public string DataverseWebApi =>
+        string.IsNullOrWhiteSpace(DraftDataverseUrl)
+            ? string.Empty
+            : $"{DraftDataverseUrl.TrimEnd('/')}/api/data/v9.2";
 
     public IEnumerable<EnvProfile> Filtered =>
         string.IsNullOrWhiteSpace(Search)
@@ -157,6 +168,7 @@ public partial class ProfilesViewModel : ObservableObject
             Tenant = DraftTenant,
             Legal = DraftLegal,
             Tier = DraftTier,
+            DataverseUrl = string.IsNullOrWhiteSpace(DraftDataverseUrl) ? null : DraftDataverseUrl,
         };
 
         _store.Save(updated);

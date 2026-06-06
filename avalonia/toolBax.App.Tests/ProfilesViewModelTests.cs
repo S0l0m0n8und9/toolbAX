@@ -151,6 +151,32 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
+    public void Dataverse_web_api_is_derived_from_the_edited_url()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+        vm.Selected = vm.Profiles.First();
+
+        vm.DraftDataverseUrl = "contoso.crm.dynamics.com";
+        Assert.Equal("contoso.crm.dynamics.com/api/data/v9.2", vm.DataverseWebApi);
+
+        vm.DraftDataverseUrl = "";
+        Assert.Equal(string.Empty, vm.DataverseWebApi);
+    }
+
+    [Fact]
+    public void Save_persists_the_dataverse_url()
+    {
+        var store = new FakeProfileStore();
+        var vm = new ProfilesViewModel(store);
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+
+        vm.DraftDataverseUrl = "contoso-uat.crm.dynamics.com";
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal("contoso-uat.crm.dynamics.com", store.GetAll().Single(p => p.Id == "uat-eur").DataverseUrl);
+    }
+
+    [Fact]
     public void Has_secret_tracks_the_selection()
     {
         var secrets = new FakeSecretStore();
