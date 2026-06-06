@@ -85,6 +85,16 @@ public sealed class CoreProfileStore : IProfileStore
         }
     }
 
+    public void Delete(string id)
+    {
+        RunBlocking(() => _profiles.DeleteEnvironmentAsync(id));
+        _cache.RemoveAll(p => p.Id == id);
+        if (_activeId == id)
+        {
+            ActiveId = null; // clears the persisted default too
+        }
+    }
+
     private static EnvProfile Map(FoEnvironment env, string? dataverseUrl) => new(
         env.Id,
         env.Name,

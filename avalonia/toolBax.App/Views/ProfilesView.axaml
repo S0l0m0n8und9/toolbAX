@@ -12,6 +12,10 @@
     <Border Grid.Column="0" Background="{StaticResource MicaBrush}"
             BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,0,1,0">
       <DockPanel Margin="10">
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,Auto" Margin="0,0,0,8" ColumnSpacing="6">
+          <Button Grid.Column="0" Content="+ Add" Command="{Binding AddProfileCommand}" />
+          <Button Grid.Column="1" Content="Delete" Command="{Binding DeleteProfileCommand}" />
+        </Grid>
         <TextBox DockPanel.Dock="Top" Text="{Binding Search, Mode=TwoWay}"
                  PlaceholderText="Search environments…" Margin="0,0,0,8" />
         <ListBox x:Name="ProfilesList"

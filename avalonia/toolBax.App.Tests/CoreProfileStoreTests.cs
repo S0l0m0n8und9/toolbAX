@@ -129,6 +129,25 @@ public sealed class CoreProfileStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Delete_removes_the_profile_and_clears_active_if_it_was_active()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var seed = NewService();
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "One", "https://one", "t", null), ct);
+        await seed.SetDefaultEnvironmentAsync("env1", ct);
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+
+        store.Delete("env1");
+
+        Assert.Empty(store.GetAll());
+        Assert.Null(store.ActiveId);
+        var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
+        Assert.Empty(reopened.GetAll());
+        Assert.Null(reopened.ActiveId);
+    }
+
+    [Fact]
     public async Task Empty_database_yields_no_profiles()
     {
         var store = await CoreProfileStore.CreateAsync(NewService(), TestContext.Current.CancellationToken);

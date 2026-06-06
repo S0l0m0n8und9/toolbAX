@@ -162,10 +162,27 @@ public partial class ShellViewModel : ObservableObject
             {
                 Environments[Environments.IndexOf(existing)] = updated;
             }
+            else
+            {
+                Environments.Add(updated); // a newly added profile joins the switcher
+            }
 
             if (ActiveEnvironment?.Id == updated.Id)
             {
                 ActiveEnvironment = updated; // refresh the header / home subtitle with the new name
+            }
+        };
+        profiles.ProfileDeleted += id =>
+        {
+            var existing = Environments.FirstOrDefault(e => e.Id == id);
+            if (existing is not null)
+            {
+                Environments.Remove(existing);
+            }
+
+            if (ActiveEnvironment?.Id == id)
+            {
+                ActiveEnvironment = Environments.FirstOrDefault(); // active env removed → pick another/none
             }
         };
         return profiles;

@@ -33,6 +33,15 @@ public sealed class FakeProfileStore : IProfileStore
         }
     }
 
+    public void Delete(string id)
+    {
+        _profiles.RemoveAll(p => p.Id == id);
+        if (ActiveId == id)
+        {
+            ActiveId = null;
+        }
+    }
+
     public static IReadOnlyList<EnvProfile> Seed() => new[]
     {
         new EnvProfile("dev-usmf", "USMF Dev", "contoso-dev.operations.dynamics.com", "contoso.onmicrosoft.com", "USMF", "Tier 1", EnvStatus.Connected, 118),
