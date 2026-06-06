@@ -1,0 +1,92 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ToolBax.App.ViewModels"
+             xmlns:models="using:ToolBax.Core.Models"
+             x:Class="ToolBax.App.Views.PluginsHomeView"
+             x:DataType="vm:PluginsHomeViewModel">
+
+  <ScrollViewer>
+    <Grid MaxWidth="1080" HorizontalAlignment="Center" Margin="32,28,32,40" RowDefinitions="Auto,*">
+
+      <!-- Header -->
+      <Grid Grid.Row="0" ColumnDefinitions="*,Auto" Margin="0,0,0,24">
+        <StackPanel Grid.Column="0" Spacing="6">
+          <TextBlock Text="Plugins" FontSize="28" FontWeight="SemiBold" Foreground="{StaticResource Text0Brush}" />
+          <StackPanel Orientation="Horizontal" Spacing="5">
+            <TextBlock Text="Connected to" FontSize="14" IsVisible="{Binding HasEnv}"
+                       Foreground="{StaticResource Text2Brush}" />
+            <TextBlock Text="{Binding EnvName}" FontSize="14" IsVisible="{Binding HasEnv}"
+                       Foreground="{StaticResource AccentBrush}" />
+            <TextBlock Text="·" FontSize="14" IsVisible="{Binding HasEnv}" Foreground="{StaticResource Text2Brush}" />
+            <TextBlock Text="Press" FontSize="14" Foreground="{StaticResource Text2Brush}" />
+            <Border Background="{StaticResource Layer3Brush}" CornerRadius="3" Padding="6,1" VerticalAlignment="Center">
+              <TextBlock Text="Ctrl+K" FontSize="11" Foreground="{StaticResource Text2Brush}" />
+            </Border>
+            <TextBlock Text="to run a command." FontSize="14" Foreground="{StaticResource Text2Brush}" />
+          </StackPanel>
+        </StackPanel>
+        <TextBox Grid.Column="1" Width="240" VerticalAlignment="Bottom"
+                 Text="{Binding Filter, Mode=TwoWay}" PlaceholderText="Filter plugins…" />
+      </Grid>
+
+      <!-- Card grid -->
+      <ItemsControl Grid.Row="1" ItemsSource="{Binding FilteredPlugins}">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="models:PluginCard">
+            <Button Width="324" Margin="0,0,14,14" Padding="0"
+                    HorizontalContentAlignment="Stretch"
+                    Background="{StaticResource Layer1Brush}"
+                    BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="8"
+                    Command="{Binding $parent[ItemsControl].((vm:PluginsHomeViewModel)DataContext).OpenPluginCommand}"
+                    CommandParameter="{Binding Id}">
+              <Grid RowDefinitions="*,Auto">
+                <StackPanel Grid.Row="0" Spacing="10" Margin="16">
+                  <Grid ColumnDefinitions="Auto,*,Auto">
+                    <Border Grid.Column="0" Width="36" Height="36" CornerRadius="8"
+                            Background="{StaticResource Layer3Brush}">
+                      <TextBlock Text="{Binding Initial}" FontWeight="SemiBold" FontSize="16"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center"
+                                 Foreground="{StaticResource Text1Brush}" />
+                    </Border>
+                    <StackPanel Grid.Column="1" Spacing="1" Margin="11,0,0,0" VerticalAlignment="Center">
+                      <TextBlock Text="{Binding Name}" FontSize="14.5" FontWeight="SemiBold"
+                                 Foreground="{StaticResource Text0Brush}" TextTrimming="CharacterEllipsis" />
+                      <TextBlock Text="{Binding VersionLine}" FontSize="11"
+                                 FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text3Brush}" />
+                    </StackPanel>
+                    <TextBlock Grid.Column="2" Text="✓" FontSize="14" IsVisible="{Binding Signed}"
+                               Foreground="{StaticResource OkBrush}" ToolTip.Tip="Signed plugin" />
+                    <TextBlock Grid.Column="2" Text="⚠" FontSize="14" IsVisible="{Binding !Signed}"
+                               Foreground="{StaticResource WarnBrush}" ToolTip.Tip="Unsigned — sandboxed" />
+                  </Grid>
+                  <TextBlock Text="{Binding Description}" FontSize="12.5" TextWrapping="Wrap"
+                             Foreground="{StaticResource Text2Brush}" />
+                </StackPanel>
+
+                <Border Grid.Row="1" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0"
+                        Padding="16,10">
+                  <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                    <Border Grid.Column="0" Background="{StaticResource Layer3Brush}" CornerRadius="3" Padding="6,1">
+                      <TextBlock Text="{Binding ShortcutLabel}" FontSize="11" Foreground="{StaticResource Text2Brush}" />
+                    </Border>
+                    <Border Grid.Column="1" Margin="8,0,0,0" IsVisible="{Binding Live}"
+                            Background="{StaticResource WarnBgBrush}" CornerRadius="999" Padding="8,1">
+                      <TextBlock Text="operates live" FontSize="10" Foreground="{StaticResource WarnBrush}" />
+                    </Border>
+                    <TextBlock Grid.Column="3" Text="built-in" FontSize="11" IsVisible="{Binding Builtin}"
+                               Foreground="{StaticResource Text3Brush}" VerticalAlignment="Center" />
+                  </Grid>
+                </Border>
+              </Grid>
+            </Button>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </Grid>
+  </ScrollViewer>
+</UserControl>

@@ -77,6 +77,9 @@
         <Border Grid.Column="1" Background="{StaticResource Layer1Brush}">
           <ContentControl Content="{Binding CurrentContent}">
             <ContentControl.DataTemplates>
+              <DataTemplate DataType="vm:PluginsHomeViewModel">
+                <views:PluginsHomeView />
+              </DataTemplate>
               <DataTemplate DataType="vm:DualWriteOpsViewModel">
                 <views:DualWriteOpsView />
               </DataTemplate>

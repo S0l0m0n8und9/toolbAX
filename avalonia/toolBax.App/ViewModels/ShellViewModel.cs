@@ -33,6 +33,7 @@ public partial class ShellViewModel : ObservableObject
     private object? _queryContent;
     private object? _mapBrowserContent;
     private object? _compareContent;
+    private object? _homeContent;
 
     [ObservableProperty]
     private NavTool _currentTool;
@@ -84,10 +85,32 @@ public partial class ShellViewModel : ObservableObject
         IsCommandPaletteOpen = false;
     }
 
+    // Opens a tool by id from the Plugins home card grid; unknown ids (e.g. the unsigned sample) are
+    // ignored rather than navigating to a dead screen.
+    private void OpenToolById(string id)
+    {
+        var tool = Tools.FirstOrDefault(t => t.Id == id);
+        if (tool is not null)
+        {
+            NavigateTo(tool);
+        }
+    }
+
     partial void OnCurrentToolChanged(NavTool value) => CurrentContent = ResolveContent(value);
+
+    // Keep the (cached) Plugins-home subtitle in sync with the active environment.
+    partial void OnActiveEnvironmentChanged(EnvProfile value)
+    {
+        if (_homeContent is PluginsHomeViewModel home)
+        {
+            home.EnvName = value?.Name;
+        }
+    }
 
     private object ResolveContent(NavTool tool) => tool.Id switch
     {
+        // TODO: design-mode FakePluginCatalog — swap for the live IPluginCatalog once available.
+        "home" => _homeContent ??= new PluginsHomeViewModel(new FakePluginCatalog(), ActiveEnvironment?.Name, OpenToolById),
         "ops" => _operationsContent ??= _operationsContentFactory(),
         "profiles" => _profilesContent ??= CreateProfilesContent(),
         // TODO: design-mode FakeMetadataService — swap for the live IMetadataService once available.
