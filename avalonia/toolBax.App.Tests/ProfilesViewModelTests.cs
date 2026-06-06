@@ -318,6 +318,29 @@ public class ProfilesViewModelTests
         Assert.False(vm.HasDataverseSecret);
     }
 
+    // A store that can't persist (e.g. no service principal yet) must not report a false success or
+    // silently discard the secret the user typed.
+    private sealed class NoOpSecretStore : ToolBax.Core.Services.ISecretStore
+    {
+        public bool HasSecret(string key, SecretTarget target = SecretTarget.Fo) => false;
+        public void SetSecret(string key, string plaintext, SecretTarget target = SecretTarget.Fo) { }
+        public void ClearSecret(string key, SecretTarget target = SecretTarget.Fo) { }
+    }
+
+    [Fact]
+    public void Storing_a_dataverse_secret_that_cannot_persist_keeps_the_entry_and_reports_no_success()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore(), new NoOpSecretStore());
+        vm.Selected = vm.Profiles.First();
+        vm.DataverseSecretInput = "dv-secret";
+
+        vm.SaveDataverseSecretCommand.Execute(null);
+
+        Assert.False(vm.HasDataverseSecret);
+        Assert.Equal("dv-secret", vm.DataverseSecretInput);     // not discarded
+        Assert.DoesNotContain("stored", vm.Status);             // no false confirmation
+    }
+
     [Fact]
     public void Dataverse_web_api_is_derived_from_the_edited_url()
     {

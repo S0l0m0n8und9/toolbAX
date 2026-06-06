@@ -270,8 +270,16 @@ public partial class ProfilesViewModel : ObservableObject
         }
 
         _secrets.SetSecret(Selected.Id, SecretInput);
-        SecretInput = string.Empty; // don't keep plaintext around after it's protected
         OnPropertyChanged(nameof(HasSecret));
+        if (!HasSecret)
+        {
+            // The store no-ops when there's no F&O service principal yet; keep the entry and say so
+            // rather than report a false success and lose what the user typed.
+            Status = "Set a client ID and save the profile before storing its secret.";
+            return;
+        }
+
+        SecretInput = string.Empty; // don't keep plaintext around after it's protected
         Status = $"Secret stored for '{Selected.Name}'.";
     }
 
@@ -297,8 +305,16 @@ public partial class ProfilesViewModel : ObservableObject
         }
 
         _secrets.SetSecret(Selected.Id, DataverseSecretInput, SecretTarget.Dataverse);
-        DataverseSecretInput = string.Empty; // don't keep plaintext around after it's protected
         OnPropertyChanged(nameof(HasDataverseSecret));
+        if (!HasDataverseSecret)
+        {
+            // The store no-ops when there's no Dataverse service principal yet; keep the entry and say
+            // so rather than report a false success and lose what the user typed.
+            Status = "Set a Dataverse client ID and save the profile before storing its secret.";
+            return;
+        }
+
+        DataverseSecretInput = string.Empty; // don't keep plaintext around after it's protected
         Status = $"Dataverse secret stored for '{Selected.Name}'.";
     }
 

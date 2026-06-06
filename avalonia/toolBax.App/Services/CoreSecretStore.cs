@@ -83,7 +83,11 @@ public sealed class CoreSecretStore : ISecretStore
     private ServicePrincipal? LoadSp(string envId, SecretTarget target) =>
         RunBlocking(() => _profiles.GetServicePrincipalAsync(
             envId,
-            target == SecretTarget.Dataverse ? AuthTarget.Dataverse : AuthTarget.Fo,
+            target switch
+            {
+                SecretTarget.Dataverse => AuthTarget.Dataverse,
+                _ => AuthTarget.Fo,
+            },
             CancellationToken.None));
 
     private static void RunBlocking(Func<Task> work) => Task.Run(work).GetAwaiter().GetResult();
