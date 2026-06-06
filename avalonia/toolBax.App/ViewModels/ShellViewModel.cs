@@ -28,6 +28,7 @@ public partial class ShellViewModel : ObservableObject
     private readonly IProfileStore _profileStore;
     private readonly ISecretStore _secretStore;
     private readonly IInteractiveAuthBroker _authBroker;
+    private readonly IClipboardService _clipboard;
     private object? _operationsContent;
     private object? _profilesContent;
     private object? _metadataContent;
@@ -60,7 +61,8 @@ public partial class ShellViewModel : ObservableObject
         Func<object>? operationsContentFactory = null,
         IProfileStore? profileStore = null,
         ISecretStore? secretStore = null,
-        IInteractiveAuthBroker? authBroker = null)
+        IInteractiveAuthBroker? authBroker = null,
+        IClipboardService? clipboard = null)
     {
         _operationsContentFactory = operationsContentFactory ?? DefaultOperationsContent;
         _profileStore = profileStore ?? new FakeProfileStore();
@@ -69,6 +71,7 @@ public partial class ShellViewModel : ObservableObject
         // runs on in-memory fakes).
         _secretStore = secretStore ?? new FakeSecretStore();
         _authBroker = authBroker ?? new FakeInteractiveAuthBroker();
+        _clipboard = clipboard ?? new FakeClipboardService();
 
         Tools = new[]
         {
@@ -129,7 +132,7 @@ public partial class ShellViewModel : ObservableObject
         // TODO: design-mode FakeODataClient — swap for the live IODataClient once available.
         "post" => _postContent ??= new PostBuilderViewModel(new FakeODataClient()),
         // TODO: design-mode fakes — swap for the live IMetadataService + IODataClient once available.
-        "query" => _queryContent ??= new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient()),
+        "query" => _queryContent ??= new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient(), _clipboard),
         // TODO: design-mode FakeDualWriteMapService — swap for the live IDualWriteMapService once available.
         "mapbrowser" => _mapBrowserContent ??= new DualWriteMapViewModel(new FakeDualWriteMapService()),
         // TODO: design-mode fakes — swap for the live IProfileStore + IDualWriteCompareService once available.

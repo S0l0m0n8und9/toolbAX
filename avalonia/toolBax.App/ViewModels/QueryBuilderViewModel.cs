@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using ToolBax.App.Services;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 
@@ -24,6 +25,7 @@ public partial class QueryBuilderViewModel : ObservableObject
 
     private readonly IMetadataService _metadata;
     private readonly IODataClient _client;
+    private readonly IClipboardService _clipboard;
 
     public ObservableCollection<EntitySet> Entities { get; }
     public ObservableCollection<FieldChipViewModel> Fields { get; } = new();
@@ -63,10 +65,11 @@ public partial class QueryBuilderViewModel : ObservableObject
     [ObservableProperty]
     private IReadOnlyList<string> _resultColumns = Array.Empty<string>();
 
-    public QueryBuilderViewModel(IMetadataService metadata, IODataClient client)
+    public QueryBuilderViewModel(IMetadataService metadata, IODataClient client, IClipboardService? clipboard = null)
     {
         _metadata = metadata;
         _client = client;
+        _clipboard = clipboard ?? new FakeClipboardService();
         Entities = new ObservableCollection<EntitySet>(metadata.GetEntities());
         SelectedEntity = Entities.FirstOrDefault();
     }
@@ -195,7 +198,18 @@ public partial class QueryBuilderViewModel : ObservableObject
         finally
         {
             IsBusy = false;
+            ExportCsvCommand.NotifyCanExecuteChanged();
         }
+    }
+
+    private bool CanExportCsv() => ResultRows.Count > 0;
+
+    [RelayCommand(CanExecute = nameof(CanExportCsv))]
+    private async Task ExportCsv()
+    {
+        var csv = QueryCsv.Build(ResultColumns, ResultRows);
+        await _clipboard.SetTextAsync(csv);
+        StatusText = $"Copied {ResultRows.Count} rows as CSV to the clipboard.";
     }
 
     // Projects an OData {"value":[ {...} ]} payload onto the selected columns.

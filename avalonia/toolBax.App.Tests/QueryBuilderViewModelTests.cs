@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -106,6 +107,63 @@ public class QueryBuilderViewModelTests
         Assert.False(vm.RunSucceeded);
         Assert.Empty(vm.ResultRows);
         Assert.Contains("404", vm.StatusText);
+    }
+
+    [Fact]
+    public void Csv_builder_quotes_fields_with_commas_and_doubles_quotes()
+    {
+        var columns = new[] { "Name", "Note" };
+        var rows = new[]
+        {
+            new QueryResultRow(new Dictionary<string, string> { ["Name"] = "Acme, Inc.", ["Note"] = "say \"hi\"" }),
+        };
+
+        var csv = QueryCsv.Build(columns, rows);
+
+        Assert.Equal("Name,Note\r\n\"Acme, Inc.\",\"say \"\"hi\"\"\"", csv);
+    }
+
+    [Theory]
+    [InlineData("=1+2")]
+    [InlineData("+44")]
+    [InlineData("-5")]
+    [InlineData("@SUM(A1)")]
+    public void Csv_builder_neutralises_formula_injection(string dangerous)
+    {
+        var rows = new[] { new QueryResultRow(new Dictionary<string, string> { ["C"] = dangerous }) };
+
+        var cell = QueryCsv.Build(new[] { "C" }, rows).Split("\r\n")[1];
+
+        // Quoted and apostrophe-prefixed so a spreadsheet treats it as literal text.
+        Assert.Equal($"\"'{dangerous}\"", cell);
+    }
+
+    [Fact]
+    public async Task Export_csv_copies_header_and_rows_to_the_clipboard()
+    {
+        var clipboard = new FakeClipboardService();
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient(), clipboard);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        await vm.RunCommand.ExecuteAsync(null);
+
+        Assert.True(vm.ExportCsvCommand.CanExecute(null));
+        await vm.ExportCsvCommand.ExecuteAsync(null);
+
+        Assert.NotNull(clipboard.LastText);
+        var lines = clipboard.LastText!.Split("\r\n");
+        // Header matches the escaped builder output (invariant to column escaping).
+        Assert.Equal(QueryCsv.Build(vm.ResultColumns, Enumerable.Empty<QueryResultRow>()), lines[0]);
+        Assert.Equal(vm.ResultRows.Count + 1, lines.Length); // header + one line per row
+        Assert.Contains("CSV", vm.StatusText);
+    }
+
+    [Fact]
+    public void Export_csv_is_disabled_before_a_run()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        Assert.False(vm.ExportCsvCommand.CanExecute(null));
     }
 
     [Fact]
