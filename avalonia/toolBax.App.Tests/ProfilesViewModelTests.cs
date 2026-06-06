@@ -57,4 +57,53 @@ public class ProfilesViewModelTests
 
         Assert.Contains("Saved", vm.Status);
     }
+
+    [Fact]
+    public void Selecting_a_profile_populates_the_editable_drafts()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+        var apac = vm.Profiles.Single(p => p.Id == "prd-apac");
+
+        vm.Selected = apac;
+
+        Assert.Equal(apac.Name, vm.DraftName);
+        Assert.Equal(apac.Url, vm.DraftUrl);
+        Assert.Equal(apac.Tenant, vm.DraftTenant);
+        Assert.Equal(apac.Legal, vm.DraftLegal);
+        Assert.Equal(apac.Tier, vm.DraftTier);
+    }
+
+    [Fact]
+    public void Save_persists_edited_fields_and_updates_the_list()
+    {
+        var store = new FakeProfileStore();
+        var vm = new ProfilesViewModel(store);
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+
+        vm.DraftName = "EMEA UAT (renamed)";
+        vm.DraftUrl = "contoso-uat2.operations.dynamics.com";
+        vm.SaveCommand.Execute(null);
+
+        var saved = store.GetAll().Single(p => p.Id == "uat-eur");
+        Assert.Equal("EMEA UAT (renamed)", saved.Name);
+        Assert.Equal("contoso-uat2.operations.dynamics.com", saved.Url);
+
+        // The list + selection reflect the edit.
+        Assert.Equal("EMEA UAT (renamed)", vm.Selected!.Name);
+        Assert.Contains(vm.Profiles, p => p.Name == "EMEA UAT (renamed)");
+    }
+
+    [Fact]
+    public void Reselecting_discards_uncommitted_edits()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+        var uat = vm.Profiles.Single(p => p.Id == "uat-eur");
+        vm.Selected = uat;
+
+        vm.DraftName = "scratch edit";
+        vm.Selected = vm.Profiles.Single(p => p.Id == "prd-apac");
+        vm.Selected = uat;
+
+        Assert.Equal(uat.Name, vm.DraftName); // edit was not committed
+    }
 }
