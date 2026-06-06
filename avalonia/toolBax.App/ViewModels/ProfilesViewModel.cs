@@ -102,6 +102,9 @@ public partial class ProfilesViewModel : ObservableObject
 
     public bool IsInteractive => DraftDiMode == DiAuthMode.Interactive;
 
+    // A status from one mode shouldn't linger in the other's section.
+    partial void OnDraftDiModeChanged(DiAuthMode value) => DiStatus = string.Empty;
+
     private static string DiKey(string id) => $"{id}:di";
 
     partial void OnSelectedChanged(EnvProfile? value)
@@ -211,12 +214,22 @@ public partial class ProfilesViewModel : ObservableObject
             return;
         }
 
+        if (string.IsNullOrWhiteSpace(DraftDiClientId))
+        {
+            DiStatus = "Enter a Data Integrator client ID before signing in.";
+            return;
+        }
+
         IsSigningIn = true;
         DiStatus = "Opening sign-in…";
         try
         {
             var result = await _broker.SignInAsync(DraftDiClientId, DraftTenant, ct);
             DiStatus = result is null ? "Sign-in cancelled." : $"Signed in as {result.Account}.";
+        }
+        catch (OperationCanceledException)
+        {
+            DiStatus = "Sign-in cancelled.";
         }
         catch (Exception ex)
         {
