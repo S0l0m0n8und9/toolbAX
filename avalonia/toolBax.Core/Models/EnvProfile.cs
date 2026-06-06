@@ -28,6 +28,9 @@ public sealed record EnvProfile(
     /// <summary>List-item subtitle, e.g. "USMF · Tier 1".</summary>
     public string Subtitle => $"{Legal} · {Tier}";
 
+    /// <summary>Compare-picker label, e.g. "USMF · USMF Dev".</summary>
+    public string PickerLabel => $"{Legal} · {Name}";
+
     /// <summary>Two-letter chip initials derived from the name (e.g. "USMF Dev" → "UD").</summary>
     public string Initials
     {
