@@ -1,6 +1,10 @@
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using ToolBax.App.Services;
 using ToolBax.App.ViewModels;
+using ToolBax.Core.Models;
+using ToolBax.Core.Services;
 using Xunit;
 
 namespace ToolBax.App.Tests;
@@ -191,5 +195,126 @@ public class ProfilesViewModelTests
 
         vm.Selected = uat;
         Assert.True(vm.HasSecret);
+    }
+
+    [Fact]
+    public void Di_mode_toggles_ropc_and_interactive_visibility()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+        vm.Selected = vm.Profiles.First();
+
+        vm.DraftDiMode = DiAuthMode.Ropc;
+        Assert.True(vm.IsRopc);
+        Assert.False(vm.IsInteractive);
+
+        vm.DraftDiMode = DiAuthMode.Interactive;
+        Assert.False(vm.IsRopc);
+        Assert.True(vm.IsInteractive);
+    }
+
+    [Fact]
+    public void Save_persists_di_client_id_and_mode()
+    {
+        var store = new FakeProfileStore();
+        var vm = new ProfilesViewModel(store);
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+
+        vm.DraftDiClientId = "2e49aa60-1bd3-43b6-8ab6-03ada3d9f08b";
+        vm.DraftDiMode = DiAuthMode.Ropc;
+        vm.SaveCommand.Execute(null);
+
+        var saved = store.GetAll().Single(p => p.Id == "uat-eur");
+        Assert.Equal("2e49aa60-1bd3-43b6-8ab6-03ada3d9f08b", saved.DataIntegratorClientId);
+        Assert.Equal(DiAuthMode.Ropc, saved.DataIntegratorMode);
+    }
+
+    [Fact]
+    public void Di_service_account_secret_is_stored_under_a_separate_key()
+    {
+        var secrets = new FakeSecretStore();
+        var vm = new ProfilesViewModel(new FakeProfileStore(), secrets);
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+
+        vm.DiSecretInput = "svc-password";
+        vm.SaveDiSecretCommand.Execute(null);
+
+        Assert.True(vm.HasDiSecret);
+        Assert.True(secrets.HasSecret("uat-eur:di"));
+        Assert.False(secrets.HasSecret("uat-eur")); // distinct from the Auth client secret
+        Assert.Equal(string.Empty, vm.DiSecretInput);
+    }
+
+    [Fact]
+    public async Task Interactive_sign_in_reports_the_account()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+        vm.Selected = vm.Profiles.First();
+        vm.DraftDiMode = DiAuthMode.Interactive;
+        vm.DraftDiClientId = "client-id";
+
+        await vm.SignInCommand.ExecuteAsync(null);
+
+        Assert.Contains("Signed in as", vm.DiStatus);
+        Assert.False(vm.IsSigningIn);
+    }
+
+    [Fact]
+    public async Task Sign_in_without_a_client_id_prompts_for_one()
+    {
+        var broker = new ThrowingBroker();
+        var vm = new ProfilesViewModel(new FakeProfileStore(), broker: broker);
+        vm.Selected = vm.Profiles.First();
+        vm.DraftDiMode = DiAuthMode.Interactive;
+        vm.DraftDiClientId = "";
+
+        await vm.SignInCommand.ExecuteAsync(null);
+
+        Assert.Contains("client ID", vm.DiStatus);
+        Assert.False(broker.WasCalled); // guarded before reaching the broker
+    }
+
+    [Fact]
+    public async Task Cancelled_sign_in_reports_cancellation_not_failure()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore(), broker: new CancellingBroker());
+        vm.Selected = vm.Profiles.First();
+        vm.DraftDiMode = DiAuthMode.Interactive;
+        vm.DraftDiClientId = "client-id";
+
+        await vm.SignInCommand.ExecuteAsync(null);
+
+        Assert.Equal("Sign-in cancelled.", vm.DiStatus);
+    }
+
+    [Fact]
+    public void Changing_di_mode_clears_the_status()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+        vm.Selected = vm.Profiles.First();
+        vm.DraftDiMode = DiAuthMode.Ropc;
+        vm.DiSecretInput = "x";
+        vm.SaveDiSecretCommand.Execute(null);
+        Assert.NotEqual(string.Empty, vm.DiStatus);
+
+        vm.DraftDiMode = DiAuthMode.Interactive;
+
+        Assert.Equal(string.Empty, vm.DiStatus);
+    }
+
+    private sealed class ThrowingBroker : IInteractiveAuthBroker
+    {
+        public bool WasCalled { get; private set; }
+
+        public Task<AuthResult?> SignInAsync(string clientId, string tenant, CancellationToken ct = default)
+        {
+            WasCalled = true;
+            throw new System.InvalidOperationException("broker should not be called");
+        }
+    }
+
+    private sealed class CancellingBroker : IInteractiveAuthBroker
+    {
+        public Task<AuthResult?> SignInAsync(string clientId, string tenant, CancellationToken ct = default) =>
+            throw new System.OperationCanceledException();
     }
 }

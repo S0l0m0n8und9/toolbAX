@@ -112,7 +112,64 @@
               </Grid>
 
               <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}"
-                         Text="Protected at rest with DPAPI (CurrentUser), per environment. The stored secret is never displayed or logged. Interactive sign-in and the CE / Data Integrator tabs arrive in a follow-up." />
+                         Text="Protected at rest with DPAPI (CurrentUser), per environment. The stored secret is never displayed or logged." />
+            </StackPanel>
+          </TabItem>
+
+          <!-- Data Integrator: delegated token (ROPC service account or interactive), never app-only. -->
+          <TabItem Header="Data Integrator">
+            <StackPanel Spacing="12" Margin="0,12,0,0">
+              <Border Background="{StaticResource InfoBgBrush}" BorderBrush="{StaticResource InfoBrush}"
+                      BorderThickness="1" CornerRadius="8" Padding="12,8">
+                <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}"
+                           Text="Used by Dual-Write Operations &amp; Compare. The gateway requires a delegated Data Integrator token — app-only is not available." />
+              </Border>
+
+              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto" RowSpacing="6">
+                <TextBlock Grid.Row="0" Grid.Column="0" Text="Mode" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                <ComboBox Grid.Row="0" Grid.Column="1" Width="220" HorizontalAlignment="Left"
+                          ItemsSource="{Binding DiModes}" SelectedItem="{Binding DraftDiMode, Mode=TwoWay}" />
+                <TextBlock Grid.Row="1" Grid.Column="0" Text="Client ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding DraftDiClientId, Mode=TwoWay}"
+                         PlaceholderText="Data Integrator app (client) ID" FontFamily="Cascadia Code,Consolas,monospace" />
+              </Grid>
+
+              <!-- ROPC service account -->
+              <StackPanel Spacing="8" IsVisible="{Binding IsRopc}">
+                <Border Background="{StaticResource WarnBgBrush}" BorderBrush="{StaticResource WarnBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="12,8">
+                  <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}"
+                             Text="Use a non-MFA service account — ROPC fails under MFA (AADSTS50076). The password is DPAPI-encrypted at rest." />
+                </Border>
+                <Grid ColumnDefinitions="130,*,Auto,Auto" ColumnSpacing="8">
+                  <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                    <TextBlock Text="Secret" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                    <Border IsVisible="{Binding HasDiSecret}" Background="{StaticResource OkBgBrush}"
+                            CornerRadius="999" Padding="6,1" VerticalAlignment="Center">
+                      <TextBlock Text="set" FontSize="10" Foreground="{StaticResource OkBrush}" />
+                    </Border>
+                  </StackPanel>
+                  <TextBox Grid.Column="1" Text="{Binding DiSecretInput, Mode=TwoWay}" PasswordChar="●"
+                           PlaceholderText="Service-account password" FontFamily="Cascadia Code,Consolas,monospace" />
+                  <Button Grid.Column="2" Content="Store" Command="{Binding SaveDiSecretCommand}" />
+                  <Button Grid.Column="3" Content="Clear" Command="{Binding ClearDiSecretCommand}" />
+                </Grid>
+              </StackPanel>
+
+              <!-- Interactive sign-in -->
+              <StackPanel Spacing="8" IsVisible="{Binding IsInteractive}">
+                <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}"
+                           Text="Captures a delegated token + refresh token via an interactive sign-in (WebView2). Renews silently after the first sign-in." />
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Button Content="Sign in" Command="{Binding SignInCommand}"
+                          Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}" />
+                  <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsSigningIn}" Width="90" Height="4"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+              </StackPanel>
+
+              <TextBlock Text="{Binding DiStatus}" FontSize="12" Foreground="{StaticResource Text2Brush}"
+                         IsVisible="{Binding DiStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
             </StackPanel>
           </TabItem>
         </TabControl>

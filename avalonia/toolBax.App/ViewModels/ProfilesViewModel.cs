@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ToolBax.App.Services;
@@ -19,6 +21,7 @@ public partial class ProfilesViewModel : ObservableObject
 {
     private readonly IProfileStore _store;
     private readonly ISecretStore _secrets;
+    private readonly IInteractiveAuthBroker _broker;
 
     public ObservableCollection<EnvProfile> Profiles { get; }
 
@@ -63,20 +66,54 @@ public partial class ProfilesViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(DataverseWebApi))]
     private string _draftDataverseUrl = string.Empty;
 
-    public ProfilesViewModel(IProfileStore store, ISecretStore? secrets = null)
+    // Data Integrator config drafts.
+    [ObservableProperty]
+    private string _draftDiClientId = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsRopc))]
+    [NotifyPropertyChangedFor(nameof(IsInteractive))]
+    private DiAuthMode _draftDiMode = DiAuthMode.Interactive;
+
+    /// <summary>The DI ROPC service-account secret entry. Write-only, like the Auth client secret.</summary>
+    [ObservableProperty]
+    private string _diSecretInput = string.Empty;
+
+    [ObservableProperty]
+    private bool _isSigningIn;
+
+    [ObservableProperty]
+    private string _diStatus = string.Empty;
+
+    public DiAuthMode[] DiModes { get; } = { DiAuthMode.Interactive, DiAuthMode.Ropc };
+
+    public ProfilesViewModel(IProfileStore store, ISecretStore? secrets = null, IInteractiveAuthBroker? broker = null)
     {
         _store = store;
         _secrets = secrets ?? new FakeSecretStore();
+        _broker = broker ?? new FakeInteractiveAuthBroker();
         Profiles = new ObservableCollection<EnvProfile>(store.GetAll());
         _activeId = store.ActiveId;
         _selected = Profiles.FirstOrDefault(p => p.Id == _activeId) ?? Profiles.FirstOrDefault();
         LoadDrafts(_selected);
     }
 
+    public bool IsRopc => DraftDiMode == DiAuthMode.Ropc;
+
+    public bool IsInteractive => DraftDiMode == DiAuthMode.Interactive;
+
+    // A status from one mode shouldn't linger in the other's section.
+    partial void OnDraftDiModeChanged(DiAuthMode value) => DiStatus = string.Empty;
+
+    private static string DiKey(string id) => $"{id}:di";
+
     partial void OnSelectedChanged(EnvProfile? value)
     {
         LoadDrafts(value);
         SecretInput = string.Empty; // never carry an entry across environments
+        DiSecretInput = string.Empty;
+        DiStatus = string.Empty;
+        OnPropertyChanged(nameof(HasDiSecret));
     }
 
     private void LoadDrafts(EnvProfile? profile)
@@ -87,6 +124,8 @@ public partial class ProfilesViewModel : ObservableObject
         DraftLegal = profile?.Legal ?? string.Empty;
         DraftTier = profile?.Tier ?? string.Empty;
         DraftDataverseUrl = profile?.DataverseUrl ?? string.Empty;
+        DraftDiClientId = profile?.DataIntegratorClientId ?? string.Empty;
+        DraftDiMode = profile?.DataIntegratorMode ?? DiAuthMode.Interactive;
     }
 
     /// <summary>Derived Dataverse Web API endpoint from the edited CE base URL (empty when none).</summary>
@@ -106,6 +145,9 @@ public partial class ProfilesViewModel : ObservableObject
 
     /// <summary>Whether the selected environment has a client secret stored (Auth tab).</summary>
     public bool HasSecret => Selected is not null && _secrets.HasSecret(Selected.Id);
+
+    /// <summary>Whether the selected environment has a DI ROPC service-account secret stored.</summary>
+    public bool HasDiSecret => Selected is not null && _secrets.HasSecret(DiKey(Selected.Id));
 
     /// <summary>Raised when the active profile changes, so the shell's switcher can stay in sync.</summary>
     public event Action<string>? ActiveChanged;
@@ -135,6 +177,68 @@ public partial class ProfilesViewModel : ObservableObject
         _secrets.ClearSecret(Selected.Id);
         OnPropertyChanged(nameof(HasSecret));
         Status = $"Secret cleared for '{Selected.Name}'.";
+    }
+
+    [RelayCommand]
+    private void SaveDiSecret()
+    {
+        if (Selected is null || string.IsNullOrEmpty(DiSecretInput))
+        {
+            return;
+        }
+
+        _secrets.SetSecret(DiKey(Selected.Id), DiSecretInput);
+        DiSecretInput = string.Empty;
+        OnPropertyChanged(nameof(HasDiSecret));
+        DiStatus = "Service-account secret stored.";
+    }
+
+    [RelayCommand]
+    private void ClearDiSecret()
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        _secrets.ClearSecret(DiKey(Selected.Id));
+        OnPropertyChanged(nameof(HasDiSecret));
+        DiStatus = "Service-account secret cleared.";
+    }
+
+    [RelayCommand]
+    private async Task SignIn(CancellationToken ct)
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(DraftDiClientId))
+        {
+            DiStatus = "Enter a Data Integrator client ID before signing in.";
+            return;
+        }
+
+        IsSigningIn = true;
+        DiStatus = "Opening sign-in…";
+        try
+        {
+            var result = await _broker.SignInAsync(DraftDiClientId, DraftTenant, ct);
+            DiStatus = result is null ? "Sign-in cancelled." : $"Signed in as {result.Account}.";
+        }
+        catch (OperationCanceledException)
+        {
+            DiStatus = "Sign-in cancelled.";
+        }
+        catch (Exception ex)
+        {
+            DiStatus = $"Sign-in failed: {ex.Message}";
+        }
+        finally
+        {
+            IsSigningIn = false;
+        }
     }
 
     [RelayCommand]
@@ -169,6 +273,8 @@ public partial class ProfilesViewModel : ObservableObject
             Legal = DraftLegal,
             Tier = DraftTier,
             DataverseUrl = string.IsNullOrWhiteSpace(DraftDataverseUrl) ? null : DraftDataverseUrl,
+            DataIntegratorClientId = string.IsNullOrWhiteSpace(DraftDiClientId) ? null : DraftDiClientId,
+            DataIntegratorMode = DraftDiMode,
         };
 
         _store.Save(updated);
