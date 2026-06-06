@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using ToolBax.App.Services;
 using ToolBax.App.ViewModels;
+using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 using Xunit;
 
@@ -32,6 +33,39 @@ public class QueryBuilderViewModelTests
             await Gate.Task;
             return new ODataResponse(200, "OK", "{\"value\":[]}", 10);
         }
+    }
+
+    // Mimics the real service: nothing until LoadEntitiesAsync runs, then one entity with fields.
+    private sealed class DeferredMetadata : IMetadataService
+    {
+        private bool _loaded;
+        private static readonly EntitySet[] Late = { new("LateEntity", "M", 1, "k", false, "odata") };
+        private static readonly EntityField[] LateFields =
+        {
+            new("Id", "String", false, IsKey: true, Length: 10),
+            new("Name", "String", true, Length: 50),
+        };
+
+        public IReadOnlyList<EntitySet> GetEntities() => _loaded ? Late : Array.Empty<EntitySet>();
+        public IReadOnlyList<EntityField>? GetFields(string entityName) =>
+            _loaded && entityName == "LateEntity" ? LateFields : null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default) { _loaded = true; return Task.CompletedTask; }
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default)
+        { _loaded = true; return Task.FromResult(entityName == "LateEntity"); }
+    }
+
+    [Fact]
+    public async Task Initialize_loads_entities_and_field_chips_unavailable_at_construction()
+    {
+        var vm = new QueryBuilderViewModel(new DeferredMetadata(), new FakeODataClient());
+        Assert.Empty(vm.Entities); // the real service starts empty until InitializeAsync
+
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        Assert.Contains(vm.Entities, e => e.Name == "LateEntity");
+        Assert.True(vm.HasFields);
+        Assert.NotEmpty(vm.Fields);
+        Assert.Contains("/data/LateEntity", vm.QueryUrl);
     }
 
     [Fact]

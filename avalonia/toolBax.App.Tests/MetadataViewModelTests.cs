@@ -1,6 +1,12 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using ToolBax.App.Services;
 using ToolBax.App.ViewModels;
+using ToolBax.Core.Models;
+using ToolBax.Core.Services;
 using Xunit;
 
 namespace ToolBax.App.Tests;
@@ -8,6 +14,35 @@ namespace ToolBax.App.Tests;
 public class MetadataViewModelTests
 {
     private static MetadataViewModel MakeVm() => new(new FakeMetadataService());
+
+    // Mimics the real service: nothing is available until LoadEntitiesAsync runs, then one entity with
+    // fields appears — so InitializeAsync (not the ctor) is what populates the browser.
+    private sealed class DeferredMetadata : IMetadataService
+    {
+        private bool _loaded;
+        private static readonly EntitySet[] Late = { new("LateEntity", "M", 1, "k", false, "odata") };
+        private static readonly EntityField[] LateFields = { new("Id", "String", false, IsKey: true, Length: 10) };
+
+        public IReadOnlyList<EntitySet> GetEntities() => _loaded ? Late : Array.Empty<EntitySet>();
+        public IReadOnlyList<EntityField>? GetFields(string entityName) =>
+            _loaded && entityName == "LateEntity" ? LateFields : null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default) { _loaded = true; return Task.CompletedTask; }
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default)
+        { _loaded = true; return Task.FromResult(entityName == "LateEntity"); }
+    }
+
+    [Fact]
+    public async Task Initialize_loads_entities_and_fields_unavailable_at_construction()
+    {
+        var vm = new MetadataViewModel(new DeferredMetadata());
+        Assert.Empty(vm.Entities); // nothing seeded at ctor — the real service starts empty
+
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        Assert.Contains(vm.Entities, e => e.Name == "LateEntity");
+        Assert.True(vm.IsCached);           // the first entity's fields were auto-fetched
+        Assert.NotEmpty(vm.Fields);
+    }
 
     [Fact]
     public void Cached_entity_populates_fields()

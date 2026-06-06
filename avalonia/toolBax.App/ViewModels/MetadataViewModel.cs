@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 
@@ -33,9 +36,55 @@ public partial class MetadataViewModel : ObservableObject
     public MetadataViewModel(IMetadataService metadata)
     {
         _metadata = metadata;
+        // The fake seeds its catalogue synchronously, so this populates immediately; the real service
+        // starts empty and fills in via InitializeAsync (triggered by the view on load).
         Entities = new ObservableCollection<EntitySet>(metadata.GetEntities());
         _selected = Entities.FirstOrDefault();
         LoadFields();
+    }
+
+    // Fetches the entity list (and the selected entity's fields) from the active environment's live
+    // $metadata. The view calls this on load; with the fake it's a no-op over already-seeded data.
+    [RelayCommand]
+    private async Task Initialize(CancellationToken ct)
+    {
+        await _metadata.LoadEntitiesAsync(ct);
+        var loaded = _metadata.GetEntities();
+        // Replace only when the catalogue actually changed (the fake already seeded the same list in
+        // the ctor, so this is a no-op for it — avoids churning the selection on every view load).
+        if (loaded.Count > 0 && !Entities.Select(e => e.Name).SequenceEqual(loaded.Select(e => e.Name)))
+        {
+            var previous = Selected?.Name;
+            Entities.Clear();
+            foreach (var e in loaded)
+            {
+                Entities.Add(e);
+            }
+
+            Selected = Entities.FirstOrDefault(e => e.Name == previous) ?? Entities.FirstOrDefault();
+            OnPropertyChanged(nameof(Filtered));
+        }
+
+        await LoadSelectedFieldsAsync(ct);
+    }
+
+    // Fetches the selected entity's fields if they aren't cached yet, then refreshes the grid.
+    [RelayCommand]
+    private Task LoadSelectedFields(CancellationToken ct) => LoadSelectedFieldsAsync(ct);
+
+    private async Task LoadSelectedFieldsAsync(CancellationToken ct)
+    {
+        var entity = Selected;
+        if (entity is null || _metadata.GetFields(entity.Name) is not null)
+        {
+            return;
+        }
+
+        await _metadata.LoadFieldsAsync(entity.Name, ct);
+        if (Selected == entity)
+        {
+            LoadFields();
+        }
     }
 
     public IEnumerable<EntitySet> Filtered =>
@@ -51,7 +100,11 @@ public partial class MetadataViewModel : ObservableObject
         ? string.Empty
         : $"Fields for {Selected.Name} aren't cached — open it in Query Builder to fetch $metadata.";
 
-    partial void OnSelectedChanged(EntitySet? value) => LoadFields();
+    partial void OnSelectedChanged(EntitySet? value)
+    {
+        LoadFields();                              // show what's cached immediately
+        LoadSelectedFieldsCommand.Execute(null);   // then fetch from $metadata if not cached yet
+    }
 
     private void LoadFields()
     {
