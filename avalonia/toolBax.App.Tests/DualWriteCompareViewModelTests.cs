@@ -47,8 +47,10 @@ public class DualWriteCompareViewModelTests
         Assert.NotEmpty(vm.DiffRows);
         Assert.NotEmpty(vm.Summary);
         Assert.Equal(vm.DiffRows.Count, vm.Summary.Sum(b => b.Count));
-        // The seeded set exercises every diff bucket, including an absent target.
+        // The seeded set exercises every diff bucket, including a source-only and a target-only map.
         Assert.Contains(vm.DiffRows, r => r.Diff == DiffKind.OnlyInSource);
+        Assert.Contains(vm.DiffRows, r => r.Diff == DiffKind.OnlyInTarget);
+        Assert.False(vm.IsBusy);
     }
 
     [Theory]

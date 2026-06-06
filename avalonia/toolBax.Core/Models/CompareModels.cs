@@ -35,9 +35,6 @@ public sealed record CompareRow(
     public string TargetVersion => Target is null ? "—" : $"v{Target.Version}";
     public string TargetRows => Target is null ? "—" : Target.Rows.ToString("N0");
 
-    /// <summary>True when both sides exist but their template versions differ (target shown in Warn).</summary>
-    public bool VersionDrift => Source is not null && Target is not null && Source.Version != Target.Version;
-
     public string DiffLabel => DiffClassifier.Label(Diff);
 }
 

@@ -44,9 +44,13 @@
                 Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}"
                 VerticalAlignment="Bottom" />
 
-        <TextBlock Grid.Column="4" HorizontalAlignment="Right" VerticalAlignment="Bottom"
-                   FontSize="12" Foreground="{StaticResource Text3Brush}"
-                   Text="shared Data Integrator credential" />
+        <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="10"
+                    HorizontalAlignment="Right" VerticalAlignment="Bottom">
+          <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsBusy}" Width="120" Height="4"
+                       VerticalAlignment="Center" />
+          <TextBlock FontSize="12" Foreground="{StaticResource Text3Brush}"
+                     Text="shared Data Integrator credential" />
+        </StackPanel>
       </Grid>
     </StackPanel>
 
