@@ -16,9 +16,14 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             // Create the window first so the clipboard service can bind to its TopLevel, then hand it
-            // to the shell (the rest stay design-mode fakes pending live wiring).
+            // to the shell. Profiles are real (the shared FoToolbox profile.db); the remaining seams
+            // stay design-mode fakes pending live wiring. Loading the profile store synchronously here
+            // is safe — it runs once at startup before the dispatcher loop begins.
             var window = new MainWindow();
-            window.DataContext = new ShellViewModel(clipboard: new WindowClipboardService(window));
+            var profileStore = CoreProfileStore.CreateDefaultAsync().GetAwaiter().GetResult();
+            window.DataContext = new ShellViewModel(
+                profileStore: profileStore,
+                clipboard: new WindowClipboardService(window));
             desktop.MainWindow = window;
         }
 
