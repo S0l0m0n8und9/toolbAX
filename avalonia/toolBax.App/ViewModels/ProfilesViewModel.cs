@@ -35,12 +35,41 @@ public partial class ProfilesViewModel : ObservableObject
     [ObservableProperty]
     private string _status = "Ready.";
 
+    // Editable drafts of the selected profile's FO fields, committed by Save. Kept separate from the
+    // immutable EnvProfile record so edits can be made (and discarded by re-selecting).
+    [ObservableProperty]
+    private string _draftName = string.Empty;
+
+    [ObservableProperty]
+    private string _draftUrl = string.Empty;
+
+    [ObservableProperty]
+    private string _draftTenant = string.Empty;
+
+    [ObservableProperty]
+    private string _draftLegal = string.Empty;
+
+    [ObservableProperty]
+    private string _draftTier = string.Empty;
+
     public ProfilesViewModel(IProfileStore store)
     {
         _store = store;
         Profiles = new ObservableCollection<EnvProfile>(store.GetAll());
         _activeId = store.ActiveId;
         _selected = Profiles.FirstOrDefault(p => p.Id == _activeId) ?? Profiles.FirstOrDefault();
+        LoadDrafts(_selected);
+    }
+
+    partial void OnSelectedChanged(EnvProfile? value) => LoadDrafts(value);
+
+    private void LoadDrafts(EnvProfile? profile)
+    {
+        DraftName = profile?.Name ?? string.Empty;
+        DraftUrl = profile?.Url ?? string.Empty;
+        DraftTenant = profile?.Tenant ?? string.Empty;
+        DraftLegal = profile?.Legal ?? string.Empty;
+        DraftTier = profile?.Tier ?? string.Empty;
     }
 
     public IEnumerable<EnvProfile> Filtered =>
@@ -77,7 +106,26 @@ public partial class ProfilesViewModel : ObservableObject
             return;
         }
 
-        _store.Save(Selected);
-        Status = $"Saved '{Selected.Name}'.";
+        // Commit the editable drafts onto a new immutable record, persist, and swap it into the list
+        // so the master + detail reflect the edit.
+        var updated = Selected with
+        {
+            Name = DraftName,
+            Url = DraftUrl,
+            Tenant = DraftTenant,
+            Legal = DraftLegal,
+            Tier = DraftTier,
+        };
+
+        _store.Save(updated);
+
+        var index = Profiles.IndexOf(Selected);
+        if (index >= 0)
+        {
+            Profiles[index] = updated;
+        }
+
+        Selected = updated;
+        Status = $"Saved '{updated.Name}'.";
     }
 }
