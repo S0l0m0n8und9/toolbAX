@@ -239,7 +239,7 @@ public class ProfilesViewModelTests
         await vm.TestConnectionCommand.ExecuteAsync(null);
 
         Assert.Contains("Connected", vm.Status);
-        Assert.False(vm.IsTestingConnection);
+        Assert.False(vm.IsTestingFoConnection);
     }
 
     [Fact]
@@ -253,7 +253,36 @@ public class ProfilesViewModelTests
 
         Assert.Contains("failed", vm.Status);
         Assert.Contains("AADSTS700016", vm.Status);
-        Assert.False(vm.IsTestingConnection);
+        Assert.False(vm.IsTestingFoConnection);
+    }
+
+    [Fact]
+    public async Task Test_dataverse_connection_reports_success_when_a_token_is_acquired()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore(), auth: new FakeAuthService());
+        vm.Selected = vm.Profiles.First();
+
+        await vm.TestDataverseConnectionCommand.ExecuteAsync(null);
+
+        Assert.Contains("Dataverse", vm.Status);
+        Assert.Contains("Connected", vm.Status);
+        Assert.False(vm.IsTestingDataverseConnection);
+    }
+
+    [Fact]
+    public async Task Test_dataverse_connection_reports_the_failure_message()
+    {
+        // The Dataverse token delegate throws; the F&O one is the default (so this is Dataverse-specific).
+        var failing = new FakeAuthService(dataverseToken: _ => throw new InvalidOperationException("AADSTS500011: resource not found"));
+        var vm = new ProfilesViewModel(new FakeProfileStore(), auth: failing);
+        vm.Selected = vm.Profiles.First();
+
+        await vm.TestDataverseConnectionCommand.ExecuteAsync(null);
+
+        Assert.Contains("Dataverse", vm.Status);
+        Assert.Contains("failed", vm.Status);
+        Assert.Contains("AADSTS500011", vm.Status);
+        Assert.False(vm.IsTestingDataverseConnection);
     }
 
     [Fact]

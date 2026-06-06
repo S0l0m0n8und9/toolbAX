@@ -38,6 +38,11 @@ public sealed class CoreAuthService : IAuthService
 
     public async Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default)
     {
+        if (string.IsNullOrWhiteSpace(env.Tenant))
+        {
+            throw new InvalidOperationException("No tenant ID is configured for this environment.");
+        }
+
         var sp = await _profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Fo, ct).ConfigureAwait(false)
             ?? throw new InvalidOperationException("No F&O service principal is configured (set a client ID on the Auth tab).");
         if (string.IsNullOrEmpty(sp.SecretRef))
@@ -51,6 +56,34 @@ public sealed class CoreAuthService : IAuthService
             string.IsNullOrWhiteSpace(env.Legal) ? null : env.Legal);
 
         return await _auth.AcquireTokenAsync(foEnv, sp, ct).ConfigureAwait(false);
+    }
+
+    public async Task<string> AcquireDataverseTokenAsync(EnvProfile env, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(env.DataverseUrl))
+        {
+            throw new InvalidOperationException("No Dataverse URL is configured for this environment.");
+        }
+
+        if (string.IsNullOrWhiteSpace(env.Tenant))
+        {
+            throw new InvalidOperationException("No tenant ID is configured for this environment.");
+        }
+
+        var sp = await _profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Dataverse, ct).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("No Dataverse service principal is configured (set a Dataverse client ID on the CE/Dataverse tab).");
+        if (string.IsNullOrEmpty(sp.SecretRef))
+        {
+            throw new InvalidOperationException("No client secret is stored for the Dataverse app registration.");
+        }
+
+        _provider ??= new MsalTokenProvider(_authorityBase, ResolveCredentialAsync);
+        _auth ??= new AuthService(_provider);
+
+        // The Dataverse token is scoped to the (normalized) Dataverse resource, not F&O; the tenant is
+        // shared with the F&O environment. The credential callback resolves THIS SP's secret.
+        var resourceBaseUrl = ResourceUrlNormalizer.NormalizeDataverseResourceBaseUrl(env.DataverseUrl);
+        return await _auth.AcquireTokenAsync(resourceBaseUrl, env.Tenant, sp, ct).ConfigureAwait(false);
     }
 
     private async Task<ClientCredential> ResolveCredentialAsync(ServicePrincipal sp, CancellationToken ct)
