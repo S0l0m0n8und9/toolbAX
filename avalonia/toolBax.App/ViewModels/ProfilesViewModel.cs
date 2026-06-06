@@ -182,9 +182,18 @@ public partial class ProfilesViewModel : ObservableObject
 
         var id = Selected.Id;
         var name = Selected.Name;
+
+        // Select the adjacent item after removal (standard list-deletion UX), not always the top.
+        var nextIndex = Math.Min(Profiles.IndexOf(Selected), Profiles.Count - 2);
         _store.Delete(id);
         Profiles.Remove(Selected);
-        Selected = Profiles.FirstOrDefault();
+        Selected = nextIndex >= 0 ? Profiles[nextIndex] : Profiles.FirstOrDefault();
+
+        if (id == ActiveId)
+        {
+            ActiveId = null; // the active profile is gone; keep the VM in step with the store
+        }
+
         ProfileDeleted?.Invoke(id);
         Status = $"Deleted '{name}'.";
     }

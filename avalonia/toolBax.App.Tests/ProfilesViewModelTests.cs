@@ -162,6 +162,31 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
+    public void Deleting_the_active_profile_clears_the_active_id()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+        vm.SetActiveCommand.Execute(null);
+        Assert.Equal("uat-eur", vm.ActiveId);
+
+        vm.DeleteProfileCommand.Execute(null);
+
+        Assert.Null(vm.ActiveId); // no longer points at the deleted profile
+    }
+
+    [Fact]
+    public void Deleting_reselects_the_adjacent_profile()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+        var ordered = vm.Profiles.ToList();
+        vm.Selected = ordered[1];
+
+        vm.DeleteProfileCommand.Execute(null);
+
+        Assert.Equal(ordered[2].Id, vm.Selected!.Id); // the item that followed, not the top
+    }
+
+    [Fact]
     public void Storing_a_secret_marks_it_present_and_clears_the_input()
     {
         var secrets = new FakeSecretStore();
