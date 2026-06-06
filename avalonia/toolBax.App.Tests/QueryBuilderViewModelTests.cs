@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -106,6 +107,47 @@ public class QueryBuilderViewModelTests
         Assert.False(vm.RunSucceeded);
         Assert.Empty(vm.ResultRows);
         Assert.Contains("404", vm.StatusText);
+    }
+
+    [Fact]
+    public void Csv_builder_quotes_fields_with_commas_and_doubles_quotes()
+    {
+        var columns = new[] { "Name", "Note" };
+        var rows = new[]
+        {
+            new QueryResultRow(new Dictionary<string, string> { ["Name"] = "Acme, Inc.", ["Note"] = "say \"hi\"" }),
+        };
+
+        var csv = QueryCsv.Build(columns, rows);
+
+        Assert.Equal("Name,Note\n\"Acme, Inc.\",\"say \"\"hi\"\"\"", csv);
+    }
+
+    [Fact]
+    public async Task Export_csv_copies_header_and_rows_to_the_clipboard()
+    {
+        var clipboard = new FakeClipboardService();
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient(), clipboard);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        await vm.RunCommand.ExecuteAsync(null);
+
+        Assert.True(vm.ExportCsvCommand.CanExecute(null));
+        await vm.ExportCsvCommand.ExecuteAsync(null);
+
+        Assert.NotNull(clipboard.LastText);
+        var lines = clipboard.LastText!.Split('\n');
+        Assert.Equal(string.Join(",", vm.ResultColumns), lines[0]); // header
+        Assert.Equal(vm.ResultRows.Count + 1, lines.Length);        // header + one line per row
+        Assert.Contains("CSV", vm.StatusText);
+    }
+
+    [Fact]
+    public void Export_csv_is_disabled_before_a_run()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        Assert.False(vm.ExportCsvCommand.CanExecute(null));
     }
 
     [Fact]

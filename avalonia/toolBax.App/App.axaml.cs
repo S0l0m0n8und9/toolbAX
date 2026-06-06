@@ -1,6 +1,7 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using ToolBax.App.Services;
 using ToolBax.App.ViewModels;
 using ToolBax.App.Views;
 
@@ -14,7 +15,11 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
-            desktop.MainWindow = new MainWindow { DataContext = new ShellViewModel() };
+            // Create the window first so the clipboard service can bind to its TopLevel, then hand it
+            // to the shell (the rest stay design-mode fakes pending live wiring).
+            var window = new MainWindow();
+            window.DataContext = new ShellViewModel(clipboard: new WindowClipboardService(window));
+            desktop.MainWindow = window;
         }
 
         base.OnFrameworkInitializationCompleted();
