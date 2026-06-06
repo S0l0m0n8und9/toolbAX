@@ -97,7 +97,7 @@
                          FontFamily="Cascadia Code,Consolas,monospace" />
               </Grid>
               <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}"
-                         Text="The linked Dataverse environment + its app registration (used by Dual-Write). The Dataverse client ID is a separate app reg from the FO one; the tenant is shared with the FO environment. The client secret is set on the Auth tab." />
+                         Text="The linked Dataverse environment + its app registration (used by Dual-Write). The Dataverse client ID is a separate app reg from the FO one; the tenant is shared with the FO environment. (The Auth tab stores the FO client secret; a Dataverse client secret entry is a follow-up.)" />
             </StackPanel>
           </TabItem>
 
