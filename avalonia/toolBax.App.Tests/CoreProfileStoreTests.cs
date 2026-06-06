@@ -23,13 +23,14 @@ public sealed class CoreProfileStoreTests : IDisposable
     [Fact]
     public async Task Loads_and_maps_seeded_environments()
     {
+        var ct = TestContext.Current.CancellationToken;
         var seed = NewService();
-        await seed.EnsureCreatedAsync();
-        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "USMF Dev", "https://contoso.dynamics.com", "tenant-1", "USMF"));
-        await seed.UpsertDataverseEnvironmentAsync(new DataverseEnvironment("env1", "https://contoso.crm.dynamics.com", "tenant-1"));
-        await seed.SetDefaultEnvironmentAsync("env1");
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "USMF Dev", "https://contoso.dynamics.com", "tenant-1", "USMF"), ct);
+        await seed.UpsertDataverseEnvironmentAsync(new DataverseEnvironment("env1", "https://contoso.crm.dynamics.com", "tenant-1"), ct);
+        await seed.SetDefaultEnvironmentAsync("env1", ct);
 
-        var store = await CoreProfileStore.CreateAsync(NewService());
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
 
         var profile = Assert.Single(store.GetAll());
         Assert.Equal("env1", profile.Id);
@@ -44,7 +45,8 @@ public sealed class CoreProfileStoreTests : IDisposable
     [Fact]
     public async Task Save_persists_a_new_profile_to_the_database()
     {
-        var store = await CoreProfileStore.CreateAsync(NewService());
+        var ct = TestContext.Current.CancellationToken;
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
 
         store.Save(new EnvProfile("env2", "EMEA UAT", "https://emea.dynamics.com", "tenant-2", "DEMF",
             "Tier 2", EnvStatus.Disconnected));
@@ -53,7 +55,7 @@ public sealed class CoreProfileStoreTests : IDisposable
         Assert.Contains(store.GetAll(), p => p.Id == "env2" && p.Name == "EMEA UAT");
 
         // ...and persisted: a fresh store over the same DB sees it.
-        var reopened = await CoreProfileStore.CreateAsync(NewService());
+        var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
         var persisted = reopened.GetAll().Single(p => p.Id == "env2");
         Assert.Equal("https://emea.dynamics.com", persisted.Url);
         Assert.Equal("DEMF", persisted.Legal);
@@ -62,38 +64,40 @@ public sealed class CoreProfileStoreTests : IDisposable
     [Fact]
     public async Task Save_updates_an_existing_profile()
     {
+        var ct = TestContext.Current.CancellationToken;
         var seed = NewService();
-        await seed.EnsureCreatedAsync();
-        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "Old", "https://old", "t", null));
-        var store = await CoreProfileStore.CreateAsync(NewService());
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "Old", "https://old", "t", null), ct);
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
 
         store.Save(new EnvProfile("env1", "Renamed", "https://new", "t", "USMF", "", EnvStatus.Disconnected));
 
         Assert.Single(store.GetAll());
         Assert.Equal("Renamed", store.GetAll().Single().Name);
-        var reopened = await CoreProfileStore.CreateAsync(NewService());
+        var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
         Assert.Equal("https://new", reopened.GetAll().Single().Url);
     }
 
     [Fact]
     public async Task Active_id_round_trips_through_the_store()
     {
+        var ct = TestContext.Current.CancellationToken;
         var seed = NewService();
-        await seed.EnsureCreatedAsync();
-        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "One", "https://one", "t", null));
-        var store = await CoreProfileStore.CreateAsync(NewService());
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "One", "https://one", "t", null), ct);
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
 
         store.ActiveId = "env1";
 
         Assert.Equal("env1", store.ActiveId);
-        var reopened = await CoreProfileStore.CreateAsync(NewService());
+        var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
         Assert.Equal("env1", reopened.ActiveId);
     }
 
     [Fact]
     public async Task Empty_database_yields_no_profiles()
     {
-        var store = await CoreProfileStore.CreateAsync(NewService());
+        var store = await CoreProfileStore.CreateAsync(NewService(), TestContext.Current.CancellationToken);
 
         Assert.Empty(store.GetAll());
         Assert.Null(store.ActiveId);
