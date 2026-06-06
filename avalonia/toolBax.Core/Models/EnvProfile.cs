@@ -20,6 +20,17 @@ public enum DiAuthMode
     Ropc,
 }
 
+/// <summary>Friendly labels for the Data Integrator auth modes (Profiles DI tab dropdown).</summary>
+public static class DiAuthModeExtensions
+{
+    public static string Label(this DiAuthMode mode) => mode switch
+    {
+        DiAuthMode.Interactive => "Interactive (MFA)",
+        DiAuthMode.Ropc => "ROPC (service account)",
+        _ => mode.ToString(),
+    };
+}
+
 /// <summary>
 /// An F&amp;O environment profile. Shared by the shell's environment switcher and the Profiles screen.
 /// (Auth/Dataverse/Data-Integrator detail lands with the auth tabs; persistence is via
