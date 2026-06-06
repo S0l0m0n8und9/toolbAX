@@ -340,6 +340,20 @@ public class DualWriteMapViewModelTests
     }
 
     [Fact]
+    public async Task Switching_the_selected_map_clears_a_stale_export_status()
+    {
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(), new FakeFileSaveService("x.md"));
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+        await vm.ExportMarkdownCommand.ExecuteAsync(null);
+        Assert.NotEmpty(vm.ExportStatus);
+
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "vendorsv2_account");
+
+        Assert.Equal(string.Empty, vm.ExportStatus);
+    }
+
+    [Fact]
     public void Export_markdown_is_disabled_without_a_selection()
     {
         var vm = MakeVm(new EmptyReader());

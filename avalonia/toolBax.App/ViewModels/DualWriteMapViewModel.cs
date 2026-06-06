@@ -304,4 +304,7 @@ public partial class DualWriteMapViewModel : ObservableObject
             DetailMap = value;
         }
     }
+
+    // A stale "Exported to …" message shouldn't linger once a different map is inspected.
+    partial void OnDetailMapChanged(DwMapRecord? value) => ExportStatus = string.Empty;
 }

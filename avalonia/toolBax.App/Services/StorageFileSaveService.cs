@@ -46,6 +46,7 @@ public sealed class StorageFileSaveService : IFileSaveService
 
         await using var stream = await file.OpenWriteAsync();
         await using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
+        ct.ThrowIfCancellationRequested();
         await writer.WriteAsync(content.AsMemory(), ct);
         return file.Path.IsAbsoluteUri ? file.Path.LocalPath : file.Name;
     }

@@ -173,10 +173,32 @@ public static class DualWriteMapMarkdownExporter
     private static void AppendCodeBlock(StringBuilder builder, string title, string? value)
     {
         AppendSectionHeader(builder, title);
-        builder.AppendLine("```json");
-        builder.AppendLine(ValueOrPlaceholder(value));
-        builder.AppendLine("```");
+
+        // The raw JSON comes from Dataverse and may itself contain a ``` run; widen the fence past the
+        // longest run so it can't prematurely close the block (CommonMark: a fence is closed only by a
+        // line of at least as many backticks).
+        var content = ValueOrPlaceholder(value);
+        var fence = new string('`', Math.Max(3, LongestBacktickRun(content) + 1));
+        builder.AppendLine($"{fence}json");
+        builder.AppendLine(content);
+        builder.AppendLine(fence);
         builder.AppendLine();
+    }
+
+    private static int LongestBacktickRun(string value)
+    {
+        var longest = 0;
+        var current = 0;
+        foreach (var c in value)
+        {
+            current = c == '`' ? current + 1 : 0;
+            if (current > longest)
+            {
+                longest = current;
+            }
+        }
+
+        return longest;
     }
 
     private static void AppendSectionHeader(StringBuilder builder, string title)

@@ -82,6 +82,16 @@ public class DualWriteMapMarkdownExporterTests
     }
 
     [Fact]
+    public void Export_widens_the_fence_when_raw_json_contains_backticks()
+    {
+        // RawMapping containing a ``` run must not prematurely close the fenced code block.
+        var md = DualWriteMapMarkdownExporter.Export(Record(
+            """{ "value": [ { "msdyn_dualwriteentitymapid": "x", "msdyn_name": "n", "msdyn_mapping": "{\"note\":\"```\"}" } ] }"""));
+
+        Assert.Contains("````json", md); // fence widened beyond the embedded triple-backtick
+    }
+
+    [Fact]
     public void SuggestedFileName_is_a_sanitized_md_file()
     {
         var name = DualWriteMapMarkdownExporter.SuggestedFileName(Record(
