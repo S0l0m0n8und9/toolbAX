@@ -57,9 +57,18 @@ public class DualWriteFilterConverterTests
     }
 
     [Fact]
-    public void Operators_inside_a_string_literal_are_not_translated()
+    public void Operators_inside_a_double_quoted_string_are_not_translated()
     {
         Assert.Equal("Note eq 'a && b == c'", DualWriteFilterConverter.XppToOData("Note == \"a && b == c\""));
+    }
+
+    [Fact]
+    public void Operators_inside_a_single_quoted_string_are_not_translated()
+    {
+        // Source filters often already use OData-style single-quoted literals; operators inside them
+        // must be left alone, and the literal preserved verbatim.
+        Assert.Equal("Note eq 'a && b == c'", DualWriteFilterConverter.XppToOData("Note == 'a && b == c'"));
+        Assert.Equal("VendGroup eq 'DOM'", DualWriteFilterConverter.XppToOData("VendGroup == 'DOM'"));
     }
 
     [Fact]

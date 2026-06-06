@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using ToolBax.Core.Services;
 
 namespace ToolBax.Core.Models;
 
@@ -66,14 +65,12 @@ public sealed record DwMapLeg(
     string DestinationEnvironmentType,
     string SourceFilter,
     string ReversedSourceFilter,
+    string SourceFilterOData,
     int FieldMappings)
 {
     public bool HasSourceFilter => !string.IsNullOrWhiteSpace(SourceFilter);
 
     public bool HasReversedSourceFilter => !string.IsNullOrWhiteSpace(ReversedSourceFilter);
-
-    /// <summary>The X++ <see cref="SourceFilter"/> translated to an OData <c>$filter</c> expression.</summary>
-    public string SourceFilterOData => DualWriteFilterConverter.XppToOData(SourceFilter);
 }
 
 /// <summary>A field mapping within a leg (Field mappings tab), flattened across all legs.</summary>

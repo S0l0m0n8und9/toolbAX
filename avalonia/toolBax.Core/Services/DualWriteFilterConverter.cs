@@ -1,14 +1,15 @@
+using System;
 using System.Text;
-using System.Text.RegularExpressions;
 
 namespace ToolBax.Core.Services;
 
 /// <summary>
 /// Translates a dual-write map leg's X++ <c>sourceFilter</c> into an OData <c>$filter</c> expression
-/// (used to preview / validate the synced row set). A faithful port of the WPF plugin's lexer: operators
-/// outside string literals are translated (<c>==</c>→<c>eq</c>, <c>&amp;&amp;</c>→<c>and</c>, …), double
-/// quotes become OData single quotes, and embedded single quotes are doubled. Enum-token and field-name
-/// normalisation (which need the F&amp;O catalogue) are not handled here.
+/// (used to preview / validate the synced row set). Operators outside string literals are translated
+/// (<c>==</c>→<c>eq</c>, <c>&amp;&amp;</c>→<c>and</c>, …); string literals (delimited by <c>"</c> or
+/// <c>'</c>) are emitted as OData single-quoted literals with their contents left verbatim and embedded
+/// single quotes doubled. Enum-token and field-name normalisation (which need the F&amp;O catalogue) are
+/// not handled here.
 /// </summary>
 public static class DualWriteFilterConverter
 {
@@ -21,22 +22,31 @@ public static class DualWriteFilterConverter
 
         var source = xppFilter.Trim();
         var output = new StringBuilder(source.Length * 2);
-        var inString = false;
+        char? stringDelim = null; // the active string-literal delimiter (" or '), or null when outside
 
         for (var i = 0; i < source.Length; i++)
         {
             var ch = source[i];
 
-            if (ch == '"')
+            if (stringDelim is not null)
             {
-                inString = !inString;
-                output.Append('\'');
+                if (ch == stringDelim)
+                {
+                    output.Append('\''); // close as an OData single-quoted literal
+                    stringDelim = null;
+                }
+                else
+                {
+                    output.Append(ch == '\'' ? "''" : ch.ToString()); // double embedded single quotes
+                }
+
                 continue;
             }
 
-            if (inString)
+            if (ch is '"' or '\'')
             {
-                output.Append(ch == '\'' ? "''" : ch.ToString());
+                stringDelim = ch;
+                output.Append('\''); // open as an OData single-quoted literal
                 continue;
             }
 
@@ -100,15 +110,10 @@ public static class DualWriteFilterConverter
                 continue;
             }
 
-            if (ch is '\r' or '\n' or '\t')
-            {
-                output.Append(' ');
-                continue;
-            }
-
             output.Append(ch);
         }
 
-        return Regex.Replace(output.ToString(), @"\s+", " ").Trim();
+        // Collapse any whitespace runs (operator padding, source newlines/tabs) into single spaces.
+        return string.Join(' ', output.ToString().Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
     }
 }
