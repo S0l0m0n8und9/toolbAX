@@ -241,6 +241,9 @@
             </ScrollViewer>
             <TextBlock IsVisible="{Binding !HasErrorDetails}" Margin="0,16"
                        Text="No errors for this map in the last 24h." Foreground="{StaticResource Text3Brush}" />
+            <TextBlock Text="{Binding RetryStatus}" VerticalAlignment="Bottom" Margin="0,8" FontSize="12"
+                       Foreground="{StaticResource Text2Brush}"
+                       IsVisible="{Binding RetryStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
           </Grid>
         </TabItem>
       </TabControl>

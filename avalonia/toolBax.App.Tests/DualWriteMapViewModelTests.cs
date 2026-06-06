@@ -40,6 +40,25 @@ public class DualWriteMapViewModelTests
             _inner.RetryErrorAsync(mapId, error, ct);
     }
 
+    // Seeds errors like the fake, but always rejects a retry.
+    private sealed class RejectingRetryMapService : IDualWriteMapService
+    {
+        private readonly FakeDualWriteMapService _inner = new();
+
+        public IReadOnlyList<DwMapSummary> GetMaps() => _inner.GetMaps();
+
+        public DwMapDetail GetDetail(string mapId) => _inner.GetDetail(mapId);
+
+        public Task<IReadOnlyList<DwRun>> GetRunsAsync(string mapId, CancellationToken ct = default) =>
+            _inner.GetRunsAsync(mapId, ct);
+
+        public Task<IReadOnlyList<DwError>> GetErrorsAsync(string mapId, CancellationToken ct = default) =>
+            _inner.GetErrorsAsync(mapId, ct);
+
+        public Task<bool> RetryErrorAsync(string mapId, DwError error, CancellationToken ct = default) =>
+            Task.FromResult(false);
+    }
+
     [Fact]
     public void Maps_are_listed_with_a_default_selection()
     {
@@ -168,6 +187,22 @@ public class DualWriteMapViewModelTests
 
         Assert.DoesNotContain(target, vm.Errors);
         Assert.Equal(before - 1, vm.Errors.Count);
+        Assert.Contains("accepted", vm.RetryStatus);
+    }
+
+    [Fact]
+    public async Task A_rejected_retry_keeps_the_error_and_reports_it()
+    {
+        var vm = new DualWriteMapViewModel(new RejectingRetryMapService());
+        vm.SelectedMap = vm.Maps.Single(m => m.Id == "so-salesorder");
+        await vm.LoadHistoryCommand.ExecuteAsync(null);
+        var target = vm.Errors.First();
+
+        await vm.RetryErrorCommand.ExecuteAsync(target);
+
+        Assert.Contains(target, vm.Errors); // still present
+        Assert.True(vm.HasErrorDetails);
+        Assert.Contains("rejected", vm.RetryStatus);
     }
 
     [Fact]

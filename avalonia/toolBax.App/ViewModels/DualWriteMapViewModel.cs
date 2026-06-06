@@ -53,6 +53,10 @@ public partial class DualWriteMapViewModel : ObservableObject
     [ObservableProperty]
     private bool _isLoadingHistory;
 
+    /// <summary>Outcome of the last error Retry (empty until one is attempted).</summary>
+    [ObservableProperty]
+    private string _retryStatus = string.Empty;
+
     public DualWriteMapViewModel(IDualWriteMapService service)
     {
         _service = service;
@@ -162,6 +166,11 @@ public partial class DualWriteMapViewModel : ObservableObject
         {
             Errors.Remove(error);
             OnPropertyChanged(nameof(HasErrorDetails));
+            RetryStatus = "Retry accepted.";
+        }
+        else
+        {
+            RetryStatus = "Retry was rejected — the record is still in the dead-letter queue.";
         }
     }
 
