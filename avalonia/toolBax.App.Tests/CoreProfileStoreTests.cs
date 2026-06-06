@@ -148,6 +148,55 @@ public sealed class CoreProfileStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Save_round_trips_the_fo_service_principal()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        store.Save(new EnvProfile("env1", "One", "https://one", "t", "USMF", "", EnvStatus.Disconnected)
+        {
+            ClientId = "11111111-2222-3333-4444-555555555555",
+            AuthMode = FoAuthMode.Certificate,
+        });
+
+        var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
+        var profile = reopened.GetAll().Single(p => p.Id == "env1");
+        Assert.Equal("11111111-2222-3333-4444-555555555555", profile.ClientId);
+        Assert.Equal(FoAuthMode.Certificate, profile.AuthMode);
+
+        // Verified at the FoToolbox layer too: a Fo service principal exists.
+        var sp = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct);
+        Assert.NotNull(sp);
+        Assert.Equal("11111111-2222-3333-4444-555555555555", sp!.ClientId);
+    }
+
+    [Fact]
+    public async Task Clearing_client_id_removes_the_service_principal()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        store.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected) { ClientId = "abc" });
+
+        store.Save(store.GetAll().Single() with { ClientId = null });
+
+        Assert.Null(await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct));
+        var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
+        Assert.Null(reopened.GetAll().Single().ClientId);
+    }
+
+    [Fact]
+    public async Task Delete_also_removes_the_service_principal()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        store.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected) { ClientId = "abc" });
+        Assert.NotNull(await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct));
+
+        store.Delete("env1");
+
+        Assert.Null(await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct)); // no orphan
+    }
+
+    [Fact]
     public async Task Empty_database_yields_no_profiles()
     {
         var store = await CoreProfileStore.CreateAsync(NewService(), TestContext.Current.CancellationToken);

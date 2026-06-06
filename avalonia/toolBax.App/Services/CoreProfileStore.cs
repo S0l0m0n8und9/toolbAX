@@ -36,7 +36,8 @@ public sealed class CoreProfileStore : IProfileStore
         foreach (var env in await profiles.GetEnvironmentsAsync(ct).ConfigureAwait(false))
         {
             var dataverse = await profiles.GetDataverseEnvironmentAsync(env.Id, ct).ConfigureAwait(false);
-            cache.Add(Map(env, dataverse?.BaseUrl));
+            var sp = await profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Fo, ct).ConfigureAwait(false);
+            cache.Add(Map(env, dataverse?.BaseUrl, sp));
         }
 
         var activeId = await profiles.GetDefaultEnvironmentIdAsync(ct).ConfigureAwait(false);
@@ -74,6 +75,8 @@ public sealed class CoreProfileStore : IProfileStore
         RunBlocking(() => _profiles.UpsertDataverseEnvironmentAsync(
             new DataverseEnvironment(profile.Id, profile.DataverseUrl ?? string.Empty, profile.Tenant)));
 
+        SaveFoServicePrincipal(profile);
+
         var index = _cache.FindIndex(p => p.Id == profile.Id);
         if (index >= 0)
         {
@@ -87,6 +90,13 @@ public sealed class CoreProfileStore : IProfileStore
 
     public void Delete(string id)
     {
+        // Explicitly remove the env's service principals (don't rely on a FK cascade), so a reused
+        // env id can't inherit a stale SecretRef/CertThumbprint.
+        foreach (var sp in RunBlocking(() => _profiles.GetServicePrincipalsAsync(id, CancellationToken.None)))
+        {
+            RunBlocking(() => _profiles.DeleteServicePrincipalAsync(sp.Id));
+        }
+
         RunBlocking(() => _profiles.DeleteEnvironmentAsync(id));
         _cache.RemoveAll(p => p.Id == id);
         if (_activeId == id)
@@ -95,7 +105,34 @@ public sealed class CoreProfileStore : IProfileStore
         }
     }
 
-    private static EnvProfile Map(FoEnvironment env, string? dataverseUrl) => new(
+    // Persists the F&O (app-only) service principal for a profile: upsert when a client id is set,
+    // delete the row when it's cleared. The SecretRef (vault pointer) is preserved across edits so
+    // changing the client id / auth mode doesn't drop a stored secret.
+    private void SaveFoServicePrincipal(EnvProfile profile)
+    {
+        var existing = RunBlocking(() => _profiles.GetServicePrincipalAsync(profile.Id, AuthTarget.Fo, CancellationToken.None));
+
+        if (string.IsNullOrWhiteSpace(profile.ClientId))
+        {
+            if (existing is not null)
+            {
+                RunBlocking(() => _profiles.DeleteServicePrincipalAsync(existing.Id));
+            }
+
+            return;
+        }
+
+        RunBlocking(() => _profiles.UpsertServicePrincipalAsync(new ServicePrincipal(
+            existing?.Id ?? $"{profile.Id}:fo",
+            profile.Id,
+            profile.ClientId!,
+            ToCoreAuthMode(profile.AuthMode),
+            existing?.SecretRef,
+            existing?.CertThumbprint,
+            AuthTarget.Fo)));
+    }
+
+    private static EnvProfile Map(FoEnvironment env, string? dataverseUrl, ServicePrincipal? sp) => new(
         env.Id,
         env.Name,
         env.BaseUrl,
@@ -104,9 +141,21 @@ public sealed class CoreProfileStore : IProfileStore
         Tier: string.Empty,
         Status: EnvStatus.Disconnected, // a connection test sets the live status (later wiring)
         LatencyMs: null,
-        DataverseUrl: string.IsNullOrWhiteSpace(dataverseUrl) ? null : dataverseUrl);
+        DataverseUrl: string.IsNullOrWhiteSpace(dataverseUrl) ? null : dataverseUrl,
+        DataIntegratorClientId: null,
+        DataIntegratorMode: DiAuthMode.Interactive,
+        ClientId: sp?.ClientId,
+        AuthMode: FromCoreAuthMode(sp?.AuthMode));
+
+    private static AuthMode ToCoreAuthMode(FoAuthMode mode) =>
+        mode == FoAuthMode.Certificate ? AuthMode.Certificate : AuthMode.ClientSecret;
+
+    private static FoAuthMode FromCoreAuthMode(AuthMode? mode) =>
+        mode == AuthMode.Certificate ? FoAuthMode.Certificate : FoAuthMode.ClientSecret;
 
     // The IProfileStore contract is synchronous but persistence is async; run it on the thread pool
     // to bridge without risking a UI-thread sync-context deadlock. SQLite writes are sub-millisecond.
     private static void RunBlocking(System.Func<Task> work) => Task.Run(work).GetAwaiter().GetResult();
+
+    private static T RunBlocking<T>(System.Func<Task<T>> work) => Task.Run(work).GetAwaiter().GetResult();
 }

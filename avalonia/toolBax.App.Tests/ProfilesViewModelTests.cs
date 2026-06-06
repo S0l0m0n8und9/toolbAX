@@ -230,6 +230,26 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
+    public void Fo_service_principal_drafts_persist_and_reload()
+    {
+        var store = new FakeProfileStore();
+        var vm = new ProfilesViewModel(store);
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+
+        vm.DraftClientId = "client-xyz";
+        vm.DraftAuthMode = FoAuthMode.Certificate;
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal("client-xyz", store.GetAll().Single(p => p.Id == "uat-eur").ClientId);
+
+        // Reselect away and back: drafts reload from the saved profile.
+        vm.Selected = vm.Profiles.Single(p => p.Id == "dev-usmf");
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+        Assert.Equal("client-xyz", vm.DraftClientId);
+        Assert.Equal(FoAuthMode.Certificate, vm.DraftAuthMode);
+    }
+
+    [Fact]
     public void Dataverse_web_api_is_derived_from_the_edited_url()
     {
         var vm = new ProfilesViewModel(new FakeProfileStore());
