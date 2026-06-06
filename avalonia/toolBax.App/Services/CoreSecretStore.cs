@@ -17,9 +17,9 @@ namespace ToolBax.App.Services;
 public sealed class CoreSecretStore : ISecretStore
 {
     private readonly ProfileService _profiles;
-    private readonly SecretVaultService _vault;
+    private readonly SecretVaultService? _vault; // null on non-Windows (DPAPI unavailable)
 
-    public CoreSecretStore(ProfileService profiles, SecretVaultService vault)
+    public CoreSecretStore(ProfileService profiles, SecretVaultService? vault)
     {
         _profiles = profiles;
         _vault = vault;
@@ -40,21 +40,28 @@ public sealed class CoreSecretStore : ISecretStore
             return;
         }
 
-        if (!OperatingSystem.IsWindows())
+        if (!OperatingSystem.IsWindows() || _vault is null)
         {
             // DPAPI protection is Windows-only; refuse rather than store the secret unprotected.
             throw new PlatformNotSupportedException("The DPAPI secret vault is Windows-only.");
         }
 
+        var previousRef = sp.SecretRef;
         var secretRef = ProtectInVault(plaintext);
         RunBlocking(() => _profiles.UpsertServicePrincipalAsync(sp with { SecretRef = secretRef }, CancellationToken.None));
+
+        // Rotation: the SP now points at the new blob, so drop the previous one (no orphan accrual).
+        if (!string.IsNullOrEmpty(previousRef))
+        {
+            RunBlocking(() => _profiles.DeleteSecretAsync(previousRef, CancellationToken.None));
+        }
     }
 
     // Windows-only (DPAPI). Isolated so the [SupportedOSPlatform] annotation satisfies CA1416 inside
     // the lambda; SetSecret only calls this after an OperatingSystem.IsWindows() guard.
     [SupportedOSPlatform("windows")]
     private string ProtectInVault(string plaintext) =>
-        RunBlocking(() => _vault.StoreSecretAsync("fo-client-secret", plaintext, CancellationToken.None));
+        RunBlocking(() => _vault!.StoreSecretAsync("fo-client-secret", plaintext, CancellationToken.None));
 
     public void ClearSecret(string key)
     {
@@ -64,8 +71,10 @@ public sealed class CoreSecretStore : ISecretStore
             return;
         }
 
-        // Drop the pointer; the orphaned vault row is harmless (no plaintext is recoverable without it).
+        // Drop the pointer and the stored blob (a plain SQL delete — not DPAPI, so cross-platform).
+        var secretRef = sp.SecretRef;
         RunBlocking(() => _profiles.UpsertServicePrincipalAsync(sp with { SecretRef = null }, CancellationToken.None));
+        RunBlocking(() => _profiles.DeleteSecretAsync(secretRef, CancellationToken.None));
     }
 
     private ServicePrincipal? LoadFoSp(string envId) =>

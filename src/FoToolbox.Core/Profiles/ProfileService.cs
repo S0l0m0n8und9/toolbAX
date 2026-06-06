@@ -49,6 +49,9 @@ public sealed class ProfileService
     public Task DeleteServicePrincipalAsync(string id, CancellationToken cancellationToken = default) =>
         _store.DeleteServicePrincipalAsync(id, cancellationToken);
 
+    public Task DeleteSecretAsync(string id, CancellationToken cancellationToken = default) =>
+        _store.DeleteSecretAsync(id, cancellationToken);
+
     public Task<string?> GetDefaultEnvironmentIdAsync(CancellationToken cancellationToken = default) =>
         _store.GetSettingAsync(DefaultEnvKey, cancellationToken);
 

@@ -38,11 +38,11 @@ public sealed class CoreSecretStoreTests : IDisposable
     public async Task Has_secret_is_false_without_a_ref_and_true_with_one()
     {
         await SeedFoSpAsync("env1", secretRef: null);
-        var store = new CoreSecretStore(NewService(), NewVault()!);
+        var store = new CoreSecretStore(NewService(), NewVault());
         Assert.False(store.HasSecret("env1"));
 
         await SeedFoSpAsync("env2", secretRef: "vault-uuid-123");
-        Assert.True(new CoreSecretStore(NewService(), NewVault()!).HasSecret("env2"));
+        Assert.True(new CoreSecretStore(NewService(), NewVault()).HasSecret("env2"));
     }
 
     [Fact]
@@ -50,22 +50,45 @@ public sealed class CoreSecretStoreTests : IDisposable
     {
         var svc = NewService();
         await svc.EnsureCreatedAsync(TestContext.Current.CancellationToken);
-        var store = new CoreSecretStore(svc, NewVault()!);
+        var store = new CoreSecretStore(svc, NewVault());
 
         Assert.False(store.HasSecret("missing"));
     }
 
     [Fact]
-    public async Task Clear_secret_nulls_the_service_principal_ref()
+    public async Task Clear_secret_nulls_the_service_principal_ref_and_deletes_the_blob()
     {
-        await SeedFoSpAsync("env1", secretRef: "vault-uuid-123");
-        var store = new CoreSecretStore(NewService(), NewVault()!);
+        await SeedFoSpAsync("env1", secretRef: "vault-row-1");
+        InsertVaultRow("vault-row-1"); // a plain (non-DPAPI) blob, so this runs on Linux
+        var store = new CoreSecretStore(NewService(), NewVault());
 
         store.ClearSecret("env1");
 
         Assert.False(store.HasSecret("env1"));
         var sp = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, TestContext.Current.CancellationToken);
         Assert.Null(sp!.SecretRef);
+        Assert.Equal(0, CountVaultRows("vault-row-1")); // blob removed, not orphaned
+    }
+
+    private void InsertVaultRow(string id)
+    {
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "INSERT INTO SecretVault(Id, Kind, Blob) VALUES ($id, 'test', $blob)";
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.Parameters.Add("$blob", Microsoft.Data.Sqlite.SqliteType.Blob).Value = new byte[] { 1, 2, 3 };
+        cmd.ExecuteNonQuery();
+    }
+
+    private int CountVaultRows(string id)
+    {
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM SecretVault WHERE Id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        return System.Convert.ToInt32(cmd.ExecuteScalar());
     }
 
     [Fact]
@@ -74,7 +97,7 @@ public sealed class CoreSecretStoreTests : IDisposable
         Assert.SkipUnless(OperatingSystem.IsWindows(), "SecretVaultService uses DPAPI (Windows-only).");
 
         await SeedFoSpAsync("env1", secretRef: null);
-        var store = new CoreSecretStore(NewService(), NewVault()!);
+        var store = new CoreSecretStore(NewService(), NewVault());
 
         store.SetSecret("env1", "super-secret");
 
