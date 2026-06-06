@@ -111,6 +111,12 @@
                 <Button Grid.Column="3" Content="Clear" Command="{Binding ClearDataverseSecretCommand}" />
               </Grid>
 
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Content="Test Dataverse connection" Command="{Binding TestDataverseConnectionCommand}" />
+                <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingConnection}" Width="90" Height="4"
+                             VerticalAlignment="Center" />
+              </StackPanel>
+
               <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}"
                          Text="The linked Dataverse environment + its own app registration (used by Dual-Write). The Dataverse client ID is a separate app reg from the FO one; the tenant is shared with the FO environment. The client secret is DPAPI-protected at rest and never displayed or logged." />
             </StackPanel>

@@ -222,6 +222,31 @@ public partial class ProfilesViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private async Task TestDataverseConnection(CancellationToken ct)
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        IsTestingConnection = true;
+        Status = $"Testing Dataverse connection for '{Selected.Name}'…";
+        try
+        {
+            await _auth.AcquireDataverseTokenAsync(Selected, ct);
+            Status = $"Connected to Dataverse for '{Selected.Name}' — token acquired.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Dataverse connection for '{Selected.Name}' failed: {ex.Message}";
+        }
+        finally
+        {
+            IsTestingConnection = false;
+        }
+    }
+
+    [RelayCommand]
     private void AddProfile()
     {
         var profile = new EnvProfile(
