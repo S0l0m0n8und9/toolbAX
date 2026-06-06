@@ -381,7 +381,7 @@ public class DualWriteMapViewModelTests
         await vm.InitializeCommand.ExecuteAsync(null);
         vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
 
-        var counting = vm.CountCeRowsCommand.ExecuteAsync(null);              // begins, awaits the gate
+        var counting = vm.CountAllRowsCommand.ExecuteAsync(null);             // begins, awaits the gate
         vm.SelectedMap = vm.Maps.Single(m => m.Name == "vendorsv2_account");  // clears + rebuilds CountRows mid-count
         reader.Gate.SetResult();
 
@@ -408,18 +408,75 @@ public class DualWriteMapViewModelTests
         Assert.All(vm.CountRows, r => Assert.Null(r.CeCount)); // not counted until requested
     }
 
+    private sealed class CountODataClient : IODataClient
+    {
+        private readonly long _count;
+        public string? LastPath { get; private set; }
+        public CountODataClient(long count) => _count = count;
+        public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
+        {
+            LastPath = path;
+            return Task.FromResult(new ODataResponse(200, "OK", $"{{\"@odata.count\":{_count},\"value\":[]}}", 1));
+        }
+    }
+
     [Fact]
-    public async Task Count_ce_rows_fills_each_legs_count()
+    public async Task Count_rows_fills_each_legs_ce_count()
     {
         var vm = MakeVm();
         await vm.InitializeCommand.ExecuteAsync(null);
         vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
 
-        await vm.CountCeRowsCommand.ExecuteAsync(null);
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
 
         Assert.NotEmpty(vm.CountRows);
         Assert.All(vm.CountRows, r => Assert.NotNull(r.CeCount));
         Assert.Equal(250, vm.CountRows[0].CeCount); // filtered leg → the fake's filtered count
+    }
+
+    [Fact]
+    public async Task Count_rows_compares_fo_and_ce_counts()
+    {
+        var odata = new CountODataClient(250); // F&O returns 250; CE for the filtered customer leg is 250
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(), odata: odata);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        var row = vm.CountRows[0];
+        Assert.Equal(250, row.FoCount);
+        Assert.Equal(250, row.CeCount);
+        Assert.Equal("Match", row.ComparisonLabel);
+        Assert.StartsWith("/data/", odata.LastPath); // counted via the F&O OData endpoint
+    }
+
+    [Fact]
+    public async Task Editing_the_fo_entity_clears_a_stale_fo_count()
+    {
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(), odata: new CountODataClient(250));
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+        var row = vm.CountRows[0];
+        Assert.NotNull(row.FoCount);
+
+        row.FoEntity = "ADifferentEntity"; // the prior count no longer applies
+
+        Assert.Null(row.FoCount);
+        Assert.Equal("—", row.ComparisonLabel);
+    }
+
+    [Fact]
+    public async Task Count_rows_reports_a_mismatch()
+    {
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(), odata: new CountODataClient(999));
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        Assert.Equal("Mismatch", vm.CountRows[0].ComparisonLabel); // F&O 999 vs CE 250
     }
 
     [Fact]

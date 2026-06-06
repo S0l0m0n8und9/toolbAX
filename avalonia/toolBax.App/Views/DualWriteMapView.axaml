@@ -215,19 +215,28 @@
           <TabItem Header="Row counts">
             <DockPanel>
               <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="10" Margin="0,0,0,8">
-                <Button Content="Count CE rows" Command="{Binding CountCeRowsCommand}" />
+                <Button Content="Count rows" Command="{Binding CountAllRowsCommand}" />
                 <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource Text3Brush}"
-                           Text="Dataverse (CE) side, per leg, using the reversed source filter. F&amp;O comparison is a follow-up." />
+                           Text="Compares F&amp;O and Dataverse (CE) row counts per leg. Edit the F&amp;O entity if the auto-guess is wrong." />
               </StackPanel>
               <DataGrid x:Name="CountsGrid" ItemsSource="{Binding CountRows}" IsReadOnly="True"
                         AutoGenerateColumns="False" GridLinesVisibility="Horizontal"
                         Background="{StaticResource Layer1Brush}">
                 <DataGrid.Columns>
-                  <DataGridTextColumn Header="Source (F&amp;O)" Binding="{Binding SourceSchema}" Width="2*" />
-                  <DataGridTextColumn Header="Destination (Dataverse)" Binding="{Binding DestinationSchema}" Width="2*" />
-                  <DataGridTextColumn Header="CE filter" Binding="{Binding CeFilter}" Width="3*" />
+                  <DataGridTemplateColumn Header="F&amp;O entity" Width="2*">
+                    <DataGridTemplateColumn.CellTemplate>
+                      <DataTemplate x:DataType="vm:MapLegCountRow">
+                        <TextBox Text="{Binding FoEntity, Mode=TwoWay}" BorderThickness="0"
+                                 Background="Transparent" VerticalAlignment="Center" />
+                      </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                  </DataGridTemplateColumn>
+                  <DataGridTextColumn Header="F&amp;O rows" Binding="{Binding FoCountLabel}" Width="Auto" />
+                  <DataGridTextColumn Header="Destination (CE)" Binding="{Binding DestinationSchema}" Width="2*" />
                   <DataGridTextColumn Header="CE rows" Binding="{Binding CeCountLabel}" Width="Auto" />
-                  <DataGridTextColumn Header="Status" Binding="{Binding CeStatus}" Width="*" />
+                  <DataGridTextColumn Header="Compare" Binding="{Binding ComparisonLabel}" Width="Auto" />
+                  <DataGridTextColumn Header="F&amp;O status" Binding="{Binding FoStatus}" Width="*" />
+                  <DataGridTextColumn Header="CE status" Binding="{Binding CeStatus}" Width="*" />
                 </DataGrid.Columns>
               </DataGrid>
             </DockPanel>

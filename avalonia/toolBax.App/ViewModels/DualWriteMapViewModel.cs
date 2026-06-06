@@ -24,6 +24,7 @@ public partial class DualWriteMapViewModel : ObservableObject
 {
     private readonly IDualWriteMapReader _reader;
     private readonly IFileSaveService _fileSave;
+    private readonly IODataClient _odata;
     private bool _loaded;
     private bool _suppressReload;          // guards the initial selection setup from triggering reloads
     private int _activeLoads;              // overlapping reloads in flight; the last to finish clears IsLoading
@@ -79,10 +80,11 @@ public partial class DualWriteMapViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(ShowSelectPrompt))]
     private string _loadError = string.Empty;
 
-    public DualWriteMapViewModel(IDualWriteMapReader reader, IFileSaveService? fileSave = null)
+    public DualWriteMapViewModel(IDualWriteMapReader reader, IFileSaveService? fileSave = null, IODataClient? odata = null)
     {
         _reader = reader;
         _fileSave = fileSave ?? new FakeFileSaveService();
+        _odata = odata ?? new FakeODataClient();
     }
 
     public IEnumerable<DwMapRecord> Filtered =>
@@ -315,7 +317,7 @@ public partial class DualWriteMapViewModel : ObservableObject
 
         // Stop any in-flight count before mutating the collection it iterates, then rebuild the
         // (un-counted) row-count rows for the newly inspected map.
-        CountCeRowsCommand.Cancel();
+        CountAllRowsCommand.Cancel();
         CountRows.Clear();
         if (value is not null)
         {
@@ -326,10 +328,10 @@ public partial class DualWriteMapViewModel : ObservableObject
         }
     }
 
-    // Counts the Dataverse (CE) rows for each leg, applying the leg's reversed source filter. (The F&O
-    // side + side-by-side comparison are a follow-up.) Concurrent-safe via the cancel command.
+    // Counts the F&O and Dataverse (CE) rows for each leg (applying the leg's source / reversed-source
+    // filters) and compares them. Concurrent-safe via the cancel command.
     [RelayCommand(IncludeCancelCommand = true)]
-    private async Task CountCeRows(CancellationToken ct)
+    private async Task CountAllRows(CancellationToken ct)
     {
         // Snapshot before any await: a map change rebuilds CountRows on the UI thread, which would
         // otherwise invalidate a live enumerator mid-iteration.
@@ -338,18 +340,8 @@ public partial class DualWriteMapViewModel : ObservableObject
         {
             foreach (var row in rows)
             {
-                row.CeStatus = "Counting…";
-                var filter = string.IsNullOrWhiteSpace(row.CeFilter) ? null : row.CeFilter;
-                var result = await _reader.GetCeRowCountAsync(row.DestinationSchema, filter, ct);
-                if (result.IsSuccess)
-                {
-                    row.CeCount = result.Count;
-                    row.CeStatus = string.Empty;
-                }
-                else
-                {
-                    row.CeStatus = result.Error ?? "Count failed.";
-                }
+                await CountCeAsync(row, ct);
+                await CountFoAsync(row, ct);
             }
         }
         catch (OperationCanceledException)
@@ -361,7 +353,56 @@ public partial class DualWriteMapViewModel : ObservableObject
                 {
                     row.CeStatus = string.Empty;
                 }
+
+                if (row.FoStatus == "Counting…")
+                {
+                    row.FoStatus = string.Empty;
+                }
             }
         }
+    }
+
+    private async Task CountCeAsync(MapLegCountRow row, CancellationToken ct)
+    {
+        row.CeStatus = "Counting…";
+        var filter = string.IsNullOrWhiteSpace(row.CeFilter) ? null : row.CeFilter;
+        var result = await _reader.GetCeRowCountAsync(row.DestinationSchema, filter, ct);
+        if (result.IsSuccess)
+        {
+            row.CeCount = result.Count;
+            row.CeStatus = string.Empty;
+        }
+        else
+        {
+            row.CeStatus = result.Error ?? "Count failed.";
+        }
+    }
+
+    private async Task CountFoAsync(MapLegCountRow row, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(row.FoEntity))
+        {
+            row.FoStatus = "Set an F&O entity to count.";
+            return;
+        }
+
+        row.FoStatus = "Counting…";
+        var filter = string.IsNullOrWhiteSpace(row.FoFilter) ? null : row.FoFilter;
+        var response = await _odata.SendAsync("GET", DualWriteMapParser.FoCountPath(row.FoEntity, filter), null, ct);
+        if (!response.IsSuccess)
+        {
+            row.FoStatus = $"{response.StatusCode} {response.ReasonPhrase}";
+            return;
+        }
+
+        var count = DualWriteMapParser.ParseCount(response.Body);
+        if (count is null)
+        {
+            row.FoStatus = "F&O returned no count.";
+            return;
+        }
+
+        row.FoCount = count;
+        row.FoStatus = string.Empty;
     }
 }
