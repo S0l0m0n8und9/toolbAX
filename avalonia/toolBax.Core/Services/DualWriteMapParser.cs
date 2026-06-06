@@ -33,6 +33,54 @@ public static class DualWriteMapParser
     public static string MapsPath() =>
         $"msdyn_dualwriteentitymaps?$select={Uri.EscapeDataString(SelectColumns)}&$orderby=modifiedon%20desc";
 
+    /// <summary>
+    /// The relative Web API path for a row count of <paramref name="entitySet"/> with an optional OData
+    /// <paramref name="odataFilter"/> (<c>$top=1&amp;$count=true</c> — the total comes back as <c>@odata.count</c>).
+    /// </summary>
+    public static string CountPath(string entitySet, string? odataFilter)
+    {
+        var query = "$top=1&$count=true";
+        if (!string.IsNullOrWhiteSpace(odataFilter))
+        {
+            query += $"&$filter={Uri.EscapeDataString(odataFilter)}";
+        }
+
+        return $"{entitySet}?{query}";
+    }
+
+    /// <summary>Extracts the <c>@odata.count</c> from a response body (null if absent/unparseable).</summary>
+    public static long? ParseCount(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind == JsonValueKind.Object &&
+                document.RootElement.TryGetProperty("@odata.count", out var count))
+            {
+                if (count.ValueKind == JsonValueKind.Number && count.TryGetInt64(out var number))
+                {
+                    return number;
+                }
+
+                if (count.ValueKind == JsonValueKind.String && long.TryParse(count.GetString(), out var parsed))
+                {
+                    return parsed;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // fall through to null
+        }
+
+        return null;
+    }
+
     /// <summary>Component type for a dual-write entity map in <c>solutioncomponents</c>.</summary>
     public const int DualWriteMapComponentType = 500;
 

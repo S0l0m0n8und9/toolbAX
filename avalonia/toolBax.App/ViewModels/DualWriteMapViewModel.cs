@@ -31,6 +31,9 @@ public partial class DualWriteMapViewModel : ObservableObject
 
     public ObservableCollection<DwMapRecord> Maps { get; } = new();
 
+    /// <summary>Per-leg Dataverse (CE) row-count rows for the inspected map (filled on demand).</summary>
+    public ObservableCollection<MapLegCountRow> CountRows { get; } = new();
+
     /// <summary>Solutions for the picker (an "All" sentinel first, then the publisher-filtered list).</summary>
     public ObservableCollection<DwSolution> Solutions { get; } = new();
 
@@ -305,6 +308,60 @@ public partial class DualWriteMapViewModel : ObservableObject
         }
     }
 
-    // A stale "Exported to …" message shouldn't linger once a different map is inspected.
-    partial void OnDetailMapChanged(DwMapRecord? value) => ExportStatus = string.Empty;
+    partial void OnDetailMapChanged(DwMapRecord? value)
+    {
+        // A stale "Exported to …" message shouldn't linger once a different map is inspected.
+        ExportStatus = string.Empty;
+
+        // Stop any in-flight count before mutating the collection it iterates, then rebuild the
+        // (un-counted) row-count rows for the newly inspected map.
+        CountCeRowsCommand.Cancel();
+        CountRows.Clear();
+        if (value is not null)
+        {
+            foreach (var leg in value.Legs)
+            {
+                CountRows.Add(new MapLegCountRow(leg));
+            }
+        }
+    }
+
+    // Counts the Dataverse (CE) rows for each leg, applying the leg's reversed source filter. (The F&O
+    // side + side-by-side comparison are a follow-up.) Concurrent-safe via the cancel command.
+    [RelayCommand(IncludeCancelCommand = true)]
+    private async Task CountCeRows(CancellationToken ct)
+    {
+        // Snapshot before any await: a map change rebuilds CountRows on the UI thread, which would
+        // otherwise invalidate a live enumerator mid-iteration.
+        var rows = CountRows.ToList();
+        try
+        {
+            foreach (var row in rows)
+            {
+                row.CeStatus = "Counting…";
+                var filter = string.IsNullOrWhiteSpace(row.CeFilter) ? null : row.CeFilter;
+                var result = await _reader.GetCeRowCountAsync(row.DestinationSchema, filter, ct);
+                if (result.IsSuccess)
+                {
+                    row.CeCount = result.Count;
+                    row.CeStatus = string.Empty;
+                }
+                else
+                {
+                    row.CeStatus = result.Error ?? "Count failed.";
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Clear any "Counting…" placeholders left on rows that hadn't finished.
+            foreach (var row in rows)
+            {
+                if (row.CeStatus == "Counting…")
+                {
+                    row.CeStatus = string.Empty;
+                }
+            }
+        }
+    }
 }

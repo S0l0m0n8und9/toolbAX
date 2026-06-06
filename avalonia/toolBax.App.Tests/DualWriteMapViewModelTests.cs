@@ -29,6 +29,7 @@ public class DualWriteMapViewModelTests
         public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
             Task.FromResult(DwMapLoadResult.Fail(_error));
         public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => Task.FromResult(NoSolutions);
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) => Task.FromResult(DwCountResult.Ok(0));
     }
 
     private sealed class EmptyReader : IDualWriteMapReader
@@ -36,6 +37,7 @@ public class DualWriteMapViewModelTests
         public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
             Task.FromResult(DwMapLoadResult.Ok(Array.Empty<DwMapRecord>()));
         public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => Task.FromResult(NoSolutions);
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) => Task.FromResult(DwCountResult.Ok(0));
     }
 
     private sealed class CountingReader : IDualWriteMapReader
@@ -47,6 +49,7 @@ public class DualWriteMapViewModelTests
             return Task.FromResult(DwMapLoadResult.Ok(Array.Empty<DwMapRecord>()));
         }
         public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => Task.FromResult(NoSolutions);
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) => Task.FromResult(DwCountResult.Ok(0));
     }
 
     // Returns each queued map result in turn (last one repeats), to model successive loads/refreshes.
@@ -57,6 +60,22 @@ public class DualWriteMapViewModelTests
         public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
             Task.FromResult(_results.Count > 1 ? _results.Dequeue() : _results.Peek());
         public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => Task.FromResult(NoSolutions);
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) => Task.FromResult(DwCountResult.Ok(0));
+    }
+
+    // Gates GetCeRowCountAsync so a map switch can be interleaved with an in-flight count.
+    private sealed class GatedCountReader : IDualWriteMapReader
+    {
+        private readonly FakeDualWriteMapReader _inner = new();
+        public TaskCompletionSource Gate { get; } = new();
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            _inner.GetMapsAsync(solutionUniqueName, ct);
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => _inner.GetSolutionsAsync(ct);
+        public async Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default)
+        {
+            await Gate.Task.WaitAsync(ct);
+            return DwCountResult.Ok(5);
+        }
     }
 
     // Holds each map load open on a per-call gate, so overlapping reloads can be orchestrated.
@@ -71,6 +90,7 @@ public class DualWriteMapViewModelTests
             return DwMapLoadResult.Ok(Array.Empty<DwMapRecord>());
         }
         public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => Task.FromResult(NoSolutions);
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) => Task.FromResult(DwCountResult.Ok(0));
     }
 
     // Two distinct records (fresh instances each call, so refresh restores by Id, not reference).
@@ -354,11 +374,52 @@ public class DualWriteMapViewModelTests
     }
 
     [Fact]
+    public async Task Switching_maps_during_a_count_does_not_crash()
+    {
+        var reader = new GatedCountReader();
+        var vm = new DualWriteMapViewModel(reader);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        var counting = vm.CountCeRowsCommand.ExecuteAsync(null);              // begins, awaits the gate
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "vendorsv2_account");  // clears + rebuilds CountRows mid-count
+        reader.Gate.SetResult();
+
+        await counting; // must not throw (no "collection modified during enumeration")
+    }
+
+    [Fact]
     public void Export_markdown_is_disabled_without_a_selection()
     {
         var vm = MakeVm(new EmptyReader());
 
         Assert.False(vm.ExportMarkdownCommand.CanExecute(null)); // nothing loaded/selected yet
+    }
+
+    [Fact]
+    public async Task Selecting_a_map_builds_an_uncounted_row_per_leg()
+    {
+        var vm = MakeVm();
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        Assert.Equal(vm.DetailMap!.Legs.Count, vm.CountRows.Count);
+        Assert.All(vm.CountRows, r => Assert.Null(r.CeCount)); // not counted until requested
+    }
+
+    [Fact]
+    public async Task Count_ce_rows_fills_each_legs_count()
+    {
+        var vm = MakeVm();
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        await vm.CountCeRowsCommand.ExecuteAsync(null);
+
+        Assert.NotEmpty(vm.CountRows);
+        Assert.All(vm.CountRows, r => Assert.NotNull(r.CeCount));
+        Assert.Equal(250, vm.CountRows[0].CeCount); // filtered leg → the fake's filtered count
     }
 
     [Fact]

@@ -136,6 +136,42 @@ public class CoreDualWriteMapReaderTests
     }
 
     [Fact]
+    public async Task GetCeRowCount_returns_the_odata_count()
+    {
+        var dv = new FakeDataverseClient(Ok("{\"@odata.count\":3120,\"value\":[]}"));
+        var reader = new CoreDualWriteMapReader(dv);
+
+        var result = await reader.GetCeRowCountAsync("accounts", "accounttype eq 'vendor'", TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(3120, result.Count);
+        Assert.StartsWith("accounts?$top=1&$count=true", dv.Requested[0]);
+    }
+
+    [Fact]
+    public async Task GetCeRowCount_surfaces_a_request_error()
+    {
+        var dv = new FakeDataverseClient(new ODataResponse(404, "Not Found", "no such entity", 1));
+        var reader = new CoreDualWriteMapReader(dv);
+
+        var result = await reader.GetCeRowCountAsync("nope", null, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Contains("Not Found", result.Error);
+    }
+
+    [Fact]
+    public async Task GetCeRowCount_fails_when_no_count_is_returned()
+    {
+        var dv = new FakeDataverseClient(Ok("{\"value\":[]}"));
+        var reader = new CoreDualWriteMapReader(dv);
+
+        var result = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+    }
+
+    [Fact]
     public async Task GetMaps_for_a_solution_surfaces_a_component_fetch_error()
     {
         var dv = new FakeDataverseClient(new ODataResponse(403, "Forbidden", "no access", 1));

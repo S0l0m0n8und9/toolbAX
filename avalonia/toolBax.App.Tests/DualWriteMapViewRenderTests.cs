@@ -60,6 +60,27 @@ public class DualWriteMapViewRenderTests
     }
 
     [AvaloniaFact]
+    public void Row_counts_tab_binds_the_count_rows()
+    {
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader());
+        var (view, window) = Show(vm);
+        try
+        {
+            var tabs = view.GetVisualDescendants().OfType<TabControl>().First();
+            tabs.SelectedItem = tabs.GetVisualDescendants().OfType<TabItem>().First(t => (t.Header as string) == "Row counts");
+            Dispatcher.UIThread.RunJobs();
+
+            var countsGrid = view.GetVisualDescendants().OfType<DataGrid>().First(g => g.Name == "CountsGrid");
+            Assert.Same(vm.CountRows, countsGrid.ItemsSource);
+            Assert.NotEmpty(vm.CountRows); // a row per leg of the default-selected map
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
     public void Field_mappings_tab_binds_the_selected_maps_fields()
     {
         var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader());
