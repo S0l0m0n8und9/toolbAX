@@ -12,15 +12,17 @@ public sealed class FakeSecretStore : ISecretStore
 {
     private readonly HashSet<string> _keys = new();
 
-    public bool HasSecret(string key) => _keys.Contains(key);
+    private static string Compose(string key, SecretTarget target) => $"{target}:{key}";
 
-    public void SetSecret(string key, string plaintext)
+    public bool HasSecret(string key, SecretTarget target = SecretTarget.Fo) => _keys.Contains(Compose(key, target));
+
+    public void SetSecret(string key, string plaintext, SecretTarget target = SecretTarget.Fo)
     {
         if (!string.IsNullOrEmpty(plaintext))
         {
-            _keys.Add(key);
+            _keys.Add(Compose(key, target));
         }
     }
 
-    public void ClearSecret(string key) => _keys.Remove(key);
+    public void ClearSecret(string key, SecretTarget target = SecretTarget.Fo) => _keys.Remove(Compose(key, target));
 }

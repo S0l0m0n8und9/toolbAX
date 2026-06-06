@@ -299,6 +299,26 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
+    public void Dataverse_secret_is_stored_under_the_dataverse_target()
+    {
+        var secrets = new FakeSecretStore();
+        var vm = new ProfilesViewModel(new FakeProfileStore(), secrets);
+        var selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+        vm.Selected = selected;
+
+        vm.DataverseSecretInput = "dv-secret";
+        vm.SaveDataverseSecretCommand.Execute(null);
+
+        Assert.True(vm.HasDataverseSecret);
+        Assert.True(secrets.HasSecret(selected.Id, SecretTarget.Dataverse));
+        Assert.False(secrets.HasSecret(selected.Id)); // the F&O (default) secret is untouched
+        Assert.Equal(string.Empty, vm.DataverseSecretInput); // plaintext not retained
+
+        vm.ClearDataverseSecretCommand.Execute(null);
+        Assert.False(vm.HasDataverseSecret);
+    }
+
+    [Fact]
     public void Dataverse_web_api_is_derived_from_the_edited_url()
     {
         var vm = new ProfilesViewModel(new FakeProfileStore());
