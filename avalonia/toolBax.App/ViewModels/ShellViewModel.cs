@@ -33,6 +33,7 @@ public partial class ShellViewModel : ObservableObject
     private readonly IODataClient _odataClient;
     private readonly IMetadataService _metadataService;
     private readonly IDualWriteMapReader _mapReader;
+    private readonly IFileSaveService _fileSave;
     private object? _operationsContent;
     private object? _profilesContent;
     private object? _metadataContent;
@@ -71,7 +72,8 @@ public partial class ShellViewModel : ObservableObject
         IAuthService? authService = null,
         IODataClient? odataClient = null,
         IMetadataService? metadataService = null,
-        IDualWriteMapReader? mapReader = null)
+        IDualWriteMapReader? mapReader = null,
+        IFileSaveService? fileSave = null)
     {
         _operationsContentFactory = operationsContentFactory ?? DefaultOperationsContent;
         _profileStore = profileStore ?? new FakeProfileStore();
@@ -84,6 +86,7 @@ public partial class ShellViewModel : ObservableObject
         _odataClient = odataClient ?? new FakeODataClient();
         _metadataService = metadataService ?? new FakeMetadataService();
         _mapReader = mapReader ?? new FakeDualWriteMapReader();
+        _fileSave = fileSave ?? new FakeFileSaveService();
 
         Tools = new[]
         {
@@ -143,7 +146,7 @@ public partial class ShellViewModel : ObservableObject
         "metadata" => _metadataContent ??= new MetadataViewModel(_metadataService),
         "post" => _postContent ??= new PostBuilderViewModel(_odataClient),
         "query" => _queryContent ??= new QueryBuilderViewModel(_metadataService, _odataClient, _clipboard),
-        "mapbrowser" => _mapBrowserContent ??= new DualWriteMapViewModel(_mapReader),
+        "mapbrowser" => _mapBrowserContent ??= new DualWriteMapViewModel(_mapReader, _fileSave),
         // TODO: design-mode fakes — swap for the live IProfileStore + IDualWriteCompareService once available.
         "compare" => _compareContent ??= new DualWriteCompareViewModel(new FakeProfileStore(), new FakeDualWriteCompareService()),
         _ => new PlaceholderScreenViewModel(tool.Title),

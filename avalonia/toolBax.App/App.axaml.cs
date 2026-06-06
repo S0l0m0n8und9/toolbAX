@@ -46,7 +46,8 @@ public partial class App : Application
                 authService: authService,
                 odataClient: odataClient,
                 metadataService: metadataService,
-                mapReader: mapReader);
+                mapReader: mapReader,
+                fileSave: new StorageFileSaveService(window));
             window.DataContext = shell;
             desktop.MainWindow = window;
         }

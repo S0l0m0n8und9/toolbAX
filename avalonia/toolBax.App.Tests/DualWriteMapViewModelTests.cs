@@ -312,6 +312,42 @@ public class DualWriteMapViewModelTests
     }
 
     [Fact]
+    public async Task Export_markdown_writes_the_selected_map_and_reports_the_path()
+    {
+        var save = new FakeFileSaveService(resultPath: "C:/out/map.md");
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(), save);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        await vm.ExportMarkdownCommand.ExecuteAsync(null);
+
+        Assert.NotNull(save.LastContent);
+        Assert.Contains("# Customers V3 to Accounts", save.LastContent);
+        Assert.EndsWith(".md", save.LastSuggestedName);
+        Assert.Equal("Exported to C:/out/map.md", vm.ExportStatus);
+    }
+
+    [Fact]
+    public async Task Export_markdown_reports_a_cancelled_dialog()
+    {
+        var save = new FakeFileSaveService(resultPath: null); // user cancels the save dialog
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(), save);
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        await vm.ExportMarkdownCommand.ExecuteAsync(null);
+
+        Assert.Equal("Export cancelled.", vm.ExportStatus);
+    }
+
+    [Fact]
+    public void Export_markdown_is_disabled_without_a_selection()
+    {
+        var vm = MakeVm(new EmptyReader());
+
+        Assert.False(vm.ExportMarkdownCommand.CanExecute(null)); // nothing loaded/selected yet
+    }
+
+    [Fact]
     public async Task A_successful_but_empty_load_shows_the_empty_state()
     {
         var vm = MakeVm(new EmptyReader());

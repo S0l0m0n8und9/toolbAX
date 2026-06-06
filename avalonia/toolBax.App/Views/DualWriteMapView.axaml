@@ -116,8 +116,17 @@
             </Border>
           </StackPanel>
 
-          <!-- Title -->
-          <TextBlock Text="{Binding DetailMap.Title}" FontSize="22" Foreground="{StaticResource Text0Brush}" />
+          <!-- Title + export -->
+          <Grid ColumnDefinitions="*,Auto">
+            <TextBlock Grid.Column="0" Text="{Binding DetailMap.Title}" FontSize="22" VerticalAlignment="Center"
+                       Foreground="{StaticResource Text0Brush}" TextTrimming="CharacterEllipsis" />
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+              <TextBlock Text="{Binding ExportStatus}" FontSize="12" VerticalAlignment="Center"
+                         Foreground="{StaticResource Text3Brush}" TextTrimming="CharacterEllipsis" MaxWidth="280"
+                         IsVisible="{Binding ExportStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              <Button Content="Export Markdown" Command="{Binding ExportMarkdownCommand}" />
+            </StackPanel>
+          </Grid>
 
           <!-- Source ↔ destination + metadata grid -->
           <StackPanel Orientation="Horizontal" Spacing="12">
