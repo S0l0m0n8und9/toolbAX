@@ -79,7 +79,7 @@
                 <TextBox Grid.Row="1" Grid.Column="1" IsReadOnly="True" Text="{Binding DraftTenant}"
                          FontFamily="Cascadia Code,Consolas,monospace" />
                 <TextBlock Grid.Row="2" Grid.Column="0" Text="Web API" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <TextBox Grid.Row="2" Grid.Column="1" IsReadOnly="True" Text="{Binding DataverseWebApi}"
+                <TextBox Grid.Row="2" Grid.Column="1" IsReadOnly="True" Text="{Binding DataverseWebApi, Mode=OneWay}"
                          FontFamily="Cascadia Code,Consolas,monospace" />
               </Grid>
               <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}"
