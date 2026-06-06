@@ -1,6 +1,5 @@
 using System.Linq;
 using Avalonia.Controls;
-using Avalonia.Controls.Shapes;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -11,7 +10,7 @@ using Xunit;
 
 namespace ToolBax.App.Tests;
 
-/// <summary>Headless render smoke for the Dual-Write Map Browser (control-map §4).</summary>
+/// <summary>Headless render smoke for the redesigned Dual-Write Map Browser (control-map §4).</summary>
 public class DualWriteMapViewRenderTests
 {
     private static (DualWriteMapView view, Window window) Show(DualWriteMapViewModel vm)
@@ -19,17 +18,20 @@ public class DualWriteMapViewRenderTests
         var view = new DualWriteMapView { DataContext = vm };
         var window = new Window { Content = view, Width = 1200, Height = 760 };
         window.Show();
-        Dispatcher.UIThread.RunJobs();
+        Dispatcher.UIThread.RunJobs(); // fires Loaded → InitializeCommand (loads the fake catalogue)
         return (view, window);
     }
 
     [AvaloniaFact]
-    public void Renders_master_list_and_bindings_grid()
+    public void Loads_the_master_list_and_detail_grids_on_show()
     {
-        var (view, window) = Show(new DualWriteMapViewModel(new FakeDualWriteMapService()));
+        var (view, window) = Show(new DualWriteMapViewModel(new FakeDualWriteMapReader()));
         try
         {
-            Assert.NotNull(view.GetVisualDescendants().OfType<ListBox>().FirstOrDefault());
+            var list = view.GetVisualDescendants().OfType<ListBox>().FirstOrDefault();
+            Assert.NotNull(list);
+            // Initialize ran on Loaded, so the master list is populated and a map is selected.
+            Assert.NotEmpty(((DualWriteMapViewModel)view.DataContext!).Maps);
             Assert.NotNull(view.GetVisualDescendants().OfType<DataGrid>().FirstOrDefault());
         }
         finally
@@ -39,35 +41,19 @@ public class DualWriteMapViewRenderTests
     }
 
     [AvaloniaFact]
-    public void Sparkline_path_has_geometry_for_a_selected_map()
+    public void Field_mappings_tab_binds_the_selected_maps_fields()
     {
-        var (view, window) = Show(new DualWriteMapViewModel(new FakeDualWriteMapService()));
-        try
-        {
-            var spark = view.GetVisualDescendants().OfType<Path>().First(p => p.Name == "SparkPath");
-            Assert.NotNull(spark.Data);
-        }
-        finally
-        {
-            window.Close();
-        }
-    }
-
-    [AvaloniaFact]
-    public void Runs_tab_realises_a_populated_runs_grid()
-    {
-        var vm = new DualWriteMapViewModel(new FakeDualWriteMapService());
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader());
         var (view, window) = Show(vm);
         try
         {
-            // History loads on the default selection; surface the Runs tab and confirm its grid binds.
             var tabs = view.GetVisualDescendants().OfType<TabControl>().First();
-            tabs.SelectedIndex = 2;
+            tabs.SelectedIndex = 1; // "Field mappings"
             Dispatcher.UIThread.RunJobs();
 
-            var runsGrid = view.GetVisualDescendants().OfType<DataGrid>().First(g => g.Name == "RunsGrid");
-            Assert.Same(vm.Runs, runsGrid.ItemsSource);
-            Assert.NotEmpty(vm.Runs);
+            var fieldsGrid = view.GetVisualDescendants().OfType<DataGrid>().First(g => g.Name == "FieldsGrid");
+            Assert.Same(vm.DetailMap!.Fields, fieldsGrid.ItemsSource);
+            Assert.NotEmpty(vm.DetailMap.Fields);
         }
         finally
         {

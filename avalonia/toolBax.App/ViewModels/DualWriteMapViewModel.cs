@@ -12,20 +12,19 @@ using ToolBax.Core.Services;
 namespace ToolBax.App.ViewModels;
 
 /// <summary>
-/// Dual-Write Map Browser (control-map §4): read-only master/detail inspector. The master list +
-/// search drive a selected map; selection loads its cached detail (KPIs, 24h activity, bindings,
-/// value maps). No mutations — acting on a map is the Operations screen's job. Run history + errors
-/// are a §4 follow-up.
+/// Dual-Write Map Browser (control-map §4): a read-only inspector over the <c>msdyn_dualwriteentitymap</c>
+/// records in Dataverse. The master list + search drive a selected map; the detail pane shows the parsed
+/// <c>msdyn_mapping</c> (summary, legs, field mappings, value transforms) and <c>msdyn_properties</c>.
+/// No mutations — acting on a map is the Operations screen's job. Maps load on first view (Initialize)
+/// and can be reloaded (Refresh). A load/auth failure surfaces in <see cref="LoadError"/> rather than a
+/// silently blank list.
 /// </summary>
 public partial class DualWriteMapViewModel : ObservableObject
 {
-    private readonly IDualWriteMapService _service;
+    private readonly IDualWriteMapReader _reader;
+    private bool _loaded;
 
-    public ObservableCollection<DwMapSummary> Maps { get; }
-    public ObservableCollection<DwBinding> Bindings { get; } = new();
-    public ObservableCollection<DwValueMap> ValueMaps { get; } = new();
-    public ObservableCollection<DwRun> Runs { get; } = new();
-    public ObservableCollection<DwError> Errors { get; } = new();
+    public ObservableCollection<DwMapRecord> Maps { get; } = new();
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Filtered))]
@@ -34,175 +33,121 @@ public partial class DualWriteMapViewModel : ObservableObject
     // Bound to the ListBox. Filtering can null this out when the selected item leaves the result set;
     // DetailMap (below) is what actually drives the detail pane so the panel doesn't get wiped.
     [ObservableProperty]
-    private DwMapSummary? _selectedMap;
+    private DwMapRecord? _selectedMap;
 
     // The map whose detail is shown. Only ever advanced by a real (non-null) selection, so a search
     // that hides the current row leaves the detail intact.
     [ObservableProperty]
-    private DwMapSummary? _detailMap;
+    [NotifyPropertyChangedFor(nameof(HasSelection))]
+    [NotifyPropertyChangedFor(nameof(ShowSelectPrompt))]
+    private DwMapRecord? _detailMap;
 
     [ObservableProperty]
-    private bool _hasBindings;
+    [NotifyPropertyChangedFor(nameof(ShowEmptyState))]
+    [NotifyPropertyChangedFor(nameof(ShowSelectPrompt))]
+    private bool _isLoading;
 
+    // Surfaces a Dataverse load/auth failure so the view shows it instead of a silently blank list.
     [ObservableProperty]
-    private string _latencyP95 = string.Empty;
+    [NotifyPropertyChangedFor(nameof(HasLoadError))]
+    [NotifyPropertyChangedFor(nameof(ShowEmptyState))]
+    [NotifyPropertyChangedFor(nameof(ShowSelectPrompt))]
+    private string _loadError = string.Empty;
 
-    [ObservableProperty]
-    private IReadOnlyList<double> _activity = Array.Empty<double>();
+    public DualWriteMapViewModel(IDualWriteMapReader reader) => _reader = reader;
 
-    [ObservableProperty]
-    private bool _isLoadingHistory;
+    public IEnumerable<DwMapRecord> Filtered =>
+        string.IsNullOrWhiteSpace(Search) ? Maps : Maps.Where(Matches);
 
-    /// <summary>Outcome of the last error Retry (empty until one is attempted).</summary>
-    [ObservableProperty]
-    private string _retryStatus = string.Empty;
-
-    public DualWriteMapViewModel(IDualWriteMapService service)
+    private bool Matches(DwMapRecord m)
     {
-        _service = service;
-        Maps = new ObservableCollection<DwMapSummary>(service.GetMaps());
-        SelectedMap = Maps.FirstOrDefault();
+        var s = Search;
+        return m.Title.Contains(s, StringComparison.OrdinalIgnoreCase)
+            || m.Name.Contains(s, StringComparison.OrdinalIgnoreCase)
+            || m.PrimarySource.Contains(s, StringComparison.OrdinalIgnoreCase)
+            || m.PrimaryDestination.Contains(s, StringComparison.OrdinalIgnoreCase)
+            || m.State.Contains(s, StringComparison.OrdinalIgnoreCase);
     }
 
-    public IEnumerable<DwMapSummary> Filtered =>
-        string.IsNullOrWhiteSpace(Search)
-            ? Maps
-            : Maps.Where(m =>
-                m.FoEntity.Contains(Search, StringComparison.OrdinalIgnoreCase) ||
-                m.DvEntity.Contains(Search, StringComparison.OrdinalIgnoreCase));
+    public bool HasMaps => Maps.Count > 0;
 
-    public bool HasValueMaps => ValueMaps.Count > 0;
+    public bool HasLoadError => !string.IsNullOrEmpty(LoadError);
 
-    public bool HasRuns => Runs.Count > 0;
+    public bool HasSelection => DetailMap is not null;
 
-    public bool HasErrorDetails => Errors.Count > 0;
+    /// <summary>Shown only after a successful load that returned nothing (not while loading or on error).</summary>
+    public bool ShowEmptyState => _loaded && !IsLoading && !HasLoadError && Maps.Count == 0;
 
-    public bool HasErrors => DetailMap?.HasErrors ?? false;
+    /// <summary>"Select a map" prompt — only when there's nothing else to show (no selection/error/empty/loading).</summary>
+    public bool ShowSelectPrompt => !HasSelection && !HasLoadError && !ShowEmptyState && !IsLoading;
 
-    public string NotCachedMessage => DetailMap is null
-        ? string.Empty
-        : $"Field bindings for {DetailMap.FoEntity} aren't cached — open the map once to fetch its template.";
+    // Loads the catalogue when the view first appears; the cached VM only reloads on explicit Refresh,
+    // so re-navigating is cheap. With the fake reader this resolves synchronously over seeded data.
+    [RelayCommand]
+    private async Task Initialize(CancellationToken ct)
+    {
+        if (_loaded)
+        {
+            return;
+        }
 
-    partial void OnSelectedMapChanged(DwMapSummary? value)
+        await LoadAsync(ct);
+    }
+
+    [RelayCommand(IncludeCancelCommand = true)]
+    private Task Refresh(CancellationToken ct) => LoadAsync(ct);
+
+    private async Task LoadAsync(CancellationToken ct)
+    {
+        IsLoading = true;
+        try
+        {
+            var result = await _reader.GetMapsAsync(ct);
+
+            if (result.IsSuccess)
+            {
+                // Preserve the inspected map across a refresh when it's still present (by id), so a
+                // reload doesn't yank the user back to the first row.
+                var previousId = DetailMap?.Id;
+
+                Maps.Clear();
+                foreach (var map in result.Maps)
+                {
+                    Maps.Add(map);
+                }
+
+                LoadError = string.Empty;
+                _loaded = true;
+                OnPropertyChanged(nameof(Filtered));
+                OnPropertyChanged(nameof(HasMaps));
+
+                DetailMap = (previousId is not null ? Maps.FirstOrDefault(m => m.Id == previousId) : null)
+                    ?? Maps.FirstOrDefault();
+                SelectedMap = DetailMap;
+            }
+            else
+            {
+                // A failed load (e.g. expired token) keeps the stale-but-useful catalogue + selection
+                // and just shows the error banner, rather than wiping the list.
+                LoadError = result.Error ?? "Couldn't load dual-write maps.";
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // A cancelled refresh leaves the current list + selection intact.
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+
+    partial void OnSelectedMapChanged(DwMapRecord? value)
     {
         // Ignore the null the ListBox emits when filtering hides the current row — keep the detail.
         if (value is not null)
         {
             DetailMap = value;
         }
-    }
-
-    partial void OnDetailMapChanged(DwMapSummary? value)
-    {
-        LoadDetail(value);
-        OnPropertyChanged(nameof(HasErrors));
-        OnPropertyChanged(nameof(NotCachedMessage));
-
-        Runs.Clear();
-        Errors.Clear();
-        OnPropertyChanged(nameof(HasRuns));
-        OnPropertyChanged(nameof(HasErrorDetails));
-
-        // Cancel the now-stale in-flight load (so a real endpoint doesn't keep a dead request
-        // running) before starting the new one.
-        LoadHistoryCommand.Cancel();
-        LoadHistoryCommand.Execute(null);
-    }
-
-    // Runs + errors come from live (async) run-history / dead-letter endpoints, so they load
-    // separately from the cached template detail. AllowConcurrentExecutions keeps a newer selection
-    // from being gated by an in-flight load; the stale-id guard is the sole arbiter of what applies.
-    [RelayCommand(AllowConcurrentExecutions = true)]
-    private async Task LoadHistory(CancellationToken ct)
-    {
-        var map = DetailMap;
-        if (map is null)
-        {
-            return;
-        }
-
-        IsLoadingHistory = true;
-        try
-        {
-            var runs = await _service.GetRunsAsync(map.Id, ct);
-            var errors = await _service.GetErrorsAsync(map.Id, ct);
-
-            if (DetailMap?.Id != map.Id)
-            {
-                return; // selection moved on; let the newer load win.
-            }
-
-            Runs.Clear();
-            foreach (var run in runs)
-            {
-                Runs.Add(run);
-            }
-
-            Errors.Clear();
-            foreach (var error in errors)
-            {
-                Errors.Add(error);
-            }
-
-            OnPropertyChanged(nameof(HasRuns));
-            OnPropertyChanged(nameof(HasErrorDetails));
-        }
-        finally
-        {
-            IsLoadingHistory = false;
-        }
-    }
-
-    // Targeted dead-letter retry (the screen's one write). On success the record leaves the list.
-    [RelayCommand]
-    private async Task RetryError(DwError? error)
-    {
-        if (error is null || DetailMap is null)
-        {
-            return;
-        }
-
-        if (await _service.RetryErrorAsync(DetailMap.Id, error))
-        {
-            Errors.Remove(error);
-            OnPropertyChanged(nameof(HasErrorDetails));
-            RetryStatus = "Retry accepted.";
-        }
-        else
-        {
-            RetryStatus = "Retry was rejected — the record is still in the dead-letter queue.";
-        }
-    }
-
-    private void LoadDetail(DwMapSummary? summary)
-    {
-        Bindings.Clear();
-        ValueMaps.Clear();
-
-        if (summary is null)
-        {
-            HasBindings = false;
-            LatencyP95 = string.Empty;
-            Activity = Array.Empty<double>();
-            OnPropertyChanged(nameof(HasValueMaps));
-            return;
-        }
-
-        var detail = _service.GetDetail(summary.Id);
-        LatencyP95 = detail.LatencyP95;
-        Activity = detail.Activity;
-
-        foreach (var b in detail.Bindings)
-        {
-            Bindings.Add(b);
-        }
-
-        foreach (var vm in detail.ValueMaps)
-        {
-            ValueMaps.Add(vm);
-        }
-
-        HasBindings = Bindings.Count > 0;
-        OnPropertyChanged(nameof(HasValueMaps));
     }
 }

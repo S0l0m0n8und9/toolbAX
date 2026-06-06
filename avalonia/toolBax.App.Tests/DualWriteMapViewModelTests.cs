@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
@@ -10,214 +11,200 @@ using Xunit;
 
 namespace ToolBax.App.Tests;
 
+/// <summary>
+/// Drives the redesigned Dual-Write Map Browser VM (real msdyn_* shape): async load + selection,
+/// search, error banner, and empty state. Backed by fake <see cref="IDualWriteMapReader"/>s.
+/// </summary>
 public class DualWriteMapViewModelTests
 {
-    private static DualWriteMapViewModel MakeVm() => new(new FakeDualWriteMapService());
+    private static DualWriteMapViewModel MakeVm(IDualWriteMapReader? reader = null) =>
+        new(reader ?? new FakeDualWriteMapReader());
 
-    // Holds run/error loads open until released, to exercise rapid map switching.
-    private sealed class GatedMapService : IDualWriteMapService
+    private sealed class ErrorReader : IDualWriteMapReader
     {
-        private readonly FakeDualWriteMapService _inner = new();
-        public readonly TaskCompletionSource Gate = new();
-
-        public IReadOnlyList<DwMapSummary> GetMaps() => _inner.GetMaps();
-
-        public DwMapDetail GetDetail(string mapId) => _inner.GetDetail(mapId);
-
-        public async Task<IReadOnlyList<DwRun>> GetRunsAsync(string mapId, CancellationToken ct = default)
-        {
-            await Gate.Task;
-            return await _inner.GetRunsAsync(mapId, ct);
-        }
-
-        public async Task<IReadOnlyList<DwError>> GetErrorsAsync(string mapId, CancellationToken ct = default)
-        {
-            await Gate.Task;
-            return await _inner.GetErrorsAsync(mapId, ct);
-        }
-
-        public Task<bool> RetryErrorAsync(string mapId, DwError error, CancellationToken ct = default) =>
-            _inner.RetryErrorAsync(mapId, error, ct);
+        private readonly string _error;
+        public ErrorReader(string error) => _error = error;
+        public Task<DwMapLoadResult> GetMapsAsync(CancellationToken ct = default) =>
+            Task.FromResult(DwMapLoadResult.Fail(_error));
     }
 
-    // Seeds errors like the fake, but always rejects a retry.
-    private sealed class RejectingRetryMapService : IDualWriteMapService
+    private sealed class EmptyReader : IDualWriteMapReader
     {
-        private readonly FakeDualWriteMapService _inner = new();
+        public Task<DwMapLoadResult> GetMapsAsync(CancellationToken ct = default) =>
+            Task.FromResult(DwMapLoadResult.Ok(Array.Empty<DwMapRecord>()));
+    }
 
-        public IReadOnlyList<DwMapSummary> GetMaps() => _inner.GetMaps();
+    private sealed class CountingReader : IDualWriteMapReader
+    {
+        public int Calls { get; private set; }
+        public Task<DwMapLoadResult> GetMapsAsync(CancellationToken ct = default)
+        {
+            Calls++;
+            return Task.FromResult(DwMapLoadResult.Ok(Array.Empty<DwMapRecord>()));
+        }
+    }
 
-        public DwMapDetail GetDetail(string mapId) => _inner.GetDetail(mapId);
+    // Returns each queued result in turn (last one repeats), to model successive loads/refreshes.
+    private sealed class SequenceReader : IDualWriteMapReader
+    {
+        private readonly Queue<DwMapLoadResult> _results;
+        public SequenceReader(params DwMapLoadResult[] results) => _results = new Queue<DwMapLoadResult>(results);
+        public Task<DwMapLoadResult> GetMapsAsync(CancellationToken ct = default) =>
+            Task.FromResult(_results.Count > 1 ? _results.Dequeue() : _results.Peek());
+    }
 
-        public Task<IReadOnlyList<DwRun>> GetRunsAsync(string mapId, CancellationToken ct = default) =>
-            _inner.GetRunsAsync(mapId, ct);
+    // Two distinct records (fresh instances each call, so refresh restores by Id, not reference).
+    private static IReadOnlyList<DwMapRecord> TwoMaps() => DualWriteMapParser.ParsePage("""
+        { "value": [
+            { "msdyn_dualwriteentitymapid": "a", "msdyn_name": "alpha", "msdyn_displayname": "Alpha" },
+            { "msdyn_dualwriteentitymapid": "b", "msdyn_name": "beta", "msdyn_displayname": "Beta" } ] }
+        """).Records;
 
-        public Task<IReadOnlyList<DwError>> GetErrorsAsync(string mapId, CancellationToken ct = default) =>
-            _inner.GetErrorsAsync(mapId, ct);
+    [Fact]
+    public void Starts_empty_before_initialize()
+    {
+        var vm = MakeVm();
 
-        public Task<bool> RetryErrorAsync(string mapId, DwError error, CancellationToken ct = default) =>
-            Task.FromResult(false);
+        Assert.Empty(vm.Maps);
+        Assert.Null(vm.DetailMap);
     }
 
     [Fact]
-    public void Maps_are_listed_with_a_default_selection()
+    public async Task Initialize_loads_maps_and_selects_the_first()
     {
         var vm = MakeVm();
+
+        await vm.InitializeCommand.ExecuteAsync(null);
 
         Assert.NotEmpty(vm.Maps);
-        Assert.NotNull(vm.SelectedMap);
+        Assert.True(vm.HasMaps);
+        Assert.NotNull(vm.DetailMap);
+        Assert.True(vm.HasSelection);
+        Assert.False(vm.HasLoadError);
     }
 
     [Fact]
-    public void Selecting_a_detailed_map_loads_bindings_value_maps_and_kpis()
+    public async Task Initialize_only_loads_once()
     {
-        var vm = MakeVm();
+        var counting = new CountingReader();
+        var vm = MakeVm(counting);
 
-        vm.SelectedMap = vm.Maps.Single(m => m.Id == "cust-account");
+        await vm.InitializeCommand.ExecuteAsync(null);
+        await vm.InitializeCommand.ExecuteAsync(null);
 
-        Assert.True(vm.HasBindings);
-        Assert.NotEmpty(vm.Bindings);
-        Assert.Contains(vm.Bindings, b => b.IsKey && b.FoField == "CustomerAccount");
-        Assert.NotEmpty(vm.ValueMaps);
-        Assert.NotEmpty(vm.Activity);
-        Assert.False(string.IsNullOrWhiteSpace(vm.LatencyP95));
+        Assert.Equal(1, counting.Calls);
     }
 
     [Fact]
-    public void Map_without_cached_bindings_shows_an_empty_state()
+    public async Task Refresh_reloads_after_initialize()
     {
-        var vm = MakeVm();
+        var counting = new CountingReader();
+        var vm = MakeVm(counting);
 
-        vm.SelectedMap = vm.Maps.Single(m => m.Id == "vend-account");
+        await vm.InitializeCommand.ExecuteAsync(null);
+        await vm.RefreshCommand.ExecuteAsync(null);
 
-        Assert.False(vm.HasBindings);
-        Assert.Empty(vm.Bindings);
+        Assert.Equal(2, counting.Calls);
     }
 
     [Fact]
-    public void Search_filters_by_fo_or_dv_entity()
+    public async Task Selecting_a_map_exposes_its_legs_fields_and_value_transforms()
     {
         var vm = MakeVm();
+        await vm.InitializeCommand.ExecuteAsync(null);
 
-        vm.Search = "Customers";
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        Assert.NotEmpty(vm.DetailMap!.Legs);
+        Assert.Contains(vm.DetailMap.Fields, f => f.SourceField == "CustomerAccount");
+        Assert.Contains(vm.DetailMap.ValueTransforms, t => t.TransformType == "ValueMap");
+        Assert.Contains(vm.DetailMap.Properties, p => p.Key == "IntegrationKey");
+    }
+
+    [Fact]
+    public async Task Search_filters_by_display_name_or_schema()
+    {
+        var vm = MakeVm();
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        vm.Search = "Vendors";
         Assert.Single(vm.Filtered);
 
-        vm.Search = "account"; // dv "account" on cust-account
-        Assert.NotEmpty(vm.Filtered);
+        vm.Search = "salesorders"; // destination schema of the sales-order map
+        Assert.Single(vm.Filtered);
+
+        vm.Search = "accounts"; // destination schema shared by customer + vendor maps
+        Assert.Equal(2, vm.Filtered.Count());
     }
 
     [Fact]
-    public void Filtering_out_the_selected_map_keeps_the_detail()
+    public async Task Filtering_out_the_selected_map_keeps_the_detail()
     {
         var vm = MakeVm();
-        vm.SelectedMap = vm.Maps.Single(m => m.Id == "cust-account");
-        Assert.True(vm.HasBindings);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
 
         // The ListBox nulls SelectedItem when the current row leaves the filtered set; the detail
         // pane must not be wiped.
         vm.SelectedMap = null;
 
-        Assert.Equal("cust-account", vm.DetailMap!.Id);
-        Assert.True(vm.HasBindings);
-        Assert.NotEmpty(vm.Bindings);
+        Assert.Equal("customersv3_account", vm.DetailMap!.Name);
+        Assert.NotEmpty(vm.DetailMap.Legs);
     }
 
     [Fact]
-    public void Errors_indicator_reflects_the_selected_map_error_count()
+    public async Task A_load_failure_surfaces_an_error_banner()
     {
-        var vm = MakeVm();
+        var vm = MakeVm(new ErrorReader("Couldn't load dual-write maps — Unauthorized."));
 
-        vm.SelectedMap = vm.Maps.Single(m => m.Id == "so-salesorder");
-        Assert.True(vm.HasErrors);
+        await vm.InitializeCommand.ExecuteAsync(null);
 
-        vm.SelectedMap = vm.Maps.Single(m => m.Id == "vend-account");
-        Assert.False(vm.HasErrors);
+        Assert.True(vm.HasLoadError);
+        Assert.Contains("Unauthorized", vm.LoadError);
+        Assert.Empty(vm.Maps);
+        Assert.False(vm.ShowEmptyState);   // an error is shown instead of the empty state
+        Assert.False(vm.ShowSelectPrompt); // …and instead of the "select a map" prompt (no overlap)
     }
 
     [Fact]
-    public async Task Selecting_a_failing_map_loads_runs_and_errors()
+    public async Task A_failed_refresh_keeps_the_previously_loaded_maps()
     {
-        var vm = MakeVm();
-        vm.SelectedMap = vm.Maps.Single(m => m.Id == "so-salesorder");
+        var reader = new SequenceReader(
+            DwMapLoadResult.Ok(TwoMaps()),
+            DwMapLoadResult.Fail("Couldn't load dual-write maps — Unauthorized."));
+        var vm = MakeVm(reader);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        Assert.Equal(2, vm.Maps.Count);
 
-        await vm.LoadHistoryCommand.ExecuteAsync(null);
+        await vm.RefreshCommand.ExecuteAsync(null);
 
-        Assert.True(vm.HasRuns);
-        Assert.NotEmpty(vm.Runs);
-        Assert.True(vm.HasErrorDetails);
-        Assert.NotEmpty(vm.Errors);
-        Assert.False(vm.IsLoadingHistory);
+        Assert.Equal(2, vm.Maps.Count);   // stale-but-useful catalogue retained, not wiped
+        Assert.True(vm.HasLoadError);
+        Assert.NotNull(vm.DetailMap);      // selection retained
     }
 
     [Fact]
-    public async Task Healthy_map_has_runs_but_no_error_details()
+    public async Task Refresh_preserves_the_current_selection_when_still_present()
     {
-        var vm = MakeVm();
-        vm.SelectedMap = vm.Maps.Single(m => m.Id == "vend-account");
+        var reader = new SequenceReader(DwMapLoadResult.Ok(TwoMaps()), DwMapLoadResult.Ok(TwoMaps()));
+        var vm = MakeVm(reader);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Id == "b");
 
-        await vm.LoadHistoryCommand.ExecuteAsync(null);
+        await vm.RefreshCommand.ExecuteAsync(null);
 
-        Assert.True(vm.HasRuns);
-        Assert.False(vm.HasErrorDetails);
-        Assert.Empty(vm.Errors);
+        Assert.Equal("b", vm.DetailMap!.Id); // not reset to the first map
     }
 
     [Fact]
-    public async Task Failing_map_errors_include_a_warning_severity()
+    public async Task A_successful_but_empty_load_shows_the_empty_state()
     {
-        var vm = MakeVm();
-        vm.SelectedMap = vm.Maps.Single(m => m.Id == "so-salesorder");
+        var vm = MakeVm(new EmptyReader());
 
-        await vm.LoadHistoryCommand.ExecuteAsync(null);
+        await vm.InitializeCommand.ExecuteAsync(null);
 
-        Assert.Contains(vm.Errors, e => e.IsWarning);
-        Assert.Contains(vm.Errors, e => e.IsError);
-    }
-
-    [Fact]
-    public async Task Retrying_an_error_removes_it_from_the_list()
-    {
-        var vm = MakeVm();
-        vm.SelectedMap = vm.Maps.Single(m => m.Id == "so-salesorder");
-        await vm.LoadHistoryCommand.ExecuteAsync(null);
-        var before = vm.Errors.Count;
-        var target = vm.Errors.First();
-
-        await vm.RetryErrorCommand.ExecuteAsync(target);
-
-        Assert.DoesNotContain(target, vm.Errors);
-        Assert.Equal(before - 1, vm.Errors.Count);
-        Assert.Contains("accepted", vm.RetryStatus);
-    }
-
-    [Fact]
-    public async Task A_rejected_retry_keeps_the_error_and_reports_it()
-    {
-        var vm = new DualWriteMapViewModel(new RejectingRetryMapService());
-        vm.SelectedMap = vm.Maps.Single(m => m.Id == "so-salesorder");
-        await vm.LoadHistoryCommand.ExecuteAsync(null);
-        var target = vm.Errors.First();
-
-        await vm.RetryErrorCommand.ExecuteAsync(target);
-
-        Assert.Contains(target, vm.Errors); // still present
-        Assert.True(vm.HasErrorDetails);
-        Assert.Contains("rejected", vm.RetryStatus);
-    }
-
-    [Fact]
-    public async Task A_newer_selection_is_not_dropped_while_a_load_is_in_flight()
-    {
-        var svc = new GatedMapService();
-        var vm = new DualWriteMapViewModel(svc); // the first selection's load is gated / in flight
-        var target = vm.Maps.Single(m => m.Id == "so-salesorder");
-
-        vm.SelectedMap = target; // newer selection arrives mid-flight
-
-        svc.Gate.SetResult(); // release both loads
-        await vm.LoadHistoryCommand.ExecutionTask!; // drain the latest load
-
-        Assert.Equal("so-salesorder", vm.DetailMap!.Id);
-        Assert.True(vm.HasRuns); // the newer selection's tabs are populated, not left blank
+        Assert.True(vm.ShowEmptyState);
+        Assert.False(vm.HasLoadError);
+        Assert.False(vm.HasMaps);
     }
 }
