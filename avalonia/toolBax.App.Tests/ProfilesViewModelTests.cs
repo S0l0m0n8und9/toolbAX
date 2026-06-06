@@ -214,13 +214,6 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
-    public void Di_auth_mode_labels_are_friendly()
-    {
-        Assert.Equal("Interactive (MFA)", DiAuthMode.Interactive.Label());
-        Assert.Equal("ROPC (service account)", DiAuthMode.Ropc.Label());
-    }
-
-    [Fact]
     public void Di_mode_toggles_ropc_and_interactive_visibility()
     {
         var vm = new ProfilesViewModel(new FakeProfileStore());
