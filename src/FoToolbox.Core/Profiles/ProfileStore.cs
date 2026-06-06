@@ -245,6 +245,17 @@ WHERE Id = $id;";
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    /// <summary>Removes a stored secret blob by its vault id (no-op if absent). Not DPAPI — plain delete.</summary>
+    public async Task DeleteSecretAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM SecretVault WHERE Id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     public async Task<IReadOnlyList<FoEnvironment>> GetEnvironmentsAsync(CancellationToken cancellationToken = default)
     {
         var list = new List<FoEnvironment>();
