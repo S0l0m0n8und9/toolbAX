@@ -25,21 +25,22 @@ public partial class App : Application
             // seams stay design-mode fakes pending live wiring. Building the stores synchronously here
             // is safe — it runs once at startup before the dispatcher loop begins.
             var window = new MainWindow();
-            var (profileStore, secretStore) = BuildProfileServices();
+            var (profileStore, secretStore, authService) = BuildServices();
             window.DataContext = new ShellViewModel(
                 profileStore: profileStore,
                 secretStore: secretStore,
-                clipboard: new WindowClipboardService(window));
+                clipboard: new WindowClipboardService(window),
+                authService: authService);
             desktop.MainWindow = window;
         }
 
         base.OnFrameworkInitializationCompleted();
     }
 
-    // Profile + secret stores share ONE ProfileService so service-principal reads/writes stay
-    // consistent across them. On a DB failure (locked/corrupt/unreadable) we degrade to in-memory
-    // fakes rather than crash before the window opens.
-    private static (IProfileStore Profiles, ISecretStore Secrets) BuildProfileServices()
+    // Profile + secret + auth services share ONE ProfileService (and, on Windows, one SecretVault) so
+    // service-principal reads/writes stay consistent across them. The DPAPI vault + MSAL auth are
+    // Windows-only; elsewhere (and on a DB failure) we degrade to in-memory fakes rather than crash.
+    private static (IProfileStore Profiles, ISecretStore Secrets, IAuthService Auth) BuildServices()
     {
         try
         {
@@ -47,18 +48,19 @@ public partial class App : Application
             var profiles = new ProfileService(store);
             var profileStore = CoreProfileStore.CreateAsync(profiles).GetAwaiter().GetResult();
 
-            // The DPAPI secret vault is Windows-only; elsewhere fall back to the in-memory fake. Reuse
-            // ProfileStore's connection string (properly escaped, foreign keys on) rather than rebuild it.
-            ISecretStore secretStore = OperatingSystem.IsWindows()
-                ? new CoreSecretStore(profiles, new SecretVaultService(store.ConnectionString))
-                : new FakeSecretStore();
+            if (OperatingSystem.IsWindows())
+            {
+                // Reuse ProfileStore's connection string (escaped, foreign keys on) for the vault.
+                var vault = new SecretVaultService(store.ConnectionString);
+                return (profileStore, new CoreSecretStore(profiles, vault), new CoreAuthService(profiles, vault));
+            }
 
-            return (profileStore, secretStore);
+            return (profileStore, new FakeSecretStore(), new FakeAuthService());
         }
         catch (Exception ex)
         {
             Trace.TraceError($"Profile store unavailable; starting with empty in-memory stores. {ex}");
-            return (new FakeProfileStore(Array.Empty<EnvProfile>()), new FakeSecretStore());
+            return (new FakeProfileStore(Array.Empty<EnvProfile>()), new FakeSecretStore(), new FakeAuthService());
         }
     }
 }
