@@ -27,7 +27,7 @@ public partial class App : Application
             // seams stay design-mode fakes pending live wiring. Building the stores synchronously here
             // is safe — it runs once at startup before the dispatcher loop begins.
             var window = new MainWindow();
-            var (profileStore, secretStore, authService, odataFactory, metadataFactory) = BuildServices();
+            var (profileStore, secretStore, authService, odataFactory, metadataFactory, mapReaderFactory) = BuildServices();
 
             // The OData client + metadata service resolve a token / $metadata for whichever environment
             // is active *at call time*, so they read the shell's ActiveEnvironment through a closure. The
@@ -38,13 +38,15 @@ public partial class App : Application
             Func<EnvProfile?> activeEnv = () => shell?.ActiveEnvironment;
             var odataClient = odataFactory(activeEnv);
             var metadataService = metadataFactory(activeEnv);
+            var mapReader = mapReaderFactory(activeEnv);
             shell = new ShellViewModel(
                 profileStore: profileStore,
                 secretStore: secretStore,
                 clipboard: new WindowClipboardService(window),
                 authService: authService,
                 odataClient: odataClient,
-                metadataService: metadataService);
+                metadataService: metadataService,
+                mapReader: mapReader);
             window.DataContext = shell;
             desktop.MainWindow = window;
         }
@@ -60,7 +62,8 @@ public partial class App : Application
     // with the degraded one — so an offline/non-Windows run still demos without firing real HTTP.
     private static (IProfileStore Profiles, ISecretStore Secrets, IAuthService Auth,
         Func<Func<EnvProfile?>, IODataClient> ODataFactory,
-        Func<Func<EnvProfile?>, IMetadataService> MetadataFactory) BuildServices()
+        Func<Func<EnvProfile?>, IMetadataService> MetadataFactory,
+        Func<Func<EnvProfile?>, IDualWriteMapReader> MapReaderFactory) BuildServices()
     {
         try
         {
@@ -75,17 +78,19 @@ public partial class App : Application
                 var auth = new CoreAuthService(profiles, vault);
                 return (profileStore, new CoreSecretStore(profiles, vault), auth,
                     activeEnv => new CoreODataClient(auth, activeEnv),
-                    activeEnv => CreateMetadataService(store, auth, activeEnv));
+                    activeEnv => CreateMetadataService(store, auth, activeEnv),
+                    activeEnv => new CoreDualWriteMapReader(new CoreDataverseClient(auth, activeEnv)));
             }
 
             return (profileStore, new FakeSecretStore(), new FakeAuthService(),
-                _ => new FakeODataClient(), _ => new FakeMetadataService());
+                _ => new FakeODataClient(), _ => new FakeMetadataService(), _ => new FakeDualWriteMapReader());
         }
         catch (Exception ex)
         {
             Trace.TraceError($"Profile store unavailable; starting with empty in-memory stores. {ex}");
             return (new FakeProfileStore(Array.Empty<EnvProfile>()), new FakeSecretStore(),
-                new FakeAuthService(), _ => new FakeODataClient(), _ => new FakeMetadataService());
+                new FakeAuthService(), _ => new FakeODataClient(), _ => new FakeMetadataService(),
+                _ => new FakeDualWriteMapReader());
         }
     }
 
