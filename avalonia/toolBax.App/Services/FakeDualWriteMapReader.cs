@@ -1,3 +1,4 @@
+using System;
 using System.Threading;
 using System.Threading.Tasks;
 using ToolBax.Core.Models;
@@ -13,10 +14,12 @@ namespace ToolBax.App.Services;
 /// </summary>
 public sealed class FakeDualWriteMapReader : IDualWriteMapReader
 {
-    private static readonly DwMapLoadResult Seed =
-        DwMapLoadResult.Ok(DualWriteMapParser.ParsePage(SeedJson).Records);
+    // Lazy so a (hypothetical) parser/seed-shape break surfaces as a clear exception at first use,
+    // pointing at the seed JSON — not as a TypeInitializationException on every member access.
+    private static readonly Lazy<DwMapLoadResult> Seed =
+        new(() => DwMapLoadResult.Ok(DualWriteMapParser.ParsePage(SeedJson).Records));
 
-    public Task<DwMapLoadResult> GetMapsAsync(CancellationToken ct = default) => Task.FromResult(Seed);
+    public Task<DwMapLoadResult> GetMapsAsync(CancellationToken ct = default) => Task.FromResult(Seed.Value);
 
     private const string SeedJson = """
     {

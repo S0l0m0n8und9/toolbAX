@@ -44,7 +44,7 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         var reason = string.IsNullOrWhiteSpace(response.ReasonPhrase)
             ? $"HTTP {response.StatusCode}"
             : response.ReasonPhrase;
-        var body = response.Body?.Trim();
+        var body = response.Body.Trim();
         if (string.IsNullOrEmpty(body))
         {
             return $"Couldn't load dual-write maps — {reason}.";

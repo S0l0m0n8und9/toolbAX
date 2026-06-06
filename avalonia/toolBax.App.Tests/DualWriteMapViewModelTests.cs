@@ -44,6 +44,22 @@ public class DualWriteMapViewModelTests
         }
     }
 
+    // Returns each queued result in turn (last one repeats), to model successive loads/refreshes.
+    private sealed class SequenceReader : IDualWriteMapReader
+    {
+        private readonly Queue<DwMapLoadResult> _results;
+        public SequenceReader(params DwMapLoadResult[] results) => _results = new Queue<DwMapLoadResult>(results);
+        public Task<DwMapLoadResult> GetMapsAsync(CancellationToken ct = default) =>
+            Task.FromResult(_results.Count > 1 ? _results.Dequeue() : _results.Peek());
+    }
+
+    // Two distinct records (fresh instances each call, so refresh restores by Id, not reference).
+    private static IReadOnlyList<DwMapRecord> TwoMaps() => DualWriteMapParser.ParsePage("""
+        { "value": [
+            { "msdyn_dualwriteentitymapid": "a", "msdyn_name": "alpha", "msdyn_displayname": "Alpha" },
+            { "msdyn_dualwriteentitymapid": "b", "msdyn_name": "beta", "msdyn_displayname": "Beta" } ] }
+        """).Records;
+
     [Fact]
     public void Starts_empty_before_initialize()
     {
@@ -148,6 +164,36 @@ public class DualWriteMapViewModelTests
         Assert.Empty(vm.Maps);
         Assert.False(vm.ShowEmptyState);   // an error is shown instead of the empty state
         Assert.False(vm.ShowSelectPrompt); // …and instead of the "select a map" prompt (no overlap)
+    }
+
+    [Fact]
+    public async Task A_failed_refresh_keeps_the_previously_loaded_maps()
+    {
+        var reader = new SequenceReader(
+            DwMapLoadResult.Ok(TwoMaps()),
+            DwMapLoadResult.Fail("Couldn't load dual-write maps — Unauthorized."));
+        var vm = MakeVm(reader);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        Assert.Equal(2, vm.Maps.Count);
+
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, vm.Maps.Count);   // stale-but-useful catalogue retained, not wiped
+        Assert.True(vm.HasLoadError);
+        Assert.NotNull(vm.DetailMap);      // selection retained
+    }
+
+    [Fact]
+    public async Task Refresh_preserves_the_current_selection_when_still_present()
+    {
+        var reader = new SequenceReader(DwMapLoadResult.Ok(TwoMaps()), DwMapLoadResult.Ok(TwoMaps()));
+        var vm = MakeVm(reader);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Id == "b");
+
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Equal("b", vm.DetailMap!.Id); // not reset to the first map
     }
 
     [Fact]

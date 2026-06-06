@@ -104,27 +104,33 @@ public partial class DualWriteMapViewModel : ObservableObject
         {
             var result = await _reader.GetMapsAsync(ct);
 
-            Maps.Clear();
             if (result.IsSuccess)
             {
+                // Preserve the inspected map across a refresh when it's still present (by id), so a
+                // reload doesn't yank the user back to the first row.
+                var previousId = DetailMap?.Id;
+
+                Maps.Clear();
                 foreach (var map in result.Maps)
                 {
                     Maps.Add(map);
                 }
 
                 LoadError = string.Empty;
+                _loaded = true;
+                OnPropertyChanged(nameof(Filtered));
+                OnPropertyChanged(nameof(HasMaps));
+
+                DetailMap = (previousId is not null ? Maps.FirstOrDefault(m => m.Id == previousId) : null)
+                    ?? Maps.FirstOrDefault();
+                SelectedMap = DetailMap;
             }
             else
             {
+                // A failed load (e.g. expired token) keeps the stale-but-useful catalogue + selection
+                // and just shows the error banner, rather than wiping the list.
                 LoadError = result.Error ?? "Couldn't load dual-write maps.";
             }
-
-            _loaded = true;
-            OnPropertyChanged(nameof(Filtered));
-            OnPropertyChanged(nameof(HasMaps));
-
-            DetailMap = Maps.FirstOrDefault();
-            SelectedMap = DetailMap;
         }
         catch (OperationCanceledException)
         {
