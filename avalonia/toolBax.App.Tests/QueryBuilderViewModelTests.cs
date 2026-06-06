@@ -120,7 +120,7 @@ public class QueryBuilderViewModelTests
 
         var csv = QueryCsv.Build(columns, rows);
 
-        Assert.Equal("Name,Note\n\"Acme, Inc.\",\"say \"\"hi\"\"\"", csv);
+        Assert.Equal("Name,Note\r\n\"Acme, Inc.\",\"say \"\"hi\"\"\"", csv);
     }
 
     [Theory]
@@ -132,7 +132,7 @@ public class QueryBuilderViewModelTests
     {
         var rows = new[] { new QueryResultRow(new Dictionary<string, string> { ["C"] = dangerous }) };
 
-        var cell = QueryCsv.Build(new[] { "C" }, rows).Split('\n')[1];
+        var cell = QueryCsv.Build(new[] { "C" }, rows).Split("\r\n")[1];
 
         // Quoted and apostrophe-prefixed so a spreadsheet treats it as literal text.
         Assert.Equal($"\"'{dangerous}\"", cell);
@@ -150,9 +150,10 @@ public class QueryBuilderViewModelTests
         await vm.ExportCsvCommand.ExecuteAsync(null);
 
         Assert.NotNull(clipboard.LastText);
-        var lines = clipboard.LastText!.Split('\n');
-        Assert.Equal(string.Join(",", vm.ResultColumns), lines[0]); // header
-        Assert.Equal(vm.ResultRows.Count + 1, lines.Length);        // header + one line per row
+        var lines = clipboard.LastText!.Split("\r\n");
+        // Header matches the escaped builder output (invariant to column escaping).
+        Assert.Equal(QueryCsv.Build(vm.ResultColumns, Enumerable.Empty<QueryResultRow>()), lines[0]);
+        Assert.Equal(vm.ResultRows.Count + 1, lines.Length); // header + one line per row
         Assert.Contains("CSV", vm.StatusText);
     }
 

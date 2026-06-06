@@ -14,7 +14,7 @@ public static class QueryCsv
         sb.Append(string.Join(",", columns.Select(Escape)));
         foreach (var row in rows)
         {
-            sb.Append('\n');
+            sb.Append("\r\n"); // RFC 4180 record terminator
             sb.Append(string.Join(",", columns.Select(c => Escape(row[c]))));
         }
 
