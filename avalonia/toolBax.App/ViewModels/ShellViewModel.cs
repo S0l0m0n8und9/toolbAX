@@ -27,6 +27,7 @@ public partial class ShellViewModel : ObservableObject
     private readonly Func<object> _operationsContentFactory;
     private readonly IProfileStore _profileStore;
     private readonly ISecretStore _secretStore;
+    private readonly IInteractiveAuthBroker _authBroker;
     private object? _operationsContent;
     private object? _profilesContent;
     private object? _metadataContent;
@@ -58,13 +59,16 @@ public partial class ShellViewModel : ObservableObject
     public ShellViewModel(
         Func<object>? operationsContentFactory = null,
         IProfileStore? profileStore = null,
-        ISecretStore? secretStore = null)
+        ISecretStore? secretStore = null,
+        IInteractiveAuthBroker? authBroker = null)
     {
         _operationsContentFactory = operationsContentFactory ?? DefaultOperationsContent;
         _profileStore = profileStore ?? new FakeProfileStore();
-        // TODO: design-mode FakeSecretStore — swap for the DPAPI-backed store once the live services
-        // are wired (the whole app currently runs on in-memory fakes).
+        // TODO: design-mode fakes — swap the secret store (DPAPI) + interactive broker (WebView2) for
+        // the real Windows implementations once the live services are wired (the whole app currently
+        // runs on in-memory fakes).
         _secretStore = secretStore ?? new FakeSecretStore();
+        _authBroker = authBroker ?? new FakeInteractiveAuthBroker();
 
         Tools = new[]
         {
@@ -137,7 +141,7 @@ public partial class ShellViewModel : ObservableObject
     // environment switcher in sync.
     private ProfilesViewModel CreateProfilesContent()
     {
-        var profiles = new ProfilesViewModel(_profileStore, _secretStore);
+        var profiles = new ProfilesViewModel(_profileStore, _secretStore, _authBroker);
         profiles.ActiveChanged += id =>
         {
             var match = Environments.FirstOrDefault(e => e.Id == id);

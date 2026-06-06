@@ -11,6 +11,16 @@ public enum EnvStatus
 }
 
 /// <summary>
+/// How the (always delegated, never app-only) Data Integrator token is acquired. ROPC uses a stored
+/// service-account credential and fails under MFA (AADSTS50076); Interactive uses a browser sign-in.
+/// </summary>
+public enum DiAuthMode
+{
+    Interactive,
+    Ropc,
+}
+
+/// <summary>
 /// An F&amp;O environment profile. Shared by the shell's environment switcher and the Profiles screen.
 /// (Auth/Dataverse/Data-Integrator detail lands with the auth tabs; persistence is via
 /// <see cref="ToolBax.Core.Services.IProfileStore"/>.)
@@ -24,7 +34,9 @@ public sealed record EnvProfile(
     string Tier,
     EnvStatus Status,
     int? LatencyMs = null,
-    string? DataverseUrl = null)
+    string? DataverseUrl = null,
+    string? DataIntegratorClientId = null,
+    DiAuthMode DataIntegratorMode = DiAuthMode.Interactive)
 {
 
     /// <summary>List-item subtitle, e.g. "USMF · Tier 1".</summary>
