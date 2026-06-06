@@ -98,6 +98,22 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
+    public void Save_raises_profile_saved_with_the_updated_profile()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+        EnvProfile? saved = null;
+        vm.ProfileSaved += p => saved = p;
+
+        vm.DraftName = "Renamed";
+        vm.SaveCommand.Execute(null);
+
+        Assert.NotNull(saved);
+        Assert.Equal("uat-eur", saved!.Id);
+        Assert.Equal("Renamed", saved.Name);
+    }
+
+    [Fact]
     public void Reselecting_discards_uncommitted_edits()
     {
         var vm = new ProfilesViewModel(new FakeProfileStore());
