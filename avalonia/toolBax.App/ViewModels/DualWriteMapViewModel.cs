@@ -313,7 +313,9 @@ public partial class DualWriteMapViewModel : ObservableObject
         // A stale "Exported to …" message shouldn't linger once a different map is inspected.
         ExportStatus = string.Empty;
 
-        // Rebuild the (un-counted) row-count rows for the newly inspected map.
+        // Stop any in-flight count before mutating the collection it iterates, then rebuild the
+        // (un-counted) row-count rows for the newly inspected map.
+        CountCeRowsCommand.Cancel();
         CountRows.Clear();
         if (value is not null)
         {
@@ -329,19 +331,36 @@ public partial class DualWriteMapViewModel : ObservableObject
     [RelayCommand(IncludeCancelCommand = true)]
     private async Task CountCeRows(CancellationToken ct)
     {
-        foreach (var row in CountRows)
+        // Snapshot before any await: a map change rebuilds CountRows on the UI thread, which would
+        // otherwise invalidate a live enumerator mid-iteration.
+        var rows = CountRows.ToList();
+        try
         {
-            row.CeStatus = "Counting…";
-            var filter = string.IsNullOrWhiteSpace(row.CeFilter) ? null : row.CeFilter;
-            var result = await _reader.GetCeRowCountAsync(row.DestinationSchema, filter, ct);
-            if (result.IsSuccess)
+            foreach (var row in rows)
             {
-                row.CeCount = result.Count;
-                row.CeStatus = string.Empty;
+                row.CeStatus = "Counting…";
+                var filter = string.IsNullOrWhiteSpace(row.CeFilter) ? null : row.CeFilter;
+                var result = await _reader.GetCeRowCountAsync(row.DestinationSchema, filter, ct);
+                if (result.IsSuccess)
+                {
+                    row.CeCount = result.Count;
+                    row.CeStatus = string.Empty;
+                }
+                else
+                {
+                    row.CeStatus = result.Error ?? "Count failed.";
+                }
             }
-            else
+        }
+        catch (OperationCanceledException)
+        {
+            // Clear any "Counting…" placeholders left on rows that hadn't finished.
+            foreach (var row in rows)
             {
-                row.CeStatus = result.Error ?? "Count failed.";
+                if (row.CeStatus == "Counting…")
+                {
+                    row.CeStatus = string.Empty;
+                }
             }
         }
     }

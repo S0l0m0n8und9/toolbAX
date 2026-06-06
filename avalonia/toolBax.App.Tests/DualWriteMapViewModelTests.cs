@@ -63,6 +63,21 @@ public class DualWriteMapViewModelTests
         public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) => Task.FromResult(DwCountResult.Ok(0));
     }
 
+    // Gates GetCeRowCountAsync so a map switch can be interleaved with an in-flight count.
+    private sealed class GatedCountReader : IDualWriteMapReader
+    {
+        private readonly FakeDualWriteMapReader _inner = new();
+        public TaskCompletionSource Gate { get; } = new();
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            _inner.GetMapsAsync(solutionUniqueName, ct);
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => _inner.GetSolutionsAsync(ct);
+        public async Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default)
+        {
+            await Gate.Task.WaitAsync(ct);
+            return DwCountResult.Ok(5);
+        }
+    }
+
     // Holds each map load open on a per-call gate, so overlapping reloads can be orchestrated.
     private sealed class GatedReader : IDualWriteMapReader
     {
@@ -356,6 +371,21 @@ public class DualWriteMapViewModelTests
         vm.SelectedMap = vm.Maps.Single(m => m.Name == "vendorsv2_account");
 
         Assert.Equal(string.Empty, vm.ExportStatus);
+    }
+
+    [Fact]
+    public async Task Switching_maps_during_a_count_does_not_crash()
+    {
+        var reader = new GatedCountReader();
+        var vm = new DualWriteMapViewModel(reader);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        var counting = vm.CountCeRowsCommand.ExecuteAsync(null);              // begins, awaits the gate
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "vendorsv2_account");  // clears + rebuilds CountRows mid-count
+        reader.Gate.SetResult();
+
+        await counting; // must not throw (no "collection modified during enumeration")
     }
 
     [Fact]
