@@ -23,8 +23,10 @@ public sealed record EnvProfile(
     string Legal,
     string Tier,
     EnvStatus Status,
-    int? LatencyMs = null)
+    int? LatencyMs = null,
+    string? DataverseUrl = null)
 {
+
     /// <summary>List-item subtitle, e.g. "USMF · Tier 1".</summary>
     public string Subtitle => $"{Legal} · {Tier}";
 
