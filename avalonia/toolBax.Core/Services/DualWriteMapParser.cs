@@ -48,6 +48,21 @@ public static class DualWriteMapParser
         return $"{entitySet}?{query}";
     }
 
+    /// <summary>
+    /// The F&amp;O OData path for a cross-company row count of <paramref name="entity"/> with an optional
+    /// OData <paramref name="odataFilter"/> (<c>/data/{entity}?$top=1&amp;$count=true&amp;cross-company=true</c>).
+    /// </summary>
+    public static string FoCountPath(string entity, string? odataFilter)
+    {
+        var query = "$top=1&$count=true&cross-company=true";
+        if (!string.IsNullOrWhiteSpace(odataFilter))
+        {
+            query += $"&$filter={Uri.EscapeDataString(odataFilter)}";
+        }
+
+        return $"/data/{entity}?{query}";
+    }
+
     /// <summary>Extracts the <c>@odata.count</c> from a response body (null if absent/unparseable).</summary>
     public static long? ParseCount(string? json)
     {

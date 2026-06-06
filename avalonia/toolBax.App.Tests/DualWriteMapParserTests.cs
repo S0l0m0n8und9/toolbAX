@@ -174,6 +174,17 @@ public class DualWriteMapParserTests
         Assert.Contains(System.Uri.EscapeDataString("accounttype eq 'vendor'"), filtered);
     }
 
+    [Fact]
+    public void FoCountPath_is_a_cross_company_data_count()
+    {
+        Assert.Equal("/data/Customers?$top=1&$count=true&cross-company=true",
+            DualWriteMapParser.FoCountPath("Customers", null));
+
+        var filtered = DualWriteMapParser.FoCountPath("Customers", "CustomerGroupId eq 'DOM'");
+        Assert.StartsWith("/data/Customers?$top=1&$count=true&cross-company=true&$filter=", filtered);
+        Assert.Contains(System.Uri.EscapeDataString("CustomerGroupId eq 'DOM'"), filtered);
+    }
+
     [Theory]
     [InlineData("{\"@odata.count\":42,\"value\":[]}", 42L)]
     [InlineData("{\"@odata.count\":\"7\",\"value\":[]}", 7L)]
