@@ -40,7 +40,7 @@ public sealed class CoreProfileStore : IProfileStore
         }
 
         var activeId = await profiles.GetDefaultEnvironmentIdAsync(ct).ConfigureAwait(false);
-        return new CoreProfileStore(profiles, cache, activeId);
+        return new CoreProfileStore(profiles, cache, string.IsNullOrEmpty(activeId) ? null : activeId);
     }
 
     /// <summary>Builds a store over the default on-disk profile database (%LocalAppData%/FoToolbox).</summary>
@@ -55,10 +55,8 @@ public sealed class CoreProfileStore : IProfileStore
         set
         {
             _activeId = value;
-            if (value is not null)
-            {
-                RunBlocking(() => _profiles.SetDefaultEnvironmentAsync(value));
-            }
+            // Persist the cleared state too: an empty default-env id reads back as "none active".
+            RunBlocking(() => _profiles.SetDefaultEnvironmentAsync(value ?? string.Empty));
         }
     }
 
@@ -71,11 +69,10 @@ public sealed class CoreProfileStore : IProfileStore
             profile.Tenant,
             string.IsNullOrWhiteSpace(profile.Legal) ? null : profile.Legal)));
 
-        if (!string.IsNullOrWhiteSpace(profile.DataverseUrl))
-        {
-            RunBlocking(() => _profiles.UpsertDataverseEnvironmentAsync(
-                new DataverseEnvironment(profile.Id, profile.DataverseUrl!, profile.Tenant)));
-        }
+        // Always upsert the linked Dataverse env (stored as columns on the environment row): a blank
+        // URL clears CeBaseUrl to NULL, so clearing the Dataverse link persists rather than lingering.
+        RunBlocking(() => _profiles.UpsertDataverseEnvironmentAsync(
+            new DataverseEnvironment(profile.Id, profile.DataverseUrl ?? string.Empty, profile.Tenant)));
 
         var index = _cache.FindIndex(p => p.Id == profile.Id);
         if (index >= 0)
@@ -97,7 +94,7 @@ public sealed class CoreProfileStore : IProfileStore
         Tier: string.Empty,
         Status: EnvStatus.Disconnected, // a connection test sets the live status (later wiring)
         LatencyMs: null,
-        DataverseUrl: dataverseUrl);
+        DataverseUrl: string.IsNullOrWhiteSpace(dataverseUrl) ? null : dataverseUrl);
 
     // The IProfileStore contract is synchronous but persistence is async; run it on the thread pool
     // to bridge without risking a UI-thread sync-context deadlock. SQLite writes are sub-millisecond.

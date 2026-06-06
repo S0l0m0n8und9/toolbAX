@@ -95,6 +95,40 @@ public sealed class CoreProfileStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Clearing_dataverse_url_persists_as_no_link()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var seed = NewService();
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "One", "https://one", "t", null), ct);
+        await seed.UpsertDataverseEnvironmentAsync(new DataverseEnvironment("env1", "https://ce.example", "t"), ct);
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        Assert.Equal("https://ce.example", store.GetAll().Single().DataverseUrl);
+
+        store.Save(store.GetAll().Single() with { DataverseUrl = null });
+
+        var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
+        Assert.Null(reopened.GetAll().Single().DataverseUrl); // stale row not resurrected
+    }
+
+    [Fact]
+    public async Task Clearing_active_id_persists_as_none_active()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var seed = NewService();
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "One", "https://one", "t", null), ct);
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        store.ActiveId = "env1";
+
+        store.ActiveId = null;
+
+        Assert.Null(store.ActiveId);
+        var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
+        Assert.Null(reopened.ActiveId); // not silently restored from the DB
+    }
+
+    [Fact]
     public async Task Empty_database_yields_no_profiles()
     {
         var store = await CoreProfileStore.CreateAsync(NewService(), TestContext.Current.CancellationToken);
