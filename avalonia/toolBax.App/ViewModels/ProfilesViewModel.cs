@@ -70,6 +70,13 @@ public partial class ProfilesViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(DataverseWebApi))]
     private string _draftDataverseUrl = string.Empty;
 
+    // Dataverse service-principal (app-only) drafts — a separate app reg from F&O.
+    [ObservableProperty]
+    private string _draftDataverseClientId = string.Empty;
+
+    [ObservableProperty]
+    private FoAuthMode _draftDataverseAuthMode = FoAuthMode.ClientSecret;
+
     // F&O service-principal (app-only) drafts.
     [ObservableProperty]
     private string _draftClientId = string.Empty;
@@ -142,6 +149,8 @@ public partial class ProfilesViewModel : ObservableObject
         DraftLegal = profile?.Legal ?? string.Empty;
         DraftTier = profile?.Tier ?? string.Empty;
         DraftDataverseUrl = profile?.DataverseUrl ?? string.Empty;
+        DraftDataverseClientId = profile?.DataverseClientId ?? string.Empty;
+        DraftDataverseAuthMode = profile?.DataverseAuthMode ?? FoAuthMode.ClientSecret;
         DraftClientId = profile?.ClientId ?? string.Empty;
         DraftAuthMode = profile?.AuthMode ?? FoAuthMode.ClientSecret;
         DraftDiClientId = profile?.DataIntegratorClientId ?? string.Empty;
@@ -364,6 +373,8 @@ public partial class ProfilesViewModel : ObservableObject
             Legal = DraftLegal,
             Tier = DraftTier,
             DataverseUrl = string.IsNullOrWhiteSpace(DraftDataverseUrl) ? null : DraftDataverseUrl,
+            DataverseClientId = string.IsNullOrWhiteSpace(DraftDataverseClientId) ? null : DraftDataverseClientId,
+            DataverseAuthMode = DraftDataverseAuthMode,
             DataIntegratorClientId = string.IsNullOrWhiteSpace(DraftDiClientId) ? null : DraftDiClientId,
             DataIntegratorMode = DraftDiMode,
             ClientId = string.IsNullOrWhiteSpace(DraftClientId) ? null : DraftClientId,

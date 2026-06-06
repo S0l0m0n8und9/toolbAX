@@ -277,6 +277,28 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
+    public void Dataverse_service_principal_drafts_persist_and_reload()
+    {
+        var store = new FakeProfileStore();
+        var vm = new ProfilesViewModel(store);
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+
+        vm.DraftDataverseClientId = "dv-client-xyz";
+        vm.DraftDataverseAuthMode = FoAuthMode.Certificate;
+        vm.SaveCommand.Execute(null);
+
+        var saved = store.GetAll().Single(p => p.Id == "uat-eur");
+        Assert.Equal("dv-client-xyz", saved.DataverseClientId);
+        Assert.Equal(FoAuthMode.Certificate, saved.DataverseAuthMode);
+
+        // Reselect away and back: drafts reload from the saved profile.
+        vm.Selected = vm.Profiles.Single(p => p.Id == "dev-usmf");
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+        Assert.Equal("dv-client-xyz", vm.DraftDataverseClientId);
+        Assert.Equal(FoAuthMode.Certificate, vm.DraftDataverseAuthMode);
+    }
+
+    [Fact]
     public void Dataverse_web_api_is_derived_from_the_edited_url()
     {
         var vm = new ProfilesViewModel(new FakeProfileStore());
