@@ -52,4 +52,26 @@ public class DualWriteMapViewRenderTests
             window.Close();
         }
     }
+
+    [AvaloniaFact]
+    public void Runs_tab_realises_a_populated_runs_grid()
+    {
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapService());
+        var (view, window) = Show(vm);
+        try
+        {
+            // History loads on the default selection; surface the Runs tab and confirm its grid binds.
+            var tabs = view.GetVisualDescendants().OfType<TabControl>().First();
+            tabs.SelectedIndex = 2;
+            Dispatcher.UIThread.RunJobs();
+
+            var runsGrid = view.GetVisualDescendants().OfType<DataGrid>().First(g => g.Name == "RunsGrid");
+            Assert.Same(vm.Runs, runsGrid.ItemsSource);
+            Assert.NotEmpty(vm.Runs);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
 }

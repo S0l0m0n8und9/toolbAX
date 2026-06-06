@@ -2,7 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 
@@ -21,6 +24,8 @@ public partial class DualWriteMapViewModel : ObservableObject
     public ObservableCollection<DwMapSummary> Maps { get; }
     public ObservableCollection<DwBinding> Bindings { get; } = new();
     public ObservableCollection<DwValueMap> ValueMaps { get; } = new();
+    public ObservableCollection<DwRun> Runs { get; } = new();
+    public ObservableCollection<DwError> Errors { get; } = new();
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Filtered))]
@@ -45,6 +50,9 @@ public partial class DualWriteMapViewModel : ObservableObject
     [ObservableProperty]
     private IReadOnlyList<double> _activity = Array.Empty<double>();
 
+    [ObservableProperty]
+    private bool _isLoadingHistory;
+
     public DualWriteMapViewModel(IDualWriteMapService service)
     {
         _service = service;
@@ -60,6 +68,10 @@ public partial class DualWriteMapViewModel : ObservableObject
                 m.DvEntity.Contains(Search, StringComparison.OrdinalIgnoreCase));
 
     public bool HasValueMaps => ValueMaps.Count > 0;
+
+    public bool HasRuns => Runs.Count > 0;
+
+    public bool HasErrorDetails => Errors.Count > 0;
 
     public bool HasErrors => DetailMap?.HasErrors ?? false;
 
@@ -81,6 +93,60 @@ public partial class DualWriteMapViewModel : ObservableObject
         LoadDetail(value);
         OnPropertyChanged(nameof(HasErrors));
         OnPropertyChanged(nameof(NotCachedMessage));
+
+        Runs.Clear();
+        Errors.Clear();
+        OnPropertyChanged(nameof(HasRuns));
+        OnPropertyChanged(nameof(HasErrorDetails));
+
+        // Cancel the now-stale in-flight load (so a real endpoint doesn't keep a dead request
+        // running) before starting the new one.
+        LoadHistoryCommand.Cancel();
+        LoadHistoryCommand.Execute(null);
+    }
+
+    // Runs + errors come from live (async) run-history / dead-letter endpoints, so they load
+    // separately from the cached template detail. AllowConcurrentExecutions keeps a newer selection
+    // from being gated by an in-flight load; the stale-id guard is the sole arbiter of what applies.
+    [RelayCommand(AllowConcurrentExecutions = true)]
+    private async Task LoadHistory(CancellationToken ct)
+    {
+        var map = DetailMap;
+        if (map is null)
+        {
+            return;
+        }
+
+        IsLoadingHistory = true;
+        try
+        {
+            var runs = await _service.GetRunsAsync(map.Id, ct);
+            var errors = await _service.GetErrorsAsync(map.Id, ct);
+
+            if (DetailMap?.Id != map.Id)
+            {
+                return; // selection moved on; let the newer load win.
+            }
+
+            Runs.Clear();
+            foreach (var run in runs)
+            {
+                Runs.Add(run);
+            }
+
+            Errors.Clear();
+            foreach (var error in errors)
+            {
+                Errors.Add(error);
+            }
+
+            OnPropertyChanged(nameof(HasRuns));
+            OnPropertyChanged(nameof(HasErrorDetails));
+        }
+        finally
+        {
+            IsLoadingHistory = false;
+        }
     }
 
     private void LoadDetail(DwMapSummary? summary)
