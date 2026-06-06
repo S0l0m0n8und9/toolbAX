@@ -23,6 +23,11 @@ public sealed class CoreAuthService : IAuthService
     private readonly SecretVaultService _vault;
     private readonly string _authorityBase;
 
+    // Stable across calls (the SP is supplied per acquisition via the credential callback), so the
+    // MSAL provider/auth object graph is reused rather than rebuilt each Test-connection.
+    private MsalTokenProvider? _provider;
+    private AuthService? _auth;
+
     public CoreAuthService(ProfileService profiles, SecretVaultService vault,
         string authorityBase = "https://login.microsoftonline.com")
     {
@@ -40,12 +45,12 @@ public sealed class CoreAuthService : IAuthService
             throw new InvalidOperationException("No client secret is stored for this environment.");
         }
 
-        var provider = new MsalTokenProvider(_authorityBase, ResolveCredentialAsync);
-        var auth = new AuthService(provider);
+        _provider ??= new MsalTokenProvider(_authorityBase, ResolveCredentialAsync);
+        _auth ??= new AuthService(_provider);
         var foEnv = new FoEnvironment(env.Id, env.Name, env.Url, env.Tenant,
             string.IsNullOrWhiteSpace(env.Legal) ? null : env.Legal);
 
-        return await auth.AcquireTokenAsync(foEnv, sp, ct).ConfigureAwait(false);
+        return await _auth.AcquireTokenAsync(foEnv, sp, ct).ConfigureAwait(false);
     }
 
     private async Task<ClientCredential> ResolveCredentialAsync(ServicePrincipal sp, CancellationToken ct)
@@ -53,6 +58,11 @@ public sealed class CoreAuthService : IAuthService
         if (sp.AuthMode == AuthMode.Certificate)
         {
             throw new NotSupportedException("Certificate auth is not yet wired in the Avalonia host; use a client secret.");
+        }
+
+        if (sp.AuthMode != AuthMode.ClientSecret)
+        {
+            throw new NotSupportedException($"Auth mode '{sp.AuthMode}' is not supported for the client-credentials flow.");
         }
 
         var secret = await _vault.ReadSecretAsync<string>(sp.SecretRef!, ct).ConfigureAwait(false)
