@@ -29,9 +29,11 @@ public partial class App : Application
 
             // The OData client mints a token for whichever environment is active *at send time*, so it
             // reads the shell's ActiveEnvironment through a closure. The shell is assigned below before
-            // any send can fire (the user must navigate + click), so capturing it here is safe.
-            ShellViewModel shell = null!;
-            var odataClient = odataFactory(() => shell.ActiveEnvironment);
+            // any send can fire (the user must navigate + click). `shell` stays genuinely nullable and
+            // the closure null-conditional, so even an unexpected eager evaluation yields a graceful
+            // "no active environment" response rather than a NullReferenceException.
+            ShellViewModel? shell = null;
+            var odataClient = odataFactory(() => shell?.ActiveEnvironment);
             shell = new ShellViewModel(
                 profileStore: profileStore,
                 secretStore: secretStore,

@@ -16,16 +16,20 @@ namespace ToolBax.App.Services;
 /// HTTP error) are returned as a non-2xx <see cref="ODataResponse"/> rather than thrown, so the POST
 /// Builder / Query Builder surface them in their status line.
 /// </summary>
-public sealed class CoreODataClient : IODataClient
+public sealed class CoreODataClient : IODataClient, IDisposable
 {
     private readonly IAuthService _auth;
     private readonly Func<EnvProfile?> _activeEnv;
     private readonly HttpClient _http;
+    // We own (and therefore must dispose) the HttpClient only when we allocated it; an injected one
+    // belongs to the caller. Guards a future multi-instance refactor from exhausting sockets.
+    private readonly bool _ownsHttp;
 
     public CoreODataClient(IAuthService auth, Func<EnvProfile?> activeEnv, HttpClient? http = null)
     {
         _auth = auth;
         _activeEnv = activeEnv;
+        _ownsHttp = http is null;
         _http = http ?? new HttpClient();
     }
 
@@ -55,7 +59,7 @@ public sealed class CoreODataClient : IODataClient
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-            var verb = (method ?? string.Empty).Trim().ToUpperInvariant();
+            var verb = method.Trim().ToUpperInvariant();
             if (body is not null && verb is "POST" or "PATCH" or "PUT")
             {
                 request.Content = new StringContent(body, Encoding.UTF8, "application/json");
@@ -77,5 +81,13 @@ public sealed class CoreODataClient : IODataClient
     {
         var baseUrl = envUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? envUrl : $"https://{envUrl}";
         return new Uri($"{baseUrl.TrimEnd('/')}/{path.TrimStart('/')}");
+    }
+
+    public void Dispose()
+    {
+        if (_ownsHttp)
+        {
+            _http.Dispose();
+        }
     }
 }
