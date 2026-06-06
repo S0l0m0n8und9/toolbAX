@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using ToolBax.App.Services;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 
@@ -22,6 +23,7 @@ namespace ToolBax.App.ViewModels;
 public partial class DualWriteMapViewModel : ObservableObject
 {
     private readonly IDualWriteMapReader _reader;
+    private readonly IFileSaveService _fileSave;
     private bool _loaded;
     private bool _suppressReload;          // guards the initial selection setup from triggering reloads
     private int _activeLoads;              // overlapping reloads in flight; the last to finish clears IsLoading
@@ -49,7 +51,12 @@ public partial class DualWriteMapViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelection))]
     [NotifyPropertyChangedFor(nameof(ShowSelectPrompt))]
+    [NotifyCanExecuteChangedFor(nameof(ExportMarkdownCommand))]
     private DwMapRecord? _detailMap;
+
+    /// <summary>Outcome of the last Markdown export (empty until one is attempted).</summary>
+    [ObservableProperty]
+    private string _exportStatus = string.Empty;
 
     [ObservableProperty]
     private DwSolution? _selectedSolution;
@@ -69,7 +76,11 @@ public partial class DualWriteMapViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(ShowSelectPrompt))]
     private string _loadError = string.Empty;
 
-    public DualWriteMapViewModel(IDualWriteMapReader reader) => _reader = reader;
+    public DualWriteMapViewModel(IDualWriteMapReader reader, IFileSaveService? fileSave = null)
+    {
+        _reader = reader;
+        _fileSave = fileSave ?? new FakeFileSaveService();
+    }
 
     public IEnumerable<DwMapRecord> Filtered =>
         string.IsNullOrWhiteSpace(Search) ? Maps : Maps.Where(Matches);
@@ -114,6 +125,22 @@ public partial class DualWriteMapViewModel : ObservableObject
     // concurrent + cancellable so a newer filter selection isn't gated by an in-flight load.
     [RelayCommand(IncludeCancelCommand = true, AllowConcurrentExecutions = true)]
     private async Task ReloadMaps(CancellationToken ct) => await LoadMapsAsync(ct);
+
+    // Exports the inspected map to a Markdown file (the screen's one "write" — to disk, not Dataverse).
+    [RelayCommand(CanExecute = nameof(HasSelection))]
+    private async Task ExportMarkdown(CancellationToken ct)
+    {
+        var map = DetailMap;
+        if (map is null)
+        {
+            return;
+        }
+
+        var markdown = DualWriteMapMarkdownExporter.Export(map);
+        var fileName = DualWriteMapMarkdownExporter.SuggestedFileName(map);
+        var path = await _fileSave.SaveTextAsync(fileName, markdown, ct);
+        ExportStatus = path is null ? "Export cancelled." : $"Exported to {path}";
+    }
 
     private async Task LoadSolutionsAsync(CancellationToken ct)
     {
@@ -277,4 +304,7 @@ public partial class DualWriteMapViewModel : ObservableObject
             DetailMap = value;
         }
     }
+
+    // A stale "Exported to …" message shouldn't linger once a different map is inspected.
+    partial void OnDetailMapChanged(DwMapRecord? value) => ExportStatus = string.Empty;
 }
