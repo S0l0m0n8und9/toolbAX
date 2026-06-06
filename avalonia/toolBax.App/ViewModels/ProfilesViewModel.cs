@@ -4,6 +4,7 @@ using System.Collections.ObjectModel;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using ToolBax.App.Services;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 
@@ -17,6 +18,7 @@ namespace ToolBax.App.ViewModels;
 public partial class ProfilesViewModel : ObservableObject
 {
     private readonly IProfileStore _store;
+    private readonly ISecretStore _secrets;
 
     public ObservableCollection<EnvProfile> Profiles { get; }
 
@@ -26,7 +28,12 @@ public partial class ProfilesViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsSelectedActive))]
+    [NotifyPropertyChangedFor(nameof(HasSecret))]
     private EnvProfile? _selected;
+
+    /// <summary>The Auth-tab client-secret entry. Write-only: stored on save, never loaded back.</summary>
+    [ObservableProperty]
+    private string _secretInput = string.Empty;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsSelectedActive))]
@@ -52,16 +59,21 @@ public partial class ProfilesViewModel : ObservableObject
     [ObservableProperty]
     private string _draftTier = string.Empty;
 
-    public ProfilesViewModel(IProfileStore store)
+    public ProfilesViewModel(IProfileStore store, ISecretStore? secrets = null)
     {
         _store = store;
+        _secrets = secrets ?? new FakeSecretStore();
         Profiles = new ObservableCollection<EnvProfile>(store.GetAll());
         _activeId = store.ActiveId;
         _selected = Profiles.FirstOrDefault(p => p.Id == _activeId) ?? Profiles.FirstOrDefault();
         LoadDrafts(_selected);
     }
 
-    partial void OnSelectedChanged(EnvProfile? value) => LoadDrafts(value);
+    partial void OnSelectedChanged(EnvProfile? value)
+    {
+        LoadDrafts(value);
+        SecretInput = string.Empty; // never carry an entry across environments
+    }
 
     private void LoadDrafts(EnvProfile? profile)
     {
@@ -81,8 +93,38 @@ public partial class ProfilesViewModel : ObservableObject
 
     public bool IsSelectedActive => Selected is not null && Selected.Id == ActiveId;
 
+    /// <summary>Whether the selected environment has a client secret stored (Auth tab).</summary>
+    public bool HasSecret => Selected is not null && _secrets.HasSecret(Selected.Id);
+
     /// <summary>Raised when the active profile changes, so the shell's switcher can stay in sync.</summary>
     public event Action<string>? ActiveChanged;
+
+    [RelayCommand]
+    private void SaveSecret()
+    {
+        if (Selected is null || string.IsNullOrEmpty(SecretInput))
+        {
+            return;
+        }
+
+        _secrets.SetSecret(Selected.Id, SecretInput);
+        SecretInput = string.Empty; // don't keep plaintext around after it's protected
+        OnPropertyChanged(nameof(HasSecret));
+        Status = $"Secret stored for '{Selected.Name}'.";
+    }
+
+    [RelayCommand]
+    private void ClearSecret()
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        _secrets.ClearSecret(Selected.Id);
+        OnPropertyChanged(nameof(HasSecret));
+        Status = $"Secret cleared for '{Selected.Name}'.";
+    }
 
     [RelayCommand]
     private void SetActive()
