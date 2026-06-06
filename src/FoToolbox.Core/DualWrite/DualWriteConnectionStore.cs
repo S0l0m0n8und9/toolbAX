@@ -31,6 +31,12 @@ public sealed class DualWriteConnectionStore
     private bool _loaded;
     private Dictionary<string, DualWriteConnectionRecord> _items = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <param name="path">Override the on-disk connection file path (defaults under %LocalAppData%).</param>
+    /// <param name="protector">
+    /// Token-at-rest protector. Optional <b>on Windows</b> (defaults to DPAPI). On non-Windows it is
+    /// <b>required</b>: the constructor throws <see cref="PlatformNotSupportedException"/> when null
+    /// rather than persist tokens in plaintext.
+    /// </param>
     public DualWriteConnectionStore(string? path = null, ITokenProtector? protector = null)
     {
         _path = string.IsNullOrWhiteSpace(path)
