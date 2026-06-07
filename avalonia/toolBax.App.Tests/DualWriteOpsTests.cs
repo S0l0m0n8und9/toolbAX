@@ -164,6 +164,21 @@ public class DualWriteOpsTests
     }
 
     [Fact]
+    public async Task A_refresh_failure_does_not_clobber_a_successful_action()
+    {
+        // Load = GetMaps call 1 (ok); the post-action refresh = call 2 (throws).
+        var connector = new FakeDualWriteConnector(failGetMapsOnCall: 2);
+        var vm = MakeVm(connector, confirm: true);
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.First().IsSelected = true;
+
+        await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+
+        Assert.Contains("completed", vm.Status, StringComparison.OrdinalIgnoreCase); // action result stands
+        Assert.DoesNotContain("failed", vm.Status, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task An_action_polls_until_the_request_is_terminal()
     {
         var connector = new FakeDualWriteConnector(pollsBeforeTerminal: 3);

@@ -44,12 +44,15 @@ public partial class DualWriteOpsViewModel : ObservableObject
         new OpsAction("Initial sync", DualWriteActionType.InitialSync, Danger: true, Caveat: "Initial sync re-synchronises all data and can be long-running."),
     };
 
-    // Named actions so each command-bar button binds RunActionCommand with its own parameter.
-    public OpsAction StartAction => Actions[0];
-    public OpsAction StopAction => Actions[1];
-    public OpsAction PauseAction => Actions[2];
-    public OpsAction ResumeAction => Actions[3];
-    public OpsAction InitialAction => Actions[4];
+    // Named actions so each command-bar button binds RunActionCommand with its own parameter. Looked up
+    // by type (not index) so reordering the Actions list can't silently swap which button does what.
+    public OpsAction StartAction => Action(DualWriteActionType.Start);
+    public OpsAction StopAction => Action(DualWriteActionType.Stop);
+    public OpsAction PauseAction => Action(DualWriteActionType.Pause);
+    public OpsAction ResumeAction => Action(DualWriteActionType.Resume);
+    public OpsAction InitialAction => Action(DualWriteActionType.InitialSync);
+
+    private OpsAction Action(DualWriteActionType type) => Actions.Single(a => a.Type == type);
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(LoadCommand))]
@@ -191,10 +194,19 @@ public partial class DualWriteOpsViewModel : ObservableObject
                 ? $"{action.Label} completed."
                 : $"{action.Label} failed: {final?.Message ?? final?.State ?? "unknown"}.";
 
-            // Refresh the maps to pick up their new states, preserving the user's selection.
-            var keep = targets.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
-            var refreshed = await session.Gateway.GetMapsAsync(session.Cid, ct);
-            PopulateMaps(refreshed, keep);
+            // Refresh the maps to pick up their new states, preserving the user's selection. A refresh
+            // failure must NOT overwrite the action result above (the action still happened), so it's
+            // caught separately — the grid just keeps its pre-refresh display.
+            try
+            {
+                var keep = targets.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+                var refreshed = await session.Gateway.GetMapsAsync(session.Cid, ct);
+                PopulateMaps(refreshed, keep);
+            }
+            catch (Exception)
+            {
+                Status += " (map list could not refresh)";
+            }
         }
         catch (OperationCanceledException)
         {

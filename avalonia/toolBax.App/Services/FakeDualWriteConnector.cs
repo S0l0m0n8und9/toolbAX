@@ -23,10 +23,13 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
     /// <summary>The gateway handed out by the last successful connect (for asserting on actions).</summary>
     public FakeCoreDualWriteGateway? LastGateway { get; private set; }
 
-    public FakeDualWriteConnector(IReadOnlyList<DualWriteMap>? maps = null, int pollsBeforeTerminal = 0)
+    private readonly int _failGetMapsOnCall;
+
+    public FakeDualWriteConnector(IReadOnlyList<DualWriteMap>? maps = null, int pollsBeforeTerminal = 0, int failGetMapsOnCall = 0)
     {
         _maps = maps;
         _pollsBeforeTerminal = pollsBeforeTerminal;
+        _failGetMapsOnCall = failGetMapsOnCall;
     }
 
     private FakeDualWriteConnector(Exception failWith) => _failWith = failWith;
@@ -46,7 +49,7 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
             return Task.FromException<DualWriteSession>(_failWith);
         }
 
-        var gateway = new FakeCoreDualWriteGateway(_maps ?? SeedMaps(), _pollsBeforeTerminal);
+        var gateway = new FakeCoreDualWriteGateway(_maps ?? SeedMaps(), _pollsBeforeTerminal, _failGetMapsOnCall);
         LastGateway = gateway;
         return Task.FromResult(new DualWriteSession(gateway, "fake-cid", "Contoso (AUMF · APAC Prod)"));
     }
@@ -85,23 +88,35 @@ public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
 {
     private readonly List<DualWriteMap> _maps;
     private readonly int _pollsBeforeTerminal;
+    private readonly int _failGetMapsOnCall;
     private readonly Dictionary<string, int> _pending = new();
     private int _requestSeq;
+    private int _getMapsCalls;
 
     /// <summary>Number of <see cref="StartActionAsync"/> calls — lets tests assert no silent mutation.</summary>
     public int StartCount { get; private set; }
 
-    public FakeCoreDualWriteGateway(IReadOnlyList<DualWriteMap> maps, int pollsBeforeTerminal = 0)
+    public FakeCoreDualWriteGateway(IReadOnlyList<DualWriteMap> maps, int pollsBeforeTerminal = 0, int failGetMapsOnCall = 0)
     {
         _maps = maps.ToList();
         _pollsBeforeTerminal = pollsBeforeTerminal;
+        _failGetMapsOnCall = failGetMapsOnCall;
     }
 
     public Task<DualWriteEnvironment> GetEnvironmentAsync(string foIdentifier, CancellationToken cancellationToken = default)
         => Task.FromResult(new DualWriteEnvironment("fake-cid", "Contoso (AUMF · APAC Prod)", foIdentifier));
 
     public Task<IReadOnlyList<DualWriteMap>> GetMapsAsync(string cid, CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<DualWriteMap>>(_maps.ToList());
+    {
+        // Optionally fail a specific call (e.g. the post-action refresh = call 2) to exercise the
+        // refresh-failure path without clobbering an action result.
+        if (++_getMapsCalls == _failGetMapsOnCall)
+        {
+            throw new InvalidOperationException("map refresh failed");
+        }
+
+        return Task.FromResult<IReadOnlyList<DualWriteMap>>(_maps.ToList());
+    }
 
     public Task<DualWriteActionResponse> StartActionAsync(DualWriteActionType action, IReadOnlyList<DualWriteMap> maps, string cid, CancellationToken cancellationToken = default)
     {
