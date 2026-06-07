@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -33,7 +34,11 @@ public sealed class CoreODataClient : IODataClient, IDisposable
         _http = http ?? new HttpClient();
     }
 
-    public async Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
+    public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
+        => SendAsync(method, path, body, headers: null, ct);
+
+    public async Task<ODataResponse> SendAsync(string method, string path, string? body,
+        IReadOnlyDictionary<string, string>? headers, CancellationToken ct = default)
     {
         var sw = Stopwatch.StartNew();
 
@@ -68,6 +73,16 @@ public sealed class CoreODataClient : IODataClient, IDisposable
             using var request = new HttpRequestMessage(new HttpMethod(method), uri);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+
+            if (headers is not null)
+            {
+                foreach (var header in headers)
+                {
+                    // TryAddWithoutValidation: callers may pass header values OData allows but
+                    // HttpClient's strict parser would reject (e.g. a weak ETag for If-Match).
+                    request.Headers.TryAddWithoutValidation(header.Key, header.Value);
+                }
+            }
 
             var verb = method.Trim().ToUpperInvariant();
             if (body is not null && verb is "POST" or "PATCH" or "PUT")

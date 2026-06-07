@@ -38,7 +38,19 @@ public partial class PostBuilderViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(RequestUrl))]
+    [NotifyPropertyChangedFor(nameof(ShowIfMatch))]
     private string _method = "POST";
+
+    /// <summary>Send an <c>If-Match</c> header on PATCH/DELETE (optimistic concurrency).</summary>
+    [ObservableProperty]
+    private bool _useIfMatch;
+
+    /// <summary>The <c>If-Match</c> value — "*" (any version) or a specific ETag.</summary>
+    [ObservableProperty]
+    private string _ifMatch = "*";
+
+    /// <summary>If-Match only applies to PATCH/DELETE; the view shows the controls only then.</summary>
+    public bool ShowIfMatch => IsKeyedMethod(Method);
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(RequestUrl))]
@@ -387,6 +399,12 @@ public partial class PostBuilderViewModel : ObservableObject
     // in raw mode the user owns the body, so there's nothing to gate on.
     private bool CanSend() => !(UseFieldGrid && HasPayloadIssues);
 
+    // The If-Match header for a PATCH/DELETE when enabled (optimistic concurrency); null otherwise.
+    private IReadOnlyDictionary<string, string>? BuildHeaders() =>
+        UseIfMatch && IsKeyedMethod(Method) && !string.IsNullOrWhiteSpace(IfMatch)
+            ? new Dictionary<string, string> { ["If-Match"] = IfMatch.Trim() }
+            : null;
+
     // IncludeCancelCommand: surfaces SendCancelCommand and lets the generated AsyncRelayCommand carry
     // the token's lifecycle, so an in-flight send can be cancelled on navigate-away/shutdown.
     [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanSend))]
@@ -397,7 +415,7 @@ public partial class PostBuilderViewModel : ObservableObject
         try
         {
             var body = string.Equals(Method, "DELETE", StringComparison.OrdinalIgnoreCase) ? null : RequestBody;
-            var response = await _client.SendAsync(Method, EffectivePath(), body, ct);
+            var response = await _client.SendAsync(Method, EffectivePath(), body, BuildHeaders(), ct);
             StatusText = response.StatusLine;
             StatusBadge = $"{response.StatusCode} {response.ReasonPhrase}";
             SendSucceeded = response.IsSuccess;
