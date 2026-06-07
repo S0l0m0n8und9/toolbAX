@@ -298,6 +298,50 @@ public class PostBuilderViewModelTests
     }
 
     [Fact]
+    public void Fake_metadata_exposes_enum_members()
+    {
+        var meta = new FakeMetadataService();
+
+        Assert.Equal(new[] { "No", "Yes" }, meta.GetEnumMembers("NoYes"));
+        Assert.Equal(new[] { "No", "Yes" }, meta.GetEnumMembers("noyes")); // case-insensitive, like the real service
+        Assert.Null(meta.GetEnumMembers("NotAnEnum"));
+    }
+
+    [Fact]
+    public void Post_field_row_bool_value_round_trips_to_the_string_value()
+    {
+        var row = new PostFieldRow("B", "Boolean", mandatory: false, isKey: false, include: true,
+            PostFieldEditor.Bool, Array.Empty<string>());
+
+        row.BoolValue = true;
+        Assert.Equal("true", row.Value);
+        row.BoolValue = false;
+        Assert.Equal("false", row.Value);
+        row.BoolValue = null;
+        Assert.Equal(string.Empty, row.Value);
+
+        row.Value = "true"; // external (payload-rebuild) writes flow back to the checkbox
+        Assert.True(row.BoolValue);
+    }
+
+    [Fact]
+    public void Grid_rows_get_the_right_editor_kind_and_enum_members()
+    {
+        var vm = MakeGridVm();
+        vm.Method = "PATCH";
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        var enumRow = vm.Fields.Single(f => f.Name == "IsOneTime"); // Enum<NoYes>
+        Assert.Equal(PostFieldEditor.Enum, enumRow.Editor);
+        Assert.Equal(new[] { "No", "Yes" }, enumRow.EnumMembers);
+
+        var textRow = vm.Fields.Single(f => f.Name == "OrganizationName"); // String
+        Assert.Equal(PostFieldEditor.Text, textRow.Editor);
+        Assert.Empty(textRow.EnumMembers);
+    }
+
+    [Fact]
     public void Mapper_treats_keys_and_non_nullable_fields_as_mandatory()
     {
         Assert.True(PostPayloadMapper.ToProperty(new EntityField("k", "String", Nullable: true, IsKey: true)).Mandatory);

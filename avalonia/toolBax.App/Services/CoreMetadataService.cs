@@ -28,6 +28,9 @@ public sealed class CoreMetadataService : IMetadataService
     // What's been fetched so far; the getters read these without blocking.
     private volatile IReadOnlyList<EntitySet> _entities = Array.Empty<EntitySet>();
     private readonly ConcurrentDictionary<string, IReadOnlyList<EntityField>> _fields = new(StringComparer.OrdinalIgnoreCase);
+    // Enum type → members, populated from the entity index ($metadata enums); drives enum cell editors.
+    private volatile IReadOnlyDictionary<string, IReadOnlyList<string>> _enums =
+        new Dictionary<string, IReadOnlyList<string>>();
 
     public CoreMetadataService(ICatalogService catalog, Func<EnvProfile?> activeEnv)
     {
@@ -39,6 +42,9 @@ public sealed class CoreMetadataService : IMetadataService
 
     public IReadOnlyList<EntityField>? GetFields(string entityName) =>
         _fields.TryGetValue(entityName, out var fields) ? fields : null;
+
+    public IReadOnlyList<string>? GetEnumMembers(string enumType) =>
+        _enums.TryGetValue(enumType, out var members) ? members : null;
 
     public async Task LoadEntitiesAsync(CancellationToken ct = default)
     {
@@ -53,7 +59,19 @@ public sealed class CoreMetadataService : IMetadataService
             .OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
             .Select(e => new EntitySet(e.Name, Module: string.Empty, FieldCount: e.PropertyCount, Pk: string.Empty, CompanyAware: false, Tag: "odata"))
             .ToList();
+
+        // Key enums by their short local name, matching MapType's collapse of an enum property's type,
+        // so GetEnumMembers(field.EnumType) resolves.
+        var enums = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var e in index.Enums)
+        {
+            enums[LocalName(e.Name)] = e.Members;
+        }
+        _enums = enums;
     }
+
+    private static string LocalName(string typeName) =>
+        string.IsNullOrEmpty(typeName) ? typeName : typeName[(typeName.LastIndexOf('.') + 1)..];
 
     public async Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default)
     {
