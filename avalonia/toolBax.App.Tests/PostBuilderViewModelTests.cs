@@ -119,6 +119,79 @@ public class PostBuilderViewModelTests
     }
 
     [Fact]
+    public void Grid_patch_targets_the_record_via_a_composite_key_predicate()
+    {
+        var vm = MakeGridVm();
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.Method = "PATCH";
+
+        vm.Fields.Single(f => f.Name == "dataAreaId").Value = "USMF";
+        vm.Fields.Single(f => f.Name == "CustomerAccount").Value = "US-001";
+
+        Assert.Contains("/data/CustomersV3(dataAreaId='USMF',CustomerAccount='US-001')", vm.RequestUrl);
+    }
+
+    [Fact]
+    public void Grid_post_targets_the_collection_without_a_key_predicate()
+    {
+        var vm = MakeGridVm();
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.Method = "POST";
+        vm.Fields.Single(f => f.Name == "dataAreaId").Value = "USMF";
+
+        Assert.Contains("/data/CustomersV3", vm.RequestUrl);
+        Assert.DoesNotContain("(dataAreaId=", vm.RequestUrl);
+    }
+
+    [Fact]
+    public void Grid_patch_omits_the_predicate_until_every_key_value_is_present()
+    {
+        var vm = MakeGridVm();
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.Method = "PATCH";
+        vm.Fields.Single(f => f.Name == "dataAreaId").Value = "USMF"; // CustomerAccount still blank
+
+        Assert.DoesNotContain("(dataAreaId=", vm.RequestUrl); // incomplete key → no partial predicate
+    }
+
+    [Fact]
+    public void Grid_patch_body_excludes_key_fields()
+    {
+        var vm = MakeGridVm();
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.Method = "PATCH";
+        vm.Fields.Single(f => f.Name == "dataAreaId").Value = "USMF";
+        vm.Fields.Single(f => f.Name == "CustomerAccount").Value = "US-1";
+        var org = vm.Fields.Single(f => f.Name == "OrganizationName");
+        org.Include = true;
+        org.Value = "Acme";
+
+        Assert.Contains("OrganizationName", vm.RequestBody);
+        Assert.DoesNotContain("dataAreaId", vm.RequestBody);     // keys live in the URL predicate, not the body
+        Assert.DoesNotContain("CustomerAccount", vm.RequestBody);
+    }
+
+    [Fact]
+    public async Task Grid_delete_sends_to_the_keyed_url()
+    {
+        var recorder = new RecordingODataClient();
+        var vm = new PostBuilderViewModel(recorder, metadata: new FakeMetadataService());
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.Method = "DELETE";
+        vm.Fields.Single(f => f.Name == "dataAreaId").Value = "USMF";
+        vm.Fields.Single(f => f.Name == "CustomerAccount").Value = "US-1";
+
+        await vm.SendCommand.ExecuteAsync(null);
+
+        Assert.Equal("/data/CustomersV3(dataAreaId='USMF',CustomerAccount='US-1')", recorder.LastPath);
+    }
+
+    [Fact]
     public async Task Send_sets_the_success_badge()
     {
         var vm = MakeVm();
