@@ -111,4 +111,53 @@ public class MetadataViewModelTests
         Assert.Equal("Enum<NoYes>", vm.Fields.Single(f => f.Name == "IsOneTime").TypeDisplay);
         Assert.Equal("Decimal(32)", vm.Fields.Single(f => f.Name == "CreditLimit").TypeDisplay);
     }
+
+    [Fact]
+    public void Property_search_filters_the_field_grid_case_insensitively()
+    {
+        var vm = MakeVm();
+        vm.Selected = vm.Entities.Single(e => e.Name == "CustomersV3");
+        Assert.Equal(vm.Fields.Count, vm.FilteredFields.Count); // unfiltered initially
+
+        vm.FieldSearch = "DATE";
+
+        Assert.All(vm.FilteredFields, f => Assert.Contains("date", f.Name, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(vm.FilteredFields, f => f.Name == "CreatedDateTime");
+        Assert.DoesNotContain(vm.FilteredFields, f => f.Name == "OrganizationName");
+    }
+
+    [Fact]
+    public void Property_search_reapplies_when_the_entity_changes()
+    {
+        var vm = MakeVm();
+        // Move off the default selection (CustomersV3) to an entity with no cached fields, set a search,
+        // then switch back — so selecting CustomersV3 is a real change that fires OnSelectedChanged.
+        vm.Selected = vm.Entities.Single(e => e.Name == "VendorsV2");
+        vm.FieldSearch = "name";
+        Assert.Empty(vm.FilteredFields); // VendorsV2 has no cached fields
+
+        vm.Selected = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        Assert.NotEmpty(vm.FilteredFields);
+        Assert.All(vm.FilteredFields, f => Assert.Contains("name", f.Name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Field_metadata_exposes_mandatory_precision_scale_and_range()
+    {
+        var vm = MakeVm();
+        vm.Selected = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        var credit = vm.Fields.Single(f => f.Name == "CreditLimit");
+        Assert.Equal("32/4", credit.PrecisionScale);
+        Assert.Equal("0 .. 9999999", credit.Range);
+
+        Assert.True(vm.Fields.Single(f => f.Name == "CurrencyCode").Mandatory);
+        Assert.False(vm.Fields.Single(f => f.Name == "OrganizationName").Mandatory);
+
+        // No precision/range info → blank cells (not "—/—" noise).
+        var name = vm.Fields.Single(f => f.Name == "OrganizationName");
+        Assert.Equal(string.Empty, name.PrecisionScale);
+        Assert.Equal(string.Empty, name.Range);
+    }
 }

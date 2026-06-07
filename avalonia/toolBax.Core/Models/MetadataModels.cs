@@ -17,7 +17,11 @@ public sealed record EntityField(
     bool IsKey = false,
     int? Length = null,
     int? Precision = null,
-    string? EnumType = null)
+    string? EnumType = null,
+    bool Mandatory = false,
+    int? Scale = null,
+    string? MinValue = null,
+    string? MaxValue = null)
 {
     /// <summary>Human type, e.g. "Enum&lt;NoYes&gt;", "String(20)", "Decimal(32)", "DateTime".</summary>
     public string TypeDisplay => Type switch
@@ -27,4 +31,17 @@ public sealed record EntityField(
         "Decimal" when Precision.HasValue => $"Decimal({Precision})",
         _ => Type,
     };
+
+    /// <summary>Max length as text for the grid ("" when not applicable).</summary>
+    public string MaxLengthDisplay => Length?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
+
+    /// <summary>"precision/scale" (e.g. "32/4"), or "" when neither is known.</summary>
+    public string PrecisionScale => Precision is null && Scale is null
+        ? string.Empty
+        : $"{Precision?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "—"}/{Scale?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "—"}";
+
+    /// <summary>"min .. max" (e.g. "0 .. 9999999"), or "" when neither bound is known.</summary>
+    public string Range => MinValue is null && MaxValue is null
+        ? string.Empty
+        : $"{MinValue ?? "—"} .. {MaxValue ?? "—"}";
 }

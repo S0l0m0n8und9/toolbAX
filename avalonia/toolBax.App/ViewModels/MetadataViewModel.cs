@@ -23,9 +23,17 @@ public partial class MetadataViewModel : ObservableObject
     public ObservableCollection<EntitySet> Entities { get; }
     public ObservableCollection<EntityField> Fields { get; } = new();
 
+    /// <summary>The property rows as shown, after applying <see cref="FieldSearch"/>. The grid binds to
+    /// this; <see cref="Fields"/> stays the full master.</summary>
+    public ObservableCollection<EntityField> FilteredFields { get; } = new();
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Filtered))]
     private string _search = string.Empty;
+
+    /// <summary>Case-insensitive substring filter over the selected entity's property names/types.</summary>
+    [ObservableProperty]
+    private string _fieldSearch = string.Empty;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelection))]
@@ -111,6 +119,9 @@ public partial class MetadataViewModel : ObservableObject
         LoadSelectedFieldsCommand.Execute(null);   // then fetch from $metadata if not cached yet
     }
 
+    // The property search only re-filters what's displayed; Fields stays the master.
+    partial void OnFieldSearchChanged(string value) => RefreshFieldFilter();
+
     private void LoadFields()
     {
         Fields.Clear();
@@ -124,6 +135,24 @@ public partial class MetadataViewModel : ObservableObject
             }
         }
 
+        RefreshFieldFilter();
         OnPropertyChanged(nameof(NotCachedMessage));
+    }
+
+    // Rebuilds FilteredFields from Fields applying the (trimmed, case-insensitive) FieldSearch over the
+    // property name and type.
+    private void RefreshFieldFilter()
+    {
+        var term = FieldSearch.Trim();
+        FilteredFields.Clear();
+        foreach (var f in Fields)
+        {
+            if (term.Length == 0
+                || f.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || f.TypeDisplay.Contains(term, StringComparison.OrdinalIgnoreCase))
+            {
+                FilteredFields.Add(f);
+            }
+        }
     }
 }

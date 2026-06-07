@@ -118,7 +118,11 @@ public sealed class CoreMetadataService : IMetadataService
             IsKey: p.IsKey,
             Length: ParseInt(p.MaxLength),
             Precision: ParseInt(p.Precision),
-            EnumType: enumType);
+            EnumType: enumType,
+            Mandatory: p.Mandatory,
+            Scale: ParseInt(p.Scale),
+            MinValue: p.MinValue,
+            MaxValue: p.MaxValue);
     }
 
     private static (string Type, string? EnumType) MapType(string edmType)
