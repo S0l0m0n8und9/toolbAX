@@ -352,17 +352,34 @@ public partial class PostBuilderViewModel : ObservableObject
         var enforceMandatory = string.Equals(Method, "POST", StringComparison.OrdinalIgnoreCase);
 
         var result = ODataPayloadBuilder.BuildPayloadJson(entity, values, enforceMandatory: enforceMandatory);
-        if (result.Ok)
+        var issues = new List<string>(result.Issues);
+
+        // A keyed write must target a specific record. Since the keys are excluded from the body, an
+        // incomplete key would otherwise produce a request with the record identity in neither the URL
+        // nor the body — so flag it (which disables Send via CanSend) until every key value is present.
+        // (Uses the already-fetched fields + the grid rows; no extra metadata lookup.)
+        if (keyedMethod)
+        {
+            var keyNames = fields.Where(f => f.IsKey).Select(f => f.Name).ToList();
+            var keyIncomplete = keyNames.Any(kn =>
+                string.IsNullOrEmpty(Fields.FirstOrDefault(r => string.Equals(r.Name, kn, StringComparison.Ordinal))?.Value?.Trim()));
+            if (keyNames.Count > 0 && keyIncomplete)
+            {
+                issues.Add($"Enter all key values ({string.Join(", ", keyNames)}) to target the record for {Method}.");
+            }
+        }
+
+        if (issues.Count == 0)
         {
             RequestBody = result.Json!;
             PayloadIssues = string.Empty;
         }
         else
         {
-            // Clear the body so a stale (previously-built or default) payload can't be sent while the
-            // grid is invalid; Send is also disabled via CanSend while there are payload issues.
-            RequestBody = string.Empty;
-            PayloadIssues = string.Join(Environment.NewLine, result.Issues);
+            // Keep a valid body visible when the only problem is an incomplete key (the body itself is
+            // fine); otherwise clear it so a stale/default payload can't be sent while the grid is invalid.
+            RequestBody = result.Ok ? result.Json! : string.Empty;
+            PayloadIssues = string.Join(Environment.NewLine, issues);
         }
     }
 

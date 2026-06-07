@@ -314,9 +314,32 @@ public class PostBuilderViewModelTests
         Assert.True(vm.HasPayloadIssues);
         Assert.Contains("mandatory", vm.PayloadIssues, StringComparison.OrdinalIgnoreCase);
 
-        // PATCH relaxes mandatory enforcement, so the same selection becomes valid.
+        // PATCH relaxes mandatory enforcement; with the key values supplied (to target the record) the
+        // same selection becomes valid.
         vm.Method = "PATCH";
+        vm.Fields.Single(f => f.Name == "dataAreaId").Value = "USMF";
+        vm.Fields.Single(f => f.Name == "CustomerAccount").Value = "US-1";
         Assert.False(vm.HasPayloadIssues);
+    }
+
+    [Fact]
+    public void Keyed_write_with_an_incomplete_key_is_flagged_and_send_is_blocked()
+    {
+        var vm = MakeGridVm();
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.Method = "PATCH";
+        vm.Fields.Single(f => f.Name == "dataAreaId").Value = "USMF"; // CustomerAccount still blank
+
+        // The record is identified by neither a complete URL predicate nor the (key-excluded) body,
+        // so the keyed write is flagged and Send is disabled until every key value is present.
+        Assert.True(vm.HasPayloadIssues);
+        Assert.Contains("key", vm.PayloadIssues, StringComparison.OrdinalIgnoreCase);
+        Assert.False(vm.SendCommand.CanExecute(null));
+
+        vm.Fields.Single(f => f.Name == "CustomerAccount").Value = "US-1";
+        Assert.False(vm.HasPayloadIssues);
+        Assert.True(vm.SendCommand.CanExecute(null));
     }
 
     [Fact]
@@ -356,7 +379,9 @@ public class PostBuilderViewModelTests
         Assert.Equal(string.Empty, vm.RequestBody);    // no stale body left behind to send
         Assert.False(vm.SendCommand.CanExecute(null));  // Send is disabled while the payload is invalid
 
-        vm.Method = "PATCH";                            // PATCH relaxes mandatory → valid again
+        vm.Method = "PATCH";                            // PATCH relaxes mandatory…
+        vm.Fields.Single(f => f.Name == "dataAreaId").Value = "USMF";       // …and the keys target the record
+        vm.Fields.Single(f => f.Name == "CustomerAccount").Value = "US-1";
 
         Assert.False(vm.HasPayloadIssues);
         Assert.True(vm.SendCommand.CanExecute(null));
