@@ -94,6 +94,7 @@ public partial class PostBuilderViewModel : ObservableObject
         {
             StatusText = "Request failed.";
             SendSucceeded = false;
+            StatusBadge = string.Empty;
             ResponseBody = ex.Message;
         }
         finally
