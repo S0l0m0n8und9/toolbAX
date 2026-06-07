@@ -225,6 +225,10 @@ public class PostBuilderViewModelTests
         Assert.True(vm.HasResponseHeaders);
         Assert.Contains("OData-EntityId: https://x/data/E(1)", vm.ResponseHeaders);
         Assert.Contains("ETag: W/\"9\"", vm.ResponseHeaders);
+        // Sorted by name: ETag precedes OData-EntityId.
+        Assert.StartsWith("ETag: W/\"9\"", vm.ResponseHeaders);
+        Assert.True(vm.ResponseHeaders.IndexOf("ETag:", StringComparison.Ordinal)
+            < vm.ResponseHeaders.IndexOf("OData-EntityId:", StringComparison.Ordinal));
     }
 
     [Fact]
