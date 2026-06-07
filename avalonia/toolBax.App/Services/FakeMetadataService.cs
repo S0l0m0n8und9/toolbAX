@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -46,12 +47,14 @@ public sealed class FakeMetadataService : IMetadataService
     };
 
     // Enum members for the enum types referenced by the seeded fields (drives the POST Builder's
-    // enum-dropdown cell editors).
-    private static readonly Dictionary<string, IReadOnlyList<string>> Enums = new()
-    {
-        ["NoYes"] = new[] { "No", "Yes" },
-        ["CustVendorBlocked"] = new[] { "No", "Yes", "Invoice", "All" },
-    };
+    // enum-dropdown cell editors). Case-insensitive to match CoreMetadataService._enums, so the fake
+    // resolves enum types the same way the real service does.
+    private static readonly Dictionary<string, IReadOnlyList<string>> Enums =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["NoYes"] = new[] { "No", "Yes" },
+            ["CustVendorBlocked"] = new[] { "No", "Yes", "Invoice", "All" },
+        };
 
     public IReadOnlyList<EntitySet> GetEntities() => Entities;
 

@@ -303,6 +303,7 @@ public class PostBuilderViewModelTests
         var meta = new FakeMetadataService();
 
         Assert.Equal(new[] { "No", "Yes" }, meta.GetEnumMembers("NoYes"));
+        Assert.Equal(new[] { "No", "Yes" }, meta.GetEnumMembers("noyes")); // case-insensitive, like the real service
         Assert.Null(meta.GetEnumMembers("NotAnEnum"));
     }
 
