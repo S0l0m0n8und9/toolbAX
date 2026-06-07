@@ -35,7 +35,7 @@
     </Border>
 
     <!-- Detail -->
-    <Grid Grid.Column="1" Margin="24,16" RowDefinitions="Auto,*"
+    <Grid Grid.Column="1" Margin="24,16" RowDefinitions="Auto,Auto,*"
           IsVisible="{Binding HasSelection}">
 
       <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,12">
@@ -48,21 +48,30 @@
                    Text="{Binding Selected.Pk, StringFormat='pk: {0}'}" />
       </StackPanel>
 
+      <!-- Property search (when cached) -->
+      <TextBox Grid.Row="1" IsVisible="{Binding IsCached}" Width="280" HorizontalAlignment="Left"
+               Margin="0,0,0,8" Text="{Binding FieldSearch, Mode=TwoWay}"
+               PlaceholderText="Search properties…" />
+
       <!-- Property table when cached -->
-      <DataGrid Grid.Row="1" x:Name="FieldsGrid"
+      <DataGrid Grid.Row="2" x:Name="FieldsGrid"
                 IsVisible="{Binding IsCached}"
-                ItemsSource="{Binding Fields}" IsReadOnly="True"
+                ItemsSource="{Binding FilteredFields}" IsReadOnly="True"
                 GridLinesVisibility="Horizontal" Background="{StaticResource Layer1Brush}">
         <DataGrid.Columns>
           <DataGridTextColumn Header="Property" Binding="{Binding Name}" Width="2*" />
           <DataGridTextColumn Header="Type" Binding="{Binding TypeDisplay}" Width="*" />
           <DataGridTextColumn Header="Key" Binding="{Binding IsKey}" Width="Auto" />
+          <DataGridTextColumn Header="Mandatory" Binding="{Binding Mandatory}" Width="Auto" />
           <DataGridTextColumn Header="Nullable" Binding="{Binding Nullable}" Width="Auto" />
+          <DataGridTextColumn Header="Max Len" Binding="{Binding MaxLengthDisplay}" Width="Auto" />
+          <DataGridTextColumn Header="Prec/Scale" Binding="{Binding PrecisionScale}" Width="Auto" />
+          <DataGridTextColumn Header="Range" Binding="{Binding Range}" Width="*" />
         </DataGrid.Columns>
       </DataGrid>
 
       <!-- Not-cached hint -->
-      <Border Grid.Row="1" VerticalAlignment="Top"
+      <Border Grid.Row="2" VerticalAlignment="Top"
               IsVisible="{Binding !IsCached}"
               Background="{StaticResource InfoBgBrush}"
               BorderBrush="{StaticResource InfoBrush}" BorderThickness="1" CornerRadius="8"
