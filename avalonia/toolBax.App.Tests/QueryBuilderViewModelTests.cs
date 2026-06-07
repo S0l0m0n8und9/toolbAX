@@ -489,6 +489,58 @@ public class QueryBuilderViewModelTests
         Assert.Contains("Saved", vm.StatusText);
     }
 
+    // Runs a callback on each request, to simulate the user changing the selection mid-export.
+    private sealed class CallbackODataClient : IODataClient
+    {
+        private readonly Queue<ODataResponse> _responses;
+        public Action? OnRequest { get; set; }
+        public CallbackODataClient(params ODataResponse[] responses) => _responses = new Queue<ODataResponse>(responses);
+        public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
+        {
+            OnRequest?.Invoke();
+            return Task.FromResult(_responses.Dequeue());
+        }
+    }
+
+    // Simulates a cancelled request (e.g. via CancelExportAllCsvCommand).
+    private sealed class CancelingODataClient : IODataClient
+    {
+        public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
+            => throw new OperationCanceledException();
+    }
+
+    [Fact]
+    public async Task Export_all_names_the_file_for_the_entity_in_effect_when_it_started()
+    {
+        const string page1 = "{\"@odata.nextLink\":\"https://x/data/E?$skiptoken=p2\",\"value\":[{\"CustomerAccount\":\"US-1\"}]}";
+        const string page2 = "{\"value\":[{\"CustomerAccount\":\"US-2\"}]}";
+        var client = new CallbackODataClient(
+            new ODataResponse(200, "OK", page1, 5),
+            new ODataResponse(200, "OK", page2, 5));
+        var fileSave = new FakeFileSaveService("C:/tmp/out.csv");
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, fileSave: fileSave);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        // The user switches entity while the export is still paging.
+        client.OnRequest = () => vm.SelectedEntity = vm.Entities.Single(e => e.Name == "VendorsV2");
+
+        await vm.ExportAllCsvCommand.ExecuteAsync(null);
+
+        Assert.Equal("CustomersV3.csv", fileSave.LastSuggestedName); // the entity in effect at start, not VendorsV2
+    }
+
+    [Fact]
+    public async Task Export_all_reports_cancellation_cleanly()
+    {
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new CancelingODataClient(),
+            fileSave: new FakeFileSaveService());
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        await vm.ExportAllCsvCommand.ExecuteAsync(null);
+
+        Assert.Equal("Export cancelled.", vm.StatusText); // not "Export failed: …canceled"
+        Assert.False(vm.IsBusy);
+    }
+
     [Fact]
     public async Task Run_is_disabled_while_a_run_is_in_flight()
     {

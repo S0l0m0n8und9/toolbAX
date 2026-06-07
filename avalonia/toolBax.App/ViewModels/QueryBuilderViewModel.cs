@@ -567,6 +567,11 @@ public partial class QueryBuilderViewModel : ObservableObject
             return;
         }
 
+        // Snapshot the entity (name + columns + base path) up front: the user may switch selection
+        // while the export is paging, and the saved file should reflect what was exported, not the
+        // current selection.
+        var entityName = SelectedEntity.Name;
+
         IsBusy = true;
         StatusText = "Exporting all rows…";
         try
@@ -604,7 +609,7 @@ public partial class QueryBuilderViewModel : ObservableObject
             }
 
             var csv = QueryCsv.Build(columns, rows);
-            var name = $"{SelectedEntity.Name}.csv";
+            var name = $"{entityName}.csv";
             var saved = await _fileSave.SaveTextAsync(name, csv, ct);
             if (saved is null)
             {
@@ -616,6 +621,11 @@ public partial class QueryBuilderViewModel : ObservableObject
                     ? $"Saved {rows.Count} rows to {saved} (stopped at the {MaxExportPages}-page limit — more rows may exist)."
                     : $"Saved {rows.Count} rows to {saved}.";
             }
+        }
+        catch (OperationCanceledException)
+        {
+            // Cancelling via CancelExportAllCsvCommand is a clean outcome, not an error.
+            StatusText = "Export cancelled.";
         }
         catch (Exception ex)
         {
