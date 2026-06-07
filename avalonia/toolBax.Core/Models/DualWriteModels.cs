@@ -38,19 +38,6 @@ public static class DwDirectionExtensions
     };
 }
 
-/// <summary>A dual-write table map (Operations grid row source).</summary>
-public sealed record DwMap(
-    string TableId,
-    string Name,
-    string FoEntity,
-    string DvEntity,
-    DwDirection Direction,
-    MapState State,
-    string TemplateVersion,
-    string Author,
-    long Rows24h,
-    int Errors24h);
-
 /// <summary>
 /// A lifecycle action. <see cref="Code"/> is fixed by the gateway API
 /// (start=1, stop=4, pause=5, resume=6, initial=8); <see cref="AppliesTo"/> gates eligibility.

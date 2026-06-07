@@ -1,56 +1,40 @@
 using CommunityToolkit.Mvvm.ComponentModel;
-using ToolBax.Core.Models;
+using FoToolbox.Core.DualWrite;
 
 namespace ToolBax.App.ViewModels;
 
-/// <summary>One row in the Operations maps grid; <see cref="IsChecked"/> and <see cref="State"/>
-/// drive action eligibility (see <see cref="DualWriteOpsViewModel"/>).</summary>
+/// <summary>One row in the Operations maps grid, projecting a real <see cref="DualWriteMap"/> from the
+/// gateway. <see cref="IsSelected"/> drives which maps a lifecycle action targets; the underlying
+/// <see cref="Map"/> is retained so actions can pass it to the gateway.</summary>
 public partial class MapRowViewModel : ObservableObject
 {
-    public required string TableId { get; init; }
-    public required string Name { get; init; }
-    public required string FoEntity { get; init; }
-    public required string DvEntity { get; init; }
-    public DwDirection Direction { get; init; }
-    public string TemplateVersion { get; init; } = string.Empty;
-    public string Author { get; init; } = string.Empty;
-    public long Rows24h { get; init; }
-    public int Errors24h { get; init; }
+    public DualWriteMap Map { get; }
+
+    public string Id => Map.Id;
+
+    /// <summary>The map's display name (falls back to its name).</summary>
+    public string Name { get; }
+
+    /// <summary>The Dataverse (CE) entity this map targets.</summary>
+    public string CeEntity => Map.RightEntityName;
+
+    /// <summary>Active template version.</summary>
+    public string Version => Map.CurrentVersion;
+
+    /// <summary>Active template author.</summary>
+    public string Author => Map.CurrentAuthor;
+
+    /// <summary>The gateway's lifecycle state (raw vocabulary, e.g. "Running"/"Stopped"/"Paused").</summary>
+    public string State => Map.State;
 
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsTransitional))]
-    [NotifyPropertyChangedFor(nameof(StateText))]
-    private MapState _state;
+    private bool _isSelected;
 
-    [ObservableProperty]
-    private bool _isChecked;
-
-    public bool IsTransitional => DwActions.IsTransitional(State);
-
-    /// <summary>Friendly state label for the grid (e.g. "pausing…" while transitional).</summary>
-    public string StateText => IsTransitional ? $"{State.ToString().ToLowerInvariant()}…" : State.ToString();
-
-    public string DirectionArrow => Direction switch
+    public MapRowViewModel(DualWriteMap map)
     {
-        DwDirection.Both => "↔",
-        DwDirection.FoToDv => "→",
-        _ => "←",
-    };
+        Map = map;
+        Name = string.IsNullOrWhiteSpace(map.DisplayName) ? map.Name : map.DisplayName;
+    }
 
-    /// <summary>"{fo} {arrow} {dv}" map identity for the Table-map column.</summary>
-    public string MapDisplay => $"{FoEntity} {DirectionArrow} {DvEntity}";
-
-    public static MapRowViewModel From(DwMap m) => new()
-    {
-        TableId = m.TableId,
-        Name = m.Name,
-        FoEntity = m.FoEntity,
-        DvEntity = m.DvEntity,
-        Direction = m.Direction,
-        TemplateVersion = m.TemplateVersion,
-        Author = m.Author,
-        Rows24h = m.Rows24h,
-        Errors24h = m.Errors24h,
-        State = m.State,
-    };
+    public static MapRowViewModel From(DualWriteMap map) => new(map);
 }

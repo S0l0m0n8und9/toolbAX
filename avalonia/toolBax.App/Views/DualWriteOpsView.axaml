@@ -4,14 +4,22 @@
              x:Class="ToolBax.App.Views.DualWriteOpsView"
              x:DataType="vm:DualWriteOpsViewModel">
 
-  <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="20,16">
+  <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="20,16">
 
-    <!-- Title -->
-    <TextBlock Grid.Row="0" Text="Dual-Write Operations"
-               FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource Text0Brush}" />
+    <!-- Title + connect -->
+    <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
+      <TextBlock Grid.Column="0" Text="Dual-Write Operations" VerticalAlignment="Center"
+                 FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource Text0Brush}" />
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+        <TextBlock Text="{Binding Status}" VerticalAlignment="Center" FontSize="11.5"
+                   Foreground="{StaticResource Text2Brush}" />
+        <Button Content="Connect" Command="{Binding LoadCommand}"
+                Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}" />
+      </StackPanel>
+    </Grid>
 
-    <!-- Permanent live banner (warning) -->
-    <Border Grid.Row="1" Margin="0,12,0,0"
+    <!-- Live-environment banner (once connected) -->
+    <Border Grid.Row="1" Margin="0,12,0,0" IsVisible="{Binding IsConnected}"
             Background="{StaticResource WarnBgBrush}"
             BorderBrush="{StaticResource WarnBrush}" BorderThickness="1" CornerRadius="8"
             Padding="12,8">
@@ -19,91 +27,39 @@
         <TextBlock Text="⚠" Foreground="{StaticResource WarnBrush}" VerticalAlignment="Center" />
         <TextBlock VerticalAlignment="Center" TextWrapping="Wrap">
           <Run Text="Live environment." FontWeight="SemiBold" Foreground="{StaticResource Text0Brush}" />
-          <Run Text="{Binding Gateway.CName}" Foreground="{StaticResource Text1Brush}" />
+          <Run Text="{Binding ConnectionName}" Foreground="{StaticResource Text1Brush}" />
         </TextBlock>
       </StackPanel>
     </Border>
 
-    <!-- Gateway connection row -->
-    <WrapPanel Grid.Row="2" Margin="0,12,0,0">
-      <StackPanel Margin="0,0,24,0">
-        <TextBlock Text="REGION" FontSize="10" Foreground="{StaticResource Text3Brush}" />
-        <TextBlock Text="{Binding Gateway.Region}" FontSize="12.5" Foreground="{StaticResource Text1Brush}" />
-      </StackPanel>
-      <StackPanel Margin="0,0,24,0">
-        <TextBlock Text="IDENTIFIER" FontSize="10" Foreground="{StaticResource Text3Brush}" />
-        <TextBlock Text="{Binding Gateway.Identifier}" FontSize="12.5"
-                   FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text1Brush}" />
-      </StackPanel>
-      <StackPanel Margin="0,0,24,0">
-        <TextBlock Text="CID" FontSize="10" Foreground="{StaticResource Text3Brush}" />
-        <TextBlock Text="{Binding Gateway.Cid}" FontSize="12.5"
-                   FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text1Brush}" />
-      </StackPanel>
-      <Border Background="{StaticResource Layer2Brush}" CornerRadius="999" Padding="8,3" VerticalAlignment="Center">
-        <StackPanel Orientation="Horizontal" Spacing="6">
-          <TextBlock Text="{Binding Gateway.Auth.Mode}" FontSize="11.5" Foreground="{StaticResource Text2Brush}" />
-          <TextBlock Text="·" Foreground="{StaticResource Text3Brush}" />
-          <TextBlock Text="{Binding Gateway.Auth.Account}" FontSize="11.5" Foreground="{StaticResource Text1Brush}" />
-        </StackPanel>
-      </Border>
-    </WrapPanel>
+    <!-- Connect/load error -->
+    <Border Grid.Row="2" Margin="0,12,0,0"
+            IsVisible="{Binding LoadError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+            Background="{StaticResource ErrBgBrush}" BorderBrush="{StaticResource ErrBrush}"
+            BorderThickness="1" CornerRadius="8" Padding="12,8">
+      <TextBlock Text="{Binding LoadError}" TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}" />
+    </Border>
 
-    <!-- Command bar -->
-    <StackPanel Grid.Row="3" Orientation="Horizontal" Spacing="8" Margin="0,14">
-      <Button Content="Start" Command="{Binding RunActionCommand}" CommandParameter="{Binding StartAction}" />
-      <Button Content="Stop" Command="{Binding RunActionCommand}" CommandParameter="{Binding StopAction}" />
-      <Button Content="Pause" Command="{Binding RunActionCommand}" CommandParameter="{Binding PauseAction}" />
-      <Button Content="Resume" Command="{Binding RunActionCommand}" CommandParameter="{Binding ResumeAction}" />
-      <Button Content="Initial sync" Command="{Binding RunActionCommand}" CommandParameter="{Binding InitialAction}" />
-      <TextBlock VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{StaticResource Text2Brush}"
-                 Text="{Binding SelectedCount, StringFormat='{}{0} selected'}" />
-      <TextBlock VerticalAlignment="Center" Foreground="{StaticResource AccentBrush}"
-                 IsVisible="{Binding IsBusy}"
-                 Text="{Binding ActiveRequestId, StringFormat='polling {0}'}" />
-    </StackPanel>
+    <!-- Empty hint -->
+    <TextBlock Grid.Row="3" Margin="2,16,0,0" IsVisible="{Binding !IsConnected}"
+               Text="Connect to the dual-write gateway to list this environment's maps."
+               Foreground="{StaticResource Text3Brush}" TextWrapping="Wrap" />
 
     <!-- Maps grid -->
-    <DataGrid Grid.Row="4"
-              x:Name="MapsGrid"
-              ItemsSource="{Binding Maps}"
-              IsReadOnly="False"
+    <DataGrid Grid.Row="4" x:Name="MapsGrid" Margin="0,12,0,0"
+              IsVisible="{Binding HasMaps}"
+              ItemsSource="{Binding Maps}" IsReadOnly="False"
               CanUserReorderColumns="False" CanUserResizeColumns="True"
-              GridLinesVisibility="Horizontal"
-              Background="{StaticResource Layer1Brush}">
+              GridLinesVisibility="Horizontal" Background="{StaticResource Layer1Brush}">
       <DataGrid.Columns>
-        <DataGridCheckBoxColumn Header="" Binding="{Binding IsChecked}" Width="40" />
-        <DataGridTextColumn Header="Table map" Binding="{Binding MapDisplay}" Width="2*" IsReadOnly="True" />
-        <DataGridTextColumn Header="Template" Binding="{Binding TemplateVersion}" Width="*" IsReadOnly="True" />
+        <DataGridCheckBoxColumn Header="" Binding="{Binding IsSelected}" Width="40" />
+        <DataGridTextColumn Header="Map" Binding="{Binding Name}" Width="2*" IsReadOnly="True" />
+        <DataGridTextColumn Header="CE entity" Binding="{Binding CeEntity}" Width="*" IsReadOnly="True"
+                            FontFamily="Cascadia Code,Consolas,monospace" />
+        <DataGridTextColumn Header="Version" Binding="{Binding Version}" Width="Auto" IsReadOnly="True" />
         <DataGridTextColumn Header="Author" Binding="{Binding Author}" Width="*" IsReadOnly="True" />
-        <DataGridTextColumn Header="Rows 24h" Binding="{Binding Rows24h}" Width="Auto" IsReadOnly="True" />
-        <DataGridTextColumn Header="Errors" Binding="{Binding Errors24h}" Width="Auto" IsReadOnly="True" />
-        <DataGridTextColumn Header="State" Binding="{Binding StateText}" Width="*" IsReadOnly="True" />
+        <DataGridTextColumn Header="State" Binding="{Binding State}" Width="*" IsReadOnly="True" />
       </DataGrid.Columns>
     </DataGrid>
-
-    <!-- Gateway request log -->
-    <Border Grid.Row="5" Margin="0,12,0,0" MaxHeight="140"
-            Background="{StaticResource MicaBrush}"
-            BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="8">
-      <DockPanel Margin="12,8">
-        <TextBlock DockPanel.Dock="Top" Text="Gateway requests" FontSize="11" FontWeight="SemiBold"
-                   Foreground="{StaticResource Text2Brush}" Margin="0,0,0,4" />
-        <ScrollViewer>
-          <ItemsControl ItemsSource="{Binding Log}">
-            <ItemsControl.ItemTemplate>
-              <DataTemplate x:DataType="vm:GatewayLogEntry">
-                <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,1">
-                  <TextBlock Text="{Binding Text}" FontFamily="Cascadia Code,Consolas,monospace"
-                             FontSize="12" Foreground="{StaticResource Text1Brush}" />
-                  <TextBlock Text="{Binding Note}" FontFamily="Cascadia Code,Consolas,monospace"
-                             FontSize="12" Foreground="{StaticResource Text3Brush}" />
-                </StackPanel>
-              </DataTemplate>
-            </ItemsControl.ItemTemplate>
-          </ItemsControl>
-        </ScrollViewer>
-      </DockPanel>
-    </Border>
   </Grid>
 </UserControl>

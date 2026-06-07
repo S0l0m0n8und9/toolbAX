@@ -1,86 +1,86 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using FoToolbox.Core.DualWrite;
 using ToolBax.App.Services;
 using ToolBax.App.ViewModels;
 using ToolBax.Core.Models;
-using ToolBax.Core.Services;
 using Xunit;
 
 namespace ToolBax.App.Tests;
 
 /// <summary>
-/// Flagship Operations behaviour (headless-testing.md): state-aware eligibility, the confirm gate
-/// (no mutation without confirm), and confirmed actions settling maps + logging the gateway code.
-/// Pure VM logic — fast, no view.
+/// Operations read-path: connect to the gateway for the active environment and list its real maps.
+/// Pure VM logic over a fake connector — fast, no view, no live gateway.
 /// </summary>
 public class DualWriteOpsTests
 {
-    private static DualWriteOpsViewModel MakeVm(FakeDualWriteGateway gateway, FakeDialogs dialogs) =>
-        new(gateway, dialogs, FakeDualWriteGateway.SeedGateway(), FakeDualWriteGateway.SeedMaps(),
-            pollInterval: TimeSpan.FromMilliseconds(1));
+    private static EnvProfile Env() =>
+        new("env1", "Contoso", "https://contoso.operations.dynamics.com", "tenant", "AUMF", "Tier 2", EnvStatus.Connected);
 
     [Fact]
-    public void Pause_is_eligible_only_for_running_maps()
+    public async Task Load_connects_and_lists_the_real_maps()
     {
-        var vm = MakeVm(new FakeDualWriteGateway(), new FakeDialogs(confirm: true));
-        foreach (var m in vm.Maps) m.IsChecked = true;   // check all
-        var pause = vm.Actions.Single(a => a.Id == "pause");
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), Env);
 
-        Assert.Equal(vm.Maps.Count(m => m.State == MapState.Running), vm.EligibleCount(pause));
-        Assert.True(vm.CanRun(pause));
-    }
+        await vm.LoadCommand.ExecuteAsync(null);
 
-    [Fact]
-    public void Start_is_eligible_only_for_stopped_or_idle_maps()
-    {
-        var vm = MakeVm(new FakeDualWriteGateway(), new FakeDialogs(confirm: true));
-        foreach (var m in vm.Maps) m.IsChecked = true;
-        var start = vm.Actions.Single(a => a.Id == "start");
-
-        Assert.Equal(vm.Maps.Count(m => m.State is MapState.Stopped or MapState.Idle), vm.EligibleCount(start));
-    }
-
-    [Fact]
-    public async Task RunAction_does_not_call_the_gateway_when_confirm_is_cancelled()
-    {
-        var gateway = new FakeDualWriteGateway();
-        var dialogs = new FakeDialogs(confirm: false);
-        var vm = MakeVm(gateway, dialogs);
-        vm.Maps.First(m => m.State == MapState.Running).IsChecked = true;
-
-        await vm.RunActionCommand.ExecuteAsync(vm.Actions.Single(a => a.Id == "pause"));
-
-        Assert.Equal(1, dialogs.Calls);     // user was asked
-        Assert.Equal(0, gateway.SubmitCount); // but nothing was mutated
-    }
-
-    [Fact]
-    public async Task Confirmed_pause_settles_running_maps_to_paused_and_logs_the_code()
-    {
-        var gateway = new FakeDualWriteGateway();
-        var vm = MakeVm(gateway, new FakeDialogs(confirm: true));
-        var running = vm.Maps.Where(m => m.State == MapState.Running).ToList();
-        foreach (var m in running) m.IsChecked = true;
-
-        await vm.ExecuteActionAsync(vm.Actions.Single(a => a.Id == "pause"), running);
-
-        Assert.Equal(1, gateway.SubmitCount);
-        Assert.All(running, m => Assert.Equal(MapState.Paused, m.State));
+        Assert.True(vm.IsConnected);
+        Assert.True(vm.HasMaps);
+        Assert.Equal(FakeDualWriteConnector.SeedMaps().Count, vm.Maps.Count);
+        Assert.Equal("Contoso (AUMF · APAC Prod)", vm.ConnectionName);
+        Assert.Null(vm.LoadError);
         Assert.False(vm.IsBusy);
-        Assert.Contains(vm.Log, l => l.Text.Contains("action=5"));  // pause = code 5
     }
 
-    private sealed class FakeDialogs : IDialogService
+    [Fact]
+    public async Task Map_rows_project_the_real_dualwrite_fields()
     {
-        private readonly bool _confirm;
-        public FakeDialogs(bool confirm) => _confirm = confirm;
-        public int Calls { get; private set; }
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), Env);
 
-        public Task<bool> ConfirmAsync(ConfirmRequest request)
-        {
-            Calls++;
-            return Task.FromResult(_confirm);
-        }
+        await vm.LoadCommand.ExecuteAsync(null);
+
+        var customers = vm.Maps.Single(m => m.Name == "Customers V3");
+        Assert.Equal("account", customers.CeEntity);
+        Assert.Equal("1.0.0.12", customers.Version);
+        Assert.Equal("Microsoft", customers.Author);
+        Assert.Equal("Running", customers.State);
+    }
+
+    [Fact]
+    public async Task Load_with_no_active_environment_reports_an_error()
+    {
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), () => null);
+
+        await vm.LoadCommand.ExecuteAsync(null);
+
+        Assert.False(vm.IsConnected);
+        Assert.False(vm.HasMaps);
+        Assert.Contains("environment", vm.LoadError, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Load_surfaces_a_connect_failure_and_stays_disconnected()
+    {
+        var vm = new DualWriteOpsViewModel(FakeDualWriteConnector.ThatFails("gateway unreachable"), Env);
+
+        await vm.LoadCommand.ExecuteAsync(null);
+
+        Assert.Contains("gateway unreachable", vm.LoadError);
+        Assert.False(vm.IsConnected);
+        Assert.Empty(vm.Maps);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task Load_with_no_maps_shows_the_empty_state()
+    {
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(Array.Empty<DualWriteMap>()), Env);
+
+        await vm.LoadCommand.ExecuteAsync(null);
+
+        Assert.True(vm.IsConnected);
+        Assert.False(vm.HasMaps);
+        Assert.Contains("No maps", vm.Status, StringComparison.OrdinalIgnoreCase);
     }
 }

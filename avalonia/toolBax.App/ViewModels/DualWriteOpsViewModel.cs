@@ -1,180 +1,117 @@
 using System;
-using System.Collections.Generic;
 using System.Collections.ObjectModel;
-using System.ComponentModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using ToolBax.App.Services;
 using ToolBax.Core.Models;
-using ToolBax.Core.Services;
 
 namespace ToolBax.App.ViewModels;
 
 /// <summary>
-/// Flagship Dual-Write Operations screen (control-map §3, viewmodels-and-services §A). Owns the maps
-/// grid + gateway log, computes state-aware action eligibility, and enforces confirm-on-mutation:
-/// every mutating action opens a confirm dialog before any gateway call, then submits and polls
-/// status until the maps settle.
+/// Dual-Write Operations screen (control-map §3) — read path. Connects to the live dual-write gateway
+/// for the active environment (via <see cref="IDualWriteConnector"/>, which wraps the real
+/// <c>FoToolbox.Core</c> gateway) and lists its maps with their current lifecycle state. Lifecycle
+/// actions (start/stop/pause/resume/initial-sync) are layered on in a follow-up; this slice establishes
+/// the connection + map list (the prototype's seeded gateway is gone).
 /// </summary>
 public partial class DualWriteOpsViewModel : ObservableObject
 {
-    private readonly IDualWriteGateway _gateway;
-    private readonly IDialogService _dialogs;
-    private readonly TimeSpan _pollInterval;
-    private readonly TimeSpan _actionTimeout;
+    private readonly IDualWriteConnector _connector;
+    private readonly Func<EnvProfile?> _activeEnv;
+    private DualWriteSession? _session;
 
     public ObservableCollection<MapRowViewModel> Maps { get; } = new();
-    public ObservableCollection<GatewayLogEntry> Log { get; } = new();
-    public IReadOnlyList<DwAction> Actions => DwActions.All;
 
-    // Named actions for the command-bar buttons (each binds RunActionCommand + this as parameter,
-    // so per-button IsEnabled follows CanRun via the command's CanExecute).
-    public DwAction StartAction => Actions.First(a => a.Id == "start");
-    public DwAction StopAction => Actions.First(a => a.Id == "stop");
-    public DwAction PauseAction => Actions.First(a => a.Id == "pause");
-    public DwAction ResumeAction => Actions.First(a => a.Id == "resume");
-    public DwAction InitialAction => Actions.First(a => a.Id == "initial");
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(LoadCommand))]
+    private bool _isBusy;
 
-    public GatewayInfo Gateway { get; }
+    /// <summary>Resolved connection name (cname) once connected; null otherwise.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsConnected))]
+    private string? _connectionName;
 
-    [ObservableProperty] private bool _isBusy;
-    [ObservableProperty] private string? _activeRequestId;
-    [ObservableProperty] private int _pollDone;
-    [ObservableProperty] private int _pollTotal;
+    [ObservableProperty]
+    private string _status = "Not connected.";
 
-    public DualWriteOpsViewModel(
-        IDualWriteGateway gateway,
-        IDialogService dialogs,
-        GatewayInfo gatewayInfo,
-        IEnumerable<DwMap> maps,
-        TimeSpan? pollInterval = null,
-        TimeSpan? actionTimeout = null)
+    /// <summary>A connect/load failure message for the error banner (null when fine).</summary>
+    [ObservableProperty]
+    private string? _loadError;
+
+    public bool IsConnected => ConnectionName is not null;
+
+    public bool HasMaps => Maps.Count > 0;
+
+    public DualWriteOpsViewModel(IDualWriteConnector connector, Func<EnvProfile?> activeEnv)
     {
-        _gateway = gateway;
-        _dialogs = dialogs;
-        Gateway = gatewayInfo;
-        _pollInterval = pollInterval ?? TimeSpan.FromMilliseconds(600);
-        // Safety net: never poll a stuck request forever (a crashed/hung gateway worker would
-        // otherwise leave IsBusy true and the UI locked).
-        _actionTimeout = actionTimeout ?? TimeSpan.FromSeconds(120);
-
-        foreach (var map in maps)
-        {
-            var row = MapRowViewModel.From(map);
-            row.PropertyChanged += OnRowChanged;
-            Maps.Add(row);
-        }
+        _connector = connector;
+        _activeEnv = activeEnv;
+        Maps.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasMaps));
     }
 
-    public int SelectedCount => Maps.Count(m => m.IsChecked);
+    private bool CanLoad() => !IsBusy;
 
-    /// <summary>Checked maps currently in a state the action applies to.</summary>
-    public int EligibleCount(DwAction action) =>
-        Maps.Count(m => m.IsChecked && action.AppliesTo.Contains(m.State));
-
-    public bool CanRun(DwAction? action) =>
-        action is not null && !IsBusy && EligibleCount(action) > 0;
-
-    // Opens the confirm dialog; mutates nothing until the user accepts.
-    [RelayCommand(CanExecute = nameof(CanRun))]
-    private async Task RunAction(DwAction action)
+    /// <summary>Connects to the gateway for the active environment and loads its maps.</summary>
+    [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanLoad))]
+    private async Task Load(CancellationToken ct)
     {
-        var targets = Maps.Where(m => m.IsChecked && action.AppliesTo.Contains(m.State)).ToList();
-        if (targets.Count == 0)
+        var env = _activeEnv();
+        if (env is null)
         {
+            LoadError = "Select an environment first.";
+            Status = "No active environment.";
             return;
         }
 
-        var request = new ConfirmRequest(
-            action,
-            Gateway.CName,
-            targets.Select(t => new ConfirmTarget(t.FoEntity, t.DvEntity, t.Direction, t.State)).ToList());
-
-        if (!await _dialogs.ConfirmAsync(request))
-        {
-            return;
-        }
-
-        await ExecuteActionAsync(action, targets);
-    }
-
-    // The actual gateway call + polling, separated so tests can drive it without the dialog.
-    public async Task ExecuteActionAsync(DwAction action, IReadOnlyList<MapRowViewModel> targets)
-    {
         IsBusy = true;
-        RunActionCommand.NotifyCanExecuteChanged();
-
-        using var cts = new CancellationTokenSource(_actionTimeout);
-        var ct = cts.Token;
+        LoadError = null;
+        Status = "Connecting…";
         try
         {
-            foreach (var map in targets)
+            var session = await _connector.ConnectAsync(env, ct);
+            DisposeSession();
+            _session = session;
+            ConnectionName = session.Cname;
+
+            var maps = await session.Gateway.GetMapsAsync(session.Cid, ct);
+            Maps.Clear();
+            foreach (var map in maps)
             {
-                map.State = DwActions.VerbState(action);
+                Maps.Add(MapRowViewModel.From(map));
             }
 
-            var ids = targets.Select(m => m.TableId).ToList();
-            var requestId = await _gateway.SubmitActionAsync(Gateway.Cid, action, ids, ct);
-            ActiveRequestId = requestId;
-            PollTotal = ids.Count;
-            PollDone = 0;
-            AppendLog($"POST · action={action.Code} ({action.Id}) · {ids.Count} map(s)", $"requestId {requestId}", LogKind.Info);
-
-            using var timer = new PeriodicTimer(_pollInterval);
-            while (await timer.WaitForNextTickAsync(ct))
-            {
-                var status = await _gateway.GetStatusAsync(requestId, ct);
-                ApplyStatus(status);
-                if (status.Phase is RequestPhase.Succeeded or RequestPhase.Failed)
-                {
-                    var ok = status.Phase == RequestPhase.Succeeded;
-                    AppendLog(
-                        $"{(ok ? "OK" : "FAILED")} · action={action.Code} · {ids.Count} map(s)",
-                        $"requestId {requestId}",
-                        ok ? LogKind.Ok : LogKind.Err);
-                    break;
-                }
-            }
+            Status = Maps.Count == 0 ? "No maps on this connection." : $"{Maps.Count} map(s).";
         }
         catch (OperationCanceledException)
         {
-            // Timed out polling (or cancelled): surface it rather than hanging the UI.
-            AppendLog($"TIMED OUT · action={action.Code} after {_actionTimeout.TotalSeconds:0}s",
-                ActiveRequestId is null ? null : $"requestId {ActiveRequestId}", LogKind.Err);
+            Status = "Cancelled.";
+        }
+        catch (Exception ex)
+        {
+            // Failed connect/load: surface the message and keep the screen in a disconnected state
+            // rather than a stale half-loaded one.
+            LoadError = ex.Message;
+            Status = "Connection failed.";
+            ConnectionName = null;
+            Maps.Clear();
+            DisposeSession();
         }
         finally
         {
-            // Always clear busy state so a throw/timeout can't permanently lock the command bar.
             IsBusy = false;
-            ActiveRequestId = null;
-            RunActionCommand.NotifyCanExecuteChanged();
         }
     }
 
-    private void ApplyStatus(GatewayStatus status)
+    private void DisposeSession()
     {
-        foreach (var map in Maps)
+        if (_session?.Gateway is IDisposable disposable)
         {
-            if (status.MapStates.TryGetValue(map.TableId, out var state))
-            {
-                map.State = state;
-            }
+            disposable.Dispose();
         }
 
-        PollDone = status.MapStates.Count(kv => !DwActions.IsTransitional(kv.Value));
+        _session = null;
     }
-
-    private void OnRowChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (e.PropertyName is nameof(MapRowViewModel.IsChecked) or nameof(MapRowViewModel.State))
-        {
-            OnPropertyChanged(nameof(SelectedCount));
-            RunActionCommand.NotifyCanExecuteChanged();
-        }
-    }
-
-    private void AppendLog(string text, string? note, LogKind kind) =>
-        Log.Add(new GatewayLogEntry(text, note, kind));
 }

@@ -44,7 +44,13 @@ public partial class App : Application
             var gatewayTester = authService is CoreAuthService
                 ? (IDualWriteGatewayTester)new CoreDualWriteGatewayTester(authService)
                 : new FakeDualWriteGatewayTester();
+            // The Operations screen connects to the live gateway (delegated token + manual host) via the
+            // real connector when auth is real; otherwise the seeded fake so design-mode lists sample maps.
+            var dwConnector = authService is CoreAuthService
+                ? (IDualWriteConnector)new CoreDualWriteConnector(authService)
+                : new FakeDualWriteConnector();
             shell = new ShellViewModel(
+                operationsContentFactory: () => new DualWriteOpsViewModel(dwConnector, activeEnv),
                 profileStore: profileStore,
                 secretStore: secretStore,
                 // Real loopback-MSAL interactive sign-in (system browser, no WebView2); cross-platform,
