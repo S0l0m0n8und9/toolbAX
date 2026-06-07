@@ -42,6 +42,9 @@ public partial class App : Application
             shell = new ShellViewModel(
                 profileStore: profileStore,
                 secretStore: secretStore,
+                // Real loopback-MSAL interactive sign-in (system browser, no WebView2); cross-platform,
+                // caches the delegated token for a later silent dual-write gateway acquisition.
+                authBroker: new CoreInteractiveAuthBroker(),
                 clipboard: new WindowClipboardService(window),
                 authService: authService,
                 odataClient: odataClient,
