@@ -58,6 +58,18 @@ public sealed class ProfileService
     public Task SetDefaultEnvironmentAsync(string envId, CancellationToken cancellationToken = default) =>
         _store.SetSettingAsync(DefaultEnvKey, envId, cancellationToken);
 
+    /// <summary>Reads an arbitrary key/value setting (null when unset).</summary>
+    public Task<string?> GetSettingAsync(string key, CancellationToken cancellationToken = default) =>
+        _store.GetSettingAsync(key, cancellationToken);
+
+    /// <summary>Writes an arbitrary key/value setting (upsert).</summary>
+    public Task SetSettingAsync(string key, string value, CancellationToken cancellationToken = default) =>
+        _store.SetSettingAsync(key, value, cancellationToken);
+
+    /// <summary>Removes a key/value setting (no-op when absent).</summary>
+    public Task DeleteSettingAsync(string key, CancellationToken cancellationToken = default) =>
+        _store.DeleteSettingAsync(key, cancellationToken);
+
     public async Task<(FoEnvironment Env, ServicePrincipal Sp)?> GetDefaultAsync(CancellationToken cancellationToken = default)
     {
         var bundle = await GetDefaultBundleAsync(cancellationToken);
