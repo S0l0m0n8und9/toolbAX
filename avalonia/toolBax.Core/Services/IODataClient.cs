@@ -18,8 +18,11 @@ public interface IODataClient
 
     /// <summary>
     /// Overload that can attach extra request headers (e.g. <c>If-Match</c> for optimistic concurrency
-    /// on PATCH/DELETE). A default interface method that ignores the headers, so existing
-    /// implementations (the in-memory fakes) need no change; the real client overrides it.
+    /// on PATCH/DELETE). This is a default interface method that <b>silently discards the headers</b> by
+    /// forwarding to the 3-arg overload — convenient so the in-memory fakes need no change.
+    /// <para><b>Implementors:</b> any client that actually issues HTTP (or otherwise needs the headers,
+    /// e.g. <c>CoreODataClient</c>) MUST override this method; relying on the default will drop
+    /// <c>If-Match</c> and any other caller-supplied headers at runtime with no compile-time signal.</para>
     /// </summary>
     Task<ODataResponse> SendAsync(string method, string path, string? body,
         IReadOnlyDictionary<string, string>? headers, CancellationToken ct = default)
