@@ -147,7 +147,7 @@ public partial class ShellViewModel : ObservableObject
         "ops" => _operationsContent ??= _operationsContentFactory(),
         "profiles" => _profilesContent ??= CreateProfilesContent(),
         "metadata" => _metadataContent ??= new MetadataViewModel(_metadataService),
-        "post" => _postContent ??= new PostBuilderViewModel(_odataClient),
+        "post" => _postContent ??= new PostBuilderViewModel(_odataClient, _clipboard),
         "query" => _queryContent ??= new QueryBuilderViewModel(_metadataService, _odataClient, _clipboard),
         "mapbrowser" => _mapBrowserContent ??= new DualWriteMapViewModel(_mapReader, _fileSave, _odataClient, _metadataService),
         // TODO: design-mode fakes — swap for the live IProfileStore + IDualWriteCompareService once available.
