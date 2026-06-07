@@ -93,12 +93,31 @@ public sealed class CoreODataClient : IODataClient, IDisposable
             using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
             var responseBody = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             sw.Stop();
-            return new ODataResponse((int)response.StatusCode, response.ReasonPhrase ?? string.Empty, responseBody, (int)sw.ElapsedMilliseconds);
+            return new ODataResponse((int)response.StatusCode, response.ReasonPhrase ?? string.Empty,
+                responseBody, (int)sw.ElapsedMilliseconds, CollectHeaders(response));
         }
         catch (Exception ex)
         {
             return new ODataResponse(0, "Request failed", ex.Message, (int)sw.ElapsedMilliseconds);
         }
+    }
+
+    // Flattens the response + content headers into a name→value map (multi-value headers are joined),
+    // so the POST Builder can surface useful ones like ETag, OData-EntityId, Location, Content-Type.
+    private static IReadOnlyDictionary<string, string> CollectHeaders(HttpResponseMessage response)
+    {
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var h in response.Headers)
+        {
+            headers[h.Key] = string.Join(", ", h.Value);
+        }
+
+        foreach (var h in response.Content.Headers)
+        {
+            headers[h.Key] = string.Join(", ", h.Value);
+        }
+
+        return headers;
     }
 
     // env.Url may be a bare host ("contoso.operations.dynamics.com") or a full URL; path is "/data/…".

@@ -122,6 +122,16 @@
             <TextBlock Text="{Binding StatusBadge}" FontSize="10.5" Foreground="{StaticResource OkBrush}" />
           </Border>
         </StackPanel>
+        <!-- Response headers (ETag, OData-EntityId, Location, …) above the body -->
+        <Border DockPanel.Dock="Top" IsVisible="{Binding HasResponseHeaders}" Margin="0,0,0,6"
+                Background="{StaticResource Layer1Brush}" BorderBrush="{StaticResource StrokeBrush}"
+                BorderThickness="1" CornerRadius="4" MaxHeight="120">
+          <ScrollViewer>
+            <SelectableTextBlock Text="{Binding ResponseHeaders}" Margin="10,6"
+                                 FontFamily="Cascadia Code,Consolas,monospace" FontSize="11"
+                                 TextWrapping="Wrap" Foreground="{StaticResource Text2Brush}" />
+          </ScrollViewer>
+        </Border>
         <Border Background="{StaticResource Layer1Brush}"
                 BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="4">
           <ScrollViewer>

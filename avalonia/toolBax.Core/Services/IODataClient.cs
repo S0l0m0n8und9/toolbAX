@@ -5,7 +5,8 @@ using System.Threading.Tasks;
 namespace ToolBax.Core.Services;
 
 /// <summary>Result of an HTTP call to F&amp;O OData (POST/PATCH/DELETE/GET) or the Dataverse Web API (GET).</summary>
-public sealed record ODataResponse(int StatusCode, string ReasonPhrase, string Body, int ElapsedMs)
+public sealed record ODataResponse(int StatusCode, string ReasonPhrase, string Body, int ElapsedMs,
+    IReadOnlyDictionary<string, string>? Headers = null)
 {
     public bool IsSuccess => StatusCode is >= 200 and < 300;
     public string StatusLine => $"{StatusCode} {ReasonPhrase} · {ElapsedMs} ms";
