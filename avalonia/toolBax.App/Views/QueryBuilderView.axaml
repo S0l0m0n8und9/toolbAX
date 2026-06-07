@@ -62,7 +62,12 @@
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
           <Button Content="Run" Command="{Binding RunCommand}"
                   Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}" />
-          <Button Content="CSV" Command="{Binding ExportCsvCommand}" ToolTip.Tip="Copy results as CSV" />
+          <Button Content="Copy CSV" Command="{Binding ExportCsvCommand}"
+                  ToolTip.Tip="Copy the loaded rows as CSV to the clipboard" />
+          <Button Content="Save CSV…" Command="{Binding ExportCsvFileCommand}"
+                  ToolTip.Tip="Save the loaded rows to a .csv file" />
+          <Button Content="Export all…" Command="{Binding ExportAllCsvCommand}"
+                  ToolTip.Tip="Page through every matching row and save to a .csv file" />
         </StackPanel>
       </Grid>
 
