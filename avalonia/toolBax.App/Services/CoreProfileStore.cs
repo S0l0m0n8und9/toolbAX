@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -38,7 +39,12 @@ public sealed class CoreProfileStore : IProfileStore
             var dataverse = await profiles.GetDataverseEnvironmentAsync(env.Id, ct).ConfigureAwait(false);
             var sp = await profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Fo, ct).ConfigureAwait(false);
             var dvSp = await profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Dataverse, ct).ConfigureAwait(false);
-            cache.Add(Map(env, dataverse?.BaseUrl, sp, dvSp));
+            // Data Integrator / dual-write config lives in the key/value Settings table (Avalonia-only,
+            // no schema change; the WPF app ignores these keys).
+            var diClientId = await profiles.GetSettingAsync(DiClientIdKey(env.Id), ct).ConfigureAwait(false);
+            var diMode = await profiles.GetSettingAsync(DiModeKey(env.Id), ct).ConfigureAwait(false);
+            var gatewayUrl = await profiles.GetSettingAsync(GatewayUrlKey(env.Id), ct).ConfigureAwait(false);
+            cache.Add(Map(env, dataverse?.BaseUrl, sp, dvSp, diClientId, diMode, gatewayUrl));
         }
 
         var activeId = await profiles.GetDefaultEnvironmentIdAsync(ct).ConfigureAwait(false);
@@ -79,6 +85,11 @@ public sealed class CoreProfileStore : IProfileStore
         SaveFoServicePrincipal(profile);
         SaveDataverseServicePrincipal(profile);
 
+        // Data Integrator / dual-write config (key/value Settings; blank persists as cleared).
+        RunBlocking(() => _profiles.SetSettingAsync(DiClientIdKey(profile.Id), profile.DataIntegratorClientId ?? string.Empty));
+        RunBlocking(() => _profiles.SetSettingAsync(DiModeKey(profile.Id), profile.DataIntegratorMode.ToString()));
+        RunBlocking(() => _profiles.SetSettingAsync(GatewayUrlKey(profile.Id), profile.DualWriteGatewayUrl ?? string.Empty));
+
         var index = _cache.FindIndex(p => p.Id == profile.Id);
         if (index >= 0)
         {
@@ -98,6 +109,11 @@ public sealed class CoreProfileStore : IProfileStore
         {
             RunBlocking(() => _profiles.DeleteServicePrincipalAsync(sp.Id));
         }
+
+        // Clear the env's DI/dual-write settings so a reused env id can't inherit stale config.
+        RunBlocking(() => _profiles.SetSettingAsync(DiClientIdKey(id), string.Empty));
+        RunBlocking(() => _profiles.SetSettingAsync(DiModeKey(id), string.Empty));
+        RunBlocking(() => _profiles.SetSettingAsync(GatewayUrlKey(id), string.Empty));
 
         RunBlocking(() => _profiles.DeleteEnvironmentAsync(id));
         _cache.RemoveAll(p => p.Id == id);
@@ -161,7 +177,8 @@ public sealed class CoreProfileStore : IProfileStore
             AuthTarget.Dataverse)));
     }
 
-    private static EnvProfile Map(FoEnvironment env, string? dataverseUrl, ServicePrincipal? sp, ServicePrincipal? dataverseSp) => new(
+    private static EnvProfile Map(FoEnvironment env, string? dataverseUrl, ServicePrincipal? sp, ServicePrincipal? dataverseSp,
+        string? diClientId, string? diMode, string? gatewayUrl) => new(
         env.Id,
         env.Name,
         env.BaseUrl,
@@ -171,12 +188,22 @@ public sealed class CoreProfileStore : IProfileStore
         Status: EnvStatus.Disconnected, // a connection test sets the live status (later wiring)
         LatencyMs: null,
         DataverseUrl: string.IsNullOrWhiteSpace(dataverseUrl) ? null : dataverseUrl,
-        DataIntegratorClientId: null,
-        DataIntegratorMode: DiAuthMode.Interactive,
+        DataIntegratorClientId: string.IsNullOrWhiteSpace(diClientId) ? null : diClientId,
+        DataIntegratorMode: ParseDiMode(diMode),
         ClientId: sp?.ClientId,
         AuthMode: FromCoreAuthMode(sp?.AuthMode),
         DataverseClientId: dataverseSp?.ClientId,
-        DataverseAuthMode: FromCoreAuthMode(dataverseSp?.AuthMode));
+        DataverseAuthMode: FromCoreAuthMode(dataverseSp?.AuthMode),
+        DualWriteGatewayUrl: string.IsNullOrWhiteSpace(gatewayUrl) ? null : gatewayUrl);
+
+    private static DiAuthMode ParseDiMode(string? mode) =>
+        Enum.TryParse<DiAuthMode>(mode, out var parsed) ? parsed : DiAuthMode.Interactive;
+
+    private static string DiClientIdKey(string envId) => $"di.clientId:{envId}";
+
+    private static string DiModeKey(string envId) => $"di.mode:{envId}";
+
+    private static string GatewayUrlKey(string envId) => $"dw.gatewayUrl:{envId}";
 
     private static AuthMode ToCoreAuthMode(FoAuthMode mode) =>
         mode == FoAuthMode.Certificate ? AuthMode.Certificate : AuthMode.ClientSecret;

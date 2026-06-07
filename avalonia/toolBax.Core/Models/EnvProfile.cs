@@ -61,7 +61,8 @@ public sealed record EnvProfile(
     string? ClientId = null,
     FoAuthMode AuthMode = FoAuthMode.ClientSecret,
     string? DataverseClientId = null,
-    FoAuthMode DataverseAuthMode = FoAuthMode.ClientSecret)
+    FoAuthMode DataverseAuthMode = FoAuthMode.ClientSecret,
+    string? DualWriteGatewayUrl = null)
 {
 
     /// <summary>List-item subtitle, e.g. "USMF · Tier 1".</summary>

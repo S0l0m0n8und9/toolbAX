@@ -105,6 +105,10 @@ public partial class ProfilesViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(IsInteractive))]
     private DiAuthMode _draftDiMode = DiAuthMode.Interactive;
 
+    /// <summary>The dual-write management gateway base URL (entered manually for the loopback path).</summary>
+    [ObservableProperty]
+    private string _draftGatewayUrl = string.Empty;
+
     /// <summary>The DI ROPC service-account secret entry. Write-only, like the Auth client secret.</summary>
     [ObservableProperty]
     private string _diSecretInput = string.Empty;
@@ -166,6 +170,7 @@ public partial class ProfilesViewModel : ObservableObject
         DraftAuthMode = profile?.AuthMode ?? FoAuthMode.ClientSecret;
         DraftDiClientId = profile?.DataIntegratorClientId ?? string.Empty;
         DraftDiMode = profile?.DataIntegratorMode ?? DiAuthMode.Interactive;
+        DraftGatewayUrl = profile?.DualWriteGatewayUrl ?? string.Empty;
     }
 
     /// <summary>Derived Dataverse Web API endpoint from the edited CE base URL (empty when none).</summary>
@@ -459,6 +464,7 @@ public partial class ProfilesViewModel : ObservableObject
             DataverseAuthMode = DraftDataverseAuthMode,
             DataIntegratorClientId = string.IsNullOrWhiteSpace(DraftDiClientId) ? null : DraftDiClientId,
             DataIntegratorMode = DraftDiMode,
+            DualWriteGatewayUrl = string.IsNullOrWhiteSpace(DraftGatewayUrl) ? null : DraftGatewayUrl,
             ClientId = string.IsNullOrWhiteSpace(DraftClientId) ? null : DraftClientId,
             AuthMode = DraftAuthMode,
         };

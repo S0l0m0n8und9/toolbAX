@@ -62,6 +62,46 @@ public sealed class CoreProfileStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Save_persists_data_integrator_and_gateway_config()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+
+        store.Save(new EnvProfile("env-di", "DI Env", "https://di.dynamics.com", "tenant-di", "USMF",
+            "Tier 1", EnvStatus.Disconnected)
+        {
+            DataIntegratorClientId = "di-client-id",
+            DataIntegratorMode = DiAuthMode.Ropc,
+            DualWriteGatewayUrl = "https://gw.example.powerapps.com",
+        });
+
+        var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
+        var persisted = reopened.GetAll().Single(p => p.Id == "env-di");
+        Assert.Equal("di-client-id", persisted.DataIntegratorClientId);
+        Assert.Equal(DiAuthMode.Ropc, persisted.DataIntegratorMode);
+        Assert.Equal("https://gw.example.powerapps.com", persisted.DualWriteGatewayUrl);
+    }
+
+    [Fact]
+    public async Task Clearing_data_integrator_and_gateway_config_persists_as_cleared()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        store.Save(new EnvProfile("env-di", "DI", "https://x", "t", "USMF", "", EnvStatus.Disconnected)
+        {
+            DataIntegratorClientId = "c",
+            DualWriteGatewayUrl = "https://gw",
+        });
+
+        store.Save(new EnvProfile("env-di", "DI", "https://x", "t", "USMF", "", EnvStatus.Disconnected));
+
+        var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
+        var persisted = reopened.GetAll().Single(p => p.Id == "env-di");
+        Assert.Null(persisted.DataIntegratorClientId);
+        Assert.Null(persisted.DualWriteGatewayUrl);
+    }
+
+    [Fact]
     public async Task Save_updates_an_existing_profile()
     {
         var ct = TestContext.Current.CancellationToken;
