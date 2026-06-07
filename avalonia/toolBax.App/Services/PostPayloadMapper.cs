@@ -37,9 +37,10 @@ public static class PostPayloadMapper
     };
 
     /// <summary>Projects one Avalonia field onto an <see cref="ODataProperty"/>. A field is treated as
-    /// mandatory when it is a key or non-nullable (FO "mandatory" ≈ non-nullable here).</summary>
+    /// mandatory when it is a key or non-nullable — the same expression the grid row uses — so a
+    /// (rare) nullable key is still enforced.</summary>
     public static ODataProperty ToProperty(EntityField f) =>
-        new(f.Name, ToEdmType(f.Type), Nullable: f.Nullable, IsKey: f.IsKey, IsMandatory: !f.Nullable);
+        new(f.Name, ToEdmType(f.Type), Nullable: f.Nullable, IsKey: f.IsKey, IsMandatory: f.IsKey || !f.Nullable);
 
     /// <summary>Builds the <see cref="ODataEntity"/> the payload builder needs from a field list.</summary>
     public static ODataEntity ToEntity(string name, IReadOnlyList<EntityField> fields) =>

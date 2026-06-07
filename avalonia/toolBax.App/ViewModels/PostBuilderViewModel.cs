@@ -74,6 +74,7 @@ public partial class PostBuilderViewModel : ObservableObject
     /// <summary>When true, the body is built from the field grid (and the raw editor is read-only).</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsBodyReadOnly))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand))]
     private bool _useFieldGrid;
 
     /// <summary>Case-insensitive substring filter over the entity-list names.</summary>
@@ -86,6 +87,7 @@ public partial class PostBuilderViewModel : ObservableObject
     /// <summary>Validation issues from the last payload build (blank when the payload is valid).</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasPayloadIssues))]
+    [NotifyCanExecuteChangedFor(nameof(SendCommand))]
     private string _payloadIssues = string.Empty;
 
     public bool HasPayloadIssues => !string.IsNullOrEmpty(PayloadIssues);
@@ -139,10 +141,19 @@ public partial class PostBuilderViewModel : ObservableObject
 
     partial void OnUseFieldGridChanged(bool value)
     {
-        if (value)
+        if (!value)
         {
-            // Entering grid mode: default to the first entity if none is chosen yet, then build.
-            SelectedEntity ??= FilteredEntities.FirstOrDefault() ?? Entities.FirstOrDefault();
+            return;
+        }
+
+        if (SelectedEntity is null)
+        {
+            // Defaulting the selection triggers OnSelectedEntityChanged, which (grid mode is now on)
+            // already loads the fields + builds the payload — so don't do it a second time here.
+            SelectedEntity = FilteredEntities.FirstOrDefault() ?? Entities.FirstOrDefault();
+        }
+        else
+        {
             LoadFields();
             RebuildPayload();
         }
@@ -261,13 +272,20 @@ public partial class PostBuilderViewModel : ObservableObject
         }
         else
         {
+            // Clear the body so a stale (previously-built or default) payload can't be sent while the
+            // grid is invalid; Send is also disabled via CanSend while there are payload issues.
+            RequestBody = string.Empty;
             PayloadIssues = string.Join(Environment.NewLine, result.Issues);
         }
     }
 
+    // In grid mode an invalid payload must not be sent (the body is blank and the issues are shown);
+    // in raw mode the user owns the body, so there's nothing to gate on.
+    private bool CanSend() => !(UseFieldGrid && HasPayloadIssues);
+
     // IncludeCancelCommand: surfaces SendCancelCommand and lets the generated AsyncRelayCommand carry
     // the token's lifecycle, so an in-flight send can be cancelled on navigate-away/shutdown.
-    [RelayCommand(IncludeCancelCommand = true)]
+    [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanSend))]
     private async Task Send(CancellationToken ct)
     {
         IsBusy = true;

@@ -1,9 +1,11 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ToolBax.App.Services;
 using ToolBax.App.ViewModels;
+using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 using Xunit;
 
@@ -16,6 +18,22 @@ public class PostBuilderViewModelTests
     // A POST Builder backed by the seeded metadata (CustomersV3 has fields), for field-grid tests.
     private static PostBuilderViewModel MakeGridVm() =>
         new(new FakeODataClient(), metadata: new FakeMetadataService());
+
+    // Wraps the seeded metadata to count GetFields calls (to assert the grid isn't rebuilt twice).
+    private sealed class CountingMetadata : IMetadataService
+    {
+        private readonly FakeMetadataService _inner = new();
+        public int GetFieldsCalls { get; private set; }
+        public IReadOnlyList<EntitySet> GetEntities() => _inner.GetEntities();
+        public IReadOnlyList<EntityField>? GetFields(string entityName)
+        {
+            GetFieldsCalls++;
+            return _inner.GetFields(entityName);
+        }
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => _inner.LoadEntitiesAsync(ct);
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) =>
+            _inner.LoadFieldsAsync(entityName, ct);
+    }
 
     private sealed class RecordingODataClient : IODataClient
     {
@@ -251,6 +269,54 @@ public class PostBuilderViewModelTests
         Assert.NotEmpty(vm.FilteredEntities);
         Assert.All(vm.FilteredEntities, e => Assert.Contains("ledger", e.Name, StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(vm.FilteredEntities, e => e.Name == "CustomersV3");
+    }
+
+    [Fact]
+    public void Invalid_grid_payload_clears_the_body_and_blocks_send()
+    {
+        var vm = MakeGridVm();
+        vm.Method = "POST";
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        Assert.True(vm.HasPayloadIssues);              // mandatory fields are blank under POST
+        Assert.Equal(string.Empty, vm.RequestBody);    // no stale body left behind to send
+        Assert.False(vm.SendCommand.CanExecute(null));  // Send is disabled while the payload is invalid
+
+        vm.Method = "PATCH";                            // PATCH relaxes mandatory → valid again
+
+        Assert.False(vm.HasPayloadIssues);
+        Assert.True(vm.SendCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void Raw_mode_send_is_never_blocked_by_payload_issues()
+    {
+        var vm = MakeVm(); // raw mode (no field grid)
+
+        Assert.True(vm.SendCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void Mapper_treats_keys_and_non_nullable_fields_as_mandatory()
+    {
+        Assert.True(PostPayloadMapper.ToProperty(new EntityField("k", "String", Nullable: true, IsKey: true)).Mandatory);
+        Assert.True(PostPayloadMapper.ToProperty(new EntityField("n", "String", Nullable: false)).Mandatory);
+        Assert.False(PostPayloadMapper.ToProperty(new EntityField("o", "String", Nullable: true)).Mandatory);
+    }
+
+    [Fact]
+    public void Entering_grid_mode_builds_the_field_set_once()
+    {
+        var meta = new CountingMetadata();
+        var vm = new PostBuilderViewModel(new FakeODataClient(), metadata: meta);
+        vm.Method = "PATCH";
+
+        vm.UseFieldGrid = true; // auto-selects the first entity and builds the grid + payload
+
+        Assert.NotEmpty(vm.Fields);
+        // LoadFields + RebuildPayload, once each — not twice (no double-build when entering grid mode).
+        Assert.Equal(2, meta.GetFieldsCalls);
     }
 
     [Fact]
