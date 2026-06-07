@@ -49,6 +49,10 @@ public partial class App : Application
             var dwConnector = authService is CoreAuthService
                 ? (IDualWriteConnector)new CoreDualWriteConnector(authService)
                 : new FakeDualWriteConnector();
+            // Compare connects to two environments' gateways via the same connector, then diffs.
+            var compareService = authService is CoreAuthService
+                ? (IDualWriteCompareService)new CoreDualWriteCompareService(dwConnector)
+                : new FakeDualWriteCompareService();
             shell = new ShellViewModel(
                 operationsContentFactory: () => new DualWriteOpsViewModel(dwConnector, activeEnv, new DialogService()),
                 profileStore: profileStore,
@@ -62,7 +66,8 @@ public partial class App : Application
                 metadataService: metadataService,
                 mapReader: mapReader,
                 fileSave: new StorageFileSaveService(window),
-                gatewayTester: gatewayTester);
+                gatewayTester: gatewayTester,
+                compareService: compareService);
             window.DataContext = shell;
             desktop.MainWindow = window;
         }

@@ -35,6 +35,7 @@ public partial class ShellViewModel : ObservableObject
     private readonly IDualWriteMapReader _mapReader;
     private readonly IFileSaveService _fileSave;
     private readonly IDualWriteGatewayTester _gatewayTester;
+    private readonly IDualWriteCompareService _compareService;
     private object? _operationsContent;
     private object? _profilesContent;
     private object? _metadataContent;
@@ -75,7 +76,8 @@ public partial class ShellViewModel : ObservableObject
         IMetadataService? metadataService = null,
         IDualWriteMapReader? mapReader = null,
         IFileSaveService? fileSave = null,
-        IDualWriteGatewayTester? gatewayTester = null)
+        IDualWriteGatewayTester? gatewayTester = null,
+        IDualWriteCompareService? compareService = null)
     {
         _operationsContentFactory = operationsContentFactory ?? DefaultOperationsContent;
         _profileStore = profileStore ?? new FakeProfileStore();
@@ -90,6 +92,7 @@ public partial class ShellViewModel : ObservableObject
         _mapReader = mapReader ?? new FakeDualWriteMapReader();
         _fileSave = fileSave ?? new FakeFileSaveService();
         _gatewayTester = gatewayTester ?? new FakeDualWriteGatewayTester();
+        _compareService = compareService ?? new FakeDualWriteCompareService();
 
         Tools = new[]
         {
@@ -150,8 +153,7 @@ public partial class ShellViewModel : ObservableObject
         "post" => _postContent ??= new PostBuilderViewModel(_odataClient, _clipboard, _metadataService),
         "query" => _queryContent ??= new QueryBuilderViewModel(_metadataService, _odataClient, _clipboard, _fileSave),
         "mapbrowser" => _mapBrowserContent ??= new DualWriteMapViewModel(_mapReader, _fileSave, _odataClient, _metadataService),
-        // TODO: design-mode fakes — swap for the live IProfileStore + IDualWriteCompareService once available.
-        "compare" => _compareContent ??= new DualWriteCompareViewModel(new FakeProfileStore(), new FakeDualWriteCompareService()),
+        "compare" => _compareContent ??= new DualWriteCompareViewModel(_profileStore, _compareService),
         _ => new PlaceholderScreenViewModel(tool.Title),
     };
 
