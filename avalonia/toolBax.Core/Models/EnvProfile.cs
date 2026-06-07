@@ -32,13 +32,30 @@ public static class DiAuthModeExtensions
 }
 
 /// <summary>
-/// How the F&amp;O service principal (app-only, client-credentials) authenticates. Mirrors the
-/// FoToolbox.Core AuthMode values the Avalonia layer can express.
+/// How an F&amp;O / Dataverse connection authenticates. <see cref="Interactive"/> is a delegated browser
+/// sign-in (MFA-capable, no stored secret — the default); ClientSecret/Certificate are app-only
+/// (client-credentials) service-principal modes that mirror the FoToolbox.Core AuthMode values.
 /// </summary>
 public enum FoAuthMode
 {
+    Interactive,
     ClientSecret,
     Certificate,
+}
+
+/// <summary>Friendly labels for the F&amp;O / Dataverse auth modes (Profiles dropdowns).</summary>
+public static class FoAuthModeExtensions
+{
+    /// <summary>The default global public client ID Microsoft provides for interactive sign-in.</summary>
+    public const string DefaultInteractiveClientId = "2ad88395-b77d-4561-9441-d0e40824f9bc";
+
+    public static string Label(this FoAuthMode mode) => mode switch
+    {
+        FoAuthMode.Interactive => "Interactive (MFA)",
+        FoAuthMode.ClientSecret => "Client secret",
+        FoAuthMode.Certificate => "Certificate",
+        _ => mode.ToString(),
+    };
 }
 
 /// <summary>
@@ -59,9 +76,9 @@ public sealed record EnvProfile(
     string? DataIntegratorClientId = null,
     DiAuthMode DataIntegratorMode = DiAuthMode.Interactive,
     string? ClientId = null,
-    FoAuthMode AuthMode = FoAuthMode.ClientSecret,
+    FoAuthMode AuthMode = FoAuthMode.Interactive,
     string? DataverseClientId = null,
-    FoAuthMode DataverseAuthMode = FoAuthMode.ClientSecret,
+    FoAuthMode DataverseAuthMode = FoAuthMode.Interactive,
     string? DualWriteGatewayUrl = null)
 {
 

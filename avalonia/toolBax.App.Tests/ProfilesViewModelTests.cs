@@ -543,6 +543,96 @@ public class ProfilesViewModelTests
         Assert.Contains("gateway URL", vm.DiStatus);
     }
 
+    [Fact]
+    public void Auth_modes_list_includes_interactive_and_new_profiles_default_to_it()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+
+        Assert.Equal(new[] { FoAuthMode.Interactive, FoAuthMode.ClientSecret, FoAuthMode.Certificate }, vm.AuthModes);
+
+        vm.AddProfileCommand.Execute(null); // a brand-new environment
+        Assert.Equal(FoAuthMode.Interactive, vm.DraftAuthMode);
+        Assert.Equal(FoAuthMode.Interactive, vm.DraftDataverseAuthMode);
+    }
+
+    [Fact]
+    public void Selecting_interactive_fo_fills_the_default_client_id_and_shows_the_note()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+        vm.Selected = vm.Profiles.First();
+        vm.DraftAuthMode = FoAuthMode.ClientSecret; // move off Interactive…
+        vm.DraftClientId = string.Empty;            // …and clear the id
+
+        vm.DraftAuthMode = FoAuthMode.Interactive;
+
+        Assert.Equal(FoAuthModeExtensions.DefaultInteractiveClientId, vm.DraftClientId);
+        Assert.True(vm.ShowFoDefaultClientIdNote);
+        Assert.False(vm.IsFoClientSecretMode); // no client-secret entry for Interactive
+
+        vm.DraftClientId = "my-own-client-id"; // editing away from the default hides the note
+        Assert.False(vm.ShowFoDefaultClientIdNote);
+    }
+
+    [Fact]
+    public void Interactive_does_not_overwrite_an_existing_client_id()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+        vm.Selected = vm.Profiles.First();
+        vm.DraftAuthMode = FoAuthMode.ClientSecret;
+        vm.DraftClientId = "already-set";
+
+        vm.DraftAuthMode = FoAuthMode.Interactive; // a non-blank id is respected
+
+        Assert.Equal("already-set", vm.DraftClientId);
+        Assert.False(vm.ShowFoDefaultClientIdNote);
+    }
+
+    [Fact]
+    public void Selecting_interactive_dataverse_fills_the_default_client_id_and_shows_the_note()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+        vm.Selected = vm.Profiles.First();
+        vm.DraftDataverseAuthMode = FoAuthMode.ClientSecret;
+        vm.DraftDataverseClientId = string.Empty;
+
+        vm.DraftDataverseAuthMode = FoAuthMode.Interactive;
+
+        Assert.Equal(FoAuthModeExtensions.DefaultInteractiveClientId, vm.DraftDataverseClientId);
+        Assert.True(vm.ShowDataverseDefaultClientIdNote);
+        Assert.False(vm.IsDataverseClientSecretMode);
+
+        vm.DraftDataverseClientId = "custom-dv-id";
+        Assert.False(vm.ShowDataverseDefaultClientIdNote);
+    }
+
+    [Fact]
+    public void Client_secret_mode_flag_tracks_the_fo_auth_mode()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+        vm.Selected = vm.Profiles.First();
+
+        vm.DraftAuthMode = FoAuthMode.ClientSecret;
+        Assert.True(vm.IsFoClientSecretMode);
+        vm.DraftAuthMode = FoAuthMode.Certificate;
+        Assert.False(vm.IsFoClientSecretMode);
+    }
+
+    [Fact]
+    public void Interactive_fo_auth_mode_persists_and_reloads()
+    {
+        var store = new FakeProfileStore();
+        var vm = new ProfilesViewModel(store);
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+
+        vm.DraftAuthMode = FoAuthMode.Interactive;
+        vm.DraftDataverseAuthMode = FoAuthMode.Interactive;
+        vm.SaveCommand.Execute(null);
+
+        var saved = store.GetAll().Single(p => p.Id == "uat-eur");
+        Assert.Equal(FoAuthMode.Interactive, saved.AuthMode);
+        Assert.Equal(FoAuthMode.Interactive, saved.DataverseAuthMode);
+    }
+
     private sealed class ThrowingBroker : IInteractiveAuthBroker
     {
         public bool WasCalled { get; private set; }

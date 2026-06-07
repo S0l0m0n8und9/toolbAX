@@ -44,7 +44,9 @@ public sealed class CoreProfileStore : IProfileStore
             var diClientId = await profiles.GetSettingAsync(DiClientIdKey(env.Id), ct).ConfigureAwait(false);
             var diMode = await profiles.GetSettingAsync(DiModeKey(env.Id), ct).ConfigureAwait(false);
             var gatewayUrl = await profiles.GetSettingAsync(GatewayUrlKey(env.Id), ct).ConfigureAwait(false);
-            cache.Add(Map(env, dataverse?.BaseUrl, sp, dvSp, diClientId, diMode, gatewayUrl));
+            var foAuthMode = await profiles.GetSettingAsync(FoAuthModeKey(env.Id), ct).ConfigureAwait(false);
+            var dvAuthMode = await profiles.GetSettingAsync(DataverseAuthModeKey(env.Id), ct).ConfigureAwait(false);
+            cache.Add(Map(env, dataverse?.BaseUrl, sp, dvSp, diClientId, diMode, gatewayUrl, foAuthMode, dvAuthMode));
         }
 
         var activeId = await profiles.GetDefaultEnvironmentIdAsync(ct).ConfigureAwait(false);
@@ -100,6 +102,12 @@ public sealed class CoreProfileStore : IProfileStore
 
         SetOrClearSetting(GatewayUrlKey(profile.Id), profile.DualWriteGatewayUrl);
 
+        // The FO/Dataverse auth mode lives in Settings: the FoToolbox SP AuthMode only models the
+        // app-only ClientSecret/Certificate modes, so Interactive (delegated, no SP) couldn't round-trip
+        // through the SP alone.
+        SetOrClearSetting(FoAuthModeKey(profile.Id), profile.AuthMode.ToString());
+        SetOrClearSetting(DataverseAuthModeKey(profile.Id), profile.DataverseAuthMode.ToString());
+
         var index = _cache.FindIndex(p => p.Id == profile.Id);
         if (index >= 0)
         {
@@ -125,6 +133,8 @@ public sealed class CoreProfileStore : IProfileStore
         RunBlocking(() => _profiles.DeleteSettingAsync(DiClientIdKey(id)));
         RunBlocking(() => _profiles.DeleteSettingAsync(DiModeKey(id)));
         RunBlocking(() => _profiles.DeleteSettingAsync(GatewayUrlKey(id)));
+        RunBlocking(() => _profiles.DeleteSettingAsync(FoAuthModeKey(id)));
+        RunBlocking(() => _profiles.DeleteSettingAsync(DataverseAuthModeKey(id)));
 
         RunBlocking(() => _profiles.DeleteEnvironmentAsync(id));
         _cache.RemoveAll(p => p.Id == id);
@@ -189,7 +199,7 @@ public sealed class CoreProfileStore : IProfileStore
     }
 
     private static EnvProfile Map(FoEnvironment env, string? dataverseUrl, ServicePrincipal? sp, ServicePrincipal? dataverseSp,
-        string? diClientId, string? diMode, string? gatewayUrl) => new(
+        string? diClientId, string? diMode, string? gatewayUrl, string? foAuthMode, string? dataverseAuthMode) => new(
         env.Id,
         env.Name,
         env.BaseUrl,
@@ -202,9 +212,9 @@ public sealed class CoreProfileStore : IProfileStore
         DataIntegratorClientId: string.IsNullOrWhiteSpace(diClientId) ? null : diClientId,
         DataIntegratorMode: ParseDiMode(diMode),
         ClientId: sp?.ClientId,
-        AuthMode: FromCoreAuthMode(sp?.AuthMode),
+        AuthMode: ResolveAuthMode(foAuthMode, sp),
         DataverseClientId: dataverseSp?.ClientId,
-        DataverseAuthMode: FromCoreAuthMode(dataverseSp?.AuthMode),
+        DataverseAuthMode: ResolveAuthMode(dataverseAuthMode, dataverseSp),
         DualWriteGatewayUrl: string.IsNullOrWhiteSpace(gatewayUrl) ? null : gatewayUrl);
 
     // Upserts a setting, or removes the row when the value is blank (avoids accumulating empty rows).
@@ -229,11 +239,22 @@ public sealed class CoreProfileStore : IProfileStore
 
     private static string GatewayUrlKey(string envId) => $"dw.gatewayUrl:{envId}";
 
+    private static string FoAuthModeKey(string envId) => $"fo.authMode:{envId}";
+
+    private static string DataverseAuthModeKey(string envId) => $"dv.authMode:{envId}";
+
     private static AuthMode ToCoreAuthMode(FoAuthMode mode) =>
         mode == FoAuthMode.Certificate ? AuthMode.Certificate : AuthMode.ClientSecret;
 
     private static FoAuthMode FromCoreAuthMode(AuthMode? mode) =>
         mode == AuthMode.Certificate ? FoAuthMode.Certificate : FoAuthMode.ClientSecret;
+
+    // The auth mode comes from the Settings row when present (covers Interactive); otherwise it's
+    // derived from a legacy app-only SP, or defaults to Interactive when neither exists.
+    private static FoAuthMode ResolveAuthMode(string? setting, ServicePrincipal? sp) =>
+        Enum.TryParse<FoAuthMode>(setting, out var parsed) ? parsed
+        : sp is null ? FoAuthMode.Interactive
+        : FromCoreAuthMode(sp.AuthMode);
 
     // The IProfileStore contract is synchronous but persistence is async; run it on the thread pool
     // to bridge without risking a UI-thread sync-context deadlock. SQLite writes are sub-millisecond.

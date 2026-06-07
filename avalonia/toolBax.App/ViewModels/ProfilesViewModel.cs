@@ -77,25 +77,44 @@ public partial class ProfilesViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(DataverseWebApi))]
     private string _draftDataverseUrl = string.Empty;
 
-    // Dataverse service-principal (app-only) drafts — a separate app reg from F&O.
+    // Dataverse drafts — a separate app reg from F&O.
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowDataverseDefaultClientIdNote))]
     private string _draftDataverseClientId = string.Empty;
 
     [ObservableProperty]
-    private FoAuthMode _draftDataverseAuthMode = FoAuthMode.ClientSecret;
+    [NotifyPropertyChangedFor(nameof(ShowDataverseDefaultClientIdNote))]
+    [NotifyPropertyChangedFor(nameof(IsDataverseClientSecretMode))]
+    private FoAuthMode _draftDataverseAuthMode = FoAuthMode.Interactive;
 
-    /// <summary>The Dataverse client-secret entry. Write-only, like the F&amp;O Auth secret.</summary>
+    /// <summary>The Dataverse client-secret entry. Write-only, like the F&amp;O secret.</summary>
     [ObservableProperty]
     private string _dataverseSecretInput = string.Empty;
 
-    // F&O service-principal (app-only) drafts.
+    // F&O drafts.
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowFoDefaultClientIdNote))]
     private string _draftClientId = string.Empty;
 
     [ObservableProperty]
-    private FoAuthMode _draftAuthMode = FoAuthMode.ClientSecret;
+    [NotifyPropertyChangedFor(nameof(ShowFoDefaultClientIdNote))]
+    [NotifyPropertyChangedFor(nameof(IsFoClientSecretMode))]
+    private FoAuthMode _draftAuthMode = FoAuthMode.Interactive;
 
-    public FoAuthMode[] AuthModes { get; } = { FoAuthMode.ClientSecret, FoAuthMode.Certificate };
+    public FoAuthMode[] AuthModes { get; } = { FoAuthMode.Interactive, FoAuthMode.ClientSecret, FoAuthMode.Certificate };
+
+    /// <summary>Show the "Microsoft default client ID" note while the F&amp;O auth is Interactive and the
+    /// client ID is still the default (it's editable; changing it hides the note).</summary>
+    public bool ShowFoDefaultClientIdNote =>
+        DraftAuthMode == FoAuthMode.Interactive && DraftClientId == FoAuthModeExtensions.DefaultInteractiveClientId;
+
+    public bool ShowDataverseDefaultClientIdNote =>
+        DraftDataverseAuthMode == FoAuthMode.Interactive && DraftDataverseClientId == FoAuthModeExtensions.DefaultInteractiveClientId;
+
+    /// <summary>Client-secret entry only applies to the app-only ClientSecret mode (not Interactive/Certificate).</summary>
+    public bool IsFoClientSecretMode => DraftAuthMode == FoAuthMode.ClientSecret;
+
+    public bool IsDataverseClientSecretMode => DraftDataverseAuthMode == FoAuthMode.ClientSecret;
 
     // Data Integrator config drafts.
     [ObservableProperty]
@@ -150,6 +169,24 @@ public partial class ProfilesViewModel : ObservableObject
     // A status from one mode shouldn't linger in the other's section.
     partial void OnDraftDiModeChanged(DiAuthMode value) => DiStatus = string.Empty;
 
+    // Selecting Interactive (MFA) defaults a blank client ID to Microsoft's global public client; an
+    // already-entered ID is respected (item 4 — the field stays editable).
+    partial void OnDraftAuthModeChanged(FoAuthMode value)
+    {
+        if (value == FoAuthMode.Interactive && string.IsNullOrWhiteSpace(DraftClientId))
+        {
+            DraftClientId = FoAuthModeExtensions.DefaultInteractiveClientId;
+        }
+    }
+
+    partial void OnDraftDataverseAuthModeChanged(FoAuthMode value)
+    {
+        if (value == FoAuthMode.Interactive && string.IsNullOrWhiteSpace(DraftDataverseClientId))
+        {
+            DraftDataverseClientId = FoAuthModeExtensions.DefaultInteractiveClientId;
+        }
+    }
+
     private static string DiKey(string id) => $"{id}:di";
 
     partial void OnSelectedChanged(EnvProfile? value)
@@ -171,9 +208,9 @@ public partial class ProfilesViewModel : ObservableObject
         DraftTier = profile?.Tier ?? string.Empty;
         DraftDataverseUrl = profile?.DataverseUrl ?? string.Empty;
         DraftDataverseClientId = profile?.DataverseClientId ?? string.Empty;
-        DraftDataverseAuthMode = profile?.DataverseAuthMode ?? FoAuthMode.ClientSecret;
+        DraftDataverseAuthMode = profile?.DataverseAuthMode ?? FoAuthMode.Interactive;
         DraftClientId = profile?.ClientId ?? string.Empty;
-        DraftAuthMode = profile?.AuthMode ?? FoAuthMode.ClientSecret;
+        DraftAuthMode = profile?.AuthMode ?? FoAuthMode.Interactive;
         DraftDiClientId = profile?.DataIntegratorClientId ?? string.Empty;
         DraftDiMode = profile?.DataIntegratorMode ?? DiAuthMode.Interactive;
         DraftGatewayUrl = profile?.DualWriteGatewayUrl ?? string.Empty;
