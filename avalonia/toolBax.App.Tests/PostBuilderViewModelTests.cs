@@ -45,6 +45,22 @@ public class PostBuilderViewModelTests
         }
     }
 
+    // Captures the headers passed to the 5-arg overload (for If-Match assertions).
+    private sealed class HeaderCapturingClient : IODataClient
+    {
+        public IReadOnlyDictionary<string, string>? LastHeaders { get; private set; }
+
+        public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
+            => SendAsync(method, path, body, null, ct);
+
+        public Task<ODataResponse> SendAsync(string method, string path, string? body,
+            IReadOnlyDictionary<string, string>? headers, CancellationToken ct = default)
+        {
+            LastHeaders = headers;
+            return Task.FromResult(new ODataResponse(204, "No Content", string.Empty, 1));
+        }
+    }
+
     [Fact]
     public async Task Post_returns_201_and_echoes_the_body()
     {
@@ -189,6 +205,53 @@ public class PostBuilderViewModelTests
         await vm.SendCommand.ExecuteAsync(null);
 
         Assert.Equal("/data/CustomersV3(dataAreaId='USMF',CustomerAccount='US-1')", recorder.LastPath);
+    }
+
+    [Fact]
+    public async Task Patch_sends_if_match_header_when_enabled()
+    {
+        var client = new HeaderCapturingClient();
+        var vm = new PostBuilderViewModel(client) { Method = "PATCH", Path = "/data/E(1)", UseIfMatch = true };
+
+        await vm.SendCommand.ExecuteAsync(null);
+
+        Assert.NotNull(client.LastHeaders);
+        Assert.Equal("*", client.LastHeaders!["If-Match"]);
+    }
+
+    [Fact]
+    public async Task Patch_omits_if_match_header_when_disabled()
+    {
+        var client = new HeaderCapturingClient();
+        var vm = new PostBuilderViewModel(client) { Method = "PATCH", Path = "/data/E(1)", UseIfMatch = false };
+
+        await vm.SendCommand.ExecuteAsync(null);
+
+        Assert.Null(client.LastHeaders);
+    }
+
+    [Fact]
+    public async Task Post_never_sends_if_match_header()
+    {
+        var client = new HeaderCapturingClient();
+        var vm = new PostBuilderViewModel(client) { Method = "POST", UseIfMatch = true };
+
+        await vm.SendCommand.ExecuteAsync(null);
+
+        Assert.Null(client.LastHeaders); // If-Match is meaningless for a create
+        Assert.False(vm.ShowIfMatch);    // …and the controls are hidden for POST
+    }
+
+    [Fact]
+    public async Task A_custom_etag_is_sent_as_the_if_match_value()
+    {
+        var client = new HeaderCapturingClient();
+        var vm = new PostBuilderViewModel(client) { Method = "DELETE", Path = "/data/E(1)", UseIfMatch = true, IfMatch = "W/\"42\"" };
+
+        await vm.SendCommand.ExecuteAsync(null);
+
+        Assert.Equal("W/\"42\"", client.LastHeaders!["If-Match"]);
+        Assert.True(vm.ShowIfMatch);
     }
 
     [Fact]

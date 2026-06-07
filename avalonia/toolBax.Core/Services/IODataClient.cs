@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -14,4 +15,13 @@ public sealed record ODataResponse(int StatusCode, string ReasonPhrase, string B
 public interface IODataClient
 {
     Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default);
+
+    /// <summary>
+    /// Overload that can attach extra request headers (e.g. <c>If-Match</c> for optimistic concurrency
+    /// on PATCH/DELETE). A default interface method that ignores the headers, so existing
+    /// implementations (the in-memory fakes) need no change; the real client overrides it.
+    /// </summary>
+    Task<ODataResponse> SendAsync(string method, string path, string? body,
+        IReadOnlyDictionary<string, string>? headers, CancellationToken ct = default)
+        => SendAsync(method, path, body, ct);
 }

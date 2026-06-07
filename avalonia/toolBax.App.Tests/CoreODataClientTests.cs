@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
@@ -63,6 +64,20 @@ public class CoreODataClientTests
         Assert.Equal(201, result.StatusCode);
         Assert.Equal(HttpMethod.Post, handler.LastRequest!.Method);
         Assert.Contains("US-1", handler.LastBody);
+    }
+
+    [Fact]
+    public async Task Extra_headers_are_applied_to_the_request()
+    {
+        var handler = new StubHandler(HttpStatusCode.NoContent, string.Empty);
+        var client = new CoreODataClient(new FakeAuthService(), () => Env(), new HttpClient(handler));
+        var headers = new Dictionary<string, string> { ["If-Match"] = "W/\"42\"" };
+
+        await client.SendAsync("PATCH", "/data/CustomersV3(dataAreaId='USMF',CustomerAccount='US-1')",
+            "{\"OrganizationName\":\"X\"}", headers, TestContext.Current.CancellationToken);
+
+        Assert.True(handler.LastRequest!.Headers.TryGetValues("If-Match", out var values));
+        Assert.Contains("W/\"42\"", values!);
     }
 
     [Fact]
