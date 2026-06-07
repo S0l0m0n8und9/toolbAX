@@ -53,9 +53,19 @@ public sealed class CoreODataClient : IODataClient, IDisposable
             return new ODataResponse(401, "Unauthorized", ex.Message, (int)sw.ElapsedMilliseconds);
         }
 
+        var uri = BuildUri(env.Url, path);
+
+        // A server-driven paging link is used verbatim, but only if it stays on the environment's host —
+        // otherwise the env-scoped bearer (and its claims) would be sent to a foreign origin.
+        if (path.StartsWith("http", StringComparison.OrdinalIgnoreCase) && !SameHost(env.Url, uri))
+        {
+            return new ODataResponse(0, "Refused",
+                "The paging link points to a different host than the environment.", (int)sw.ElapsedMilliseconds);
+        }
+
         try
         {
-            using var request = new HttpRequestMessage(new HttpMethod(method), BuildUri(env.Url, path));
+            using var request = new HttpRequestMessage(new HttpMethod(method), uri);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
@@ -77,10 +87,24 @@ public sealed class CoreODataClient : IODataClient, IDisposable
     }
 
     // env.Url may be a bare host ("contoso.operations.dynamics.com") or a full URL; path is "/data/…".
+    // An absolute path (a server-driven @odata.nextLink) is used verbatim for paging.
     private static Uri BuildUri(string envUrl, string path)
     {
+        if (path.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+        {
+            return new Uri(path);
+        }
+
         var baseUrl = envUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? envUrl : $"https://{envUrl}";
         return new Uri($"{baseUrl.TrimEnd('/')}/{path.TrimStart('/')}");
+    }
+
+    // True when the request URI is on the same host as the environment (guards paging-link redirects).
+    private static bool SameHost(string envUrl, Uri requestUri)
+    {
+        var normalized = envUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? envUrl : $"https://{envUrl}";
+        return Uri.TryCreate(normalized, UriKind.Absolute, out var envUri)
+            && string.Equals(envUri.Host, requestUri.Host, StringComparison.OrdinalIgnoreCase);
     }
 
     public void Dispose()
