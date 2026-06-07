@@ -219,6 +219,93 @@ public class QueryBuilderViewModelTests
     }
 
     [Fact]
+    public void Entity_search_filters_the_displayed_list_case_insensitively()
+    {
+        var vm = MakeVm();
+        Assert.Equal(vm.Entities.Count, vm.FilteredEntities.Count); // unfiltered initially
+        // Select a matching entity so the always-pinned active selection is itself a match.
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "SalesOrderHeadersV2");
+
+        vm.EntitySearch = "ORDER"; // case-insensitive substring on the entity name
+
+        Assert.All(vm.FilteredEntities, e => Assert.Contains("order", e.Name, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(vm.FilteredEntities, e => e.Name == "SalesOrderHeadersV2");
+        Assert.Contains(vm.FilteredEntities, e => e.Name == "PurchaseOrderHeadersV2");
+        Assert.DoesNotContain(vm.FilteredEntities, e => e.Name == "CustomersV3");
+    }
+
+    [Fact]
+    public void Clearing_entity_search_restores_the_full_list()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = null; // no selection → nothing pinned, so a no-match term yields an empty list
+        vm.EntitySearch = "zzz-no-match";
+        Assert.Empty(vm.FilteredEntities);
+
+        vm.EntitySearch = "   "; // whitespace-only is treated as no filter
+
+        Assert.Equal(vm.Entities.Count, vm.FilteredEntities.Count);
+    }
+
+    [Fact]
+    public void Entity_search_excluding_the_selection_keeps_it_pinned_and_preserves_fields()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        Assert.NotEmpty(vm.Fields);
+
+        vm.EntitySearch = "order"; // CustomersV3 does NOT contain "order"
+
+        // The active selection stays pinned in the filtered list so the bound ListBox can't null it
+        // (which would otherwise wipe the field selection + query URL); selection + fields survive.
+        Assert.Contains(vm.FilteredEntities, e => e.Name == "CustomersV3");
+        Assert.Equal("CustomersV3", vm.SelectedEntity!.Name);
+        Assert.NotEmpty(vm.Fields);
+        Assert.Contains("/data/CustomersV3", vm.QueryUrl);
+    }
+
+    [Fact]
+    public void Field_search_filters_the_chips_case_insensitively()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        Assert.Equal(vm.Fields.Count, vm.FilteredFields.Count); // unfiltered initially
+
+        vm.FieldSearch = "DATE";
+
+        Assert.All(vm.FilteredFields, f => Assert.Contains("date", f.Name, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(vm.FilteredFields, f => f.Name == "CreatedDateTime");
+        Assert.Contains(vm.FilteredFields, f => f.Name == "ModifiedDateTime");
+        Assert.DoesNotContain(vm.FilteredFields, f => f.Name == "OrganizationName");
+    }
+
+    [Fact]
+    public void Field_search_hides_chips_from_the_view_but_keeps_them_in_the_select_clause()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.Fields.Single(f => f.Name == "OrganizationName").IsSelected = true;
+
+        vm.FieldSearch = "date"; // OrganizationName no longer shown…
+
+        Assert.DoesNotContain(vm.FilteredFields, f => f.Name == "OrganizationName");
+        Assert.Contains("OrganizationName", vm.QueryUrl); // …but the selection still drives $select
+    }
+
+    [Fact]
+    public void Changing_the_entity_reapplies_the_active_field_search()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "VendorsV2"); // no cached fields
+        vm.FieldSearch = "name";
+
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3"); // fields appear, filtered
+
+        Assert.NotEmpty(vm.FilteredFields);
+        Assert.All(vm.FilteredFields, f => Assert.Contains("name", f.Name, StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
     public void Toggling_a_field_updates_the_select_clause_both_ways()
     {
         var vm = MakeVm();

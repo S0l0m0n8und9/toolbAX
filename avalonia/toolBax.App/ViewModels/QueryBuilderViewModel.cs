@@ -26,9 +26,30 @@ public partial class QueryBuilderViewModel : ObservableObject
     private readonly IODataClient _client;
     private readonly IClipboardService _clipboard;
 
+    // True only while RefreshEntityFilter is rebuilding FilteredEntities, so the transient selection
+    // null a bound ListBox emits during Clear() doesn't run OnSelectedEntityChanged's side-effects
+    // (which would wipe the field selection + query URL on every keystroke in the entity search box).
+    private bool _refreshingEntities;
+
     public ObservableCollection<EntitySet> Entities { get; }
     public ObservableCollection<FieldChipViewModel> Fields { get; } = new();
     public ObservableCollection<QueryResultRow> ResultRows { get; } = new();
+
+    /// <summary>The entity list as shown, after applying <see cref="EntitySearch"/>. The view binds
+    /// to this; <see cref="Entities"/> stays the full master so selections/loads aren't affected.</summary>
+    public ObservableCollection<EntitySet> FilteredEntities { get; } = new();
+
+    /// <summary>The field chips as shown, after applying <see cref="FieldSearch"/>. Filtering only hides
+    /// chips from the view — <see cref="Fields"/> keeps every chip (and its $select selection).</summary>
+    public ObservableCollection<FieldChipViewModel> FilteredFields { get; } = new();
+
+    /// <summary>Case-insensitive substring filter over the entity-list names.</summary>
+    [ObservableProperty]
+    private string _entitySearch = string.Empty;
+
+    /// <summary>Case-insensitive substring filter over the field-chip names.</summary>
+    [ObservableProperty]
+    private string _fieldSearch = string.Empty;
 
     [ObservableProperty]
     private EntitySet? _selectedEntity;
@@ -110,6 +131,12 @@ public partial class QueryBuilderViewModel : ObservableObject
 
     public bool HasTotalCount => TotalCount is not null;
 
+    /// <summary>"Entities · N" (or "M of N" while a search is narrowing the list).</summary>
+    public string EntityCountLabel =>
+        FilteredEntities.Count == Entities.Count
+            ? $"Entities · {Entities.Count}"
+            : $"Entities · {FilteredEntities.Count} of {Entities.Count}";
+
     public QueryBuilderViewModel(IMetadataService metadata, IODataClient client, IClipboardService? clipboard = null)
     {
         _metadata = metadata;
@@ -119,6 +146,7 @@ public partial class QueryBuilderViewModel : ObservableObject
         // The fake seeds its catalogue synchronously; the real service starts empty and fills in via
         // InitializeAsync (triggered by the view on load).
         Entities = new ObservableCollection<EntitySet>(metadata.GetEntities());
+        RefreshEntityFilter();
         SelectedEntity = Entities.FirstOrDefault();
     }
 
@@ -142,6 +170,7 @@ public partial class QueryBuilderViewModel : ObservableObject
                 Entities.Add(e);
             }
 
+            RefreshEntityFilter();
             SelectedEntity = Entities.FirstOrDefault(e => e.Name == previous) ?? Entities.FirstOrDefault();
         }
 
@@ -150,11 +179,69 @@ public partial class QueryBuilderViewModel : ObservableObject
 
     partial void OnSelectedEntityChanged(EntitySet? value)
     {
+        if (_refreshingEntities)
+        {
+            return; // a transient null/restore from rebuilding the filtered list — not a real selection change
+        }
+
         // Default cross-company to the entity's company-awareness; the user can still override it.
         CrossCompany = value?.CompanyAware ?? false;
         LoadFields();                              // show what's cached immediately
         OnPropertyChanged(nameof(NotCachedMessage));
         LoadSelectedFieldsCommand.Execute(null);   // then fetch from $metadata if not cached yet
+    }
+
+    // The two search boxes only re-filter what's displayed; they never touch the master lists.
+    partial void OnEntitySearchChanged(string value) => RefreshEntityFilter();
+    partial void OnFieldSearchChanged(string value) => RefreshFieldFilter();
+
+    // Rebuilds FilteredEntities from Entities applying the (trimmed, case-insensitive) EntitySearch.
+    // The currently-selected entity is always kept in the list (even when it doesn't match the term),
+    // and the selection is snapshot/restored, so typing in the search box can't make the bound ListBox
+    // null the selection and wipe the field selection + query URL. See OnSelectedEntityChanged's guard.
+    private void RefreshEntityFilter()
+    {
+        var term = EntitySearch?.Trim();
+        var saved = SelectedEntity;
+        _refreshingEntities = true;
+        try
+        {
+            FilteredEntities.Clear();
+            foreach (var e in Entities)
+            {
+                if (string.IsNullOrEmpty(term)
+                    || e.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || ReferenceEquals(e, saved))
+                {
+                    FilteredEntities.Add(e);
+                }
+            }
+
+            if (saved is not null && !ReferenceEquals(SelectedEntity, saved))
+            {
+                SelectedEntity = saved; // restore if the bound ListBox nulled it during Clear()
+            }
+        }
+        finally
+        {
+            _refreshingEntities = false;
+        }
+
+        OnPropertyChanged(nameof(EntityCountLabel));
+    }
+
+    // Rebuilds FilteredFields from Fields applying the (trimmed, case-insensitive) FieldSearch.
+    private void RefreshFieldFilter()
+    {
+        var term = FieldSearch?.Trim();
+        FilteredFields.Clear();
+        foreach (var f in Fields)
+        {
+            if (string.IsNullOrEmpty(term) || f.Name.Contains(term, StringComparison.OrdinalIgnoreCase))
+            {
+                FilteredFields.Add(f);
+            }
+        }
     }
 
     // Each option recomputes the live URL preview.
@@ -207,6 +294,7 @@ public partial class QueryBuilderViewModel : ObservableObject
             }
         }
 
+        RefreshFieldFilter();
         UpdateQueryUrl();
     }
 
