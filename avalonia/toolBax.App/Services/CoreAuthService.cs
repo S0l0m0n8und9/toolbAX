@@ -133,9 +133,11 @@ public sealed class CoreAuthService : IAuthService
             throw new InvalidOperationException($"No {label} client ID is configured for interactive sign-in.");
         }
 
+        // Forward the injected authority (defaults to public-cloud AAD) so a sovereign/GCC endpoint
+        // configured on this service applies to interactive sign-in too, not just client credentials.
         _interactive ??= new MsalInteractiveTokenProvider();
         var result = await _interactive
-            .AcquireTokenAsync(new InteractiveTokenRequest(clientId, tenant, resourceBaseUrl), ct)
+            .AcquireTokenAsync(new InteractiveTokenRequest(clientId, tenant, resourceBaseUrl, _authorityBase), ct)
             .ConfigureAwait(false);
         return result.AccessToken;
     }
