@@ -29,9 +29,9 @@ public class OpsViewRenderTests
     }
 
     [AvaloniaFact]
-    public async Task Renders_the_maps_grid_after_connecting()
+    public async Task Renders_the_maps_grid_and_command_bar_after_connecting()
     {
-        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), Env);
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), Env, new StubDialogs());
         await vm.LoadCommand.ExecuteAsync(null);
 
         var (window, view) = Show(vm);
@@ -42,6 +42,10 @@ public class OpsViewRenderTests
 
             var buttons = view.GetVisualDescendants().OfType<Button>().Select(b => b.Content as string).ToList();
             Assert.Contains("Connect", buttons);
+            foreach (var action in new[] { "Start", "Stop", "Pause", "Resume", "Initial sync" })
+            {
+                Assert.Contains(action, buttons);
+            }
         }
         finally
         {

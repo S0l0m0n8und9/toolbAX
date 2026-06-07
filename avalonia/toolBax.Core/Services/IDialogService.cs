@@ -1,17 +1,20 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
-using ToolBax.Core.Models;
 
 namespace ToolBax.Core.Services;
 
-/// <summary>A target map shown in the confirm dialog (name + current state).</summary>
-public sealed record ConfirmTarget(string FoEntity, string DvEntity, DwDirection Direction, MapState State);
-
-/// <summary>Request to confirm a mutating action before any gateway call (confirm-on-mutation).</summary>
+/// <summary>
+/// Request to confirm a mutating action before any gateway call (confirm-on-mutation). Generic so any
+/// screen can use it: <see cref="Targets"/> are pre-formatted lines (e.g. the affected maps) and
+/// <see cref="Caveat"/> carries an optional danger note.
+/// </summary>
 public sealed record ConfirmRequest(
-    DwAction Action,
-    string GatewayCName,
-    IReadOnlyList<ConfirmTarget> Targets);
+    string Title,
+    string Message,
+    IReadOnlyList<string> Targets,
+    string ConfirmLabel,
+    bool IsDanger,
+    string? Caveat = null);
 
 /// <summary>
 /// Abstracts the confirm dialog so ViewModels stay headless-testable. The real implementation shows a

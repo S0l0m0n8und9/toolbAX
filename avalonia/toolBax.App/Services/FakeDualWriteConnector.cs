@@ -18,8 +18,19 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
 {
     private readonly IReadOnlyList<DualWriteMap>? _maps;
     private readonly Exception? _failWith;
+    private readonly int _pollsBeforeTerminal;
 
-    public FakeDualWriteConnector(IReadOnlyList<DualWriteMap>? maps = null) => _maps = maps;
+    /// <summary>The gateway handed out by the last successful connect (for asserting on actions).</summary>
+    public FakeCoreDualWriteGateway? LastGateway { get; private set; }
+
+    private readonly int _failGetMapsOnCall;
+
+    public FakeDualWriteConnector(IReadOnlyList<DualWriteMap>? maps = null, int pollsBeforeTerminal = 0, int failGetMapsOnCall = 0)
+    {
+        _maps = maps;
+        _pollsBeforeTerminal = pollsBeforeTerminal;
+        _failGetMapsOnCall = failGetMapsOnCall;
+    }
 
     private FakeDualWriteConnector(Exception failWith) => _failWith = failWith;
 
@@ -38,7 +49,8 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
             return Task.FromException<DualWriteSession>(_failWith);
         }
 
-        var gateway = new FakeCoreDualWriteGateway(_maps ?? SeedMaps());
+        var gateway = new FakeCoreDualWriteGateway(_maps ?? SeedMaps(), _pollsBeforeTerminal, _failGetMapsOnCall);
+        LastGateway = gateway;
         return Task.FromResult(new DualWriteSession(gateway, "fake-cid", "Contoso (AUMF · APAC Prod)"));
     }
 
@@ -68,25 +80,79 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
     }
 }
 
-/// <summary>In-memory <see cref="IDualWriteGateway"/> for design-mode/tests — only the read methods the
-/// Operations screen uses are implemented; the rest throw until they're needed (lifecycle actions).</summary>
+/// <summary>In-memory <see cref="IDualWriteGateway"/> for design-mode/tests. Read methods are real;
+/// lifecycle actions mutate the in-memory map states (so a refresh reflects them) and the status poll
+/// reports terminal success after <c>pollsBeforeTerminal</c> non-terminal polls. The remaining gateway
+/// surface throws until it's needed.</summary>
 public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
 {
-    private readonly IReadOnlyList<DualWriteMap> _maps;
+    private readonly List<DualWriteMap> _maps;
+    private readonly int _pollsBeforeTerminal;
+    private readonly int _failGetMapsOnCall;
+    private readonly Dictionary<string, int> _pending = new();
+    private int _requestSeq;
+    private int _getMapsCalls;
 
-    public FakeCoreDualWriteGateway(IReadOnlyList<DualWriteMap> maps) => _maps = maps;
+    /// <summary>Number of <see cref="StartActionAsync"/> calls — lets tests assert no silent mutation.</summary>
+    public int StartCount { get; private set; }
+
+    public FakeCoreDualWriteGateway(IReadOnlyList<DualWriteMap> maps, int pollsBeforeTerminal = 0, int failGetMapsOnCall = 0)
+    {
+        _maps = maps.ToList();
+        _pollsBeforeTerminal = pollsBeforeTerminal;
+        _failGetMapsOnCall = failGetMapsOnCall;
+    }
 
     public Task<DualWriteEnvironment> GetEnvironmentAsync(string foIdentifier, CancellationToken cancellationToken = default)
         => Task.FromResult(new DualWriteEnvironment("fake-cid", "Contoso (AUMF · APAC Prod)", foIdentifier));
 
     public Task<IReadOnlyList<DualWriteMap>> GetMapsAsync(string cid, CancellationToken cancellationToken = default)
-        => Task.FromResult(_maps);
+    {
+        // Optionally fail a specific call (e.g. the post-action refresh = call 2) to exercise the
+        // refresh-failure path without clobbering an action result.
+        if (++_getMapsCalls == _failGetMapsOnCall)
+        {
+            throw new InvalidOperationException("map refresh failed");
+        }
+
+        return Task.FromResult<IReadOnlyList<DualWriteMap>>(_maps.ToList());
+    }
 
     public Task<DualWriteActionResponse> StartActionAsync(DualWriteActionType action, IReadOnlyList<DualWriteMap> maps, string cid, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException("Lifecycle actions are not part of the read-path fake.");
+    {
+        StartCount++;
+        var newState = ResultState(action);
+        var targetIds = maps.Select(m => m.Id).ToHashSet();
+        for (var i = 0; i < _maps.Count; i++)
+        {
+            if (targetIds.Contains(_maps[i].Id))
+            {
+                _maps[i] = _maps[i] with { State = newState };
+            }
+        }
+
+        var requestId = $"req-{++_requestSeq:000}";
+        _pending[requestId] = _pollsBeforeTerminal;
+        return Task.FromResult(new DualWriteActionResponse(requestId, "pending"));
+    }
 
     public Task<DualWriteRequestStatus> GetStatusAsync(string requestId, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException("Lifecycle actions are not part of the read-path fake.");
+    {
+        if (_pending.TryGetValue(requestId, out var remaining) && remaining > 0)
+        {
+            _pending[requestId] = remaining - 1;
+            return Task.FromResult(new DualWriteRequestStatus(requestId, "pending", IsTerminal: false, IsSuccess: false, Message: null));
+        }
+
+        return Task.FromResult(new DualWriteRequestStatus(requestId, "success", IsTerminal: true, IsSuccess: true, Message: null));
+    }
+
+    private static string ResultState(DualWriteActionType action) => action switch
+    {
+        DualWriteActionType.Stop => "Stopped",
+        DualWriteActionType.Pause => "Paused",
+        _ => "Running", // Start / Resume / InitialSync
+    };
 
     public Task<DualWriteActionResponse> SwitchActiveTemplateAsync(string cid, string projectId, string templateId, CancellationToken cancellationToken = default)
         => throw new NotSupportedException();
