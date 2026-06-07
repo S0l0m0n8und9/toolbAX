@@ -45,8 +45,21 @@ public sealed class CoreAuthService : IAuthService
             throw new InvalidOperationException("No tenant ID is configured for this environment.");
         }
 
+        if (string.IsNullOrWhiteSpace(env.Url))
+        {
+            throw new InvalidOperationException("No F&O environment URL is configured.");
+        }
+
+        // Interactive (MFA): a delegated browser sign-in (loopback), scoped to the F&O resource — no
+        // app-only service principal / stored secret. Silent after the first sign-in (token cache).
+        if (env.AuthMode == FoAuthMode.Interactive)
+        {
+            return await AcquireInteractiveTokenAsync(
+                env.ClientId, env.Tenant, ResourceUrlNormalizer.NormalizeFoBaseUrl(env.Url), "F&O", ct).ConfigureAwait(false);
+        }
+
         var sp = await _profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Fo, ct).ConfigureAwait(false)
-            ?? throw new InvalidOperationException("No F&O service principal is configured (set a client ID on the Auth tab).");
+            ?? throw new InvalidOperationException("No F&O service principal is configured (set a client ID on the FO Environment tab).");
         if (string.IsNullOrEmpty(sp.SecretRef))
         {
             throw new InvalidOperationException("No client secret is stored for this environment.");
@@ -70,6 +83,13 @@ public sealed class CoreAuthService : IAuthService
         if (string.IsNullOrWhiteSpace(env.Tenant))
         {
             throw new InvalidOperationException("No tenant ID is configured for this environment.");
+        }
+
+        // Interactive (MFA): delegated browser sign-in scoped to the (normalized) Dataverse resource.
+        if (env.DataverseAuthMode == FoAuthMode.Interactive)
+        {
+            return await AcquireInteractiveTokenAsync(
+                env.DataverseClientId, env.Tenant, ResourceUrlNormalizer.NormalizeDataverseResourceBaseUrl(env.DataverseUrl), "Dataverse", ct).ConfigureAwait(false);
         }
 
         var sp = await _profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Dataverse, ct).ConfigureAwait(false)
@@ -100,10 +120,24 @@ public sealed class CoreAuthService : IAuthService
             throw new InvalidOperationException("No tenant ID is configured for this environment.");
         }
 
-        // Delegated (interactive) token via the loopback MSAL provider — silent after a prior sign-in.
+        return await AcquireInteractiveTokenAsync(
+            env.DataIntegratorClientId, env.Tenant, DualWriteAuthConstants.ResourceBaseUrl, "Data Integrator", ct).ConfigureAwait(false);
+    }
+
+    // Delegated (interactive) token via the loopback MSAL provider — silent after a prior sign-in.
+    // Used by the Interactive auth mode (F&O / Dataverse) and the Data Integrator gateway.
+    private async Task<string> AcquireInteractiveTokenAsync(string? clientId, string tenant, string resourceBaseUrl, string label, CancellationToken ct)
+    {
+        if (string.IsNullOrWhiteSpace(clientId))
+        {
+            throw new InvalidOperationException($"No {label} client ID is configured for interactive sign-in.");
+        }
+
+        // Forward the injected authority (defaults to public-cloud AAD) so a sovereign/GCC endpoint
+        // configured on this service applies to interactive sign-in too, not just client credentials.
         _interactive ??= new MsalInteractiveTokenProvider();
         var result = await _interactive
-            .AcquireTokenAsync(new InteractiveTokenRequest(env.DataIntegratorClientId, env.Tenant, DualWriteAuthConstants.ResourceBaseUrl), ct)
+            .AcquireTokenAsync(new InteractiveTokenRequest(clientId, tenant, resourceBaseUrl, _authorityBase), ct)
             .ConfigureAwait(false);
         return result.AccessToken;
     }
