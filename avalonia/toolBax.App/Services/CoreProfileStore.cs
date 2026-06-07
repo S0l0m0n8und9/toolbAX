@@ -227,24 +227,30 @@ public sealed class CoreProfileStore : IProfileStore
 
     private static EnvProfile Map(FoEnvironment env, string? dataverseUrl, ServicePrincipal? sp, ServicePrincipal? dataverseSp,
         string? diClientId, string? diMode, string? gatewayUrl, string? foAuthMode, string? dataverseAuthMode,
-        string? foClientId, string? dataverseClientId) => new(
-        env.Id,
-        env.Name,
-        env.BaseUrl,
-        env.TenantId,
-        env.DefaultCompany ?? string.Empty,
-        Tier: string.Empty,
-        Status: EnvStatus.Disconnected, // a connection test sets the live status (later wiring)
-        LatencyMs: null,
-        DataverseUrl: string.IsNullOrWhiteSpace(dataverseUrl) ? null : dataverseUrl,
-        DataIntegratorClientId: string.IsNullOrWhiteSpace(diClientId) ? null : diClientId,
-        DataIntegratorMode: ParseDiMode(diMode),
-        // Interactive client ids come from Settings (no SP); app-only ones from the SP.
-        ClientId: string.IsNullOrWhiteSpace(foClientId) ? sp?.ClientId : foClientId,
-        AuthMode: ResolveAuthMode(foAuthMode, sp),
-        DataverseClientId: string.IsNullOrWhiteSpace(dataverseClientId) ? dataverseSp?.ClientId : dataverseClientId,
-        DataverseAuthMode: ResolveAuthMode(dataverseAuthMode, dataverseSp),
-        DualWriteGatewayUrl: string.IsNullOrWhiteSpace(gatewayUrl) ? null : gatewayUrl);
+        string? foClientId, string? dataverseClientId)
+    {
+        var foMode = ResolveAuthMode(foAuthMode, sp);
+        var dvMode = ResolveAuthMode(dataverseAuthMode, dataverseSp);
+        return new(
+            env.Id,
+            env.Name,
+            env.BaseUrl,
+            env.TenantId,
+            env.DefaultCompany ?? string.Empty,
+            Tier: string.Empty,
+            Status: EnvStatus.Disconnected, // a connection test sets the live status (later wiring)
+            LatencyMs: null,
+            DataverseUrl: string.IsNullOrWhiteSpace(dataverseUrl) ? null : dataverseUrl,
+            DataIntegratorClientId: string.IsNullOrWhiteSpace(diClientId) ? null : diClientId,
+            DataIntegratorMode: ParseDiMode(diMode),
+            // Interactive client ids come from Settings (no SP); app-only ones from the SP. A delegated
+            // connection with neither falls back to the global public client (see ResolveClientId).
+            ClientId: ResolveClientId(foClientId, sp?.ClientId, foMode),
+            AuthMode: foMode,
+            DataverseClientId: ResolveClientId(dataverseClientId, dataverseSp?.ClientId, dvMode),
+            DataverseAuthMode: dvMode,
+            DualWriteGatewayUrl: string.IsNullOrWhiteSpace(gatewayUrl) ? null : gatewayUrl);
+    }
 
     // Upserts a setting, or removes the row when the value is blank (avoids accumulating empty rows).
     private void SetOrClearSetting(string key, string? value)
@@ -280,8 +286,32 @@ public sealed class CoreProfileStore : IProfileStore
     private static AuthMode ToCoreAuthMode(FoAuthMode mode) =>
         mode == FoAuthMode.Certificate ? AuthMode.Certificate : AuthMode.ClientSecret;
 
-    private static FoAuthMode FromCoreAuthMode(AuthMode? mode) =>
-        mode == AuthMode.Certificate ? FoAuthMode.Certificate : FoAuthMode.ClientSecret;
+    private static FoAuthMode FromCoreAuthMode(AuthMode? mode) => mode switch
+    {
+        AuthMode.Certificate => FoAuthMode.Certificate,
+        // BearerToken is FoToolbox's delegated (captured/pasted user token) mode — NOT app-only. The
+        // Avalonia app's delegated equivalent is a fresh interactive MSAL sign-in, so a legacy WPF
+        // bearer-token profile must surface as Interactive (and never hit the client-credentials path,
+        // which rejects BearerToken). Anything else is an app-only client secret.
+        AuthMode.BearerToken => FoAuthMode.Interactive,
+        _ => FoAuthMode.ClientSecret,
+    };
+
+    // The effective client id: an explicit Settings value, else the linked SP's, else — for a delegated
+    // (Interactive) connection with neither — Microsoft's global public client, so an interactive
+    // sign-in has a usable client id out of the box (matching the Profiles UI default).
+    private static string? ResolveClientId(string? settingClientId, string? spClientId, FoAuthMode mode)
+    {
+        var explicitId = string.IsNullOrWhiteSpace(settingClientId) ? spClientId : settingClientId;
+        if (!string.IsNullOrWhiteSpace(explicitId))
+        {
+            return explicitId;
+        }
+
+        // No usable client id: Interactive falls back to the global public client; app-only modes
+        // normalise blank/empty to null (never an empty string).
+        return mode == FoAuthMode.Interactive ? FoAuthModeExtensions.DefaultInteractiveClientId : null;
+    }
 
     // The auth mode comes from the Settings row when present (covers Interactive); otherwise it's
     // derived from a legacy app-only SP, or defaults to Interactive when neither exists.
