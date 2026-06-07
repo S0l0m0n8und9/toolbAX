@@ -1,6 +1,7 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:ToolBax.App.ViewModels"
+             xmlns:models="using:ToolBax.Core.Models"
              x:Class="ToolBax.App.Views.PostBuilderView"
              x:DataType="vm:PostBuilderViewModel">
 
@@ -10,16 +11,19 @@
                Foreground="{StaticResource Text0Brush}" />
 
     <!-- Method + path + options + send -->
-    <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto,Auto,Auto" Margin="0,12,0,6" ColumnSpacing="8">
+    <Grid Grid.Row="1" ColumnDefinitions="Auto,*,Auto,Auto,Auto,Auto" Margin="0,12,0,6" ColumnSpacing="8">
       <ComboBox Grid.Column="0" Width="120" ItemsSource="{Binding Methods}"
                 SelectedItem="{Binding Method, Mode=TwoWay}" />
       <TextBox Grid.Column="1" Text="{Binding Path, Mode=TwoWay}"
                FontFamily="Cascadia Code,Consolas,monospace" />
-      <CheckBox Grid.Column="2" Content="cross-company" VerticalAlignment="Center"
+      <CheckBox Grid.Column="2" Content="Build from fields" VerticalAlignment="Center"
+                IsChecked="{Binding UseFieldGrid, Mode=TwoWay}"
+                ToolTip.Tip="Compose the body from the entity's fields instead of raw JSON" />
+      <CheckBox Grid.Column="3" Content="cross-company" VerticalAlignment="Center"
                 IsChecked="{Binding CrossCompany, Mode=TwoWay}" />
-      <Button Grid.Column="3" Content="Copy URL" Command="{Binding CopyUrlCommand}" />
+      <Button Grid.Column="4" Content="Copy URL" Command="{Binding CopyUrlCommand}" />
       <!-- SendCommand (AsyncRelayCommand) disables itself while running, so no explicit IsEnabled. -->
-      <Button Grid.Column="4" x:Name="SendButton" Content="Send" Command="{Binding SendCommand}"
+      <Button Grid.Column="5" x:Name="SendButton" Content="Send" Command="{Binding SendCommand}"
               Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}" />
     </Grid>
 
@@ -36,10 +40,52 @@
           <Button Grid.Column="1" Content="Copy payload" FontSize="11" Padding="6,2"
                   Command="{Binding CopyPayloadCommand}" />
         </Grid>
-        <TextBox Text="{Binding RequestBody, Mode=TwoWay}"
-                 AcceptsReturn="True" TextWrapping="NoWrap"
-                 FontFamily="Cascadia Code,Consolas,monospace"
+
+        <!-- Entity picker (field-grid mode) -->
+        <StackPanel DockPanel.Dock="Top" IsVisible="{Binding UseFieldGrid}" Spacing="6" Margin="0,0,0,6">
+          <TextBox Text="{Binding EntitySearch, Mode=TwoWay}" PlaceholderText="Search entities…" />
+          <ComboBox HorizontalAlignment="Stretch" ItemsSource="{Binding FilteredEntities}"
+                    SelectedItem="{Binding SelectedEntity, Mode=TwoWay}">
+            <ComboBox.ItemTemplate>
+              <DataTemplate x:DataType="models:EntitySet">
+                <TextBlock Text="{Binding Name}" FontFamily="Cascadia Code,Consolas,monospace" />
+              </DataTemplate>
+            </ComboBox.ItemTemplate>
+          </ComboBox>
+        </StackPanel>
+
+        <!-- Validation issues (field-grid mode) -->
+        <Border DockPanel.Dock="Bottom" IsVisible="{Binding HasPayloadIssues}" Margin="0,6,0,0"
+                Background="{StaticResource InfoBgBrush}" BorderBrush="{StaticResource WarnBrush}"
+                BorderThickness="1" CornerRadius="6" Padding="8,6">
+          <TextBlock Text="{Binding PayloadIssues}" TextWrapping="Wrap" FontSize="11.5"
+                     Foreground="{StaticResource Text1Brush}" />
+        </Border>
+
+        <!-- Generated payload preview (field-grid mode) -->
+        <TextBox DockPanel.Dock="Bottom" IsVisible="{Binding UseFieldGrid}" Height="120" Margin="0,6,0,0"
+                 Text="{Binding RequestBody}" IsReadOnly="True" AcceptsReturn="True" TextWrapping="NoWrap"
+                 FontFamily="Cascadia Code,Consolas,monospace" FontSize="12"
                  VerticalContentAlignment="Top" />
+
+        <!-- Field grid (grid mode) OR raw JSON editor (raw mode) -->
+        <Grid>
+          <DataGrid IsVisible="{Binding UseFieldGrid}" ItemsSource="{Binding Fields}"
+                    AutoGenerateColumns="False" GridLinesVisibility="Horizontal"
+                    Background="{StaticResource Layer1Brush}">
+            <DataGrid.Columns>
+              <DataGridCheckBoxColumn Header="Incl" Binding="{Binding Include}" Width="48" />
+              <DataGridTextColumn Header="Field" Binding="{Binding Name}" IsReadOnly="True" Width="*" />
+              <DataGridTextColumn Header="Type" Binding="{Binding Type}" IsReadOnly="True" Width="Auto" />
+              <DataGridCheckBoxColumn Header="Req" Binding="{Binding Mandatory}" IsReadOnly="True" Width="44" />
+              <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="2*" />
+            </DataGrid.Columns>
+          </DataGrid>
+          <TextBox IsVisible="{Binding !UseFieldGrid}" Text="{Binding RequestBody, Mode=TwoWay}"
+                   AcceptsReturn="True" TextWrapping="NoWrap"
+                   FontFamily="Cascadia Code,Consolas,monospace"
+                   VerticalContentAlignment="Top" />
+        </Grid>
       </DockPanel>
 
       <DockPanel Grid.Column="1">
