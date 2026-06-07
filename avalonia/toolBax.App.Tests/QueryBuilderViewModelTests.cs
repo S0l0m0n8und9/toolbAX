@@ -35,6 +35,17 @@ public class QueryBuilderViewModelTests
         }
     }
 
+    // Records the path passed to SendAsync, to assert on the request the Run command issues.
+    private sealed class RecordingODataClient : IODataClient
+    {
+        public string? LastPath { get; private set; }
+        public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
+        {
+            LastPath = path;
+            return Task.FromResult(new ODataResponse(200, "OK", "{\"value\":[]}", 5));
+        }
+    }
+
     // Mimics the real service: nothing until LoadEntitiesAsync runs, then one entity with fields.
     private sealed class DeferredMetadata : IMetadataService
     {
@@ -81,6 +92,65 @@ public class QueryBuilderViewModelTests
         Assert.Contains("$select=", vm.QueryUrl);
         // PK fields are selected by default, so the URL carries a key.
         Assert.Contains("CustomerAccount", vm.QueryUrl);
+    }
+
+    [Fact]
+    public void Query_options_feed_the_url()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        vm.Filter = "CustomerGroupId eq 'DOM'";
+        vm.OrderBy = "OrganizationName desc";
+        vm.Top = "25";
+        vm.Skip = "10";
+        vm.Count = true;
+
+        Assert.Contains("$filter=CustomerGroupId eq 'DOM'", vm.QueryUrl);
+        Assert.Contains("$orderby=OrganizationName desc", vm.QueryUrl);
+        Assert.Contains("$top=25", vm.QueryUrl);
+        Assert.Contains("$skip=10", vm.QueryUrl);
+        Assert.Contains("$count=true", vm.QueryUrl);
+    }
+
+    [Fact]
+    public void Non_numeric_top_is_omitted_not_silently_mismatched()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        vm.Top = "abc"; // invalid → no $top clause (rather than a silent binding-conversion mismatch)
+
+        Assert.DoesNotContain("$top=", vm.QueryUrl);
+        Assert.Equal("abc", vm.Top); // the text the user typed is preserved
+    }
+
+    [Fact]
+    public void Cross_company_toggle_feeds_the_url()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        vm.CrossCompany = true;
+        Assert.Contains("cross-company=true", vm.QueryUrl);
+
+        vm.CrossCompany = false;
+        Assert.DoesNotContain("cross-company=true", vm.QueryUrl);
+    }
+
+    [Fact]
+    public async Task Run_url_encodes_the_filter()
+    {
+        var recorder = new RecordingODataClient();
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), recorder);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.Filter = "Name eq 'A B'";
+
+        await vm.RunCommand.ExecuteAsync(null);
+
+        Assert.NotNull(recorder.LastPath);
+        Assert.Contains(Uri.EscapeDataString("Name eq 'A B'"), recorder.LastPath); // encoded for the request
+        Assert.DoesNotContain("Name eq 'A B'", recorder.LastPath);                 // raw (spaced) form not sent
     }
 
     [Fact]
