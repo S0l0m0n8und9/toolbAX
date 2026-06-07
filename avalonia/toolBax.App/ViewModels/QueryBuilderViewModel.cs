@@ -21,8 +21,6 @@ namespace ToolBax.App.ViewModels;
 /// </summary>
 public partial class QueryBuilderViewModel : ObservableObject
 {
-    private const int TopRows = 50;
-
     private readonly IMetadataService _metadata;
     private readonly EntityCatalogLoader _loader;
     private readonly IODataClient _client;
@@ -44,6 +42,30 @@ public partial class QueryBuilderViewModel : ObservableObject
 
     [ObservableProperty]
     private string _queryUrl = string.Empty;
+
+    // --- Query options (all feed the computed URL) ---
+
+    /// <summary>Raw OData <c>$filter</c> expression (the user owns the syntax).</summary>
+    [ObservableProperty]
+    private string _filter = string.Empty;
+
+    /// <summary>OData <c>$orderby</c> clause, e.g. "Name desc".</summary>
+    [ObservableProperty]
+    private string _orderBy = string.Empty;
+
+    [ObservableProperty]
+    private int _top = 50;
+
+    [ObservableProperty]
+    private int _skip;
+
+    /// <summary>Include <c>$count=true</c> (total matching rows).</summary>
+    [ObservableProperty]
+    private bool _count;
+
+    /// <summary>Query across all legal entities (<c>cross-company=true</c>).</summary>
+    [ObservableProperty]
+    private bool _crossCompany;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RunCommand))]
@@ -110,10 +132,20 @@ public partial class QueryBuilderViewModel : ObservableObject
 
     partial void OnSelectedEntityChanged(EntitySet? value)
     {
+        // Default cross-company to the entity's company-awareness; the user can still override it.
+        CrossCompany = value?.CompanyAware ?? false;
         LoadFields();                              // show what's cached immediately
         OnPropertyChanged(nameof(NotCachedMessage));
         LoadSelectedFieldsCommand.Execute(null);   // then fetch from $metadata if not cached yet
     }
+
+    // Each option recomputes the live URL preview.
+    partial void OnFilterChanged(string value) => UpdateQueryUrl();
+    partial void OnOrderByChanged(string value) => UpdateQueryUrl();
+    partial void OnTopChanged(int value) => UpdateQueryUrl();
+    partial void OnSkipChanged(int value) => UpdateQueryUrl();
+    partial void OnCountChanged(bool value) => UpdateQueryUrl();
+    partial void OnCrossCompanyChanged(bool value) => UpdateQueryUrl();
 
     // Fetches the selected entity's fields if they aren't cached yet, then rebuilds the field chips.
     [RelayCommand]
@@ -179,28 +211,56 @@ public partial class QueryBuilderViewModel : ObservableObject
         }
     }
 
-    private void UpdateQueryUrl() => QueryUrl = BuildQueryUrl();
+    private void UpdateQueryUrl() => QueryUrl = SelectedEntity is null ? string.Empty : "GET " + BuildPath(forRequest: false);
 
-    private string BuildQueryUrl()
+    // Builds the OData path ("/data/{Entity}?…") from the current selection + options. When
+    // <paramref name="forRequest"/> is true the $filter / $orderby values are URL-encoded for the live
+    // request; the readable (un-encoded) form drives the URL preview.
+    private string BuildPath(bool forRequest)
     {
         if (SelectedEntity is null)
         {
             return string.Empty;
         }
 
+        string Encode(string value) => forRequest ? Uri.EscapeDataString(value) : value;
+
+        var parts = new List<string>();
+
         var select = string.Join(",", SelectedColumns());
-        if (select.Length == 0)
+        parts.Add($"$select={(select.Length == 0 ? "*" : select)}");
+
+        if (!string.IsNullOrWhiteSpace(Filter))
         {
-            select = "*";
+            parts.Add($"$filter={Encode(Filter.Trim())}");
         }
 
-        var url = $"GET /data/{SelectedEntity.Name}?$select={select}&$top={TopRows}";
-        if (SelectedEntity.CompanyAware)
+        if (!string.IsNullOrWhiteSpace(OrderBy))
         {
-            url += "&cross-company=true";
+            parts.Add($"$orderby={Encode(OrderBy.Trim())}");
         }
 
-        return url;
+        if (Top > 0)
+        {
+            parts.Add($"$top={Top}");
+        }
+
+        if (Skip > 0)
+        {
+            parts.Add($"$skip={Skip}");
+        }
+
+        if (Count)
+        {
+            parts.Add("$count=true");
+        }
+
+        if (CrossCompany)
+        {
+            parts.Add("cross-company=true");
+        }
+
+        return $"/data/{SelectedEntity.Name}?{string.Join("&", parts)}";
     }
 
     private IEnumerable<string> SelectedColumns() =>
@@ -221,7 +281,7 @@ public partial class QueryBuilderViewModel : ObservableObject
         try
         {
             var columns = SelectedColumns().ToList();
-            var path = BuildQueryUrl()["GET ".Length..];
+            var path = BuildPath(forRequest: true);
             var response = await _client.SendAsync("GET", path, body: null, ct);
 
             // Clear stale rows before swapping columns so the grid never renders old rows under new

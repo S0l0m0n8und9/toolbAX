@@ -36,7 +36,7 @@
     </Border>
 
     <!-- Content -->
-    <Grid Grid.Column="1" Margin="24,16,24,0" RowDefinitions="Auto,Auto,Auto,*,28">
+    <Grid Grid.Column="1" Margin="24,16,24,0" RowDefinitions="Auto,Auto,Auto,Auto,*,28">
 
       <!-- Title row -->
       <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" Margin="0,0,0,12">
@@ -64,8 +64,26 @@
         </StackPanel>
       </Grid>
 
+      <!-- Query options -->
+      <Grid Grid.Row="2" ColumnDefinitions="*,*,Auto" ColumnSpacing="8" Margin="0,8,0,0">
+        <TextBox Grid.Column="0" Text="{Binding Filter, Mode=TwoWay}"
+                 PlaceholderText="$filter — e.g. CustomerGroupId eq 'DOM'"
+                 FontFamily="Cascadia Code,Consolas,monospace" />
+        <TextBox Grid.Column="1" Text="{Binding OrderBy, Mode=TwoWay}"
+                 PlaceholderText="$orderby — e.g. Name desc"
+                 FontFamily="Cascadia Code,Consolas,monospace" />
+        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <TextBlock Text="top" FontSize="11" Foreground="{StaticResource Text3Brush}" VerticalAlignment="Center" />
+          <TextBox Width="60" Text="{Binding Top, Mode=TwoWay}" ToolTip.Tip="$top" />
+          <TextBlock Text="skip" FontSize="11" Foreground="{StaticResource Text3Brush}" VerticalAlignment="Center" />
+          <TextBox Width="60" Text="{Binding Skip, Mode=TwoWay}" ToolTip.Tip="$skip" />
+          <CheckBox Content="$count" IsChecked="{Binding Count, Mode=TwoWay}" />
+          <CheckBox Content="cross-company" IsChecked="{Binding CrossCompany, Mode=TwoWay}" />
+        </StackPanel>
+      </Grid>
+
       <!-- Field chips (cached) or not-cached hint -->
-      <ItemsControl Grid.Row="2" ItemsSource="{Binding Fields}" IsVisible="{Binding HasFields}"
+      <ItemsControl Grid.Row="3" ItemsSource="{Binding Fields}" IsVisible="{Binding HasFields}"
                     Margin="0,12,0,0">
         <ItemsControl.ItemsPanel>
           <ItemsPanelTemplate>
@@ -86,7 +104,7 @@
         </ItemsControl.ItemTemplate>
       </ItemsControl>
 
-      <Border Grid.Row="2" IsVisible="{Binding !HasFields}" VerticalAlignment="Top" Margin="0,12,0,0"
+      <Border Grid.Row="3" IsVisible="{Binding !HasFields}" VerticalAlignment="Top" Margin="0,12,0,0"
               Background="{StaticResource InfoBgBrush}" BorderBrush="{StaticResource InfoBrush}"
               BorderThickness="1" CornerRadius="8" Padding="12,8">
         <TextBlock Text="{Binding NotCachedMessage}" TextWrapping="Wrap"
@@ -94,13 +112,13 @@
       </Border>
 
       <!-- Results grid (columns built in code-behind from ResultColumns) -->
-      <DataGrid Grid.Row="3" x:Name="ResultsGrid" Margin="0,12,0,0"
+      <DataGrid Grid.Row="4" x:Name="ResultsGrid" Margin="0,12,0,0"
                 ItemsSource="{Binding ResultRows}" IsReadOnly="True"
                 AutoGenerateColumns="False" GridLinesVisibility="Horizontal"
                 Background="{StaticResource Layer1Brush}" />
 
       <!-- Status bar -->
-      <Border Grid.Row="4" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0">
+      <Border Grid.Row="5" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0">
         <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
           <TextBlock Text="{Binding StatusText}" FontSize="11.5"
                      Foreground="{StaticResource Text2Brush}" />
