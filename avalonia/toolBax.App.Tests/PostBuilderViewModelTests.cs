@@ -1,3 +1,5 @@
+using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ToolBax.App.Services;
@@ -10,6 +12,10 @@ namespace ToolBax.App.Tests;
 public class PostBuilderViewModelTests
 {
     private static PostBuilderViewModel MakeVm() => new(new FakeODataClient());
+
+    // A POST Builder backed by the seeded metadata (CustomersV3 has fields), for field-grid tests.
+    private static PostBuilderViewModel MakeGridVm() =>
+        new(new FakeODataClient(), metadata: new FakeMetadataService());
 
     private sealed class RecordingODataClient : IODataClient
     {
@@ -117,5 +123,151 @@ public class PostBuilderViewModelTests
 
         await vm.CopyPayloadCommand.ExecuteAsync(null);
         Assert.Equal(vm.RequestBody, clipboard.LastText);
+    }
+
+    // --- Field-grid (metadata-driven payload builder) ---
+
+    [Theory]
+    [InlineData("Boolean", "Edm.Boolean")]
+    [InlineData("Int16", "Edm.Int16")]
+    [InlineData("Int32", "Edm.Int32")]
+    [InlineData("Int64", "Edm.Int64")]
+    [InlineData("Decimal", "Edm.Decimal")]
+    [InlineData("Double", "Edm.Double")]
+    [InlineData("Single", "Edm.Single")]
+    [InlineData("Guid", "Edm.Guid")]
+    [InlineData("DateTime", "Edm.DateTimeOffset")]
+    [InlineData("String", "Edm.String")]
+    [InlineData("Enum", "Edm.String")] // enum members are sent as JSON strings (member-name)
+    public void Friendly_types_map_to_edm(string friendly, string edm) =>
+        Assert.Equal(edm, PostPayloadMapper.ToEdmType(friendly));
+
+    [Fact]
+    public void Default_construction_does_not_disturb_the_raw_body_or_path()
+    {
+        // Grid mode is opt-in; a freshly-built VM keeps the seeded raw JSON and default path.
+        var vm = MakeGridVm();
+
+        Assert.False(vm.UseFieldGrid);
+        Assert.False(vm.IsBodyReadOnly);
+        Assert.Contains("CustomerAccount", vm.RequestBody);
+        Assert.Null(vm.SelectedEntity);
+        Assert.NotEmpty(vm.Entities);
+    }
+
+    [Fact]
+    public void Selecting_an_entity_in_grid_mode_pre_includes_key_and_mandatory_fields()
+    {
+        var vm = MakeGridVm();
+        vm.Method = "PATCH"; // avoid mandatory-blank issues for this structural check
+        vm.UseFieldGrid = true;
+
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        Assert.NotEmpty(vm.Fields);
+        Assert.True(vm.Fields.Single(f => f.Name == "CustomerAccount").Include);  // key → pre-included
+        Assert.True(vm.Fields.Single(f => f.Name == "CustomerAccount").Mandatory);
+        Assert.True(vm.Fields.Single(f => f.Name == "CurrencyCode").Include);     // non-nullable → pre-included
+        Assert.False(vm.Fields.Single(f => f.Name == "OrganizationName").Include); // optional → not pre-included
+        Assert.Equal("/data/CustomersV3", vm.Path);
+    }
+
+    [Fact]
+    public void Editing_a_value_rebuilds_the_payload_with_type_coercion()
+    {
+        var vm = MakeGridVm();
+        vm.Method = "PATCH";
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        foreach (var f in vm.Fields)
+        {
+            f.Include = false;
+        }
+
+        var credit = vm.Fields.Single(f => f.Name == "CreditLimit"); // Edm.Decimal
+        credit.Include = true;
+        credit.Value = "100.5";
+
+        Assert.Contains("CreditLimit", vm.RequestBody);
+        Assert.Contains("100.5", vm.RequestBody);
+        Assert.DoesNotContain("\"100.5\"", vm.RequestBody); // a number, not a quoted string
+    }
+
+    [Fact]
+    public void Excluding_a_field_omits_it_from_the_payload()
+    {
+        var vm = MakeGridVm();
+        vm.Method = "PATCH";
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        var org = vm.Fields.Single(f => f.Name == "OrganizationName");
+        org.Include = true;
+        org.Value = "Acme";
+        Assert.Contains("OrganizationName", vm.RequestBody);
+
+        org.Include = false;
+        Assert.DoesNotContain("OrganizationName", vm.RequestBody);
+    }
+
+    [Fact]
+    public void Post_enforces_mandatory_fields_but_patch_does_not()
+    {
+        var vm = MakeGridVm();
+        vm.Method = "POST";
+        vm.UseFieldGrid = true;
+
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        // Mandatory fields are pre-included but blank, so a POST surfaces validation issues.
+        Assert.True(vm.HasPayloadIssues);
+        Assert.Contains("mandatory", vm.PayloadIssues, StringComparison.OrdinalIgnoreCase);
+
+        // PATCH relaxes mandatory enforcement, so the same selection becomes valid.
+        vm.Method = "PATCH";
+        Assert.False(vm.HasPayloadIssues);
+    }
+
+    [Fact]
+    public void Toggling_grid_mode_drives_the_body_read_only_state()
+    {
+        var vm = MakeGridVm();
+
+        vm.UseFieldGrid = true;
+        Assert.True(vm.IsBodyReadOnly);
+
+        vm.UseFieldGrid = false;
+        Assert.False(vm.IsBodyReadOnly);
+    }
+
+    [Fact]
+    public void Entity_search_filters_the_displayed_list_case_insensitively()
+    {
+        var vm = MakeGridVm();
+        Assert.Equal(vm.Entities.Count, vm.FilteredEntities.Count);
+
+        vm.EntitySearch = "ledger"; // matches LedgerJournalHeaders only; CustomersV3 not selected here
+
+        Assert.NotEmpty(vm.FilteredEntities);
+        Assert.All(vm.FilteredEntities, e => Assert.Contains("ledger", e.Name, StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(vm.FilteredEntities, e => e.Name == "CustomersV3");
+    }
+
+    [Fact]
+    public void Entity_search_excluding_the_selection_keeps_it_pinned_and_preserves_the_grid()
+    {
+        var vm = MakeGridVm();
+        vm.Method = "PATCH";
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        Assert.NotEmpty(vm.Fields);
+
+        vm.EntitySearch = "order"; // CustomersV3 does NOT contain "order"
+
+        // The active selection stays pinned in the filtered list so the bound ComboBox can't null it
+        // (which would otherwise wipe the field grid); selection + fields survive the search.
+        Assert.Contains(vm.FilteredEntities, e => e.Name == "CustomersV3");
+        Assert.Equal("CustomersV3", vm.SelectedEntity!.Name);
+        Assert.NotEmpty(vm.Fields);
     }
 }
