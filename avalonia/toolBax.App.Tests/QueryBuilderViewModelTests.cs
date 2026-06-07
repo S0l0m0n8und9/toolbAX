@@ -423,6 +423,73 @@ public class QueryBuilderViewModelTests
     }
 
     [Fact]
+    public async Task Export_csv_to_file_writes_header_and_rows_and_reports_the_path()
+    {
+        var fileSave = new FakeFileSaveService("C:/tmp/CustomersV3.csv");
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient(), fileSave: fileSave);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        await vm.RunCommand.ExecuteAsync(null);
+
+        Assert.True(vm.ExportCsvFileCommand.CanExecute(null));
+        await vm.ExportCsvFileCommand.ExecuteAsync(null);
+
+        Assert.Equal("CustomersV3.csv", fileSave.LastSuggestedName);
+        Assert.NotNull(fileSave.LastContent);
+        var lines = fileSave.LastContent!.Split("\r\n");
+        Assert.Equal(QueryCsv.Build(vm.ResultColumns, Enumerable.Empty<QueryResultRow>()), lines[0]);
+        Assert.Equal(vm.ResultRows.Count + 1, lines.Length);
+        Assert.Contains("Saved", vm.StatusText);
+        Assert.Contains("CustomersV3.csv", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task Export_csv_to_file_cancel_does_not_report_a_save()
+    {
+        var fileSave = new FakeFileSaveService(resultPath: null); // user cancels the dialog
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient(), fileSave: fileSave);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        await vm.RunCommand.ExecuteAsync(null);
+
+        await vm.ExportCsvFileCommand.ExecuteAsync(null);
+
+        Assert.DoesNotContain("Saved", vm.StatusText);
+        Assert.Contains("cancel", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Export_csv_to_file_is_disabled_before_a_run()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        Assert.False(vm.ExportCsvFileCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Export_all_pages_through_every_row_and_saves_one_file()
+    {
+        const string page1 = "{\"@odata.nextLink\":\"https://x/data/E?$skiptoken=p2\",\"value\":[{\"CustomerAccount\":\"US-1\"}]}";
+        const string page2 = "{\"value\":[{\"CustomerAccount\":\"US-2\"},{\"CustomerAccount\":\"US-3\"}]}";
+        var client = new PagingODataClient(
+            new ODataResponse(200, "OK", page1, 5),
+            new ODataResponse(200, "OK", page2, 5));
+        var fileSave = new FakeFileSaveService("C:/tmp/all.csv");
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, fileSave: fileSave);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        Assert.True(vm.ExportAllCsvCommand.CanExecute(null));
+        await vm.ExportAllCsvCommand.ExecuteAsync(null);
+
+        Assert.NotNull(fileSave.LastContent);
+        var lines = fileSave.LastContent!.Split("\r\n");
+        Assert.Equal(4, lines.Length);                                  // header + 3 rows across 2 pages
+        Assert.Equal(2, client.Requested.Count);                       // base query + one nextLink
+        Assert.Equal("https://x/data/E?$skiptoken=p2", client.Requested[1]);
+        Assert.DoesNotContain("$top=", client.Requested[0]);           // export-all is unbounded
+        Assert.Contains("Saved", vm.StatusText);
+    }
+
+    [Fact]
     public async Task Run_is_disabled_while_a_run_is_in_flight()
     {
         var client = new GatedODataClient();

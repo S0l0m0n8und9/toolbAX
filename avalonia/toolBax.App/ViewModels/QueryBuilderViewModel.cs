@@ -25,6 +25,10 @@ public partial class QueryBuilderViewModel : ObservableObject
     private readonly EntityCatalogLoader _loader;
     private readonly IODataClient _client;
     private readonly IClipboardService _clipboard;
+    private readonly IFileSaveService _fileSave;
+
+    // Hard cap on pages an "export all" will follow, so a misbehaving nextLink can't loop forever.
+    private const int MaxExportPages = 500;
 
     // True only while RefreshEntityFilter is rebuilding FilteredEntities, so the transient selection
     // null a bound ListBox emits during Clear() doesn't run OnSelectedEntityChanged's side-effects
@@ -93,6 +97,7 @@ public partial class QueryBuilderViewModel : ObservableObject
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RunCommand))]
     [NotifyCanExecuteChangedFor(nameof(LoadMoreCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ExportAllCsvCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
@@ -137,12 +142,14 @@ public partial class QueryBuilderViewModel : ObservableObject
             ? $"Entities · {Entities.Count}"
             : $"Entities · {FilteredEntities.Count} of {Entities.Count}";
 
-    public QueryBuilderViewModel(IMetadataService metadata, IODataClient client, IClipboardService? clipboard = null)
+    public QueryBuilderViewModel(IMetadataService metadata, IODataClient client,
+        IClipboardService? clipboard = null, IFileSaveService? fileSave = null)
     {
         _metadata = metadata;
         _loader = new EntityCatalogLoader(metadata);
         _client = client;
         _clipboard = clipboard ?? new FakeClipboardService();
+        _fileSave = fileSave ?? new FakeFileSaveService();
         // The fake seeds its catalogue synchronously; the real service starts empty and fills in via
         // InitializeAsync (triggered by the view on load).
         Entities = new ObservableCollection<EntitySet>(metadata.GetEntities());
@@ -188,6 +195,7 @@ public partial class QueryBuilderViewModel : ObservableObject
         CrossCompany = value?.CompanyAware ?? false;
         LoadFields();                              // show what's cached immediately
         OnPropertyChanged(nameof(NotCachedMessage));
+        ExportAllCsvCommand.NotifyCanExecuteChanged();
         LoadSelectedFieldsCommand.Execute(null);   // then fetch from $metadata if not cached yet
     }
 
@@ -305,6 +313,7 @@ public partial class QueryBuilderViewModel : ObservableObject
         if (e.PropertyName == nameof(FieldChipViewModel.IsSelected))
         {
             UpdateQueryUrl();
+            ExportAllCsvCommand.NotifyCanExecuteChanged(); // $select drives CanExportAllCsv
         }
     }
 
@@ -321,8 +330,10 @@ public partial class QueryBuilderViewModel : ObservableObject
 
     // Builds the OData path ("/data/{Entity}?…") from the current selection + options. When
     // <paramref name="forRequest"/> is true the $filter / $orderby values are URL-encoded for the live
-    // request; the readable (un-encoded) form drives the URL preview.
-    private string BuildPath(bool forRequest)
+    // request; the readable (un-encoded) form drives the URL preview. When <paramref name="unbounded"/>
+    // is true the $top / $skip / $count clauses are omitted, so a server-driven page walk (export-all)
+    // can page through the entire result set rather than being capped to the preview's $top.
+    private string BuildPath(bool forRequest, bool unbounded = false)
     {
         if (SelectedEntity is null)
         {
@@ -346,20 +357,23 @@ public partial class QueryBuilderViewModel : ObservableObject
             parts.Add($"$orderby={Encode(OrderBy.Trim())}");
         }
 
-        // Only positive integers contribute; blank/0/invalid omits the clause (server default applies).
-        if (int.TryParse(Top, out var top) && top > 0)
+        if (!unbounded)
         {
-            parts.Add($"$top={top}");
-        }
+            // Only positive integers contribute; blank/0/invalid omits the clause (server default applies).
+            if (int.TryParse(Top, out var top) && top > 0)
+            {
+                parts.Add($"$top={top}");
+            }
 
-        if (int.TryParse(Skip, out var skip) && skip > 0)
-        {
-            parts.Add($"$skip={skip}");
-        }
+            if (int.TryParse(Skip, out var skip) && skip > 0)
+            {
+                parts.Add($"$skip={skip}");
+            }
 
-        if (Count)
-        {
-            parts.Add("$count=true");
+            if (Count)
+            {
+                parts.Add("$count=true");
+            }
         }
 
         if (CrossCompany)
@@ -422,6 +436,7 @@ public partial class QueryBuilderViewModel : ObservableObject
         {
             IsBusy = false;
             ExportCsvCommand.NotifyCanExecuteChanged();
+            ExportCsvFileCommand.NotifyCanExecuteChanged();
         }
     }
 
@@ -468,6 +483,7 @@ public partial class QueryBuilderViewModel : ObservableObject
         {
             IsBusy = false;
             ExportCsvCommand.NotifyCanExecuteChanged();
+            ExportCsvFileCommand.NotifyCanExecuteChanged();
         }
     }
 
@@ -524,6 +540,91 @@ public partial class QueryBuilderViewModel : ObservableObject
         var csv = QueryCsv.Build(ResultColumns, ResultRows);
         await _clipboard.SetTextAsync(csv);
         StatusText = $"Copied {ResultRows.Count} rows as CSV to the clipboard.";
+    }
+
+    // Saves the currently-loaded rows to a .csv file the user picks.
+    [RelayCommand(CanExecute = nameof(CanExportCsv))]
+    private async Task ExportCsvFile(CancellationToken ct)
+    {
+        var csv = QueryCsv.Build(ResultColumns, ResultRows);
+        var rows = ResultRows.Count;
+        var name = $"{SelectedEntity?.Name ?? "query"}.csv";
+        var path = await _fileSave.SaveTextAsync(name, csv, ct);
+        StatusText = path is null ? "Export cancelled." : $"Saved {rows} rows to {path}.";
+    }
+
+    // Export-all can run whenever an entity is selected (it issues its own unbounded query); gated off
+    // IsBusy so it doesn't overlap a Run / Load-more.
+    private bool CanExportAllCsv() => !IsBusy && SelectedEntity is not null && SelectedColumns().Any();
+
+    // Pages through the ENTIRE result set (following @odata.nextLink) and saves it as one .csv file,
+    // independent of the preview's $top/paging. Bounded by MaxExportPages as a runaway guard.
+    [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanExportAllCsv))]
+    private async Task ExportAllCsv(CancellationToken ct)
+    {
+        if (SelectedEntity is null)
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusText = "Exporting all rows…";
+        try
+        {
+            var columns = SelectedColumns().ToList();
+            var rows = new List<QueryResultRow>();
+            var path = BuildPath(forRequest: true, unbounded: true);
+            var pages = 0;
+            var capped = false;
+
+            while (true)
+            {
+                var response = await _client.SendAsync("GET", path, body: null, ct);
+                if (!response.IsSuccess)
+                {
+                    StatusText = $"Export failed: {response.StatusLine}";
+                    return;
+                }
+
+                rows.AddRange(ParseRows(response.Body, columns));
+
+                var (_, next) = ParseMeta(response.Body);
+                if (string.IsNullOrEmpty(next))
+                {
+                    break;
+                }
+
+                if (++pages >= MaxExportPages)
+                {
+                    capped = true;
+                    break;
+                }
+
+                path = next;
+            }
+
+            var csv = QueryCsv.Build(columns, rows);
+            var name = $"{SelectedEntity.Name}.csv";
+            var saved = await _fileSave.SaveTextAsync(name, csv, ct);
+            if (saved is null)
+            {
+                StatusText = "Export cancelled.";
+            }
+            else
+            {
+                StatusText = capped
+                    ? $"Saved {rows.Count} rows to {saved} (stopped at the {MaxExportPages}-page limit — more rows may exist)."
+                    : $"Saved {rows.Count} rows to {saved}.";
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Export failed: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
     }
 
     // Projects an OData {"value":[ {...} ]} payload onto the selected columns.
