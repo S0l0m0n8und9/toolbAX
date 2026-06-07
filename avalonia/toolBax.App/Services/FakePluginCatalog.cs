@@ -6,8 +6,7 @@ namespace ToolBax.App.Services;
 
 /// <summary>
 /// In-memory <see cref="IPluginCatalog"/> seeded from the prototype (data.js PLUGINS). Each card's
-/// <see cref="PluginCard.Id"/> is the shell tool id so the home grid navigates directly; "hello" is
-/// the unsigned SDK sample (no built-in screen yet).
+/// <see cref="PluginCard.Id"/> is the shell tool id so the home grid navigates directly to that tool.
 /// </summary>
 public sealed class FakePluginCatalog : IPluginCatalog
 {
@@ -34,8 +33,5 @@ public sealed class FakePluginCatalog : IPluginCatalog
         new PluginCard("profiles", "Profiles", "System", "1.0.0",
             "Environments, service principals, interactive sign-in and DPAPI-encrypted secrets.",
             "E", Signed: true, Builtin: true),
-        new PluginCard("hello", "Hello Plugin", "Samples", "0.1.0",
-            "SDK sample: minimal plugin showing lifecycle, logging, and capability injection.",
-            "H", Signed: false),
     };
 }
