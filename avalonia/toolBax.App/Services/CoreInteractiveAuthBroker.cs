@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using FoToolbox.Core.Auth;
+using FoToolbox.Core.DualWrite.Auth;
 using ToolBax.Core.Services;
 
 namespace ToolBax.App.Services;
@@ -14,10 +15,6 @@ namespace ToolBax.App.Services;
 /// </summary>
 public sealed class CoreInteractiveAuthBroker : IInteractiveAuthBroker
 {
-    // The Data Integrator delegated resource; scope becomes "{resource}/.default" (MSAL adds the OIDC
-    // scopes). Matches FoToolbox.Core.DualWrite.Auth.DualWriteAuthConstants.Scope.
-    private const string IntegratorResource = "https://IntegratorApp.com";
-
     private readonly IInteractiveTokenProvider _provider;
 
     public CoreInteractiveAuthBroker(IInteractiveTokenProvider? provider = null) =>
@@ -28,7 +25,7 @@ public sealed class CoreInteractiveAuthBroker : IInteractiveAuthBroker
         try
         {
             var result = await _provider
-                .AcquireTokenAsync(new InteractiveTokenRequest(clientId, tenant, IntegratorResource), ct)
+                .AcquireTokenAsync(new InteractiveTokenRequest(clientId, tenant, DualWriteAuthConstants.ResourceBaseUrl), ct)
                 .ConfigureAwait(false);
 
             return new AuthResult(JwtClaimReader.ReadUsername(result.AccessToken) ?? "signed in");

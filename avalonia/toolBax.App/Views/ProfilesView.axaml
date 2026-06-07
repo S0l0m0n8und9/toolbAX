@@ -221,8 +221,9 @@
                 </StackPanel>
               </StackPanel>
 
-              <!-- Gateway connection test (used by Dual-Write Operations &amp; Compare) -->
-              <StackPanel Orientation="Horizontal" Spacing="10">
+              <!-- Gateway connection test (used by Dual-Write Operations &amp; Compare). Interactive only —
+                   the loopback token path doesn't use the ROPC service-account credential. -->
+              <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding IsInteractive}">
                 <Button Content="Test gateway" Command="{Binding TestGatewayCommand}" />
                 <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingGateway}" Width="90" Height="4"
                              VerticalAlignment="Center" />

@@ -14,8 +14,11 @@ public static class DualWriteAuthConstants
     /// <summary>First-party Data Integrator / dual-write client id (well-known).</summary>
     public const string ClientId = "2e49aa60-1bd3-43b6-8ab6-03ada3d9f08b";
 
+    /// <summary>The IntegratorApp resource base URL (the delegated token's audience).</summary>
+    public const string ResourceBaseUrl = "https://IntegratorApp.com";
+
     /// <summary>Delegated scope for the IntegratorApp resource (+ offline_access for refresh tokens).</summary>
-    public const string Scope = "https://IntegratorApp.com/.default openid profile offline_access";
+    public const string Scope = ResourceBaseUrl + "/.default openid profile offline_access";
 
     /// <summary>Entra v2 token endpoint (common authority), used for refresh.</summary>
     public const string TokenEndpoint = "https://login.microsoftonline.com/common/oauth2/v2.0/token";

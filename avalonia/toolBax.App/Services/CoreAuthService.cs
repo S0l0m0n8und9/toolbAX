@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using FoToolbox.Core.Auth;
+using FoToolbox.Core.DualWrite.Auth;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.Profiles;
 using ToolBax.Core.Models;
@@ -28,9 +29,6 @@ public sealed class CoreAuthService : IAuthService
     private MsalTokenProvider? _provider;
     private AuthService? _auth;
     private IInteractiveTokenProvider? _interactive;
-
-    // The Data Integrator delegated resource (scope "{resource}/.default" + MSAL OIDC scopes).
-    private const string IntegratorResource = "https://IntegratorApp.com";
 
     public CoreAuthService(ProfileService profiles, SecretVaultService vault,
         string authorityBase = "https://login.microsoftonline.com")
@@ -105,7 +103,7 @@ public sealed class CoreAuthService : IAuthService
         // Delegated (interactive) token via the loopback MSAL provider — silent after a prior sign-in.
         _interactive ??= new MsalInteractiveTokenProvider();
         var result = await _interactive
-            .AcquireTokenAsync(new InteractiveTokenRequest(env.DataIntegratorClientId, env.Tenant, IntegratorResource), ct)
+            .AcquireTokenAsync(new InteractiveTokenRequest(env.DataIntegratorClientId, env.Tenant, DualWriteAuthConstants.ResourceBaseUrl), ct)
             .ConfigureAwait(false);
         return result.AccessToken;
     }
