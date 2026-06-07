@@ -74,6 +74,7 @@ public partial class PostBuilderViewModel : ObservableObject
     /// <summary>When true, the body is built from the field grid (and the raw editor is read-only).</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsBodyReadOnly))]
+    [NotifyPropertyChangedFor(nameof(RequestUrl))]
     [NotifyCanExecuteChangedFor(nameof(SendCommand))]
     private bool _useFieldGrid;
 
@@ -116,10 +117,11 @@ public partial class PostBuilderViewModel : ObservableObject
     /// <summary>The full "{METHOD} {path}" line that will be sent (with cross-company applied).</summary>
     public string RequestUrl => $"{Method} {EffectivePath()}";
 
-    // Appends cross-company to the user's path (respecting an existing query string).
+    // The path the request actually targets, with cross-company applied. In grid mode a PATCH/DELETE
+    // targets a specific record via a key predicate built from the grid's key values (when complete).
     private string EffectivePath()
     {
-        var path = Path.Trim();
+        var path = BasePath();
         if (CrossCompany && path.Length > 0)
         {
             path += path.Contains('?', StringComparison.Ordinal) ? "&cross-company=true" : "?cross-company=true";
@@ -127,6 +129,63 @@ public partial class PostBuilderViewModel : ObservableObject
 
         return path;
     }
+
+    // Grid-mode PATCH/DELETE → "/data/{Entity}(key predicate)" when the key values are all present;
+    // otherwise the user's Path verbatim (POST writes to the collection; raw mode owns its own path).
+    private string BasePath()
+    {
+        if (UseFieldGrid && SelectedEntity is not null && IsKeyedMethod(Method))
+        {
+            var predicate = BuildKeyPredicate();
+            if (predicate is not null)
+            {
+                return $"/data/{SelectedEntity.Name}{predicate}";
+            }
+        }
+
+        return Path.Trim();
+    }
+
+    private static bool IsKeyedMethod(string method) =>
+        string.Equals(method, "PATCH", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase);
+
+    // Builds "(K1=…,K2=…)" from the key fields' grid values, or null if any key value is missing
+    // (so the preview/request falls back to the collection path rather than targeting a wrong record).
+    private string? BuildKeyPredicate()
+    {
+        if (SelectedEntity is null)
+        {
+            return null;
+        }
+
+        var fields = _metadata.GetFields(SelectedEntity.Name);
+        var keyFields = fields?.Where(f => f.IsKey).ToList();
+        if (keyFields is null || keyFields.Count == 0)
+        {
+            return null;
+        }
+
+        var parts = new List<string>(keyFields.Count);
+        foreach (var kf in keyFields)
+        {
+            var value = Fields.FirstOrDefault(r => string.Equals(r.Name, kf.Name, StringComparison.Ordinal))?.Value?.Trim();
+            if (string.IsNullOrEmpty(value))
+            {
+                return null; // incomplete key — don't target a partial record
+            }
+
+            parts.Add($"{kf.Name}={FormatKeyValue(kf.Type, value)}");
+        }
+
+        return $"({string.Join(",", parts)})";
+    }
+
+    // OData key literals: strings/enums are single-quoted (with '' escaping); numerics/bools/guids are raw.
+    private static string FormatKeyValue(string friendlyType, string value) =>
+        friendlyType is "String" or "Enum"
+            ? $"'{value.Replace("'", "''")}'"
+            : value;
 
     partial void OnEntitySearchChanged(string value) => RefreshEntityFilter();
 
@@ -264,6 +323,7 @@ public partial class PostBuilderViewModel : ObservableObject
         if (e.PropertyName is nameof(PostFieldRow.Include) or nameof(PostFieldRow.Value))
         {
             RebuildPayload();
+            OnPropertyChanged(nameof(RequestUrl)); // a key value may have changed the target predicate
         }
     }
 
@@ -283,21 +343,43 @@ public partial class PostBuilderViewModel : ObservableObject
         }
 
         var entity = PostPayloadMapper.ToEntity(SelectedEntity.Name, fields);
-        var values = Fields.Select(r => new ODataFieldValue(r.Name, r.Include, r.Value)).ToList();
+        // For PATCH/DELETE the key fields identify the record in the URL predicate, so they're excluded
+        // from the body (sending key fields in a PATCH body is redundant and some services reject it).
+        var keyedMethod = IsKeyedMethod(Method);
+        var values = Fields
+            .Select(r => new ODataFieldValue(r.Name, r.Include && !(keyedMethod && r.IsKey), r.Value))
+            .ToList();
         var enforceMandatory = string.Equals(Method, "POST", StringComparison.OrdinalIgnoreCase);
 
         var result = ODataPayloadBuilder.BuildPayloadJson(entity, values, enforceMandatory: enforceMandatory);
-        if (result.Ok)
+        var issues = new List<string>(result.Issues);
+
+        // A keyed write must target a specific record. Since the keys are excluded from the body, an
+        // incomplete key would otherwise produce a request with the record identity in neither the URL
+        // nor the body — so flag it (which disables Send via CanSend) until every key value is present.
+        // (Uses the already-fetched fields + the grid rows; no extra metadata lookup.)
+        if (keyedMethod)
+        {
+            var keyNames = fields.Where(f => f.IsKey).Select(f => f.Name).ToList();
+            var keyIncomplete = keyNames.Any(kn =>
+                string.IsNullOrEmpty(Fields.FirstOrDefault(r => string.Equals(r.Name, kn, StringComparison.Ordinal))?.Value?.Trim()));
+            if (keyNames.Count > 0 && keyIncomplete)
+            {
+                issues.Add($"Enter all key values ({string.Join(", ", keyNames)}) to target the record for {Method}.");
+            }
+        }
+
+        if (issues.Count == 0)
         {
             RequestBody = result.Json!;
             PayloadIssues = string.Empty;
         }
         else
         {
-            // Clear the body so a stale (previously-built or default) payload can't be sent while the
-            // grid is invalid; Send is also disabled via CanSend while there are payload issues.
-            RequestBody = string.Empty;
-            PayloadIssues = string.Join(Environment.NewLine, result.Issues);
+            // Keep a valid body visible when the only problem is an incomplete key (the body itself is
+            // fine); otherwise clear it so a stale/default payload can't be sent while the grid is invalid.
+            RequestBody = result.Ok ? result.Json! : string.Empty;
+            PayloadIssues = string.Join(Environment.NewLine, issues);
         }
     }
 
