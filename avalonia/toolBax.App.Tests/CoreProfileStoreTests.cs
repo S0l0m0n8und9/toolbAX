@@ -212,11 +212,44 @@ public sealed class CoreProfileStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Interactive_auth_mode_round_trips_for_fo_and_dataverse()
+    {
+        // Interactive isn't an app-only SP mode (no FoToolbox AuthMode value), so it must round-trip via
+        // the Settings k/v rather than the service principal's AuthMode.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        store.Save(new EnvProfile("env1", "One", "https://one", "t", "USMF", "", EnvStatus.Disconnected)
+        {
+            ClientId = FoAuthModeExtensions.DefaultInteractiveClientId,
+            AuthMode = FoAuthMode.Interactive,
+            DataverseUrl = "https://ce.example",
+            DataverseClientId = FoAuthModeExtensions.DefaultInteractiveClientId,
+            DataverseAuthMode = FoAuthMode.Interactive,
+        });
+
+        var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
+        var profile = reopened.GetAll().Single(p => p.Id == "env1");
+        Assert.Equal(FoAuthMode.Interactive, profile.AuthMode);
+        Assert.Equal(FoAuthMode.Interactive, profile.DataverseAuthMode);
+        // The (public) client ids round-trip via Settings…
+        Assert.Equal(FoAuthModeExtensions.DefaultInteractiveClientId, profile.ClientId);
+        Assert.Equal(FoAuthModeExtensions.DefaultInteractiveClientId, profile.DataverseClientId);
+        // …and NO app-only service principal is created for a delegated (Interactive) mode.
+        Assert.Null(await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct));
+        Assert.Null(await NewService().GetServicePrincipalAsync("env1", AuthTarget.Dataverse, ct));
+    }
+
+    [Fact]
     public async Task Clearing_client_id_removes_the_service_principal()
     {
         var ct = TestContext.Current.CancellationToken;
         var store = await CoreProfileStore.CreateAsync(NewService(), ct);
-        store.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected) { ClientId = "abc" });
+        // An app-only mode creates the SP under test.
+        store.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected)
+        {
+            ClientId = "abc",
+            AuthMode = FoAuthMode.ClientSecret,
+        });
 
         store.Save(store.GetAll().Single() with { ClientId = null });
 
@@ -230,7 +263,12 @@ public sealed class CoreProfileStoreTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var store = await CoreProfileStore.CreateAsync(NewService(), ct);
-        store.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected) { ClientId = "abc" });
+        // An app-only mode creates the SP whose cleanup-on-delete this verifies.
+        store.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected)
+        {
+            ClientId = "abc",
+            AuthMode = FoAuthMode.ClientSecret,
+        });
         Assert.NotNull(await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct));
 
         store.Delete("env1");
