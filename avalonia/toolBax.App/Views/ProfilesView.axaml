@@ -212,13 +212,20 @@
               <!-- Interactive sign-in -->
               <StackPanel Spacing="8" IsVisible="{Binding IsInteractive}">
                 <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}"
-                           Text="Captures a delegated token + refresh token via an interactive sign-in (WebView2). Renews silently after the first sign-in." />
+                           Text="Acquires a delegated token via an interactive sign-in in your system browser (loopback). Renews silently after the first sign-in. The client ID must be a public-client app with an http://localhost redirect." />
                 <StackPanel Orientation="Horizontal" Spacing="10">
                   <Button Content="Sign in" Command="{Binding SignInCommand}"
                           Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}" />
                   <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsSigningIn}" Width="90" Height="4"
                                VerticalAlignment="Center" />
                 </StackPanel>
+              </StackPanel>
+
+              <!-- Gateway connection test (used by Dual-Write Operations &amp; Compare) -->
+              <StackPanel Orientation="Horizontal" Spacing="10">
+                <Button Content="Test gateway" Command="{Binding TestGatewayCommand}" />
+                <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingGateway}" Width="90" Height="4"
+                             VerticalAlignment="Center" />
               </StackPanel>
 
               <TextBlock Text="{Binding DiStatus}" FontSize="12" Foreground="{StaticResource Text2Brush}"

@@ -23,6 +23,7 @@ public partial class ProfilesViewModel : ObservableObject
     private readonly ISecretStore _secrets;
     private readonly IInteractiveAuthBroker _broker;
     private readonly IAuthService _auth;
+    private readonly IDualWriteGatewayTester _gatewayTester;
 
     public ObservableCollection<EnvProfile> Profiles { get; }
 
@@ -117,6 +118,9 @@ public partial class ProfilesViewModel : ObservableObject
     private bool _isSigningIn;
 
     [ObservableProperty]
+    private bool _isTestingGateway;
+
+    [ObservableProperty]
     private string _diStatus = string.Empty;
 
     public DiAuthMode[] DiModes { get; } = { DiAuthMode.Interactive, DiAuthMode.Ropc };
@@ -125,12 +129,14 @@ public partial class ProfilesViewModel : ObservableObject
         IProfileStore store,
         ISecretStore? secrets = null,
         IInteractiveAuthBroker? broker = null,
-        IAuthService? auth = null)
+        IAuthService? auth = null,
+        IDualWriteGatewayTester? gatewayTester = null)
     {
         _store = store;
         _secrets = secrets ?? new FakeSecretStore();
         _broker = broker ?? new FakeInteractiveAuthBroker();
         _auth = auth ?? new FakeAuthService();
+        _gatewayTester = gatewayTester ?? new FakeDualWriteGatewayTester();
         Profiles = new ObservableCollection<EnvProfile>(store.GetAll());
         _activeId = store.ActiveId;
         _selected = Profiles.FirstOrDefault(p => p.Id == _activeId) ?? Profiles.FirstOrDefault();
@@ -425,6 +431,50 @@ public partial class ProfilesViewModel : ObservableObject
         finally
         {
             IsSigningIn = false;
+        }
+    }
+
+    // Tests the dual-write gateway connection using the (unsaved) draft client id + gateway URL, so the
+    // user can verify before saving. Acquires the delegated token, builds the gateway, resolves linkage.
+    [RelayCommand]
+    private async Task TestGateway(CancellationToken ct)
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        if (string.IsNullOrWhiteSpace(DraftGatewayUrl))
+        {
+            DiStatus = "Enter a gateway URL before testing.";
+            return;
+        }
+
+        IsTestingGateway = true;
+        DiStatus = "Testing gateway…";
+        try
+        {
+            var probe = Selected with
+            {
+                Url = DraftUrl,
+                Tenant = DraftTenant,
+                DataIntegratorClientId = string.IsNullOrWhiteSpace(DraftDiClientId) ? null : DraftDiClientId,
+                DualWriteGatewayUrl = string.IsNullOrWhiteSpace(DraftGatewayUrl) ? null : DraftGatewayUrl,
+            };
+            var result = await _gatewayTester.TestAsync(probe, ct);
+            DiStatus = result.Message;
+        }
+        catch (OperationCanceledException)
+        {
+            DiStatus = "Gateway test cancelled.";
+        }
+        catch (Exception ex)
+        {
+            DiStatus = $"Gateway test failed: {ex.Message}";
+        }
+        finally
+        {
+            IsTestingGateway = false;
         }
     }
 
