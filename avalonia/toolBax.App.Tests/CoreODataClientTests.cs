@@ -77,6 +77,18 @@ public class CoreODataClientTests
     }
 
     [Fact]
+    public async Task An_absolute_path_is_used_verbatim_for_paging()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK, "{}");
+        var client = new CoreODataClient(new FakeAuthService(), () => Env(), new HttpClient(handler));
+
+        const string nextLink = "https://contoso.operations.dynamics.com/data/CustomersV3?$skiptoken=abc";
+        await client.SendAsync("GET", nextLink, null, TestContext.Current.CancellationToken);
+
+        Assert.Equal(nextLink, handler.LastRequest!.RequestUri!.ToString());
+    }
+
+    [Fact]
     public async Task No_active_environment_returns_a_clear_non_success_response()
     {
         var client = new CoreODataClient(new FakeAuthService(), () => null, new HttpClient(new StubHandler(HttpStatusCode.OK, "")));

@@ -71,6 +71,7 @@ public partial class QueryBuilderViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RunCommand))]
+    [NotifyCanExecuteChangedFor(nameof(LoadMoreCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
@@ -93,6 +94,21 @@ public partial class QueryBuilderViewModel : ObservableObject
     /// <summary>Columns of the last run, in selection order (drives the dynamic result grid).</summary>
     [ObservableProperty]
     private IReadOnlyList<string> _resultColumns = Array.Empty<string>();
+
+    /// <summary>Total matching rows from <c>@odata.count</c> (only when $count was requested).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasTotalCount))]
+    private long? _totalCount;
+
+    /// <summary>Server-driven next-page link (<c>@odata.nextLink</c>); enables "Load more".</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasMore))]
+    [NotifyCanExecuteChangedFor(nameof(LoadMoreCommand))]
+    private string? _nextLink;
+
+    public bool HasMore => !string.IsNullOrEmpty(NextLink);
+
+    public bool HasTotalCount => TotalCount is not null;
 
     public QueryBuilderViewModel(IMetadataService metadata, IODataClient client, IClipboardService? clipboard = null)
     {
@@ -291,18 +307,22 @@ public partial class QueryBuilderViewModel : ObservableObject
             // headers (the column rebuild keys off ResultColumns changing).
             ResultRows.Clear();
             ResultColumns = columns;
+            TotalCount = null;
+            NextLink = null;
             if (response.IsSuccess)
             {
                 foreach (var row in ParseRows(response.Body, columns))
                 {
                     ResultRows.Add(row);
                 }
+
+                (TotalCount, NextLink) = ParseMeta(response.Body);
             }
 
             RowCount = ResultRows.Count;
             RunSucceeded = response.IsSuccess;
             StatusBadge = $"{response.StatusCode} {response.ReasonPhrase}";
-            StatusText = $"{RowCount} rows · {response.StatusLine}";
+            StatusText = $"{DescribeCount()} · {response.StatusLine}";
             HasRun = true;
         }
         catch (Exception ex)
@@ -314,6 +334,94 @@ public partial class QueryBuilderViewModel : ObservableObject
         {
             IsBusy = false;
             ExportCsvCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    private bool CanLoadMore() => !IsBusy && HasMore;
+
+    // Fetches the next server page (@odata.nextLink) and appends its rows under the same columns.
+    [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanLoadMore))]
+    private async Task LoadMore(CancellationToken ct)
+    {
+        var link = NextLink;
+        if (string.IsNullOrEmpty(link))
+        {
+            return;
+        }
+
+        IsBusy = true;
+        StatusText = "Loading more…";
+        try
+        {
+            var response = await _client.SendAsync("GET", link, body: null, ct);
+            if (response.IsSuccess)
+            {
+                foreach (var row in ParseRows(response.Body, ResultColumns))
+                {
+                    ResultRows.Add(row);
+                }
+
+                var (count, next) = ParseMeta(response.Body);
+                TotalCount = count ?? TotalCount; // a page may omit the count; keep the prior total
+                NextLink = next;
+            }
+
+            RowCount = ResultRows.Count;
+            StatusText = $"{DescribeCount()} · {response.StatusLine}";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Load more failed: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+            ExportCsvCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    private string DescribeCount() =>
+        TotalCount is { } total ? $"{RowCount} of {total} rows" : $"{RowCount} rows";
+
+    // Reads @odata.count + @odata.nextLink from an OData response root (both optional).
+    private static (long? Count, string? NextLink) ParseMeta(string body)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return (null, null);
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            var root = doc.RootElement;
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                return (null, null);
+            }
+
+            long? count = null;
+            if (root.TryGetProperty("@odata.count", out var c))
+            {
+                if (c.ValueKind == JsonValueKind.Number && c.TryGetInt64(out var n))
+                {
+                    count = n;
+                }
+                else if (c.ValueKind == JsonValueKind.String && long.TryParse(c.GetString(), out var parsed))
+                {
+                    count = parsed;
+                }
+            }
+
+            var next = root.TryGetProperty("@odata.nextLink", out var nl) && nl.ValueKind == JsonValueKind.String
+                ? nl.GetString()
+                : null;
+
+            return (count, next);
+        }
+        catch (JsonException)
+        {
+            return (null, null);
         }
     }
 

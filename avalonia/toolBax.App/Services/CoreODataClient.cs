@@ -77,8 +77,14 @@ public sealed class CoreODataClient : IODataClient, IDisposable
     }
 
     // env.Url may be a bare host ("contoso.operations.dynamics.com") or a full URL; path is "/data/…".
+    // An absolute path (a server-driven @odata.nextLink) is used verbatim for paging.
     private static Uri BuildUri(string envUrl, string path)
     {
+        if (path.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+        {
+            return new Uri(path);
+        }
+
         var baseUrl = envUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? envUrl : $"https://{envUrl}";
         return new Uri($"{baseUrl.TrimEnd('/')}/{path.TrimStart('/')}");
     }

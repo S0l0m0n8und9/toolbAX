@@ -35,6 +35,19 @@ public class QueryBuilderViewModelTests
         }
     }
 
+    // Returns each queued response in turn, recording the requested paths (for paging tests).
+    private sealed class PagingODataClient : IODataClient
+    {
+        private readonly Queue<ODataResponse> _responses;
+        public List<string> Requested { get; } = new();
+        public PagingODataClient(params ODataResponse[] responses) => _responses = new Queue<ODataResponse>(responses);
+        public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
+        {
+            Requested.Add(path);
+            return Task.FromResult(_responses.Dequeue());
+        }
+    }
+
     // Records the path passed to SendAsync, to assert on the request the Run command issues.
     private sealed class RecordingODataClient : IODataClient
     {
@@ -151,6 +164,41 @@ public class QueryBuilderViewModelTests
         Assert.NotNull(recorder.LastPath);
         Assert.Contains(Uri.EscapeDataString("Name eq 'A B'"), recorder.LastPath); // encoded for the request
         Assert.DoesNotContain("Name eq 'A B'", recorder.LastPath);                 // raw (spaced) form not sent
+    }
+
+    [Fact]
+    public async Task Run_parses_count_and_next_link()
+    {
+        const string page1 = "{\"@odata.count\":120,\"@odata.nextLink\":\"https://x/data/E?$skiptoken=p2\",\"value\":[{\"CustomerAccount\":\"US-1\"}]}";
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(),
+            new PagingODataClient(new ODataResponse(200, "OK", page1, 5)));
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        await vm.RunCommand.ExecuteAsync(null);
+
+        Assert.Equal(120, vm.TotalCount);
+        Assert.True(vm.HasMore);
+        Assert.Contains("of 120", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task Load_more_appends_the_next_page_via_the_next_link()
+    {
+        const string page1 = "{\"@odata.count\":3,\"@odata.nextLink\":\"https://x/data/E?$skiptoken=p2\",\"value\":[{\"CustomerAccount\":\"US-1\"}]}";
+        const string page2 = "{\"value\":[{\"CustomerAccount\":\"US-2\"},{\"CustomerAccount\":\"US-3\"}]}";
+        var client = new PagingODataClient(
+            new ODataResponse(200, "OK", page1, 5),
+            new ODataResponse(200, "OK", page2, 5));
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        await vm.RunCommand.ExecuteAsync(null);
+        Assert.Single(vm.ResultRows);
+
+        await vm.LoadMoreCommand.ExecuteAsync(null);
+
+        Assert.Equal(3, vm.ResultRows.Count);
+        Assert.False(vm.HasMore);                                      // page 2 had no nextLink
+        Assert.Equal("https://x/data/E?$skiptoken=p2", client.Requested[1]); // the nextLink was requested
     }
 
     [Fact]
