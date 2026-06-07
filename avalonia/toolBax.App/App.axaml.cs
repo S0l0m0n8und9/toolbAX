@@ -39,6 +39,11 @@ public partial class App : Application
             var odataClient = odataFactory(activeEnv);
             var metadataService = metadataFactory(activeEnv);
             var mapReader = mapReaderFactory(activeEnv);
+            // The gateway tester pairs with the real auth (delegated token + live gateway); fall back to
+            // the canned fake when auth is degraded/non-Windows so design-mode doesn't hit the network.
+            var gatewayTester = authService is CoreAuthService
+                ? (IDualWriteGatewayTester)new CoreDualWriteGatewayTester(authService)
+                : new FakeDualWriteGatewayTester();
             shell = new ShellViewModel(
                 profileStore: profileStore,
                 secretStore: secretStore,
@@ -50,7 +55,8 @@ public partial class App : Application
                 odataClient: odataClient,
                 metadataService: metadataService,
                 mapReader: mapReader,
-                fileSave: new StorageFileSaveService(window));
+                fileSave: new StorageFileSaveService(window),
+                gatewayTester: gatewayTester);
             window.DataContext = shell;
             desktop.MainWindow = window;
         }

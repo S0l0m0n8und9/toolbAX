@@ -14,16 +14,21 @@ public sealed class FakeAuthService : IAuthService
 {
     private readonly Func<EnvProfile, string> _token;
     private readonly Func<EnvProfile, string> _dataverseToken;
+    private readonly Func<EnvProfile, string> _dualWriteToken;
 
-    public FakeAuthService(Func<EnvProfile, string>? token = null, Func<EnvProfile, string>? dataverseToken = null)
+    public FakeAuthService(Func<EnvProfile, string>? token = null, Func<EnvProfile, string>? dataverseToken = null,
+        Func<EnvProfile, string>? dualWriteToken = null)
     {
         _token = token ?? (_ => "fake-fo-token");
         _dataverseToken = dataverseToken ?? (_ => "fake-dataverse-token");
+        _dualWriteToken = dualWriteToken ?? (_ => "fake-dualwrite-token");
     }
 
     public Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default) => Resolve(_token, env);
 
     public Task<string> AcquireDataverseTokenAsync(EnvProfile env, CancellationToken ct = default) => Resolve(_dataverseToken, env);
+
+    public Task<string> AcquireDualWriteTokenAsync(EnvProfile env, CancellationToken ct = default) => Resolve(_dualWriteToken, env);
 
     // Surface a throwing delegate as a faulted task (TAP contract), not a synchronous throw.
     private static Task<string> Resolve(Func<EnvProfile, string> token, EnvProfile env)

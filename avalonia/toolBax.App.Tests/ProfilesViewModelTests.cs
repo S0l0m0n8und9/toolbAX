@@ -517,6 +517,32 @@ public class ProfilesViewModelTests
         Assert.Equal(string.Empty, vm.DiStatus);
     }
 
+    [Fact]
+    public async Task Test_gateway_reports_the_tester_result()
+    {
+        var tester = new FakeDualWriteGatewayTester(new DwGatewayTestResult(true, "Linked: Contoso (cid abc)."));
+        var vm = new ProfilesViewModel(new FakeProfileStore(), gatewayTester: tester);
+        vm.Selected = vm.Profiles.First();
+        vm.DraftGatewayUrl = "https://gw.example.powerapps.com";
+
+        await vm.TestGatewayCommand.ExecuteAsync(null);
+
+        Assert.Equal("Linked: Contoso (cid abc).", vm.DiStatus);
+        Assert.False(vm.IsTestingGateway);
+    }
+
+    [Fact]
+    public async Task Test_gateway_requires_a_gateway_url()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+        vm.Selected = vm.Profiles.First();
+        vm.DraftGatewayUrl = string.Empty;
+
+        await vm.TestGatewayCommand.ExecuteAsync(null);
+
+        Assert.Contains("gateway URL", vm.DiStatus);
+    }
+
     private sealed class ThrowingBroker : IInteractiveAuthBroker
     {
         public bool WasCalled { get; private set; }

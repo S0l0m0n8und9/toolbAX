@@ -34,6 +34,7 @@ public partial class ShellViewModel : ObservableObject
     private readonly IMetadataService _metadataService;
     private readonly IDualWriteMapReader _mapReader;
     private readonly IFileSaveService _fileSave;
+    private readonly IDualWriteGatewayTester _gatewayTester;
     private object? _operationsContent;
     private object? _profilesContent;
     private object? _metadataContent;
@@ -73,7 +74,8 @@ public partial class ShellViewModel : ObservableObject
         IODataClient? odataClient = null,
         IMetadataService? metadataService = null,
         IDualWriteMapReader? mapReader = null,
-        IFileSaveService? fileSave = null)
+        IFileSaveService? fileSave = null,
+        IDualWriteGatewayTester? gatewayTester = null)
     {
         _operationsContentFactory = operationsContentFactory ?? DefaultOperationsContent;
         _profileStore = profileStore ?? new FakeProfileStore();
@@ -87,6 +89,7 @@ public partial class ShellViewModel : ObservableObject
         _metadataService = metadataService ?? new FakeMetadataService();
         _mapReader = mapReader ?? new FakeDualWriteMapReader();
         _fileSave = fileSave ?? new FakeFileSaveService();
+        _gatewayTester = gatewayTester ?? new FakeDualWriteGatewayTester();
 
         Tools = new[]
         {
@@ -156,7 +159,7 @@ public partial class ShellViewModel : ObservableObject
     // the shell's environment switcher in sync.
     private ProfilesViewModel CreateProfilesContent()
     {
-        var profiles = new ProfilesViewModel(_profileStore, _secretStore, _authBroker, _authService);
+        var profiles = new ProfilesViewModel(_profileStore, _secretStore, _authBroker, _authService, _gatewayTester);
         profiles.ActiveChanged += id =>
         {
             var match = Environments.FirstOrDefault(e => e.Id == id);

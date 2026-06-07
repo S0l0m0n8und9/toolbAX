@@ -3,6 +3,7 @@ using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using FoToolbox.Core.Auth;
+using FoToolbox.Core.DualWrite.Auth;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.Profiles;
 using ToolBax.Core.Models;
@@ -27,6 +28,7 @@ public sealed class CoreAuthService : IAuthService
     // MSAL provider/auth object graph is reused rather than rebuilt each Test-connection.
     private MsalTokenProvider? _provider;
     private AuthService? _auth;
+    private IInteractiveTokenProvider? _interactive;
 
     public CoreAuthService(ProfileService profiles, SecretVaultService vault,
         string authorityBase = "https://login.microsoftonline.com")
@@ -84,6 +86,26 @@ public sealed class CoreAuthService : IAuthService
         // shared with the F&O environment. The credential callback resolves THIS SP's secret.
         var resourceBaseUrl = ResourceUrlNormalizer.NormalizeDataverseResourceBaseUrl(env.DataverseUrl);
         return await _auth.AcquireTokenAsync(resourceBaseUrl, env.Tenant, sp, ct).ConfigureAwait(false);
+    }
+
+    public async Task<string> AcquireDualWriteTokenAsync(EnvProfile env, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(env.DataIntegratorClientId))
+        {
+            throw new InvalidOperationException("No Data Integrator client ID is configured (set one on the Data Integrator tab).");
+        }
+
+        if (string.IsNullOrWhiteSpace(env.Tenant))
+        {
+            throw new InvalidOperationException("No tenant ID is configured for this environment.");
+        }
+
+        // Delegated (interactive) token via the loopback MSAL provider — silent after a prior sign-in.
+        _interactive ??= new MsalInteractiveTokenProvider();
+        var result = await _interactive
+            .AcquireTokenAsync(new InteractiveTokenRequest(env.DataIntegratorClientId, env.Tenant, DualWriteAuthConstants.ResourceBaseUrl), ct)
+            .ConfigureAwait(false);
+        return result.AccessToken;
     }
 
     private async Task<ClientCredential> ResolveCredentialAsync(ServicePrincipal sp, CancellationToken ct)

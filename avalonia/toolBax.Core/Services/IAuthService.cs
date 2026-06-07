@@ -15,4 +15,11 @@ public interface IAuthService
     Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default);
 
     Task<string> AcquireDataverseTokenAsync(EnvProfile env, CancellationToken ct = default);
+
+    /// <summary>
+    /// Acquires the delegated Data Integrator token for the dual-write gateway (interactive, via the
+    /// env's Data Integrator client id — silent after a prior sign-in). Distinct from the app-only F&amp;O
+    /// / Dataverse tokens.
+    /// </summary>
+    Task<string> AcquireDualWriteTokenAsync(EnvProfile env, CancellationToken ct = default);
 }
