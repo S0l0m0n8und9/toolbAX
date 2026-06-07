@@ -87,7 +87,12 @@ public partial class DualWriteOpsViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
+            // Cancelling can land after Connect but before the maps arrive; reset to a clean
+            // disconnected state so the UI doesn't show the live banner over an empty/stale grid.
             Status = "Cancelled.";
+            ConnectionName = null;
+            Maps.Clear();
+            DisposeSession();
         }
         catch (Exception ex)
         {

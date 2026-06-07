@@ -27,11 +27,15 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
     public static FakeDualWriteConnector ThatFails(string message) =>
         new(new InvalidOperationException(message));
 
+    /// <summary>A connector whose <see cref="ConnectAsync"/> reports cancellation, to drive the cancelled path.</summary>
+    public static FakeDualWriteConnector ThatCancels() =>
+        new(new OperationCanceledException());
+
     public Task<DualWriteSession> ConnectAsync(EnvProfile env, CancellationToken ct = default)
     {
         if (_failWith is not null)
         {
-            throw _failWith;
+            return Task.FromException<DualWriteSession>(_failWith);
         }
 
         var gateway = new FakeCoreDualWriteGateway(_maps ?? SeedMaps());

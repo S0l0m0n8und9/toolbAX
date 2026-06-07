@@ -16,15 +16,19 @@ namespace FoToolbox.Core.DualWrite;
 /// responsible for attaching the bearer token — the client itself is auth-agnostic, so the
 /// host can wire whatever token strategy it likes (pasted bearer now, delegated MSAL later).
 /// </summary>
-public sealed class DualWriteGatewayClient : IDualWriteGateway
+public sealed class DualWriteGatewayClient : IDualWriteGateway, IDisposable
 {
     public const string ApiBasePath = "api/DualWriteManagement/1.0/";
 
     private readonly HttpClient _http;
+    // Dispose the HttpClient only when we own it (the factory creates a dedicated one). An injected
+    // client (e.g. a test's shared HttpClient) stays the caller's to dispose.
+    private readonly bool _ownsHttp;
 
-    public DualWriteGatewayClient(HttpClient http)
+    public DualWriteGatewayClient(HttpClient http, bool ownsHttpClient = false)
     {
         _http = http ?? throw new ArgumentNullException(nameof(http));
+        _ownsHttp = ownsHttpClient;
     }
 
     /// <summary>Resolves the F&amp;O environment identifier to its dual-write linkage (cid/cname).</summary>
@@ -291,6 +295,14 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway
         const int max = 500;
         var collapsed = body.Replace('\r', ' ').Replace('\n', ' ').Trim();
         return collapsed.Length <= max ? collapsed : collapsed.Substring(0, max) + "…";
+    }
+
+    public void Dispose()
+    {
+        if (_ownsHttp)
+        {
+            _http.Dispose();
+        }
     }
 }
 

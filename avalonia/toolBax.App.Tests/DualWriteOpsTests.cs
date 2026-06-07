@@ -73,6 +73,22 @@ public class DualWriteOpsTests
     }
 
     [Fact]
+    public async Task Cancelled_load_resets_to_a_clean_disconnected_state()
+    {
+        var vm = new DualWriteOpsViewModel(FakeDualWriteConnector.ThatCancels(), Env);
+
+        await vm.LoadCommand.ExecuteAsync(null);
+
+        // Even if cancellation lands after Connect, the screen must not show the live banner over an
+        // empty grid — it resets to disconnected.
+        Assert.False(vm.IsConnected);
+        Assert.Null(vm.ConnectionName);
+        Assert.Empty(vm.Maps);
+        Assert.Contains("Cancel", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
     public async Task Load_with_no_maps_shows_the_empty_state()
     {
         var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(Array.Empty<DualWriteMap>()), Env);
