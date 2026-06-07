@@ -90,6 +90,7 @@ public sealed class CoreProfileStoreTests : IDisposable
         store.Save(new EnvProfile("env-di", "DI", "https://x", "t", "USMF", "", EnvStatus.Disconnected)
         {
             DataIntegratorClientId = "c",
+            DataIntegratorMode = DiAuthMode.Ropc, // explicit non-default, so the round-trip is real
             DualWriteGatewayUrl = "https://gw",
         });
 
@@ -98,6 +99,7 @@ public sealed class CoreProfileStoreTests : IDisposable
         var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
         var persisted = reopened.GetAll().Single(p => p.Id == "env-di");
         Assert.Null(persisted.DataIntegratorClientId);
+        Assert.Equal(DiAuthMode.Interactive, persisted.DataIntegratorMode); // mode row removed → default
         Assert.Null(persisted.DualWriteGatewayUrl);
     }
 

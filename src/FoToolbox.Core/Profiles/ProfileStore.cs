@@ -180,6 +180,16 @@ ON CONFLICT(Key) DO UPDATE SET Value = excluded.Value;";
         await cmd.ExecuteNonQueryAsync(cancellationToken);
     }
 
+    public async Task DeleteSettingAsync(string key, CancellationToken cancellationToken = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM Settings WHERE Key = $key";
+        cmd.Parameters.AddWithValue("$key", key);
+        await cmd.ExecuteNonQueryAsync(cancellationToken);
+    }
+
     public async Task UpsertEnvironmentAsync(FoEnvironment env, CancellationToken cancellationToken = default)
     {
         await using var conn = new SqliteConnection(_connectionString);

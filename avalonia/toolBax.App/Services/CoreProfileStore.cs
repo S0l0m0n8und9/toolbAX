@@ -85,10 +85,20 @@ public sealed class CoreProfileStore : IProfileStore
         SaveFoServicePrincipal(profile);
         SaveDataverseServicePrincipal(profile);
 
-        // Data Integrator / dual-write config (key/value Settings; blank persists as cleared).
-        RunBlocking(() => _profiles.SetSettingAsync(DiClientIdKey(profile.Id), profile.DataIntegratorClientId ?? string.Empty));
-        RunBlocking(() => _profiles.SetSettingAsync(DiModeKey(profile.Id), profile.DataIntegratorMode.ToString()));
-        RunBlocking(() => _profiles.SetSettingAsync(GatewayUrlKey(profile.Id), profile.DualWriteGatewayUrl ?? string.Empty));
+        // Data Integrator / dual-write config (key/value Settings; a blank value removes the row, so
+        // an env with no DI config leaves no orphan rows). The mode only matters with a client id.
+        if (string.IsNullOrWhiteSpace(profile.DataIntegratorClientId))
+        {
+            SetOrClearSetting(DiClientIdKey(profile.Id), null);
+            SetOrClearSetting(DiModeKey(profile.Id), null);
+        }
+        else
+        {
+            SetOrClearSetting(DiClientIdKey(profile.Id), profile.DataIntegratorClientId);
+            SetOrClearSetting(DiModeKey(profile.Id), profile.DataIntegratorMode.ToString());
+        }
+
+        SetOrClearSetting(GatewayUrlKey(profile.Id), profile.DualWriteGatewayUrl);
 
         var index = _cache.FindIndex(p => p.Id == profile.Id);
         if (index >= 0)
@@ -110,10 +120,11 @@ public sealed class CoreProfileStore : IProfileStore
             RunBlocking(() => _profiles.DeleteServicePrincipalAsync(sp.Id));
         }
 
-        // Clear the env's DI/dual-write settings so a reused env id can't inherit stale config.
-        RunBlocking(() => _profiles.SetSettingAsync(DiClientIdKey(id), string.Empty));
-        RunBlocking(() => _profiles.SetSettingAsync(DiModeKey(id), string.Empty));
-        RunBlocking(() => _profiles.SetSettingAsync(GatewayUrlKey(id), string.Empty));
+        // Remove the env's DI/dual-write settings so a reused env id can't inherit stale config (and
+        // no orphan Settings rows linger — the Settings table has no FK cascade to environments).
+        RunBlocking(() => _profiles.DeleteSettingAsync(DiClientIdKey(id)));
+        RunBlocking(() => _profiles.DeleteSettingAsync(DiModeKey(id)));
+        RunBlocking(() => _profiles.DeleteSettingAsync(GatewayUrlKey(id)));
 
         RunBlocking(() => _profiles.DeleteEnvironmentAsync(id));
         _cache.RemoveAll(p => p.Id == id);
@@ -195,6 +206,19 @@ public sealed class CoreProfileStore : IProfileStore
         DataverseClientId: dataverseSp?.ClientId,
         DataverseAuthMode: FromCoreAuthMode(dataverseSp?.AuthMode),
         DualWriteGatewayUrl: string.IsNullOrWhiteSpace(gatewayUrl) ? null : gatewayUrl);
+
+    // Upserts a setting, or removes the row when the value is blank (avoids accumulating empty rows).
+    private void SetOrClearSetting(string key, string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+        {
+            RunBlocking(() => _profiles.DeleteSettingAsync(key));
+        }
+        else
+        {
+            RunBlocking(() => _profiles.SetSettingAsync(key, value));
+        }
+    }
 
     private static DiAuthMode ParseDiMode(string? mode) =>
         Enum.TryParse<DiAuthMode>(mode, out var parsed) ? parsed : DiAuthMode.Interactive;

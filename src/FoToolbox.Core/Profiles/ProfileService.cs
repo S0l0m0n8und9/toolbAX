@@ -66,6 +66,10 @@ public sealed class ProfileService
     public Task SetSettingAsync(string key, string value, CancellationToken cancellationToken = default) =>
         _store.SetSettingAsync(key, value, cancellationToken);
 
+    /// <summary>Removes a key/value setting (no-op when absent).</summary>
+    public Task DeleteSettingAsync(string key, CancellationToken cancellationToken = default) =>
+        _store.DeleteSettingAsync(key, cancellationToken);
+
     public async Task<(FoEnvironment Env, ServicePrincipal Sp)?> GetDefaultAsync(CancellationToken cancellationToken = default)
     {
         var bundle = await GetDefaultBundleAsync(cancellationToken);
