@@ -53,11 +53,13 @@ public partial class QueryBuilderViewModel : ObservableObject
     [ObservableProperty]
     private string _orderBy = string.Empty;
 
+    // $top / $skip are free-text (not int) so a non-numeric keystroke is shown verbatim rather than
+    // silently dropped by a failed binding conversion; BuildPath parses them (blank/≤0/invalid omits).
     [ObservableProperty]
-    private int _top = 50;
+    private string _top = "50";
 
     [ObservableProperty]
-    private int _skip;
+    private string _skip = string.Empty;
 
     /// <summary>Include <c>$count=true</c> (total matching rows).</summary>
     [ObservableProperty]
@@ -142,8 +144,8 @@ public partial class QueryBuilderViewModel : ObservableObject
     // Each option recomputes the live URL preview.
     partial void OnFilterChanged(string value) => UpdateQueryUrl();
     partial void OnOrderByChanged(string value) => UpdateQueryUrl();
-    partial void OnTopChanged(int value) => UpdateQueryUrl();
-    partial void OnSkipChanged(int value) => UpdateQueryUrl();
+    partial void OnTopChanged(string value) => UpdateQueryUrl();
+    partial void OnSkipChanged(string value) => UpdateQueryUrl();
     partial void OnCountChanged(bool value) => UpdateQueryUrl();
     partial void OnCrossCompanyChanged(bool value) => UpdateQueryUrl();
 
@@ -240,14 +242,15 @@ public partial class QueryBuilderViewModel : ObservableObject
             parts.Add($"$orderby={Encode(OrderBy.Trim())}");
         }
 
-        if (Top > 0)
+        // Only positive integers contribute; blank/0/invalid omits the clause (server default applies).
+        if (int.TryParse(Top, out var top) && top > 0)
         {
-            parts.Add($"$top={Top}");
+            parts.Add($"$top={top}");
         }
 
-        if (Skip > 0)
+        if (int.TryParse(Skip, out var skip) && skip > 0)
         {
-            parts.Add($"$skip={Skip}");
+            parts.Add($"$skip={skip}");
         }
 
         if (Count)

@@ -102,8 +102,8 @@ public class QueryBuilderViewModelTests
 
         vm.Filter = "CustomerGroupId eq 'DOM'";
         vm.OrderBy = "OrganizationName desc";
-        vm.Top = 25;
-        vm.Skip = 10;
+        vm.Top = "25";
+        vm.Skip = "10";
         vm.Count = true;
 
         Assert.Contains("$filter=CustomerGroupId eq 'DOM'", vm.QueryUrl);
@@ -111,6 +111,18 @@ public class QueryBuilderViewModelTests
         Assert.Contains("$top=25", vm.QueryUrl);
         Assert.Contains("$skip=10", vm.QueryUrl);
         Assert.Contains("$count=true", vm.QueryUrl);
+    }
+
+    [Fact]
+    public void Non_numeric_top_is_omitted_not_silently_mismatched()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        vm.Top = "abc"; // invalid → no $top clause (rather than a silent binding-conversion mismatch)
+
+        Assert.DoesNotContain("$top=", vm.QueryUrl);
+        Assert.Equal("abc", vm.Top); // the text the user typed is preserved
     }
 
     [Fact]
