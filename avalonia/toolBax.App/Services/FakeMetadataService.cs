@@ -45,10 +45,21 @@ public sealed class FakeMetadataService : IMetadataService
         },
     };
 
+    // Enum members for the enum types referenced by the seeded fields (drives the POST Builder's
+    // enum-dropdown cell editors).
+    private static readonly Dictionary<string, IReadOnlyList<string>> Enums = new()
+    {
+        ["NoYes"] = new[] { "No", "Yes" },
+        ["CustVendorBlocked"] = new[] { "No", "Yes", "Invoice", "All" },
+    };
+
     public IReadOnlyList<EntitySet> GetEntities() => Entities;
 
     public IReadOnlyList<EntityField>? GetFields(string entityName) =>
         Fields.TryGetValue(entityName, out var fields) ? fields : null;
+
+    public IReadOnlyList<string>? GetEnumMembers(string enumType) =>
+        Enums.TryGetValue(enumType, out var members) ? members : null;
 
     // The fake's data is seeded, so loading is a no-op; LoadFieldsAsync reports whether the entity
     // has cached fields (CustomersV3 only) to preserve the "not cached" demo state.

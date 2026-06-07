@@ -78,7 +78,22 @@
               <DataGridTextColumn Header="Field" Binding="{Binding Name}" IsReadOnly="True" Width="*" />
               <DataGridTextColumn Header="Type" Binding="{Binding Type}" IsReadOnly="True" Width="Auto" />
               <DataGridCheckBoxColumn Header="Req" Binding="{Binding Mandatory}" IsReadOnly="True" Width="44" />
-              <DataGridTextColumn Header="Value" Binding="{Binding Value}" Width="2*" />
+              <!-- Value cell shows the editor that fits the field: dropdown (enum), checkbox (bool),
+                   otherwise a text box. All three are inline (always editable) and visibility-switched. -->
+              <DataGridTemplateColumn Header="Value" Width="2*">
+                <DataGridTemplateColumn.CellTemplate>
+                  <DataTemplate x:DataType="vm:PostFieldRow">
+                    <Panel VerticalAlignment="Center">
+                      <TextBox IsVisible="{Binding IsText}" Text="{Binding Value, Mode=TwoWay}"
+                               FontFamily="Cascadia Code,Consolas,monospace" />
+                      <CheckBox IsVisible="{Binding IsBool}" IsThreeState="True"
+                                IsChecked="{Binding BoolValue, Mode=TwoWay}" />
+                      <ComboBox IsVisible="{Binding IsEnum}" HorizontalAlignment="Stretch"
+                                ItemsSource="{Binding EnumMembers}" SelectedItem="{Binding Value, Mode=TwoWay}" />
+                    </Panel>
+                  </DataTemplate>
+                </DataGridTemplateColumn.CellTemplate>
+              </DataGridTemplateColumn>
             </DataGrid.Columns>
           </DataGrid>
           <TextBox IsVisible="{Binding !UseFieldGrid}" Text="{Binding RequestBody, Mode=TwoWay}"

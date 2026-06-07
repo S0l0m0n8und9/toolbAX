@@ -231,10 +231,32 @@ public partial class PostBuilderViewModel : ObservableObject
         foreach (var f in fields)
         {
             var mandatory = f.IsKey || !f.Nullable;
-            var row = new PostFieldRow(f.Name, f.TypeDisplay, mandatory, f.IsKey, include: mandatory);
+            var (editor, members) = ResolveEditor(f);
+            var row = new PostFieldRow(f.Name, f.TypeDisplay, mandatory, f.IsKey, include: mandatory, editor, members);
             row.PropertyChanged += OnFieldChanged;
             Fields.Add(row);
         }
+    }
+
+    // Chooses the Value-cell editor for a field: a dropdown for enums (when the members are known),
+    // a checkbox for Booleans, otherwise a text box.
+    private (PostFieldEditor Editor, IReadOnlyList<string>? Members) ResolveEditor(EntityField f)
+    {
+        if (string.Equals(f.Type, "Enum", StringComparison.Ordinal) && f.EnumType is not null)
+        {
+            var members = _metadata.GetEnumMembers(f.EnumType);
+            if (members is { Count: > 0 })
+            {
+                return (PostFieldEditor.Enum, members);
+            }
+        }
+
+        if (string.Equals(f.Type, "Boolean", StringComparison.Ordinal))
+        {
+            return (PostFieldEditor.Bool, null);
+        }
+
+        return (PostFieldEditor.Text, null);
     }
 
     private void OnFieldChanged(object? sender, PropertyChangedEventArgs e)

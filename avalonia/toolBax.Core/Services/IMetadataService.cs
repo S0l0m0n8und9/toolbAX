@@ -23,4 +23,11 @@ public interface IMetadataService
 
     /// <summary>Populates one entity's fields; returns false when the entity has no metadata.</summary>
     Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default);
+
+    /// <summary>
+    /// The members of an enum type (e.g. "NoYes" → ["No","Yes"]), or null when not known. Used by the
+    /// POST Builder to drive enum-dropdown cell editors. Defaults to null so implementations that don't
+    /// surface enum metadata (most test fakes) need not implement it.
+    /// </summary>
+    IReadOnlyList<string>? GetEnumMembers(string enumType) => null;
 }
