@@ -71,6 +71,15 @@ public class DualWriteCompareViewModelTests
         Assert.False(vm.IsBusy);
     }
 
+    [Theory]
+    [InlineData(DualWriteComparisonVerdict.Identical, "identical")]
+    [InlineData(DualWriteComparisonVerdict.VersionMismatch, "version mismatch")]
+    [InlineData(DualWriteComparisonVerdict.StateMismatch, "state mismatch")]
+    [InlineData(DualWriteComparisonVerdict.OnlyInLeft, "only in source")]
+    [InlineData(DualWriteComparisonVerdict.OnlyInRight, "only in target")]
+    public void Verdict_labels_are_friendly(DualWriteComparisonVerdict verdict, string expected) =>
+        Assert.Equal(expected, CompareVerdict.Label(verdict));
+
     [Fact]
     public async Task Core_compare_service_connects_both_environments_and_diffs()
     {

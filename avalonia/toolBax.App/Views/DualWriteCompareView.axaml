@@ -100,7 +100,8 @@
           <DataGridTemplateColumn Header="Diff" Width="*">
             <DataGridTemplateColumn.CellTemplate>
               <DataTemplate x:DataType="dw:DualWriteMapComparisonRow">
-                <TextBlock Text="{Binding Verdict}" VerticalAlignment="Center" Margin="8,0" FontSize="12"
+                <TextBlock Text="{Binding Verdict, Converter={x:Static conv:VerdictToLabelConverter.Instance}}"
+                           VerticalAlignment="Center" Margin="8,0" FontSize="12"
                            Foreground="{Binding Verdict, Converter={x:Static conv:VerdictToBrushConverter.Instance}}" />
               </DataTemplate>
             </DataGridTemplateColumn.CellTemplate>

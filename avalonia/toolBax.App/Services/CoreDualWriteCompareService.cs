@@ -21,9 +21,11 @@ public sealed class CoreDualWriteCompareService : IDualWriteCompareService
 
     public async Task<IReadOnlyList<DualWriteMapComparisonRow>> CompareAsync(EnvProfile source, EnvProfile target, CancellationToken ct = default)
     {
-        var left = await ConnectAndLoadAsync(source, ct).ConfigureAwait(false);
-        var right = await ConnectAndLoadAsync(target, ct).ConfigureAwait(false);
-        return DualWriteMapComparer.Compare(left, right);
+        // The two environments are independent gateway round-trips — connect + load them in parallel.
+        var leftTask = ConnectAndLoadAsync(source, ct);
+        var rightTask = ConnectAndLoadAsync(target, ct);
+        await Task.WhenAll(leftTask, rightTask).ConfigureAwait(false);
+        return DualWriteMapComparer.Compare(await leftTask.ConfigureAwait(false), await rightTask.ConfigureAwait(false));
     }
 
     private async Task<IReadOnlyList<DualWriteMap>> ConnectAndLoadAsync(EnvProfile env, CancellationToken ct)
