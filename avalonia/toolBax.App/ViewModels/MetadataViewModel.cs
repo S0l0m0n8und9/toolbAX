@@ -143,11 +143,11 @@ public partial class MetadataViewModel : ObservableObject
     // property name and type.
     private void RefreshFieldFilter()
     {
-        var term = FieldSearch?.Trim();
+        var term = FieldSearch.Trim();
         FilteredFields.Clear();
         foreach (var f in Fields)
         {
-            if (string.IsNullOrEmpty(term)
+            if (term.Length == 0
                 || f.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
                 || f.TypeDisplay.Contains(term, StringComparison.OrdinalIgnoreCase))
             {

@@ -130,7 +130,12 @@ public class MetadataViewModelTests
     public void Property_search_reapplies_when_the_entity_changes()
     {
         var vm = MakeVm();
+        // Move off the default selection (CustomersV3) to an entity with no cached fields, set a search,
+        // then switch back — so selecting CustomersV3 is a real change that fires OnSelectedChanged.
+        vm.Selected = vm.Entities.Single(e => e.Name == "VendorsV2");
         vm.FieldSearch = "name";
+        Assert.Empty(vm.FilteredFields); // VendorsV2 has no cached fields
+
         vm.Selected = vm.Entities.Single(e => e.Name == "CustomersV3");
 
         Assert.NotEmpty(vm.FilteredFields);
