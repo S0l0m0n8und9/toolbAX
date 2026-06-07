@@ -1,6 +1,4 @@
-using System.Linq;
 using ToolBax.App.ViewModels;
-using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 using Xunit;
 
@@ -8,39 +6,41 @@ namespace ToolBax.App.Tests;
 
 public class ConfirmDialogViewModelTests
 {
-    private static ConfirmRequest Request(string actionId, params (string fo, string dv, DwDirection dir, MapState st)[] targets)
-    {
-        var action = DwActions.All.Single(a => a.Id == actionId);
-        return new ConfirmRequest(
-            action,
-            "Contoso (Prod)",
-            targets.Select(t => new ConfirmTarget(t.fo, t.dv, t.dir, t.st)).ToList());
-    }
-
     [Fact]
-    public void Maps_action_and_targets_into_title_and_body()
+    public void Projects_the_request_into_title_message_and_targets()
     {
-        var vm = new ConfirmDialogViewModel(Request("pause",
-            ("CustomersV3", "account", DwDirection.Both, MapState.Running)));
+        var request = new ConfirmRequest(
+            Title: "Pause 1 map(s)?",
+            Message: "Sends Pause to the dual-write gateway for Contoso (Prod).",
+            Targets: new[] { "Customers V3 · account · Running" },
+            ConfirmLabel: "Pause",
+            IsDanger: false);
+
+        var vm = new ConfirmDialogViewModel(request);
 
         Assert.Equal("Pause 1 map(s)?", vm.Title);
-        Assert.Contains("action=5", vm.Message);     // pause = code 5
+        Assert.Contains("Pause", vm.Message);
         Assert.Single(vm.Targets);
         Assert.Equal("Pause", vm.ConfirmLabel);
-        Assert.False(vm.HasCaveat);                   // pause is not destructive
+        Assert.False(vm.HasCaveat);
         Assert.False(vm.IsDanger);
     }
 
-    [Theory]
-    [InlineData("stop")]
-    [InlineData("initial")]
-    public void Destructive_actions_show_a_danger_caveat(string actionId)
+    [Fact]
+    public void A_danger_request_with_a_caveat_is_flagged()
     {
-        var vm = new ConfirmDialogViewModel(Request(actionId,
-            ("F", "d", DwDirection.Both, MapState.Running)));
+        var request = new ConfirmRequest(
+            Title: "Stop 1 map(s)?",
+            Message: "Sends Stop to the dual-write gateway.",
+            Targets: new[] { "Customers V3 · account · Running" },
+            ConfirmLabel: "Stop",
+            IsDanger: true,
+            Caveat: "This halts replication for the selected maps.");
+
+        var vm = new ConfirmDialogViewModel(request);
 
         Assert.True(vm.IsDanger);
         Assert.True(vm.HasCaveat);
-        Assert.NotNull(vm.Caveat);
+        Assert.Equal("This halts replication for the selected maps.", vm.Caveat);
     }
 }

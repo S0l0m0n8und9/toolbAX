@@ -50,7 +50,7 @@ public partial class App : Application
                 ? (IDualWriteConnector)new CoreDualWriteConnector(authService)
                 : new FakeDualWriteConnector();
             shell = new ShellViewModel(
-                operationsContentFactory: () => new DualWriteOpsViewModel(dwConnector, activeEnv),
+                operationsContentFactory: () => new DualWriteOpsViewModel(dwConnector, activeEnv, new DialogService()),
                 profileStore: profileStore,
                 secretStore: secretStore,
                 // Real loopback-MSAL interactive sign-in (system browser, no WebView2); cross-platform,

@@ -5,7 +5,6 @@ using Avalonia.Threading;
 using Avalonia.VisualTree;
 using ToolBax.App.ViewModels;
 using ToolBax.App.Views;
-using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 using Xunit;
 
@@ -14,11 +13,15 @@ namespace ToolBax.App.Tests;
 /// <summary>The confirm dialog must visually flag destructive actions (Stop / Initial sync).</summary>
 public class ConfirmWindowRenderTests
 {
-    private static ConfirmWindow Show(string actionId)
+    private static ConfirmWindow Show(string label, bool danger)
     {
-        var action = DwActions.All.Single(a => a.Id == actionId);
-        var request = new ConfirmRequest(action, "Contoso (Prod)",
-            new[] { new ConfirmTarget("CustomersV3", "account", DwDirection.Both, MapState.Running) });
+        var request = new ConfirmRequest(
+            Title: $"{label} 1 map(s)?",
+            Message: "Sends the action to the dual-write gateway.",
+            Targets: new[] { "Customers V3 · account · Running" },
+            ConfirmLabel: label,
+            IsDanger: danger,
+            Caveat: danger ? "This is destructive." : null);
         var window = new ConfirmWindow { DataContext = new ConfirmDialogViewModel(request) };
         window.Show();
         Dispatcher.UIThread.RunJobs();
@@ -31,7 +34,7 @@ public class ConfirmWindowRenderTests
     [AvaloniaFact]
     public void Destructive_action_confirm_button_has_the_danger_class()
     {
-        var window = Show("stop");
+        var window = Show("Stop", danger: true);
         try
         {
             Assert.Contains("danger", ConfirmButton(window, "Stop").Classes);
@@ -45,7 +48,7 @@ public class ConfirmWindowRenderTests
     [AvaloniaFact]
     public void Non_destructive_action_confirm_button_has_no_danger_class()
     {
-        var window = Show("pause");
+        var window = Show("Pause", danger: false);
         try
         {
             Assert.DoesNotContain("danger", ConfirmButton(window, "Pause").Classes);
