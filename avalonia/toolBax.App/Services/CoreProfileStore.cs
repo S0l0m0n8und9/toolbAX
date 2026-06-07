@@ -308,7 +308,9 @@ public sealed class CoreProfileStore : IProfileStore
             return explicitId;
         }
 
-        return mode == FoAuthMode.Interactive ? FoAuthModeExtensions.DefaultInteractiveClientId : explicitId;
+        // No usable client id: Interactive falls back to the global public client; app-only modes
+        // normalise blank/empty to null (never an empty string).
+        return mode == FoAuthMode.Interactive ? FoAuthModeExtensions.DefaultInteractiveClientId : null;
     }
 
     // The auth mode comes from the Settings row when present (covers Interactive); otherwise it's

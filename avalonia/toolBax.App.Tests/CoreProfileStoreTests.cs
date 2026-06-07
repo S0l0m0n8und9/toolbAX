@@ -286,6 +286,29 @@ public sealed class CoreProfileStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task App_only_mode_with_empty_client_id_normalises_to_null()
+    {
+        // An app-only SP carrying an empty client id must read back as null (not ""), so a blank
+        // client id is consistently absent regardless of how it was stored.
+        var ct = TestContext.Current.CancellationToken;
+        var seed = NewService();
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "One", "https://one", "t", null), ct);
+        await seed.SetSettingAsync(FoAuthModeKeyForTest("env1"), nameof(FoAuthMode.ClientSecret), ct);
+        await seed.UpsertServicePrincipalAsync(
+            new ServicePrincipal("env1:fo", "env1", string.Empty, AuthMode.ClientSecret, "secret-ref", null, AuthTarget.Fo), ct);
+
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+
+        var profile = store.GetAll().Single(p => p.Id == "env1");
+        Assert.Equal(FoAuthMode.ClientSecret, profile.AuthMode);
+        Assert.Null(profile.ClientId);
+    }
+
+    // Mirrors CoreProfileStore.FoAuthModeKey (private) for seeding a legacy app-only auth-mode setting.
+    private static string FoAuthModeKeyForTest(string envId) => $"fo.authMode:{envId}";
+
+    [Fact]
     public async Task Clearing_client_id_removes_the_service_principal()
     {
         var ct = TestContext.Current.CancellationToken;
