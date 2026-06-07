@@ -39,7 +39,7 @@ public sealed class DualWriteGatewayFactory : IDualWriteGatewayFactory
             BaseAddress = GatewayUri(settings)
         };
         http.DefaultRequestHeaders.UserAgent.ParseAdd("FoToolbox-DualWrite/0.1");
-        return new DualWriteGatewayClient(http);
+        return new DualWriteGatewayClient(http, ownsHttpClient: true);
     }
 
     public IDualWriteGateway CreateRefreshing(DualWriteConnectionSettings settings, Func<DualWriteToken, Task> onRefreshed)
@@ -60,7 +60,7 @@ public sealed class DualWriteGatewayFactory : IDualWriteGatewayFactory
             BaseAddress = GatewayUri(settings)
         };
         http.DefaultRequestHeaders.UserAgent.ParseAdd("FoToolbox-DualWrite/0.1");
-        return new DualWriteGatewayClient(http);
+        return new DualWriteGatewayClient(http, ownsHttpClient: true);
     }
 
     private static string RequireGatewayUrl(DualWriteConnectionSettings settings)
