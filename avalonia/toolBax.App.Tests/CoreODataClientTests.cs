@@ -28,6 +28,13 @@ public class CoreODataClientTests
         public StubHandler(HttpStatusCode status, string body)
             => _response = new HttpResponseMessage(status) { Content = new StringContent(body) };
 
+        // Adds a response header (TryAddWithoutValidation so values like a weak ETag are accepted).
+        public StubHandler WithHeader(string name, string value)
+        {
+            _response.Headers.TryAddWithoutValidation(name, value);
+            return this;
+        }
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
             LastRequest = request;
@@ -78,6 +85,18 @@ public class CoreODataClientTests
 
         Assert.True(handler.LastRequest!.Headers.TryGetValues("If-Match", out var values));
         Assert.Contains("W/\"42\"", values!);
+    }
+
+    [Fact]
+    public async Task Response_headers_are_captured()
+    {
+        var handler = new StubHandler(HttpStatusCode.NoContent, string.Empty).WithHeader("ETag", "W/\"5\"");
+        var client = new CoreODataClient(new FakeAuthService(), () => Env(), new HttpClient(handler));
+
+        var result = await client.SendAsync("GET", "/data/Foo", null, TestContext.Current.CancellationToken);
+
+        Assert.NotNull(result.Headers);
+        Assert.Equal("W/\"5\"", result.Headers!["ETag"]);
     }
 
     [Fact]

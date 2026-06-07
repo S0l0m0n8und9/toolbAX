@@ -67,6 +67,13 @@ public partial class PostBuilderViewModel : ObservableObject
     [ObservableProperty]
     private string _responseBody = string.Empty;
 
+    /// <summary>The last response's headers, formatted "Name: value" per line (blank when none).</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasResponseHeaders))]
+    private string _responseHeaders = string.Empty;
+
+    public bool HasResponseHeaders => !string.IsNullOrEmpty(ResponseHeaders);
+
     [ObservableProperty]
     private string _statusText = "No response yet.";
 
@@ -420,6 +427,7 @@ public partial class PostBuilderViewModel : ObservableObject
             StatusBadge = $"{response.StatusCode} {response.ReasonPhrase}";
             SendSucceeded = response.IsSuccess;
             ResponseBody = response.Body;
+            ResponseHeaders = FormatHeaders(response.Headers);
         }
         catch (Exception ex)
         {
@@ -427,12 +435,20 @@ public partial class PostBuilderViewModel : ObservableObject
             SendSucceeded = false;
             StatusBadge = string.Empty;
             ResponseBody = ex.Message;
+            ResponseHeaders = string.Empty;
         }
         finally
         {
             IsBusy = false;
         }
     }
+
+    // Renders response headers as "Name: value" lines, sorted for stable display.
+    private static string FormatHeaders(IReadOnlyDictionary<string, string>? headers) =>
+        headers is null || headers.Count == 0
+            ? string.Empty
+            : string.Join(Environment.NewLine, headers.OrderBy(h => h.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(h => $"{h.Key}: {h.Value}"));
 
     [RelayCommand]
     private Task CopyUrl() => _clipboard.SetTextAsync(EffectivePath());

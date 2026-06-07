@@ -207,6 +207,30 @@ public class PostBuilderViewModelTests
         Assert.Equal("/data/CustomersV3(dataAreaId='USMF',CustomerAccount='US-1')", recorder.LastPath);
     }
 
+    // Returns a response carrying headers (to exercise the response-header surface).
+    private sealed class HeaderedResponseClient : IODataClient
+    {
+        public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
+            => Task.FromResult(new ODataResponse(201, "Created", "{}", 2,
+                new Dictionary<string, string> { ["OData-EntityId"] = "https://x/data/E(1)", ["ETag"] = "W/\"9\"" }));
+    }
+
+    [Fact]
+    public async Task Send_surfaces_response_headers()
+    {
+        var vm = new PostBuilderViewModel(new HeaderedResponseClient()) { Method = "POST" };
+
+        await vm.SendCommand.ExecuteAsync(null);
+
+        Assert.True(vm.HasResponseHeaders);
+        Assert.Contains("OData-EntityId: https://x/data/E(1)", vm.ResponseHeaders);
+        Assert.Contains("ETag: W/\"9\"", vm.ResponseHeaders);
+        // Sorted by name: ETag precedes OData-EntityId.
+        Assert.StartsWith("ETag: W/\"9\"", vm.ResponseHeaders);
+        Assert.True(vm.ResponseHeaders.IndexOf("ETag:", StringComparison.Ordinal)
+            < vm.ResponseHeaders.IndexOf("OData-EntityId:", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task Patch_sends_if_match_header_when_enabled()
     {
