@@ -21,9 +21,9 @@ public static class JwtClaimReader
         }
 
         var parts = jwt.Split('.');
-        if (parts.Length < 2)
+        if (parts.Length < 3)
         {
-            return null;
+            return null; // a valid JWT is header.payload.signature
         }
 
         byte[] payload;
