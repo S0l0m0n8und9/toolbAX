@@ -366,6 +366,9 @@ public partial class QueryBuilderViewModel : ObservableObject
                 NextLink = next;
             }
 
+            // Reflect the latest call in the badge, so a failed page doesn't keep showing the prior success.
+            RunSucceeded = response.IsSuccess;
+            StatusBadge = $"{response.StatusCode} {response.ReasonPhrase}";
             RowCount = ResultRows.Count;
             StatusText = $"{DescribeCount()} · {response.StatusLine}";
         }

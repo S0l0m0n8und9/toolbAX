@@ -202,6 +202,23 @@ public class QueryBuilderViewModelTests
     }
 
     [Fact]
+    public async Task A_failed_load_more_clears_the_success_badge()
+    {
+        const string page1 = "{\"@odata.nextLink\":\"https://x/data/E?$skiptoken=p2\",\"value\":[{\"CustomerAccount\":\"US-1\"}]}";
+        var client = new PagingODataClient(
+            new ODataResponse(200, "OK", page1, 5),
+            new ODataResponse(500, "Server Error", "{}", 5));
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        await vm.RunCommand.ExecuteAsync(null);
+        Assert.True(vm.RunSucceeded);
+
+        await vm.LoadMoreCommand.ExecuteAsync(null);
+
+        Assert.False(vm.RunSucceeded); // the failed page clears the stale success badge
+    }
+
+    [Fact]
     public void Toggling_a_field_updates_the_select_clause_both_ways()
     {
         var vm = MakeVm();

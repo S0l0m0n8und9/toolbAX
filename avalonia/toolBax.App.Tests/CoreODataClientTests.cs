@@ -89,6 +89,19 @@ public class CoreODataClientTests
     }
 
     [Fact]
+    public async Task A_paging_link_on_a_foreign_host_is_refused()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK, "{}");
+        var client = new CoreODataClient(new FakeAuthService(), () => Env(), new HttpClient(handler));
+
+        // A nextLink pointing at a different host must not receive the env-scoped bearer.
+        var result = await client.SendAsync("GET", "https://evil.example.com/data/X", null, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Null(handler.LastRequest); // no request was sent
+    }
+
+    [Fact]
     public async Task No_active_environment_returns_a_clear_non_success_response()
     {
         var client = new CoreODataClient(new FakeAuthService(), () => null, new HttpClient(new StubHandler(HttpStatusCode.OK, "")));
