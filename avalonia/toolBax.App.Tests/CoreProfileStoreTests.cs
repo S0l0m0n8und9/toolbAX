@@ -240,6 +240,52 @@ public sealed class CoreProfileStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Legacy_bearer_token_service_principal_loads_as_interactive()
+    {
+        // A profile created by the WPF app with a captured/pasted bearer token (AuthMode.BearerToken)
+        // and no Avalonia fo.authMode setting. BearerToken is a DELEGATED token mode — not app-only —
+        // so it must surface as Interactive (MFA), not mis-mapped to the client-credentials path (which
+        // rejects BearerToken with "Auth mode 'BearerToken' is not supported for the client-credentials flow").
+        var ct = TestContext.Current.CancellationToken;
+        var seed = NewService();
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "Ricoh Dev", "https://ricoh.dynamics.com", "tenant-1", "USMF"), ct);
+        await seed.UpsertServicePrincipalAsync(
+            new ServicePrincipal("env1:fo", "env1", "client-from-wpf", AuthMode.BearerToken, null, null, AuthTarget.Fo), ct);
+        await seed.UpsertServicePrincipalAsync(
+            new ServicePrincipal("env1:dataverse", "env1", "dv-from-wpf", AuthMode.BearerToken, null, null, AuthTarget.Dataverse), ct);
+
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+
+        var profile = store.GetAll().Single(p => p.Id == "env1");
+        Assert.Equal(FoAuthMode.Interactive, profile.AuthMode);
+        Assert.Equal(FoAuthMode.Interactive, profile.DataverseAuthMode);
+        // The SP's own client id is kept as the interactive client id.
+        Assert.Equal("client-from-wpf", profile.ClientId);
+        Assert.Equal("dv-from-wpf", profile.DataverseClientId);
+    }
+
+    [Fact]
+    public async Task Interactive_with_no_client_id_falls_back_to_the_default_global_client()
+    {
+        // A delegated (Interactive) environment with no configured client id (e.g. a legacy bearer-token
+        // profile whose SP carried no client id) gets Microsoft's global public client so an interactive
+        // sign-in has a usable client id out of the box — matching the Profiles UI default.
+        var ct = TestContext.Current.CancellationToken;
+        var seed = NewService();
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "Ricoh Dev", "https://ricoh.dynamics.com", "tenant-1", "USMF"), ct);
+        await seed.UpsertServicePrincipalAsync(
+            new ServicePrincipal("env1:fo", "env1", string.Empty, AuthMode.BearerToken, null, null, AuthTarget.Fo), ct);
+
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+
+        var profile = store.GetAll().Single(p => p.Id == "env1");
+        Assert.Equal(FoAuthMode.Interactive, profile.AuthMode);
+        Assert.Equal(FoAuthModeExtensions.DefaultInteractiveClientId, profile.ClientId);
+    }
+
+    [Fact]
     public async Task Clearing_client_id_removes_the_service_principal()
     {
         var ct = TestContext.Current.CancellationToken;
@@ -305,7 +351,14 @@ public sealed class CoreProfileStoreTests : IDisposable
     {
         var ct = TestContext.Current.CancellationToken;
         var store = await CoreProfileStore.CreateAsync(NewService(), ct);
-        store.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected) { DataverseClientId = "abc" });
+        // An app-only mode creates the Dataverse SP whose removal this verifies (a delegated/Interactive
+        // mode never creates one, and its blank client id resolves to the global default — see
+        // Interactive_with_no_client_id_falls_back_to_the_default_global_client).
+        store.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected)
+        {
+            DataverseClientId = "abc",
+            DataverseAuthMode = FoAuthMode.ClientSecret,
+        });
 
         store.Save(store.GetAll().Single() with { DataverseClientId = null });
 
