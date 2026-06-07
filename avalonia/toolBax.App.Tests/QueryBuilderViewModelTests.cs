@@ -223,6 +223,8 @@ public class QueryBuilderViewModelTests
     {
         var vm = MakeVm();
         Assert.Equal(vm.Entities.Count, vm.FilteredEntities.Count); // unfiltered initially
+        // Select a matching entity so the always-pinned active selection is itself a match.
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "SalesOrderHeadersV2");
 
         vm.EntitySearch = "ORDER"; // case-insensitive substring on the entity name
 
@@ -236,12 +238,30 @@ public class QueryBuilderViewModelTests
     public void Clearing_entity_search_restores_the_full_list()
     {
         var vm = MakeVm();
+        vm.SelectedEntity = null; // no selection → nothing pinned, so a no-match term yields an empty list
         vm.EntitySearch = "zzz-no-match";
         Assert.Empty(vm.FilteredEntities);
 
         vm.EntitySearch = "   "; // whitespace-only is treated as no filter
 
         Assert.Equal(vm.Entities.Count, vm.FilteredEntities.Count);
+    }
+
+    [Fact]
+    public void Entity_search_excluding_the_selection_keeps_it_pinned_and_preserves_fields()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        Assert.NotEmpty(vm.Fields);
+
+        vm.EntitySearch = "order"; // CustomersV3 does NOT contain "order"
+
+        // The active selection stays pinned in the filtered list so the bound ListBox can't null it
+        // (which would otherwise wipe the field selection + query URL); selection + fields survive.
+        Assert.Contains(vm.FilteredEntities, e => e.Name == "CustomersV3");
+        Assert.Equal("CustomersV3", vm.SelectedEntity!.Name);
+        Assert.NotEmpty(vm.Fields);
+        Assert.Contains("/data/CustomersV3", vm.QueryUrl);
     }
 
     [Fact]

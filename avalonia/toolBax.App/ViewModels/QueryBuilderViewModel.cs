@@ -26,6 +26,11 @@ public partial class QueryBuilderViewModel : ObservableObject
     private readonly IODataClient _client;
     private readonly IClipboardService _clipboard;
 
+    // True only while RefreshEntityFilter is rebuilding FilteredEntities, so the transient selection
+    // null a bound ListBox emits during Clear() doesn't run OnSelectedEntityChanged's side-effects
+    // (which would wipe the field selection + query URL on every keystroke in the entity search box).
+    private bool _refreshingEntities;
+
     public ObservableCollection<EntitySet> Entities { get; }
     public ObservableCollection<FieldChipViewModel> Fields { get; } = new();
     public ObservableCollection<QueryResultRow> ResultRows { get; } = new();
@@ -174,6 +179,11 @@ public partial class QueryBuilderViewModel : ObservableObject
 
     partial void OnSelectedEntityChanged(EntitySet? value)
     {
+        if (_refreshingEntities)
+        {
+            return; // a transient null/restore from rebuilding the filtered list — not a real selection change
+        }
+
         // Default cross-company to the entity's company-awareness; the user can still override it.
         CrossCompany = value?.CompanyAware ?? false;
         LoadFields();                              // show what's cached immediately
@@ -186,16 +196,35 @@ public partial class QueryBuilderViewModel : ObservableObject
     partial void OnFieldSearchChanged(string value) => RefreshFieldFilter();
 
     // Rebuilds FilteredEntities from Entities applying the (trimmed, case-insensitive) EntitySearch.
+    // The currently-selected entity is always kept in the list (even when it doesn't match the term),
+    // and the selection is snapshot/restored, so typing in the search box can't make the bound ListBox
+    // null the selection and wipe the field selection + query URL. See OnSelectedEntityChanged's guard.
     private void RefreshEntityFilter()
     {
         var term = EntitySearch?.Trim();
-        FilteredEntities.Clear();
-        foreach (var e in Entities)
+        var saved = SelectedEntity;
+        _refreshingEntities = true;
+        try
         {
-            if (string.IsNullOrEmpty(term) || e.Name.Contains(term, StringComparison.OrdinalIgnoreCase))
+            FilteredEntities.Clear();
+            foreach (var e in Entities)
             {
-                FilteredEntities.Add(e);
+                if (string.IsNullOrEmpty(term)
+                    || e.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+                    || ReferenceEquals(e, saved))
+                {
+                    FilteredEntities.Add(e);
+                }
             }
+
+            if (saved is not null && !ReferenceEquals(SelectedEntity, saved))
+            {
+                SelectedEntity = saved; // restore if the bound ListBox nulled it during Clear()
+            }
+        }
+        finally
+        {
+            _refreshingEntities = false;
         }
 
         OnPropertyChanged(nameof(EntityCountLabel));
