@@ -1,37 +1,31 @@
 using System.Collections.Generic;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FoToolbox.Core.DualWrite;
 using ToolBax.Core.Models;
-using ToolBax.Core.Services;
 
 namespace ToolBax.App.Services;
 
 /// <summary>
-/// In-memory <see cref="IDualWriteCompareService"/> seeded from the prototype (DW_OPS_MAPS vs
-/// AVC_TARGET). Design-mode returns the same illustrative diff set for any source≠target pair; it
-/// covers every <see cref="DiffKind"/> bucket, including a target-only and a source-only map.
-/// TODO: compute the real diff from both environments' live map configs.
+/// In-memory <see cref="IDualWriteCompareService"/> for design-mode/tests. Returns an illustrative diff
+/// that exercises every <see cref="DualWriteComparisonVerdict"/> (identical / version mismatch / state
+/// mismatch / only-in-source / only-in-target) for any source≠target pair.
 /// </summary>
 public sealed class FakeDualWriteCompareService : IDualWriteCompareService
 {
-    // (fo, dv, direction, source side-or-null, target side-or-null)
-    private static readonly (string Fo, string Dv, DwDirection Dir, DiffSide? Source, DiffSide? Target)[] Seed =
+    private static readonly DualWriteMapComparisonRow[] Seed =
     {
-        ("CustomersV3", "account", DwDirection.Both, new(MapState.Running, "1.0.0.12", 14218), new(MapState.Running, "1.0.0.12", 13980)), // row delta
-        ("VendorsV2", "msdyn_vendor", DwDirection.FoToDv, new(MapState.Running, "1.0.0.8", 4820), new(MapState.Running, "1.0.0.8", 4760)), // in sync
-        ("ReleasedProductsV2", "product", DwDirection.Both, new(MapState.Paused, "1.0.0.21", 0), new(MapState.Running, "1.0.0.19", 240)), // version drift
-        ("SalesOrderHeadersV2", "salesorder", DwDirection.DvToFo, new(MapState.Running, "1.0.0.15", 612), new(MapState.Paused, "1.0.0.15", 590)), // state differs
-        ("PurchaseOrderHeadersV2", "msdyn_purchaseorder", DwDirection.Both, new(MapState.Running, "1.0.0.6", 188), null), // only in source
-        ("ChartOfAccounts", "cdm_account", DwDirection.FoToDv, new(MapState.Running, "1.0.0.3", 14), new(MapState.Running, "1.0.0.3", 12)), // in sync
-        ("ExchangeRates", "cdm_exchangerate", DwDirection.FoToDv, null, new(MapState.Idle, "1.0.0.2", 0)), // only in target
+        Row("Customers V3", true, true, "1.0.0.12", "1.0.0.12", "Running", "Running", DualWriteComparisonVerdict.Identical),
+        Row("Released products V2", true, true, "1.0.0.21", "1.0.0.19", "Paused", "Running", DualWriteComparisonVerdict.VersionMismatch),
+        Row("Sales order headers", true, true, "1.0.0.15", "1.0.0.15", "Running", "Paused", DualWriteComparisonVerdict.StateMismatch),
+        Row("Purchase order headers", true, false, "1.0.0.6", "", "Running", "", DualWriteComparisonVerdict.OnlyInLeft),
+        Row("Exchange rates", false, true, "", "1.0.0.2", "", "Stopped", DualWriteComparisonVerdict.OnlyInRight),
     };
 
-    public Task<IReadOnlyList<CompareRow>> CompareAsync(string sourceEnvId, string targetEnvId, CancellationToken ct = default)
-    {
-        IReadOnlyList<CompareRow> rows = Seed
-            .Select(s => new CompareRow(s.Fo, s.Dv, s.Dir, s.Source, s.Target, DiffClassifier.Classify(s.Source, s.Target)))
-            .ToArray();
-        return Task.FromResult(rows);
-    }
+    public Task<IReadOnlyList<DualWriteMapComparisonRow>> CompareAsync(EnvProfile source, EnvProfile target, CancellationToken ct = default)
+        => Task.FromResult<IReadOnlyList<DualWriteMapComparisonRow>>(Seed);
+
+    private static DualWriteMapComparisonRow Row(string name, bool inLeft, bool inRight,
+        string leftVer, string rightVer, string leftState, string rightState, DualWriteComparisonVerdict verdict) =>
+        new(name, inLeft, inRight, leftVer, rightVer, leftState, rightState, verdict);
 }

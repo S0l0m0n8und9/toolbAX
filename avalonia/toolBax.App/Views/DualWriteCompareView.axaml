@@ -3,6 +3,7 @@
              xmlns:vm="using:ToolBax.App.ViewModels"
              xmlns:models="using:ToolBax.Core.Models"
              xmlns:conv="using:ToolBax.App.Converters"
+             xmlns:dw="using:FoToolbox.Core.DualWrite"
              x:Class="ToolBax.App.Views.DualWriteCompareView"
              x:DataType="vm:DualWriteCompareViewModel">
 
@@ -65,14 +66,21 @@
         <DataTemplate x:DataType="vm:DiffBucket">
           <Border Background="{StaticResource Layer3Brush}" CornerRadius="999" Padding="10,3" Margin="0,0,8,0">
             <TextBlock Text="{Binding Label}" FontSize="11.5"
-                       Foreground="{Binding Kind, Converter={x:Static conv:DiffKindToBrushConverter.Instance}}" />
+                       Foreground="{Binding Verdict, Converter={x:Static conv:VerdictToBrushConverter.Instance}}" />
           </Border>
         </DataTemplate>
       </ItemsControl.ItemTemplate>
     </ItemsControl>
 
-    <!-- Body: same-env prompt, or the diff grid -->
+    <!-- Body: error, same-env prompt, or the diff grid -->
     <Grid Grid.Row="2">
+      <Border IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+              VerticalAlignment="Top" Margin="0,12"
+              Background="{StaticResource ErrBgBrush}" BorderBrush="{StaticResource ErrBrush}"
+              BorderThickness="1" CornerRadius="8" Padding="12,8">
+        <TextBlock Text="{Binding Error}" TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}" />
+      </Border>
+
       <Border IsVisible="{Binding ShowSamePrompt}" VerticalAlignment="Top" Margin="0,12"
               Background="{StaticResource InfoBgBrush}" BorderBrush="{StaticResource InfoBrush}"
               BorderThickness="1" CornerRadius="8" Padding="12,8">
@@ -84,18 +92,16 @@
                 IsVisible="{Binding HasResult}" AutoGenerateColumns="False"
                 GridLinesVisibility="Horizontal" Background="{StaticResource Layer1Brush}">
         <DataGrid.Columns>
-          <DataGridTextColumn Header="Table map" Binding="{Binding MapDisplay}" Width="2*" />
-          <DataGridTextColumn Header="Src · state" Binding="{Binding SourceState}" Width="*" />
-          <DataGridTextColumn Header="Src · template" Binding="{Binding SourceVersion}" Width="*" />
-          <DataGridTextColumn Header="Src · rows" Binding="{Binding SourceRows}" Width="Auto" />
-          <DataGridTextColumn Header="Tgt · state" Binding="{Binding TargetState}" Width="*" />
-          <DataGridTextColumn Header="Tgt · template" Binding="{Binding TargetVersion}" Width="*" />
-          <DataGridTextColumn Header="Tgt · rows" Binding="{Binding TargetRows}" Width="Auto" />
+          <DataGridTextColumn Header="Map" Binding="{Binding MapName}" Width="2*" />
+          <DataGridTextColumn Header="Src · version" Binding="{Binding LeftVersion}" Width="*" />
+          <DataGridTextColumn Header="Src · state" Binding="{Binding LeftState}" Width="*" />
+          <DataGridTextColumn Header="Tgt · version" Binding="{Binding RightVersion}" Width="*" />
+          <DataGridTextColumn Header="Tgt · state" Binding="{Binding RightState}" Width="*" />
           <DataGridTemplateColumn Header="Diff" Width="*">
             <DataGridTemplateColumn.CellTemplate>
-              <DataTemplate x:DataType="models:CompareRow">
-                <TextBlock Text="{Binding DiffLabel}" VerticalAlignment="Center" Margin="8,0" FontSize="12"
-                           Foreground="{Binding Diff, Converter={x:Static conv:DiffKindToBrushConverter.Instance}}" />
+              <DataTemplate x:DataType="dw:DualWriteMapComparisonRow">
+                <TextBlock Text="{Binding Verdict}" VerticalAlignment="Center" Margin="8,0" FontSize="12"
+                           Foreground="{Binding Verdict, Converter={x:Static conv:VerdictToBrushConverter.Instance}}" />
               </DataTemplate>
             </DataGridTemplateColumn.CellTemplate>
           </DataGridTemplateColumn>
