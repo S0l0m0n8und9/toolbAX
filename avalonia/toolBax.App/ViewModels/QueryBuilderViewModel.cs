@@ -30,6 +30,22 @@ public partial class QueryBuilderViewModel : ObservableObject
     public ObservableCollection<FieldChipViewModel> Fields { get; } = new();
     public ObservableCollection<QueryResultRow> ResultRows { get; } = new();
 
+    /// <summary>The entity list as shown, after applying <see cref="EntitySearch"/>. The view binds
+    /// to this; <see cref="Entities"/> stays the full master so selections/loads aren't affected.</summary>
+    public ObservableCollection<EntitySet> FilteredEntities { get; } = new();
+
+    /// <summary>The field chips as shown, after applying <see cref="FieldSearch"/>. Filtering only hides
+    /// chips from the view — <see cref="Fields"/> keeps every chip (and its $select selection).</summary>
+    public ObservableCollection<FieldChipViewModel> FilteredFields { get; } = new();
+
+    /// <summary>Case-insensitive substring filter over the entity-list names.</summary>
+    [ObservableProperty]
+    private string _entitySearch = string.Empty;
+
+    /// <summary>Case-insensitive substring filter over the field-chip names.</summary>
+    [ObservableProperty]
+    private string _fieldSearch = string.Empty;
+
     [ObservableProperty]
     private EntitySet? _selectedEntity;
 
@@ -110,6 +126,12 @@ public partial class QueryBuilderViewModel : ObservableObject
 
     public bool HasTotalCount => TotalCount is not null;
 
+    /// <summary>"Entities · N" (or "M of N" while a search is narrowing the list).</summary>
+    public string EntityCountLabel =>
+        FilteredEntities.Count == Entities.Count
+            ? $"Entities · {Entities.Count}"
+            : $"Entities · {FilteredEntities.Count} of {Entities.Count}";
+
     public QueryBuilderViewModel(IMetadataService metadata, IODataClient client, IClipboardService? clipboard = null)
     {
         _metadata = metadata;
@@ -119,6 +141,7 @@ public partial class QueryBuilderViewModel : ObservableObject
         // The fake seeds its catalogue synchronously; the real service starts empty and fills in via
         // InitializeAsync (triggered by the view on load).
         Entities = new ObservableCollection<EntitySet>(metadata.GetEntities());
+        RefreshEntityFilter();
         SelectedEntity = Entities.FirstOrDefault();
     }
 
@@ -142,6 +165,7 @@ public partial class QueryBuilderViewModel : ObservableObject
                 Entities.Add(e);
             }
 
+            RefreshEntityFilter();
             SelectedEntity = Entities.FirstOrDefault(e => e.Name == previous) ?? Entities.FirstOrDefault();
         }
 
@@ -155,6 +179,40 @@ public partial class QueryBuilderViewModel : ObservableObject
         LoadFields();                              // show what's cached immediately
         OnPropertyChanged(nameof(NotCachedMessage));
         LoadSelectedFieldsCommand.Execute(null);   // then fetch from $metadata if not cached yet
+    }
+
+    // The two search boxes only re-filter what's displayed; they never touch the master lists.
+    partial void OnEntitySearchChanged(string value) => RefreshEntityFilter();
+    partial void OnFieldSearchChanged(string value) => RefreshFieldFilter();
+
+    // Rebuilds FilteredEntities from Entities applying the (trimmed, case-insensitive) EntitySearch.
+    private void RefreshEntityFilter()
+    {
+        var term = EntitySearch?.Trim();
+        FilteredEntities.Clear();
+        foreach (var e in Entities)
+        {
+            if (string.IsNullOrEmpty(term) || e.Name.Contains(term, StringComparison.OrdinalIgnoreCase))
+            {
+                FilteredEntities.Add(e);
+            }
+        }
+
+        OnPropertyChanged(nameof(EntityCountLabel));
+    }
+
+    // Rebuilds FilteredFields from Fields applying the (trimmed, case-insensitive) FieldSearch.
+    private void RefreshFieldFilter()
+    {
+        var term = FieldSearch?.Trim();
+        FilteredFields.Clear();
+        foreach (var f in Fields)
+        {
+            if (string.IsNullOrEmpty(term) || f.Name.Contains(term, StringComparison.OrdinalIgnoreCase))
+            {
+                FilteredFields.Add(f);
+            }
+        }
     }
 
     // Each option recomputes the live URL preview.
@@ -207,6 +265,7 @@ public partial class QueryBuilderViewModel : ObservableObject
             }
         }
 
+        RefreshFieldFilter();
         UpdateQueryUrl();
     }
 
