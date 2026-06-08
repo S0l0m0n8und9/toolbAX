@@ -9,7 +9,20 @@
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <RootNamespace>ToolBax.App</RootNamespace>
+    <!-- The dual-write portal sign-in embeds WebView2 (via Avalonia's NativeControlHost), which is
+         Windows-only. Enable it on Windows builds so the capture adapter compiles + links; Linux/CI
+         builds the cross-platform flavour (fake sign-in) so the app stays net10.0 and the headless tests
+         keep running. Override with -p:EnableWebView2=false to compile the cross-platform path on Windows. -->
+    <EnableWebView2 Condition="'$(EnableWebView2)' == '' and $([MSBuild]::IsOSPlatform('Windows'))">true</EnableWebView2>
   </PropertyGroup>
+
+  <PropertyGroup Condition="'$(EnableWebView2)' == 'true'">
+    <DefineConstants>$(DefineConstants);WEBVIEW2</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(EnableWebView2)' == 'true'">
+    <PackageReference Include="Microsoft.Web.WebView2" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Avalonia" />

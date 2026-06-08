@@ -574,8 +574,7 @@ public class ProfilesViewModelTests
     {
         var tester = new FakeDualWriteGatewayTester(new DwGatewayTestResult(true, "Linked: Contoso (cid abc)."));
         var vm = new ProfilesViewModel(new FakeProfileStore(), gatewayTester: tester);
-        vm.Selected = vm.Profiles.First();
-        vm.DraftGatewayUrl = "https://gw.example.powerapps.com";
+        vm.Selected = vm.Profiles.First(); // seeded profiles have an F&O URL
 
         await vm.TestGatewayCommand.ExecuteAsync(null);
 
@@ -584,15 +583,17 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
-    public async Task Test_gateway_requires_a_gateway_url()
+    public async Task Test_gateway_requires_an_fo_url()
     {
+        // The gateway host is discovered during portal sign-in; the only prerequisite is the F&O URL
+        // (the portal's axenv identifier).
         var vm = new ProfilesViewModel(new FakeProfileStore());
         vm.Selected = vm.Profiles.First();
-        vm.DraftGatewayUrl = string.Empty;
+        vm.DraftUrl = string.Empty;
 
         await vm.TestGatewayCommand.ExecuteAsync(null);
 
-        Assert.Contains("gateway URL", vm.DiStatus);
+        Assert.Contains("F&O environment URL", vm.DiStatus);
     }
 
     [Fact]

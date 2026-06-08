@@ -43,8 +43,13 @@ public partial class App : Application
             // gateway host (no client id / manual gateway URL), mirroring the WPF plugin. The real capture
             // hosts WebView2 via Avalonia's NativeControlHost and is Windows-only; until that adapter is
             // wired the fake yields a seeded result so design-mode/headless flows still exercise the path.
-            // TODO: swap in the WebView2 capture adapter (Windows) — see IDualWriteSignIn.
+#if WEBVIEW2
+            IDualWriteSignIn dualWriteSignIn = OperatingSystem.IsWindows()
+                ? new WebView2DualWriteSignIn(window)
+                : new FakeDualWriteSignIn();
+#else
             IDualWriteSignIn dualWriteSignIn = new FakeDualWriteSignIn();
+#endif
             // The gateway tester/connector pair with the real auth (portal sign-in + live gateway); fall
             // back to the canned fake when auth is degraded/non-Windows so design-mode doesn't hit the network.
             var gatewayTester = authService is CoreAuthService

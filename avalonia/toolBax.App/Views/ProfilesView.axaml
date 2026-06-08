@@ -221,22 +221,17 @@
                 </Grid>
               </StackPanel>
 
-              <!-- Interactive sign-in -->
+              <!-- Interactive (portal) sign-in -->
               <StackPanel Spacing="8" IsVisible="{Binding IsInteractive}">
                 <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}"
-                           Text="Acquires a delegated token via an interactive sign-in in your system browser (loopback). Renews silently after the first sign-in. The client ID must be a public-client app with an http://localhost redirect." />
-                <StackPanel Orientation="Horizontal" Spacing="10">
-                  <Button Content="Sign in" Command="{Binding SignInCommand}"
-                          Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}" />
-                  <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsSigningIn}" Width="90" Height="4"
-                               VerticalAlignment="Center" />
-                </StackPanel>
+                           Text="Sign-in opens the Microsoft Data Integrator portal in an embedded browser and captures the delegated token AND your regional gateway host automatically — you don't need to enter a Client ID or Gateway URL above. Renews silently after the first sign-in. (Windows only.)" />
               </StackPanel>
 
-              <!-- Gateway connection test (used by Dual-Write Operations &amp; Compare). Interactive only —
-                   the loopback token path doesn't use the ROPC service-account credential. -->
+              <!-- Gateway connection test (used by Dual-Write Operations &amp; Compare). Drives the portal
+                   sign-in for the F&amp;O environment, then resolves the linkage. Interactive only. -->
               <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding IsInteractive}">
-                <Button Content="Test gateway" Command="{Binding TestGatewayCommand}" />
+                <Button Content="Sign in &amp; test gateway" Command="{Binding TestGatewayCommand}"
+                        Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}" />
                 <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingGateway}" Width="90" Height="4"
                              VerticalAlignment="Center" />
               </StackPanel>
