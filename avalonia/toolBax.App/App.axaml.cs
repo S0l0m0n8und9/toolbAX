@@ -39,15 +39,21 @@ public partial class App : Application
             var odataClient = odataFactory(activeEnv);
             var metadataService = metadataFactory(activeEnv);
             var mapReader = mapReaderFactory(activeEnv);
-            // The gateway tester pairs with the real auth (delegated token + live gateway); fall back to
-            // the canned fake when auth is degraded/non-Windows so design-mode doesn't hit the network.
+            // Dual-write portal sign-in captures the delegated token AND auto-discovers the regional
+            // gateway host (no client id / manual gateway URL), mirroring the WPF plugin. The real capture
+            // hosts WebView2 via Avalonia's NativeControlHost and is Windows-only; until that adapter is
+            // wired the fake yields a seeded result so design-mode/headless flows still exercise the path.
+            // TODO: swap in the WebView2 capture adapter (Windows) — see IDualWriteSignIn.
+            IDualWriteSignIn dualWriteSignIn = new FakeDualWriteSignIn();
+            // The gateway tester/connector pair with the real auth (portal sign-in + live gateway); fall
+            // back to the canned fake when auth is degraded/non-Windows so design-mode doesn't hit the network.
             var gatewayTester = authService is CoreAuthService
-                ? (IDualWriteGatewayTester)new CoreDualWriteGatewayTester(authService)
+                ? (IDualWriteGatewayTester)new CoreDualWriteGatewayTester(dualWriteSignIn)
                 : new FakeDualWriteGatewayTester();
-            // The Operations screen connects to the live gateway (delegated token + manual host) via the
-            // real connector when auth is real; otherwise the seeded fake so design-mode lists sample maps.
+            // The Operations screen connects to the live gateway via the real connector when auth is real;
+            // otherwise the seeded fake so design-mode lists sample maps.
             var dwConnector = authService is CoreAuthService
-                ? (IDualWriteConnector)new CoreDualWriteConnector(authService)
+                ? (IDualWriteConnector)new CoreDualWriteConnector(dualWriteSignIn)
                 : new FakeDualWriteConnector();
             // Compare connects to two environments' gateways via the same connector, then diffs.
             var compareService = authService is CoreAuthService
