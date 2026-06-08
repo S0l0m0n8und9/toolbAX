@@ -8,45 +8,48 @@ using ToolBax.Core.Services;
 namespace ToolBax.App.Services;
 
 /// <summary>
-/// Real <see cref="IDualWriteGatewayTester"/>: acquires the delegated Data Integrator token, builds the
-/// FoToolbox <see cref="DualWriteGatewayClient"/> against the configured gateway URL (manual host, per
-/// the loopback path), and resolves the F&amp;O dual-write linkage as a connection check. Network/MSAL
+/// Real <see cref="IDualWriteGatewayTester"/>: drives the Data Integrator portal sign-in (via
+/// <see cref="IDualWriteSignIn"/>) to capture the delegated token + auto-discovered gateway host, builds
+/// the FoToolbox <see cref="DualWriteGatewayClient"/>, and resolves the F&amp;O dual-write linkage as a
+/// connection check — no user-supplied client id, no manual gateway URL. Network/MSAL/WebView
 /// integration — exercised through the app, not unit tests (the VM uses <see cref="FakeDualWriteGatewayTester"/>).
 /// </summary>
 public sealed class CoreDualWriteGatewayTester : IDualWriteGatewayTester
 {
-    private readonly IAuthService _auth;
+    private readonly IDualWriteSignIn _signIn;
     private readonly IDualWriteGatewayFactory _factory;
 
-    public CoreDualWriteGatewayTester(IAuthService auth, IDualWriteGatewayFactory? factory = null)
+    public CoreDualWriteGatewayTester(IDualWriteSignIn signIn, IDualWriteGatewayFactory? factory = null)
     {
-        _auth = auth;
+        _signIn = signIn;
         _factory = factory ?? new DualWriteGatewayFactory();
     }
 
     public async Task<DwGatewayTestResult> TestAsync(EnvProfile env, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(env.DualWriteGatewayUrl))
-        {
-            return new DwGatewayTestResult(false, "Set a dual-write gateway URL on the Data Integrator tab first.");
-        }
-
         if (string.IsNullOrWhiteSpace(env.Url))
         {
             return new DwGatewayTestResult(false, "Set the F&O environment URL first.");
         }
-        // No Data Integrator client ID check: the delegated sign-in defaults to the well-known
-        // first-party app (see CoreAuthService.AcquireDualWriteTokenAsync).
 
         try
         {
-            var token = await _auth.AcquireDualWriteTokenAsync(env, ct).ConfigureAwait(false);
-            var settings = new DualWriteConnectionSettings(env.Id, env.DualWriteGatewayUrl, env.Url, token);
+            var result = await _signIn.SignInAsync(env, switchAccount: false, ct).ConfigureAwait(false);
+            if (result is null)
+            {
+                return new DwGatewayTestResult(false, "Data Integrator sign-in was cancelled or did not complete.");
+            }
+
+            var settings = new DualWriteConnectionSettings(env.Id, result.GatewayBaseUrl, env.Url, result.Token.AccessToken)
+            {
+                RefreshToken = result.Token.RefreshToken,
+                AccessTokenExpiryUtc = result.Token.ExpiresUtc,
+            };
             var gateway = _factory.Create(settings);
             var linkage = await gateway.GetEnvironmentAsync(env.Url, ct).ConfigureAwait(false);
 
             var name = string.IsNullOrWhiteSpace(linkage.Cname) ? "(unnamed)" : linkage.Cname;
-            return new DwGatewayTestResult(true, $"Linked: {name} (cid {linkage.Cid}).");
+            return new DwGatewayTestResult(true, $"Linked: {name} (cid {linkage.Cid}). Gateway: {result.GatewayBaseUrl}.");
         }
         catch (OperationCanceledException)
         {

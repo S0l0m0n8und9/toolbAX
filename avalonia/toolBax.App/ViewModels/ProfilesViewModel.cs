@@ -481,8 +481,9 @@ public partial class ProfilesViewModel : ObservableObject
         }
     }
 
-    // Tests the dual-write gateway connection using the (unsaved) draft client id + gateway URL, so the
-    // user can verify before saving. Acquires the delegated token, builds the gateway, resolves linkage.
+    // Tests the dual-write connection by driving the Data Integrator portal sign-in for the env's F&O
+    // URL — that single flow captures the delegated token AND discovers the regional gateway host (no
+    // client id / gateway URL to enter), then resolves the linkage.
     [RelayCommand]
     private async Task TestGateway(CancellationToken ct)
     {
@@ -491,23 +492,17 @@ public partial class ProfilesViewModel : ObservableObject
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(DraftGatewayUrl))
+        if (string.IsNullOrWhiteSpace(DraftUrl))
         {
-            DiStatus = "Enter a gateway URL before testing.";
+            DiStatus = "Set the F&O environment URL first.";
             return;
         }
 
         IsTestingGateway = true;
-        DiStatus = "Testing gateway…";
+        DiStatus = "Opening Data Integrator sign-in…";
         try
         {
-            var probe = Selected with
-            {
-                Url = DraftUrl,
-                Tenant = DraftTenant,
-                DataIntegratorClientId = string.IsNullOrWhiteSpace(DraftDiClientId) ? null : DraftDiClientId,
-                DualWriteGatewayUrl = string.IsNullOrWhiteSpace(DraftGatewayUrl) ? null : DraftGatewayUrl,
-            };
+            var probe = Selected with { Url = DraftUrl, Tenant = DraftTenant };
             var result = await _gatewayTester.TestAsync(probe, ct);
             DiStatus = result.Message;
         }

@@ -8,39 +8,41 @@ using ToolBax.Core.Services;
 namespace ToolBax.App.Services;
 
 /// <summary>
-/// Real <see cref="IDualWriteConnector"/>: acquires the delegated Data Integrator token, builds the
-/// FoToolbox <see cref="DualWriteGatewayClient"/> against the configured (manual) gateway URL, and
-/// resolves the connection (cid/cname). Mirrors <see cref="CoreDualWriteGatewayTester"/>'s connect path
-/// but hands back the live gateway for the Operations screen. Network/MSAL integration — exercised
-/// through the app, not unit tests (the VM uses <see cref="FakeDualWriteConnector"/>).
+/// Real <see cref="IDualWriteConnector"/>: drives the Data Integrator portal sign-in (via
+/// <see cref="IDualWriteSignIn"/>) to capture the delegated token <em>and</em> the auto-discovered
+/// regional gateway host, then builds the FoToolbox <see cref="DualWriteGatewayClient"/> and resolves the
+/// connection (cid/cname). Mirrors the WPF plugin's flow exactly — no user-supplied client id, no
+/// manually-entered gateway URL. Network/MSAL/WebView integration — exercised through the app, not unit
+/// tests (the VM uses <see cref="FakeDualWriteConnector"/>).
 /// </summary>
 public sealed class CoreDualWriteConnector : IDualWriteConnector
 {
-    private readonly IAuthService _auth;
+    private readonly IDualWriteSignIn _signIn;
     private readonly IDualWriteGatewayFactory _factory;
 
-    public CoreDualWriteConnector(IAuthService auth, IDualWriteGatewayFactory? factory = null)
+    public CoreDualWriteConnector(IDualWriteSignIn signIn, IDualWriteGatewayFactory? factory = null)
     {
-        _auth = auth;
+        _signIn = signIn;
         _factory = factory ?? new DualWriteGatewayFactory();
     }
 
     public async Task<DualWriteSession> ConnectAsync(EnvProfile env, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(env.DualWriteGatewayUrl))
-        {
-            throw new InvalidOperationException("Set a dual-write gateway URL on the Data Integrator tab first.");
-        }
-
         if (string.IsNullOrWhiteSpace(env.Url))
         {
             throw new InvalidOperationException("Set the F&O environment URL first.");
         }
-        // No Data Integrator client ID check: the delegated sign-in defaults to the well-known
-        // first-party app (see CoreAuthService.AcquireDualWriteTokenAsync).
 
-        var token = await _auth.AcquireDualWriteTokenAsync(env, ct).ConfigureAwait(false);
-        var settings = new DualWriteConnectionSettings(env.Id, env.DualWriteGatewayUrl, env.Url, token);
+        // Portal sign-in yields BOTH the delegated token and the regional gateway host (no client id /
+        // gateway URL to configure) — the gateway host is discovered, not taken from the profile.
+        var result = await _signIn.SignInAsync(env, switchAccount: false, ct).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("Data Integrator sign-in was cancelled or did not complete.");
+
+        var settings = new DualWriteConnectionSettings(env.Id, result.GatewayBaseUrl, env.Url, result.Token.AccessToken)
+        {
+            RefreshToken = result.Token.RefreshToken,
+            AccessTokenExpiryUtc = result.Token.ExpiresUtc,
+        };
         var gateway = _factory.Create(settings);
         var linkage = await gateway.GetEnvironmentAsync(env.Url, ct).ConfigureAwait(false);
         return new DualWriteSession(gateway, linkage.Cid, linkage.Cname);
