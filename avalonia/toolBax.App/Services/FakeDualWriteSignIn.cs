@@ -15,16 +15,19 @@ public sealed class FakeDualWriteSignIn : IDualWriteSignIn
 {
     private readonly DualWriteSignInResult? _result;
 
-    /// <summary>
-    /// By default returns a usable fake result; pass <paramref name="result"/> (e.g. null) to simulate a
-    /// cancelled/failed sign-in.
-    /// </summary>
-    public FakeDualWriteSignIn(DualWriteSignInResult? result = null)
-    {
-        _result = result ?? new DualWriteSignInResult(
+    /// <summary>Returns a usable seeded result (a dummy token + placeholder gateway host).</summary>
+    public FakeDualWriteSignIn()
+        : this(new DualWriteSignInResult(
             new DualWriteToken("fake-delegated-token", "fake-refresh-token", DateTimeOffset.UtcNow.AddHours(1)),
-            "https://fake-gateway.dual-write.example");
+            "https://fake-gateway.dual-write.example"))
+    {
     }
+
+    /// <summary>
+    /// Returns exactly <paramref name="result"/> — pass <c>null</c> to simulate a cancelled/failed
+    /// sign-in (honoured verbatim, not coalesced to the default).
+    /// </summary>
+    public FakeDualWriteSignIn(DualWriteSignInResult? result) => _result = result;
 
     public Task<DualWriteSignInResult?> SignInAsync(EnvProfile env, bool switchAccount = false, CancellationToken ct = default) =>
         Task.FromResult(_result);

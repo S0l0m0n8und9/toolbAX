@@ -187,8 +187,11 @@ internal sealed class WebView2Host : NativeControlHost
     {
         try
         {
-            // A dedicated, app-scoped user-data folder (WebView2 requires a writable location).
-            var userDataFolder = Path.Combine(Path.GetTempPath(), "toolBax", "webview2");
+            // A dedicated, app-scoped user-data folder under %LocalAppData% (WebView2 needs a writable
+            // location). Not %TEMP% — that's swept by OS/3rd-party cleaners, which would wipe the cached
+            // session and force a full re-sign-in every time.
+            var userDataFolder = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "toolBax", "webview2");
             Directory.CreateDirectory(userDataFolder);
             var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, null);
             _controller = await environment.CreateCoreWebView2ControllerAsync(hwnd);
