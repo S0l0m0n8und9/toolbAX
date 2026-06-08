@@ -118,7 +118,13 @@ public partial class ProfilesViewModel : ObservableObject
 
     // Data Integrator config drafts.
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowDiDefaultClientIdNote))]
     private string _draftDiClientId = string.Empty;
+
+    /// <summary>Show the "well-known Data Integrator client ID" note while the DI client ID is still the
+    /// default first-party app id (it's editable; changing it hides the note).</summary>
+    public bool ShowDiDefaultClientIdNote =>
+        DraftDiClientId == DiAuthModeExtensions.DefaultDataIntegratorClientId;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsRopc))]
@@ -211,7 +217,11 @@ public partial class ProfilesViewModel : ObservableObject
         DraftDataverseAuthMode = profile?.DataverseAuthMode ?? FoAuthMode.Interactive;
         DraftClientId = profile?.ClientId ?? string.Empty;
         DraftAuthMode = profile?.AuthMode ?? FoAuthMode.Interactive;
-        DraftDiClientId = profile?.DataIntegratorClientId ?? string.Empty;
+        // Default a blank DI client id to the well-known first-party app (editable) — the user shouldn't
+        // have to supply one; a configured custom id is respected.
+        DraftDiClientId = string.IsNullOrWhiteSpace(profile?.DataIntegratorClientId)
+            ? DiAuthModeExtensions.DefaultDataIntegratorClientId
+            : profile.DataIntegratorClientId;
         DraftDiMode = profile?.DataIntegratorMode ?? DiAuthMode.Interactive;
         DraftGatewayUrl = profile?.DualWriteGatewayUrl ?? string.Empty;
     }

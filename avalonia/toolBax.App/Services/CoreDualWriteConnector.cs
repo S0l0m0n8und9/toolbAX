@@ -32,15 +32,12 @@ public sealed class CoreDualWriteConnector : IDualWriteConnector
             throw new InvalidOperationException("Set a dual-write gateway URL on the Data Integrator tab first.");
         }
 
-        if (string.IsNullOrWhiteSpace(env.DataIntegratorClientId))
-        {
-            throw new InvalidOperationException("Set a Data Integrator client ID first.");
-        }
-
         if (string.IsNullOrWhiteSpace(env.Url))
         {
             throw new InvalidOperationException("Set the F&O environment URL first.");
         }
+        // No Data Integrator client ID check: the delegated sign-in defaults to the well-known
+        // first-party app (see CoreAuthService.AcquireDualWriteTokenAsync).
 
         var token = await _auth.AcquireDualWriteTokenAsync(env, ct).ConfigureAwait(false);
         var settings = new DualWriteConnectionSettings(env.Id, env.DualWriteGatewayUrl, env.Url, token);

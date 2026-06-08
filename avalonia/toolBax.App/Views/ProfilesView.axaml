@@ -178,7 +178,7 @@
                            Text="Used by Dual-Write Operations &amp; Compare. The gateway requires a delegated Data Integrator token — app-only is not available." />
               </Border>
 
-              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
+              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="6">
                 <TextBlock Grid.Row="0" Grid.Column="0" Text="Mode" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
                 <ComboBox Grid.Row="0" Grid.Column="1" Width="220" HorizontalAlignment="Left"
                           ItemsSource="{Binding DiModes}" SelectedItem="{Binding DraftDiMode, Mode=TwoWay}">
@@ -191,8 +191,11 @@
                 <TextBlock Grid.Row="1" Grid.Column="0" Text="Client ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
                 <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding DraftDiClientId, Mode=TwoWay}"
                          PlaceholderText="Data Integrator app (client) ID" FontFamily="Cascadia Code,Consolas,monospace" />
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="Gateway URL" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding DraftGatewayUrl, Mode=TwoWay}"
+                <TextBlock Grid.Row="2" Grid.Column="1" IsVisible="{Binding ShowDiDefaultClientIdNote}"
+                           Text="Well-known Data Integrator Client ID from Microsoft (editable)." FontSize="11"
+                           Foreground="{StaticResource Text3Brush}" />
+                <TextBlock Grid.Row="3" Grid.Column="0" Text="Gateway URL" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding DraftGatewayUrl, Mode=TwoWay}"
                          PlaceholderText="Dual-write management gateway base URL" FontFamily="Cascadia Code,Consolas,monospace" />
               </Grid>
 
