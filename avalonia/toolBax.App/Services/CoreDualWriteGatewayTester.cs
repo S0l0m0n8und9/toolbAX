@@ -31,15 +31,12 @@ public sealed class CoreDualWriteGatewayTester : IDualWriteGatewayTester
             return new DwGatewayTestResult(false, "Set a dual-write gateway URL on the Data Integrator tab first.");
         }
 
-        if (string.IsNullOrWhiteSpace(env.DataIntegratorClientId))
-        {
-            return new DwGatewayTestResult(false, "Set a Data Integrator client ID first.");
-        }
-
         if (string.IsNullOrWhiteSpace(env.Url))
         {
             return new DwGatewayTestResult(false, "Set the F&O environment URL first.");
         }
+        // No Data Integrator client ID check: the delegated sign-in defaults to the well-known
+        // first-party app (see CoreAuthService.AcquireDualWriteTokenAsync).
 
         try
         {

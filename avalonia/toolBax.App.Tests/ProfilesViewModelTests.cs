@@ -2,6 +2,7 @@ using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FoToolbox.Core.DualWrite.Auth;
 using ToolBax.App.Services;
 using ToolBax.App.ViewModels;
 using ToolBax.Core.Models;
@@ -426,6 +427,57 @@ public class ProfilesViewModelTests
         vm.DraftDiMode = DiAuthMode.Interactive;
         Assert.False(vm.IsRopc);
         Assert.True(vm.IsInteractive);
+    }
+
+    [Fact]
+    public void Di_default_client_id_matches_the_canonical_dual_write_constant()
+    {
+        // The VM-facing default (ToolBax.Core.Models) duplicates the canonical FoToolbox value so the
+        // models layer needn't reference FoToolbox.Core — this guards against the two drifting apart.
+        Assert.Equal(DualWriteAuthConstants.ClientId, DiAuthModeExtensions.DefaultDataIntegratorClientId);
+    }
+
+    [Fact]
+    public void Di_client_id_defaults_to_the_well_known_first_party_app_when_unset()
+    {
+        // The Data Integrator is a well-known first-party Microsoft app — the user shouldn't have to
+        // supply a client id (the WPF/original tool never does). A profile with no DI client id surfaces
+        // the well-known default so sign-in works out of the box.
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+
+        vm.Selected = vm.Profiles.First();
+
+        Assert.Equal(DiAuthModeExtensions.DefaultDataIntegratorClientId, vm.DraftDiClientId);
+        Assert.True(vm.ShowDiDefaultClientIdNote);
+    }
+
+    [Fact]
+    public void Changing_di_client_id_hides_the_default_note()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+        vm.Selected = vm.Profiles.First();
+        Assert.True(vm.ShowDiDefaultClientIdNote);
+
+        vm.DraftDiClientId = "11111111-2222-3333-4444-555555555555";
+
+        Assert.False(vm.ShowDiDefaultClientIdNote);
+    }
+
+    [Fact]
+    public void Existing_custom_di_client_id_is_preserved_over_the_default()
+    {
+        var store = new FakeProfileStore();
+        var vm = new ProfilesViewModel(store);
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+        vm.DraftDiClientId = "custom-di-app-id";
+        vm.SaveCommand.Execute(null);
+
+        // Re-select to reload from the store: a configured custom id is kept, not overwritten by the default.
+        vm.Selected = vm.Profiles.First(p => p.Id != "uat-eur");
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+
+        Assert.Equal("custom-di-app-id", vm.DraftDiClientId);
+        Assert.False(vm.ShowDiDefaultClientIdNote);
     }
 
     [Fact]

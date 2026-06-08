@@ -110,18 +110,20 @@ public sealed class CoreAuthService : IAuthService
 
     public async Task<string> AcquireDualWriteTokenAsync(EnvProfile env, CancellationToken ct = default)
     {
-        if (string.IsNullOrWhiteSpace(env.DataIntegratorClientId))
-        {
-            throw new InvalidOperationException("No Data Integrator client ID is configured (set one on the Data Integrator tab).");
-        }
-
         if (string.IsNullOrWhiteSpace(env.Tenant))
         {
             throw new InvalidOperationException("No tenant ID is configured for this environment.");
         }
 
+        // The Data Integrator is a well-known first-party app — sign in with its client id by default
+        // (the WPF/original tool never asks the user for one). An explicitly configured client id is
+        // honored as an override.
+        var clientId = string.IsNullOrWhiteSpace(env.DataIntegratorClientId)
+            ? DualWriteAuthConstants.ClientId
+            : env.DataIntegratorClientId;
+
         return await AcquireInteractiveTokenAsync(
-            env.DataIntegratorClientId, env.Tenant, DualWriteAuthConstants.ResourceBaseUrl, "Data Integrator", ct).ConfigureAwait(false);
+            clientId, env.Tenant, DualWriteAuthConstants.ResourceBaseUrl, "Data Integrator", ct).ConfigureAwait(false);
     }
 
     // Delegated (interactive) token via the loopback MSAL provider — silent after a prior sign-in.

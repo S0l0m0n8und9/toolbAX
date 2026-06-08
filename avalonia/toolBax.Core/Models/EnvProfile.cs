@@ -23,6 +23,14 @@ public enum DiAuthMode
 /// <summary>Friendly labels for the Data Integrator auth modes (Profiles DI tab dropdown).</summary>
 public static class DiAuthModeExtensions
 {
+    /// <summary>
+    /// The well-known first-party Data Integrator client id. The dual-write sign-in uses this fixed
+    /// Microsoft app (the WPF/original tool never asks the user for a client id); kept in sync with
+    /// <c>FoToolbox.Core.DualWrite.Auth.DualWriteAuthConstants.ClientId</c> (a drift guard test asserts
+    /// the two match). It's the default for the Profiles DI Client ID field, but stays editable.
+    /// </summary>
+    public const string DefaultDataIntegratorClientId = "2e49aa60-1bd3-43b6-8ab6-03ada3d9f08b";
+
     public static string Label(this DiAuthMode mode) => mode switch
     {
         DiAuthMode.Interactive => "Interactive (MFA)",
