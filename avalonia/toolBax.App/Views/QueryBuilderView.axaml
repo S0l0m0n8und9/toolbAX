@@ -101,11 +101,16 @@
           <TextBlock Grid.Column="4" Text="{Binding FieldSelectionLabel}" FontSize="11"
                      Foreground="{StaticResource Text3Brush}" VerticalAlignment="Center" />
         </Grid>
+        <!-- A virtualizing list of checkboxes (not a selection list): the CheckBox.IsChecked (bound to
+             FieldChipViewModel.IsSelected) is the sole source of truth. No SelectionMode, and the CheckBox
+             stretches across the row so every click lands on it (and is handled) — so the ListBox's own
+             row-selection never engages and there's no misleading highlight. -->
         <ListBox ItemsSource="{Binding FilteredFields}" MaxHeight="190"
-                 Background="Transparent" BorderThickness="0" SelectionMode="Toggle">
+                 Background="Transparent" BorderThickness="0">
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:FieldChipViewModel">
-              <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" Padding="6,0">
+              <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" Padding="6,0"
+                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
                 <StackPanel Orientation="Horizontal" Spacing="4">
                   <TextBlock Text="PK" IsVisible="{Binding IsKey}" FontSize="9"
                              Foreground="{StaticResource WarnBrush}" VerticalAlignment="Center" />
