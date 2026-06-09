@@ -110,7 +110,18 @@ public partial class PostBuilderViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(SendCommand))]
     private string _payloadIssues = string.Empty;
 
+    /// <summary>Number of validation issues — drives the concise summary header above the (capped,
+    /// scrollable) detail, so a many-mandatory entity can't turn the panel into a wall.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(PayloadIssueSummary))]
+    private int _payloadIssueCount;
+
     public bool HasPayloadIssues => !string.IsNullOrEmpty(PayloadIssues);
+
+    /// <summary>One-line summary of how many issues block sending (the detail scrolls below).</summary>
+    public string PayloadIssueSummary => PayloadIssueCount == 1
+        ? "1 issue to resolve before sending:"
+        : $"{PayloadIssueCount} issues to resolve before sending:";
 
     /// <summary>The raw-JSON editor is read-only while the grid is the source of truth.</summary>
     public bool IsBodyReadOnly => UseFieldGrid;
@@ -388,6 +399,7 @@ public partial class PostBuilderViewModel : ObservableObject
             }
         }
 
+        PayloadIssueCount = issues.Count;
         if (issues.Count == 0)
         {
             RequestBody = result.Json!;

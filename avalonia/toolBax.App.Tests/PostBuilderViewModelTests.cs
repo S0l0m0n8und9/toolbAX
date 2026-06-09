@@ -149,6 +149,23 @@ public class PostBuilderViewModelTests
     }
 
     [Fact]
+    public void Post_validation_summary_reflects_the_issue_count()
+    {
+        var vm = MakeGridVm();
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.Method = "POST"; // enforces mandatory fields → at least one is unfilled
+
+        Assert.True(vm.HasPayloadIssues);
+        Assert.True(vm.PayloadIssueCount >= 1);
+        // The count matches the detail lines, and the concise header carries it (so the panel can stay
+        // capped + scrollable instead of rendering one sentence per field as a wall).
+        Assert.Equal(vm.PayloadIssueCount, vm.PayloadIssues.Split(System.Environment.NewLine).Length);
+        Assert.Contains(vm.PayloadIssueCount.ToString(), vm.PayloadIssueSummary);
+        Assert.Contains("resolve before sending", vm.PayloadIssueSummary);
+    }
+
+    [Fact]
     public void Grid_post_targets_the_collection_without_a_key_predicate()
     {
         var vm = MakeGridVm();
