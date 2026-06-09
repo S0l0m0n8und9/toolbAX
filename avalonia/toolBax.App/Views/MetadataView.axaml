@@ -39,7 +39,7 @@
           IsVisible="{Binding HasSelection}">
 
       <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,12">
-        <TextBlock FontSize="10" Foreground="{StaticResource Text3Brush}"
+        <TextBlock FontSize="11" Foreground="{StaticResource Text3Brush}"
                    Text="{Binding Selected.Module, StringFormat='ENTITY · {0}'}" />
         <TextBlock x:Name="DetailTitle" Text="{Binding Selected.Name}"
                    FontSize="24" FontWeight="SemiBold"

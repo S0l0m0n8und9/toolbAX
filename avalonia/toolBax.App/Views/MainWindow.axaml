@@ -65,7 +65,7 @@
                   <TextBlock Grid.Column="0" Text="{Binding Title}" FontSize="13" VerticalAlignment="Center" />
                   <Border Grid.Column="1" IsVisible="{Binding IsLive}"
                           Background="{StaticResource WarnBgBrush}" CornerRadius="999" Padding="6,1">
-                    <TextBlock Text="live" FontSize="10" Foreground="{StaticResource WarnBrush}" />
+                    <TextBlock Text="live" FontSize="11" Foreground="{StaticResource WarnBrush}" />
                   </Border>
                 </Grid>
               </DataTemplate>
@@ -126,7 +126,7 @@
 
     <!-- Command palette overlay -->
     <Panel x:Name="CommandPaletteOverlay" IsVisible="{Binding IsCommandPaletteOpen}"
-           Background="#88000000">
+           Background="{StaticResource ScrimBrush}">
       <Border Width="560" MaxHeight="420"
               VerticalAlignment="Top" HorizontalAlignment="Center" Margin="0,120,0,0"
               Background="{StaticResource Layer1Brush}"

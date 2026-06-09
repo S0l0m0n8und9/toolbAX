@@ -18,6 +18,7 @@ install/*.cab
 install/redist/
 install/windowsdesktop-runtime-*.exe
 install/update-manifest.local.json
+install/*.log
 
 # Visual Studio / tooling
 .vs/

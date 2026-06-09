@@ -61,9 +61,9 @@
                              TextAlignment="Right" />
                 </Grid>
                 <StackPanel Orientation="Horizontal" Spacing="6">
-                  <TextBlock Text="{Binding VersionLabel}" FontSize="10.5"
+                  <TextBlock Text="{Binding VersionLabel}" FontSize="11"
                              FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text3Brush}" />
-                  <TextBlock Text="{Binding State}" FontSize="10.5" Foreground="{StaticResource Text3Brush}"
+                  <TextBlock Text="{Binding State}" FontSize="11" Foreground="{StaticResource Text3Brush}"
                              IsVisible="{Binding HasState}" />
                 </StackPanel>
               </StackPanel>
@@ -106,13 +106,13 @@
                        Foreground="{StaticResource Text3Brush}" />
             <Border Background="{StaticResource Layer3Brush}" CornerRadius="999" Padding="8,2"
                     IsVisible="{Binding DetailMap.HasState}">
-              <TextBlock Text="{Binding DetailMap.State}" FontSize="10.5" Foreground="{StaticResource Text1Brush}" />
+              <TextBlock Text="{Binding DetailMap.State}" FontSize="11" Foreground="{StaticResource Text1Brush}" />
             </Border>
             <Border Background="{StaticResource Layer3Brush}" CornerRadius="999" Padding="8,2">
-              <TextBlock Text="{Binding DetailMap.Status}" FontSize="10.5" Foreground="{StaticResource Text1Brush}" />
+              <TextBlock Text="{Binding DetailMap.Status}" FontSize="11" Foreground="{StaticResource Text1Brush}" />
             </Border>
             <Border Background="{StaticResource Layer3Brush}" CornerRadius="999" Padding="8,2">
-              <TextBlock Text="{Binding DetailMap.VersionLabel}" FontSize="10.5" Foreground="{StaticResource Text1Brush}" />
+              <TextBlock Text="{Binding DetailMap.VersionLabel}" FontSize="11" Foreground="{StaticResource Text1Brush}" />
             </Border>
           </StackPanel>
 
@@ -138,16 +138,16 @@
           </StackPanel>
 
           <Grid ColumnDefinitions="Auto,Auto,Auto,Auto" RowDefinitions="Auto,Auto" Margin="0,2,0,0">
-            <TextBlock Grid.Row="0" Grid.Column="0" Text="LEGS" FontSize="10" Foreground="{StaticResource Text3Brush}" Margin="0,0,24,0" />
+            <TextBlock Grid.Row="0" Grid.Column="0" Text="LEGS" FontSize="11" Foreground="{StaticResource Text3Brush}" Margin="0,0,24,0" />
             <TextBlock Grid.Row="1" Grid.Column="0" Text="{Binding DetailMap.LegCount}" FontSize="15"
                        FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text0Brush}" Margin="0,0,24,0" />
-            <TextBlock Grid.Row="0" Grid.Column="1" Text="FIELDS" FontSize="10" Foreground="{StaticResource Text3Brush}" Margin="0,0,24,0" />
+            <TextBlock Grid.Row="0" Grid.Column="1" Text="FIELDS" FontSize="11" Foreground="{StaticResource Text3Brush}" Margin="0,0,24,0" />
             <TextBlock Grid.Row="1" Grid.Column="1" Text="{Binding DetailMap.FieldCount}" FontSize="15"
                        FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text0Brush}" Margin="0,0,24,0" />
-            <TextBlock Grid.Row="0" Grid.Column="2" Text="OWNER" FontSize="10" Foreground="{StaticResource Text3Brush}" Margin="0,0,24,0" />
+            <TextBlock Grid.Row="0" Grid.Column="2" Text="OWNER" FontSize="11" Foreground="{StaticResource Text3Brush}" Margin="0,0,24,0" />
             <TextBlock Grid.Row="1" Grid.Column="2" Text="{Binding DetailMap.Owner}" FontSize="13"
                        Foreground="{StaticResource Text1Brush}" Margin="0,0,24,0" />
-            <TextBlock Grid.Row="0" Grid.Column="3" Text="MODIFIED" FontSize="10" Foreground="{StaticResource Text3Brush}" />
+            <TextBlock Grid.Row="0" Grid.Column="3" Text="MODIFIED" FontSize="11" Foreground="{StaticResource Text3Brush}" />
             <TextBlock Grid.Row="1" Grid.Column="3" Text="{Binding DetailMap.ModifiedOnLabel}" FontSize="13"
                        Foreground="{StaticResource Text1Brush}" />
           </Grid>
