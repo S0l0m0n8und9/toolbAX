@@ -73,7 +73,10 @@
   <sys:Double x:Key="FontSizeCaption">12</sys:Double>
   <sys:Double x:Key="FontSizeEyebrow">11</sys:Double>
 
-  <!-- Spacing scale (4px grid). Usable directly for Spacing=; margins/padding stay on these steps. -->
+  <!-- Spacing scale (4px grid). These are SCALAR tokens: bind them to Spacing= (StackPanel/Grid) and
+       any other double property. Margin/Padding are Thickness, which Avalonia can't satisfy from a
+       double resource (and are usually non-uniform anyway), so those keep their raw values ON this 4px
+       scale by convention — the design lint enforces it rather than a token binding. -->
   <sys:Double x:Key="Space1">4</sys:Double>
   <sys:Double x:Key="Space2">8</sys:Double>
   <sys:Double x:Key="Space3">12</sys:Double>

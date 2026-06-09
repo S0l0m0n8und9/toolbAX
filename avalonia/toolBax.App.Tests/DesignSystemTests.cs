@@ -1,7 +1,6 @@
 using Avalonia;
 using Avalonia.Headless.XUnit;
 using Avalonia.Media;
-using Avalonia.Styling;
 using Xunit;
 
 namespace ToolBax.App.Tests;
@@ -15,8 +14,11 @@ public class DesignSystemTests
 {
     private static object Resource(string key)
     {
+        // Use the app's actual theme variant rather than hardcoding one, so the lookup can't miss a
+        // variant-scoped registration (the tokens are variant-neutral today, but this stays correct
+        // if that changes).
         Assert.True(
-            Application.Current!.Resources.TryGetResource(key, ThemeVariant.Dark, out var value),
+            Application.Current!.Resources.TryGetResource(key, Application.Current.ActualThemeVariant, out var value),
             $"Design token '{key}' is not registered.");
         Assert.NotNull(value);
         return value!;
