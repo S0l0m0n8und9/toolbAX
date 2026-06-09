@@ -336,6 +336,36 @@ public class QueryBuilderViewModelTests
     }
 
     [Fact]
+    public void Joins_panel_is_collapsed_by_default_and_header_tracks_the_selection()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        Assert.False(vm.IsJoinsExpanded); // joins are secondary to $select → collapsed initially
+        Assert.Equal($"Joins ($expand) · 0 of {vm.Navigations.Count}", vm.JoinsHeader);
+
+        vm.Navigations.Single(n => n.Name == "PrimaryContact").IsSelected = true;
+
+        Assert.Equal($"Joins ($expand) · 1 of {vm.Navigations.Count}", vm.JoinsHeader);
+    }
+
+    [Fact]
+    public void Join_search_filters_the_navigation_list_case_insensitively()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        Assert.Equal(vm.Navigations.Count, vm.FilteredNavigations.Count); // unfiltered initially
+
+        vm.JoinSearch = "SALES";
+
+        Assert.All(vm.FilteredNavigations, n => Assert.Contains("sales", n.Name, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(vm.FilteredNavigations, n => n.Name == "SalesOrderHeaders");
+        Assert.DoesNotContain(vm.FilteredNavigations, n => n.Name == "PrimaryContact");
+        // Filtering only hides chips from the view; the master list (and selections) is untouched.
+        Assert.Contains(vm.Navigations, n => n.Name == "PrimaryContact");
+    }
+
+    [Fact]
     public void Ticking_a_navigation_adds_expand_and_keeps_it_out_of_select()
     {
         var vm = MakeVm();

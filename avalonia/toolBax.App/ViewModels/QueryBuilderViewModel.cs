@@ -48,9 +48,25 @@ public partial class QueryBuilderViewModel : ObservableObject
     /// <c>$expand</c> (a join to the related entity). Empty when the entity has none.</summary>
     public ObservableCollection<FieldChipViewModel> Navigations { get; } = new();
 
+    /// <summary>The navigation chips as shown, after applying <see cref="JoinSearch"/> (the view binds
+    /// to this; <see cref="Navigations"/> stays the full master so selections aren't affected).</summary>
+    public ObservableCollection<FieldChipViewModel> FilteredNavigations { get; } = new();
+
     /// <summary>True when the selected entity exposes navigation properties to expand.</summary>
     [ObservableProperty]
     private bool _hasNavigations;
+
+    /// <summary>Joins are secondary to $select, so the panel is collapsed until the user opens it.</summary>
+    [ObservableProperty]
+    private bool _isJoinsExpanded;
+
+    /// <summary>Case-insensitive substring filter over the navigation-property names.</summary>
+    [ObservableProperty]
+    private string _joinSearch = string.Empty;
+
+    /// <summary>"Joins ($expand) · N of M" — the collapsible section's header.</summary>
+    public string JoinsHeader =>
+        $"Joins ($expand) · {Navigations.Count(n => n.IsSelected)} of {Navigations.Count}";
 
     /// <summary>The entity list as shown, after applying <see cref="EntitySearch"/>. The view binds
     /// to this; <see cref="Entities"/> stays the full master so selections/loads aren't affected.</summary>
@@ -219,6 +235,7 @@ public partial class QueryBuilderViewModel : ObservableObject
     // The two search boxes only re-filter what's displayed; they never touch the master lists.
     partial void OnEntitySearchChanged(string value) => RefreshEntityFilter();
     partial void OnFieldSearchChanged(string value) => RefreshFieldFilter();
+    partial void OnJoinSearchChanged(string value) => RefreshNavigationFilter();
 
     // Rebuilds FilteredEntities from Entities applying the (trimmed, case-insensitive) EntitySearch.
     // The currently-selected entity is always kept in the list (even when it doesn't match the term),
@@ -265,6 +282,20 @@ public partial class QueryBuilderViewModel : ObservableObject
             if (string.IsNullOrEmpty(term) || f.Name.Contains(term, StringComparison.OrdinalIgnoreCase))
             {
                 FilteredFields.Add(f);
+            }
+        }
+    }
+
+    // Rebuilds FilteredNavigations from Navigations applying the (trimmed, case-insensitive) JoinSearch.
+    private void RefreshNavigationFilter()
+    {
+        var term = JoinSearch?.Trim();
+        FilteredNavigations.Clear();
+        foreach (var n in Navigations)
+        {
+            if (string.IsNullOrEmpty(term) || n.Name.Contains(term, StringComparison.OrdinalIgnoreCase))
+            {
+                FilteredNavigations.Add(n);
             }
         }
     }
@@ -346,6 +377,9 @@ public partial class QueryBuilderViewModel : ObservableObject
                 Navigations.Add(chip);
             }
         }
+
+        RefreshNavigationFilter();
+        OnPropertyChanged(nameof(JoinsHeader));
     }
 
     // A chip's selection (toggled by the command or the view's ToggleButton) is the single source of
@@ -361,7 +395,10 @@ public partial class QueryBuilderViewModel : ObservableObject
 
             UpdateQueryUrl();
             ExportAllCsvCommand.NotifyCanExecuteChanged(); // $select drives CanExportAllCsv
+            // The label counters are independent (fields vs navigations); refresh both — a flip is
+            // cheap and only one will actually change.
             OnPropertyChanged(nameof(FieldSelectionLabel));
+            OnPropertyChanged(nameof(JoinsHeader));
         }
     }
 
