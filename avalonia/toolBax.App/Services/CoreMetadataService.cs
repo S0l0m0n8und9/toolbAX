@@ -28,6 +28,8 @@ public sealed class CoreMetadataService : IMetadataService
     // What's been fetched so far; the getters read these without blocking.
     private volatile IReadOnlyList<EntitySet> _entities = Array.Empty<EntitySet>();
     private readonly ConcurrentDictionary<string, IReadOnlyList<EntityField>> _fields = new(StringComparer.OrdinalIgnoreCase);
+    // Navigation properties per entity, cached from the same details fetch as the fields.
+    private readonly ConcurrentDictionary<string, IReadOnlyList<string>> _navigations = new(StringComparer.OrdinalIgnoreCase);
     // Enum type → members, populated from the entity index ($metadata enums); drives enum cell editors.
     private volatile IReadOnlyDictionary<string, IReadOnlyList<string>> _enums =
         new Dictionary<string, IReadOnlyList<string>>();
@@ -42,6 +44,9 @@ public sealed class CoreMetadataService : IMetadataService
 
     public IReadOnlyList<EntityField>? GetFields(string entityName) =>
         _fields.TryGetValue(entityName, out var fields) ? fields : null;
+
+    public IReadOnlyList<string>? GetNavigations(string entityName) =>
+        _navigations.TryGetValue(entityName, out var navs) ? navs : null;
 
     public IReadOnlyList<string>? GetEnumMembers(string enumType) =>
         _enums.TryGetValue(enumType, out var members) ? members : null;
@@ -89,6 +94,10 @@ public sealed class CoreMetadataService : IMetadataService
 
         _fields[entityName] = entity.Properties
             .Select(MapField)
+            .ToList();
+        _navigations[entityName] = entity.Navigations
+            .Select(n => n.Name)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
             .ToList();
         return true;
     }

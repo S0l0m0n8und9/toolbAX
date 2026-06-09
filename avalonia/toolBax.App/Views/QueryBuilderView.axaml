@@ -101,6 +101,28 @@
           <TextBlock Grid.Column="4" Text="{Binding FieldSelectionLabel}" FontSize="11"
                      Foreground="{StaticResource Text3Brush}" VerticalAlignment="Center" />
         </Grid>
+        <!-- Joins ($expand): tick a navigation property to expand the related entity. Docked below the
+             fields; only shown when the entity exposes navigations. Navigations are few, so a simple
+             chip wrap (no virtualization) is fine here. -->
+        <StackPanel DockPanel.Dock="Bottom" IsVisible="{Binding HasNavigations}" Spacing="4" Margin="0,8,0,0">
+          <TextBlock Text="Joins ($expand) — related entities" FontSize="11"
+                     Foreground="{StaticResource Text3Brush}" />
+          <ItemsControl ItemsSource="{Binding Navigations}">
+            <ItemsControl.ItemsPanel>
+              <ItemsPanelTemplate>
+                <WrapPanel />
+              </ItemsPanelTemplate>
+            </ItemsControl.ItemsPanel>
+            <ItemsControl.ItemTemplate>
+              <DataTemplate x:DataType="vm:FieldChipViewModel">
+                <ToggleButton IsChecked="{Binding IsSelected, Mode=TwoWay}" Margin="0,0,6,6" Padding="8,3">
+                  <TextBlock Text="{Binding Name}" FontSize="12"
+                             FontFamily="Cascadia Code,Consolas,monospace" />
+                </ToggleButton>
+              </DataTemplate>
+            </ItemsControl.ItemTemplate>
+          </ItemsControl>
+        </StackPanel>
         <!-- A virtualizing list of checkboxes (not a selection list): the CheckBox.IsChecked (bound to
              FieldChipViewModel.IsSelected) is the sole source of truth. No SelectionMode, and the CheckBox
              stretches across the row so every click lands on it (and is handled) — so the ListBox's own
