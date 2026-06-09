@@ -15,7 +15,7 @@
                  Foreground="{StaticResource Text0Brush}" />
       <Grid ColumnDefinitions="Auto,Auto,Auto,Auto,*" VerticalAlignment="Bottom">
         <StackPanel Grid.Column="0" Spacing="4">
-          <TextBlock Text="SOURCE" FontSize="10.5" Foreground="{StaticResource Text3Brush}" />
+          <TextBlock Text="SOURCE" FontSize="11" Foreground="{StaticResource Text3Brush}" />
           <ComboBox x:Name="SourcePick" Width="240" ItemsSource="{Binding Environments}"
                     SelectedItem="{Binding SelectedSource, Mode=TwoWay}">
             <ComboBox.ItemTemplate>
@@ -30,7 +30,7 @@
                    Foreground="{StaticResource AccentBrush}" />
 
         <StackPanel Grid.Column="2" Spacing="4">
-          <TextBlock Text="TARGET" FontSize="10.5" Foreground="{StaticResource Text3Brush}" />
+          <TextBlock Text="TARGET" FontSize="11" Foreground="{StaticResource Text3Brush}" />
           <ComboBox x:Name="TargetPick" Width="240" ItemsSource="{Binding Environments}"
                     SelectedItem="{Binding SelectedTarget, Mode=TwoWay}">
             <ComboBox.ItemTemplate>

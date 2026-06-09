@@ -17,6 +17,9 @@
   <SolidColorBrush x:Key="Layer3Brush" Color="#36363B" />
   <SolidColorBrush x:Key="Layer4Brush" Color="#404048" />
 
+  <!-- Modal scrim: dims the window behind dialogs / the command palette (~53% black). -->
+  <SolidColorBrush x:Key="ScrimBrush" Color="#88000000" />
+
   <!-- Strokes & dividers (white over dark, alpha-encoded) -->
   <SolidColorBrush x:Key="StrokeBrush" Color="#16FFFFFF" />
   <SolidColorBrush x:Key="Stroke2Brush" Color="#24FFFFFF" />

@@ -73,7 +73,7 @@
                            VerticalAlignment="Center" />
                 <Border IsVisible="{Binding HasSecret}" Background="{StaticResource OkBgBrush}"
                         CornerRadius="999" Padding="8,1" VerticalAlignment="Center">
-                  <TextBlock Text="secret stored" FontSize="10.5" Foreground="{StaticResource OkBrush}" />
+                  <TextBlock Text="secret stored" FontSize="11" Foreground="{StaticResource OkBrush}" />
                 </Border>
               </StackPanel>
 
@@ -149,7 +149,7 @@
                   <TextBlock Text="Client secret" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
                   <Border IsVisible="{Binding HasDataverseSecret}" Background="{StaticResource OkBgBrush}"
                           CornerRadius="999" Padding="6,1" VerticalAlignment="Center">
-                    <TextBlock Text="set" FontSize="10" Foreground="{StaticResource OkBrush}" />
+                    <TextBlock Text="set" FontSize="11" Foreground="{StaticResource OkBrush}" />
                   </Border>
                 </StackPanel>
                 <TextBox Grid.Column="1" Text="{Binding DataverseSecretInput, Mode=TwoWay}" PasswordChar="●"
@@ -211,7 +211,7 @@
                     <TextBlock Text="Secret" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
                     <Border IsVisible="{Binding HasDiSecret}" Background="{StaticResource OkBgBrush}"
                             CornerRadius="999" Padding="6,1" VerticalAlignment="Center">
-                      <TextBlock Text="set" FontSize="10" Foreground="{StaticResource OkBrush}" />
+                      <TextBlock Text="set" FontSize="11" Foreground="{StaticResource OkBrush}" />
                     </Border>
                   </StackPanel>
                   <TextBox Grid.Column="1" Text="{Binding DiSecretInput, Mode=TwoWay}" PasswordChar="●"
