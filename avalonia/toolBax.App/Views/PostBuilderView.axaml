@@ -64,12 +64,21 @@
           </ComboBox>
         </StackPanel>
 
-        <!-- Validation issues (field-grid mode) -->
+        <!-- Validation issues (field-grid mode). These block Send, so error styling; a concise count
+             header sits above the full detail, which is height-capped + scrollable so a many-mandatory
+             entity can't turn it into a wall. -->
         <Border DockPanel.Dock="Bottom" IsVisible="{Binding HasPayloadIssues}" Margin="0,6,0,0"
-                Background="{StaticResource InfoBgBrush}" BorderBrush="{StaticResource WarnBrush}"
+                Background="{StaticResource ErrBgBrush}" BorderBrush="{StaticResource ErrBrush}"
                 BorderThickness="1" CornerRadius="6" Padding="8,6">
-          <TextBlock Text="{Binding PayloadIssues}" TextWrapping="Wrap" FontSize="11.5"
-                     Foreground="{StaticResource Text1Brush}" />
+          <DockPanel>
+            <TextBlock DockPanel.Dock="Top" Text="{Binding PayloadIssueSummary}" Margin="0,0,0,4"
+                       FontSize="{StaticResource FontSizeCaption}" FontWeight="SemiBold"
+                       Foreground="{StaticResource ErrBrush}" />
+            <ScrollViewer MaxHeight="64" VerticalScrollBarVisibility="Auto">
+              <TextBlock Text="{Binding PayloadIssues}" TextWrapping="Wrap"
+                         FontSize="{StaticResource FontSizeCaption}" Foreground="{StaticResource Text1Brush}" />
+            </ScrollViewer>
+          </DockPanel>
         </Border>
 
         <!-- Generated payload preview (field-grid mode) -->
