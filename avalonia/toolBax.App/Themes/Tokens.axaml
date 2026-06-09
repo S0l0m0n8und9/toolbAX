@@ -1,5 +1,6 @@
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
-                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="using:System">
   <!--
     Design tokens for toolBax (see docs/design_handoff_avalonia/design-tokens.md). FluentTheme dark
     is the base; this dictionary supplies the Mica-layered neutral surfaces, the white-over-dark
@@ -59,5 +60,27 @@
   <CornerRadius x:Key="CornerRadiusControl">4</CornerRadius>
   <CornerRadius x:Key="CornerRadiusCard">8</CornerRadius>
   <CornerRadius x:Key="CornerRadiusPill">999</CornerRadius>
+
+  <!-- Typography (see design-tokens.md §Typography). Font stacks as resources so the mono / UI
+       families aren't re-typed inline on every control; sizes as a ramp with an 11px floor (no
+       sub-11px text — it's below comfortable desktop legibility). -->
+  <FontFamily x:Key="MonoFontFamily">Cascadia Code,Cascadia Mono,Consolas,monospace</FontFamily>
+  <FontFamily x:Key="UiFontFamily">Segoe UI Variable Text,Segoe UI Variable,Segoe UI,sans-serif</FontFamily>
+
+  <sys:Double x:Key="FontSizeTitle">24</sys:Double>
+  <sys:Double x:Key="FontSizeCardHeader">14</sys:Double>
+  <sys:Double x:Key="FontSizeBody">13</sys:Double>
+  <sys:Double x:Key="FontSizeCaption">12</sys:Double>
+  <sys:Double x:Key="FontSizeEyebrow">11</sys:Double>
+
+  <!-- Spacing scale (4px grid). These are SCALAR tokens: bind them to Spacing= (StackPanel/Grid) and
+       any other double property. Margin/Padding are Thickness, which Avalonia can't satisfy from a
+       double resource (and are usually non-uniform anyway), so those keep their raw values ON this 4px
+       scale by convention — the design lint enforces it rather than a token binding. -->
+  <sys:Double x:Key="Space1">4</sys:Double>
+  <sys:Double x:Key="Space2">8</sys:Double>
+  <sys:Double x:Key="Space3">12</sys:Double>
+  <sys:Double x:Key="Space4">16</sys:Double>
+  <sys:Double x:Key="Space5">24</sys:Double>
 
 </ResourceDictionary>
