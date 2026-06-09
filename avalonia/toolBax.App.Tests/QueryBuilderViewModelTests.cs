@@ -350,6 +350,22 @@ public class QueryBuilderViewModelTests
     }
 
     [Fact]
+    public async Task Multiple_expands_keep_literal_commas_in_the_request()
+    {
+        var recorder = new RecordingODataClient();
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), recorder);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.Navigations.Single(n => n.Name == "PrimaryContact").IsSelected = true;
+        vm.Navigations.Single(n => n.Name == "SalesOrderHeaders").IsSelected = true;
+
+        await vm.RunCommand.ExecuteAsync(null);
+
+        // The item separator must stay a literal comma (not %2C, which would malform the $expand).
+        Assert.Contains("$expand=PrimaryContact,SalesOrderHeaders", recorder.LastPath);
+        Assert.DoesNotContain("%2C", recorder.LastPath!);
+    }
+
+    [Fact]
     public async Task An_expanded_navigation_becomes_a_result_column()
     {
         var vm = new QueryBuilderViewModel(new FakeMetadataService(), new RecordingODataClient());

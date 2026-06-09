@@ -433,11 +433,13 @@ public partial class QueryBuilderViewModel : ObservableObject
             parts.Add($"$orderby={Encode(OrderBy.Trim())}");
         }
 
-        // $expand joins to the ticked navigation properties (related entities).
-        var expand = string.Join(",", SelectedExpands());
+        // $expand joins to the ticked navigation properties (related entities). Encode each name but
+        // keep the commas literal — encoding the whole joined string would turn the item separators into
+        // %2C and malform a multi-navigation $expand.
+        var expand = string.Join(",", SelectedExpands().Select(Encode));
         if (expand.Length > 0)
         {
-            parts.Add($"$expand={Encode(expand)}");
+            parts.Add($"$expand={expand}");
         }
 
         if (!unbounded)
