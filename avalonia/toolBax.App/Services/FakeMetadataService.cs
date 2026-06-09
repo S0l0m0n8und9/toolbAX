@@ -46,6 +46,14 @@ public sealed class FakeMetadataService : IMetadataService
         },
     };
 
+    // Navigation properties per entity (drives the Query Builder's $expand join picker). Only CustomersV3
+    // has them seeded, mirroring the cached-fields demo state.
+    private static readonly Dictionary<string, IReadOnlyList<string>> Navigations =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["CustomersV3"] = new[] { "PrimaryContact", "DeliveryPostalAddress", "SalesOrderHeaders" },
+        };
+
     // Enum members for the enum types referenced by the seeded fields (drives the POST Builder's
     // enum-dropdown cell editors). Case-insensitive to match CoreMetadataService._enums, so the fake
     // resolves enum types the same way the real service does.
@@ -63,6 +71,9 @@ public sealed class FakeMetadataService : IMetadataService
 
     public IReadOnlyList<string>? GetEnumMembers(string enumType) =>
         Enums.TryGetValue(enumType, out var members) ? members : null;
+
+    public IReadOnlyList<string>? GetNavigations(string entityName) =>
+        Navigations.TryGetValue(entityName, out var navs) ? navs : null;
 
     // The fake's data is seeded, so loading is a no-op; LoadFieldsAsync reports whether the entity
     // has cached fields (CustomersV3 only) to preserve the "not cached" demo state.

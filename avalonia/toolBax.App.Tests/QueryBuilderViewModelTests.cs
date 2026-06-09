@@ -325,6 +325,43 @@ public class QueryBuilderViewModelTests
     }
 
     [Fact]
+    public void Navigation_properties_load_for_an_entity_that_exposes_them()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        Assert.True(vm.HasNavigations);
+        Assert.Contains(vm.Navigations, n => n.Name == "PrimaryContact");
+        Assert.Contains(vm.Navigations, n => n.Name == "SalesOrderHeaders");
+    }
+
+    [Fact]
+    public void Ticking_a_navigation_adds_expand_and_keeps_it_out_of_select()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        vm.Navigations.Single(n => n.Name == "PrimaryContact").IsSelected = true;
+
+        Assert.Contains("$expand=PrimaryContact", vm.QueryUrl);
+        // The nav joins via $expand, not $select.
+        var select = vm.QueryUrl.Split('?')[1].Split('&').Single(p => p.StartsWith("$select=", StringComparison.Ordinal));
+        Assert.DoesNotContain("PrimaryContact", select);
+    }
+
+    [Fact]
+    public async Task An_expanded_navigation_becomes_a_result_column()
+    {
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new RecordingODataClient());
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.Navigations.Single(n => n.Name == "PrimaryContact").IsSelected = true;
+
+        await vm.RunCommand.ExecuteAsync(null);
+
+        Assert.Contains("PrimaryContact", vm.ResultColumns); // expanded data surfaces as a column
+    }
+
+    [Fact]
     public void Changing_the_entity_reapplies_the_active_field_search()
     {
         var vm = MakeVm();

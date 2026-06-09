@@ -30,4 +30,12 @@ public interface IMetadataService
     /// surface enum metadata (most test fakes) need not implement it.
     /// </summary>
     IReadOnlyList<string>? GetEnumMembers(string enumType) => null;
+
+    /// <summary>
+    /// The navigation properties of an entity (e.g. "PrimaryContact", "SalesOrderLines"), used by the
+    /// Query Builder to offer <c>$expand</c> joins to related entities. Null when not cached yet; loaded
+    /// alongside an entity's fields (<see cref="LoadFieldsAsync"/>). Defaults to null so implementations
+    /// that don't surface navigations need not implement it.
+    /// </summary>
+    IReadOnlyList<string>? GetNavigations(string entityName) => null;
 }

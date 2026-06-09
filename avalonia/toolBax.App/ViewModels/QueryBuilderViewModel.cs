@@ -44,6 +44,14 @@ public partial class QueryBuilderViewModel : ObservableObject
     public ObservableCollection<FieldChipViewModel> Fields { get; } = new();
     public ObservableCollection<QueryResultRow> ResultRows { get; } = new();
 
+    /// <summary>The selected entity's navigation properties as toggle chips — ticking one adds it to
+    /// <c>$expand</c> (a join to the related entity). Empty when the entity has none.</summary>
+    public ObservableCollection<FieldChipViewModel> Navigations { get; } = new();
+
+    /// <summary>True when the selected entity exposes navigation properties to expand.</summary>
+    [ObservableProperty]
+    private bool _hasNavigations;
+
     /// <summary>The entity list as shown, after applying <see cref="EntitySearch"/>. The view binds
     /// to this; <see cref="Entities"/> stays the full master so selections/loads aren't affected.</summary>
     public ObservableCollection<EntitySet> FilteredEntities { get; } = new();
@@ -311,9 +319,33 @@ public partial class QueryBuilderViewModel : ObservableObject
             }
         }
 
+        LoadNavigations();
         RefreshFieldFilter();
         UpdateQueryUrl();
         OnPropertyChanged(nameof(FieldSelectionLabel));
+    }
+
+    // Rebuilds the navigation-property ($expand) chips for the selected entity. Cached alongside the
+    // fields, so this runs whenever the field list is (re)loaded.
+    private void LoadNavigations()
+    {
+        foreach (var old in Navigations)
+        {
+            old.PropertyChanged -= OnChipChanged;
+        }
+
+        Navigations.Clear();
+        var navs = SelectedEntity is null ? null : _metadata.GetNavigations(SelectedEntity.Name);
+        HasNavigations = navs is { Count: > 0 };
+        if (navs is not null)
+        {
+            foreach (var name in navs)
+            {
+                var chip = new FieldChipViewModel(name, isKey: false, isSelected: false);
+                chip.PropertyChanged += OnChipChanged;
+                Navigations.Add(chip);
+            }
+        }
     }
 
     // A chip's selection (toggled by the command or the view's ToggleButton) is the single source of
@@ -388,7 +420,7 @@ public partial class QueryBuilderViewModel : ObservableObject
 
         var parts = new List<string>();
 
-        var select = string.Join(",", SelectedColumns());
+        var select = string.Join(",", SelectedFields());
         parts.Add($"$select={(select.Length == 0 ? "*" : select)}");
 
         if (!string.IsNullOrWhiteSpace(Filter))
@@ -399,6 +431,13 @@ public partial class QueryBuilderViewModel : ObservableObject
         if (!string.IsNullOrWhiteSpace(OrderBy))
         {
             parts.Add($"$orderby={Encode(OrderBy.Trim())}");
+        }
+
+        // $expand joins to the ticked navigation properties (related entities).
+        var expand = string.Join(",", SelectedExpands());
+        if (expand.Length > 0)
+        {
+            parts.Add($"$expand={Encode(expand)}");
         }
 
         if (!unbounded)
@@ -428,8 +467,18 @@ public partial class QueryBuilderViewModel : ObservableObject
         return $"/data/{SelectedEntity.Name}?{string.Join("&", parts)}";
     }
 
-    private IEnumerable<string> SelectedColumns() =>
+    // $select fields only.
+    private IEnumerable<string> SelectedFields() =>
         Fields.Where(f => f.IsSelected).Select(f => f.Name);
+
+    // $expand navigation properties (joins to related entities).
+    private IEnumerable<string> SelectedExpands() =>
+        Navigations.Where(n => n.IsSelected).Select(n => n.Name);
+
+    // Result-grid / CSV columns: the $select fields plus the expanded navigations (each expanded nav
+    // surfaces its related-entity payload as a column so the join is visible per row).
+    private IEnumerable<string> SelectedColumns() =>
+        SelectedFields().Concat(SelectedExpands());
 
     private bool CanRun() => !IsBusy;
 
