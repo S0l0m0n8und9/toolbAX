@@ -280,6 +280,38 @@ public class QueryBuilderViewModelTests
     }
 
     [Fact]
+    public void Select_all_fields_selects_every_field_and_clear_deselects_all()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        vm.SelectAllFieldsCommand.Execute(null);
+        Assert.All(vm.Fields, f => Assert.True(f.IsSelected));
+        Assert.Equal($"{vm.Fields.Count} of {vm.Fields.Count} selected", vm.FieldSelectionLabel);
+
+        vm.ClearFieldsCommand.Execute(null);
+        Assert.All(vm.Fields, f => Assert.False(f.IsSelected));
+        Assert.Equal($"0 of {vm.Fields.Count} selected", vm.FieldSelectionLabel);
+        Assert.Contains("$select=*", vm.QueryUrl); // no fields selected → wildcard
+    }
+
+    [Fact]
+    public void Select_all_after_a_search_selects_only_the_visible_fields()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.ClearFieldsCommand.Execute(null);
+
+        vm.FieldSearch = "date";
+        vm.SelectAllFieldsCommand.Execute(null);
+
+        Assert.All(vm.Fields.Where(f => f.IsSelected),
+            f => Assert.Contains("date", f.Name, StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(vm.Fields, f => f.Name == "CreatedDateTime" && f.IsSelected);
+        Assert.Contains(vm.Fields, f => f.Name == "OrganizationName" && !f.IsSelected);
+    }
+
+    [Fact]
     public void Field_search_hides_chips_from_the_view_but_keeps_them_in_the_select_clause()
     {
         var vm = MakeVm();

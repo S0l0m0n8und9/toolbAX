@@ -89,29 +89,33 @@
         </StackPanel>
       </Grid>
 
-      <!-- Field chips (cached) or not-cached hint -->
+      <!-- Field selection (cached) or not-cached hint. A virtualizing, bounded-height list scales to
+           entities with hundreds of fields; the toolbar searches + bulk-selects them. -->
       <DockPanel Grid.Row="3" IsVisible="{Binding HasFields}" Margin="0,12,0,0">
-        <TextBox DockPanel.Dock="Top" Width="260" HorizontalAlignment="Left" Margin="0,0,0,8"
-                 Text="{Binding FieldSearch, Mode=TwoWay}" PlaceholderText="Search fields…" />
-        <ItemsControl ItemsSource="{Binding FilteredFields}">
-          <ItemsControl.ItemsPanel>
-            <ItemsPanelTemplate>
-              <WrapPanel />
-            </ItemsPanelTemplate>
-          </ItemsControl.ItemsPanel>
-          <ItemsControl.ItemTemplate>
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="260,Auto,Auto,*,Auto" ColumnSpacing="8" Margin="0,0,0,8">
+          <TextBox Grid.Column="0" Text="{Binding FieldSearch, Mode=TwoWay}" PlaceholderText="Search fields…" />
+          <Button Grid.Column="1" Content="Select all" Command="{Binding SelectAllFieldsCommand}"
+                  FontSize="11" Padding="8,3" ToolTip.Tip="Select all currently-visible fields" />
+          <Button Grid.Column="2" Content="Clear" Command="{Binding ClearFieldsCommand}"
+                  FontSize="11" Padding="8,3" ToolTip.Tip="Deselect all fields" />
+          <TextBlock Grid.Column="4" Text="{Binding FieldSelectionLabel}" FontSize="11"
+                     Foreground="{StaticResource Text3Brush}" VerticalAlignment="Center" />
+        </Grid>
+        <ListBox ItemsSource="{Binding FilteredFields}" MaxHeight="190"
+                 Background="Transparent" BorderThickness="0" SelectionMode="Toggle">
+          <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:FieldChipViewModel">
-              <ToggleButton IsChecked="{Binding IsSelected, Mode=TwoWay}" Margin="0,0,6,6" Padding="8,3">
+              <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" Padding="6,0">
                 <StackPanel Orientation="Horizontal" Spacing="4">
                   <TextBlock Text="PK" IsVisible="{Binding IsKey}" FontSize="9"
                              Foreground="{StaticResource WarnBrush}" VerticalAlignment="Center" />
                   <TextBlock Text="{Binding Name}" FontSize="12"
-                             FontFamily="Cascadia Code,Consolas,monospace" />
+                             FontFamily="Cascadia Code,Consolas,monospace" VerticalAlignment="Center" />
                 </StackPanel>
-              </ToggleButton>
+              </CheckBox>
             </DataTemplate>
-          </ItemsControl.ItemTemplate>
-        </ItemsControl>
+          </ListBox.ItemTemplate>
+        </ListBox>
       </DockPanel>
 
       <Border Grid.Row="3" IsVisible="{Binding !HasFields}" VerticalAlignment="Top" Margin="0,12,0,0"
