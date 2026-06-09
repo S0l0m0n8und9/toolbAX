@@ -35,6 +35,11 @@ public partial class QueryBuilderViewModel : ObservableObject
     // (which would wipe the field selection + query URL on every keystroke in the entity search box).
     private bool _refreshingEntities;
 
+    // True while a bulk field operation (Select all / Clear) flips many chips at once, so each chip's
+    // PropertyChanged doesn't rebuild the URL per-field (O(n) churn on entities with hundreds of fields);
+    // the URL + labels are refreshed once when the bulk op completes.
+    private bool _bulkUpdatingFields;
+
     public ObservableCollection<EntitySet> Entities { get; }
     public ObservableCollection<FieldChipViewModel> Fields { get; } = new();
     public ObservableCollection<QueryResultRow> ResultRows { get; } = new();
@@ -135,6 +140,10 @@ public partial class QueryBuilderViewModel : ObservableObject
     public bool HasMore => !string.IsNullOrEmpty(NextLink);
 
     public bool HasTotalCount => TotalCount is not null;
+
+    /// <summary>"N of M selected" — the $select field count, so large field lists stay legible.</summary>
+    public string FieldSelectionLabel =>
+        HasFields ? $"{Fields.Count(f => f.IsSelected)} of {Fields.Count} selected" : string.Empty;
 
     /// <summary>"Entities · N" (or "M of N" while a search is narrowing the list).</summary>
     public string EntityCountLabel =>
@@ -304,6 +313,7 @@ public partial class QueryBuilderViewModel : ObservableObject
 
         RefreshFieldFilter();
         UpdateQueryUrl();
+        OnPropertyChanged(nameof(FieldSelectionLabel));
     }
 
     // A chip's selection (toggled by the command or the view's ToggleButton) is the single source of
@@ -312,8 +322,14 @@ public partial class QueryBuilderViewModel : ObservableObject
     {
         if (e.PropertyName == nameof(FieldChipViewModel.IsSelected))
         {
+            if (_bulkUpdatingFields)
+            {
+                return; // SetFieldsSelection refreshes the URL + labels once when the bulk op finishes
+            }
+
             UpdateQueryUrl();
             ExportAllCsvCommand.NotifyCanExecuteChanged(); // $select drives CanExportAllCsv
+            OnPropertyChanged(nameof(FieldSelectionLabel));
         }
     }
 
@@ -324,6 +340,34 @@ public partial class QueryBuilderViewModel : ObservableObject
         {
             chip.IsSelected = !chip.IsSelected;
         }
+    }
+
+    // Selects every currently-visible (filtered) field — so "Select all" after a search selects just the
+    // matches. Clearing deselects ALL fields (not only the visible ones), so it's a reliable reset.
+    [RelayCommand]
+    private void SelectAllFields() => SetFieldsSelection(FilteredFields, selected: true);
+
+    [RelayCommand]
+    private void ClearFields() => SetFieldsSelection(Fields, selected: false);
+
+    private void SetFieldsSelection(IEnumerable<FieldChipViewModel> chips, bool selected)
+    {
+        _bulkUpdatingFields = true;
+        try
+        {
+            foreach (var chip in chips)
+            {
+                chip.IsSelected = selected;
+            }
+        }
+        finally
+        {
+            _bulkUpdatingFields = false;
+        }
+
+        UpdateQueryUrl();
+        ExportAllCsvCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(FieldSelectionLabel));
     }
 
     private void UpdateQueryUrl() => QueryUrl = SelectedEntity is null ? string.Empty : "GET " + BuildPath(forRequest: false);
