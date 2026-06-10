@@ -44,11 +44,20 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     /// <summary>
     /// Interactive (delegated user) token acquirer used by the "Sign in with Microsoft" route.
     /// Defaults to the real MSAL provider; tests substitute a fake.
+    /// Setting this property resets <see cref="Broker"/> so the next access rebuilds with the new provider.
     /// </summary>
-    internal IInteractiveTokenProvider InteractiveTokenProvider { get; set; } = new MsalInteractiveTokenProvider();
+    private IInteractiveTokenProvider _interactiveTokenProvider = new MsalInteractiveTokenProvider();
+    internal IInteractiveTokenProvider InteractiveTokenProvider
+    {
+        get => _interactiveTokenProvider;
+        set { _interactiveTokenProvider = value; _broker = null; }
+    }
 
     private AuthBroker? _broker;
-    /// <summary>Lazily built so tests that swap <see cref="InteractiveTokenProvider"/> get a broker using their fake.</summary>
+    /// <summary>
+    /// Lazily built from <see cref="InteractiveTokenProvider"/>; rebuilt whenever that property is set.
+    /// Assign directly to inject a fully configured broker (e.g. in tests that need a complete fake).
+    /// </summary>
     internal AuthBroker Broker
     {
         get => _broker ??= new AuthBroker(_vault, InteractiveTokenProvider);
@@ -747,8 +756,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         string? pendingClientSecret,
         AuthTarget target)
     {
-        if (sp.AuthMode != AuthMode.BearerToken &&
-            sp.AuthMode != AuthMode.Interactive &&
+        if (sp.AuthMode is AuthMode.ClientSecret or AuthMode.Certificate &&
             (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(sp.ClientId)))
         {
             throw new InvalidOperationException("Tenant ID and Client ID are required to test this auth mode.");
