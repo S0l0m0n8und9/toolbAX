@@ -6,6 +6,21 @@
              x:Class="ToolBax.App.Views.ProfilesView"
              x:DataType="vm:ProfilesViewModel">
 
+  <UserControl.Styles>
+    <!-- Inline-editable header title: reads as a heading at rest (no box), shows the accent underline
+         on focus. Realised by overriding the Fluent TextBox state brushes to transparent rather than
+         hand-rolling a template (CLAUDE.md: override resources, don't re-template). -->
+    <Style Selector="TextBox.profileTitle">
+      <Setter Property="FontSize" Value="24" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="Foreground" Value="{StaticResource Text0Brush}" />
+      <Setter Property="Padding" Value="2,0" />
+      <Setter Property="MinWidth" Value="120" />
+      <Setter Property="MaxWidth" Value="520" />
+      <Setter Property="VerticalAlignment" Value="Center" />
+    </Style>
+  </UserControl.Styles>
+
   <Grid ColumnDefinitions="280,*">
 
     <!-- Master: search + environment list -->
@@ -14,7 +29,9 @@
       <DockPanel Margin="10">
         <Grid DockPanel.Dock="Top" ColumnDefinitions="Auto,Auto" Margin="0,0,0,8" ColumnSpacing="6">
           <Button Grid.Column="0" Content="+ Add" Command="{Binding AddProfileCommand}" />
-          <Button Grid.Column="1" Content="Delete" Command="{Binding DeleteProfileCommand}" />
+          <!-- Delete is disabled at one profile so at least one environment always remains. -->
+          <Button Grid.Column="1" Content="Delete" Command="{Binding DeleteProfileCommand}"
+                  IsEnabled="{Binding CanDeleteProfile}" />
         </Grid>
         <TextBox DockPanel.Dock="Top" Text="{Binding Search, Mode=TwoWay}"
                  PlaceholderText="Search environments…" Margin="0,0,0,8" />
@@ -24,226 +41,276 @@
                  Background="Transparent" BorderThickness="0">
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="models:EnvProfile">
-              <StackPanel Spacing="1" Margin="0,2">
-                <TextBlock Text="{Binding Name}" FontSize="13" Foreground="{StaticResource Text0Brush}" />
-                <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="{StaticResource Text3Brush}" />
-              </StackPanel>
+              <Grid ColumnDefinitions="Auto,*" Margin="0,2">
+                <!-- Status dot: connected→ok, token-expired→warn, disconnected→err. -->
+                <Ellipse Grid.Column="0" Width="7" Height="7" VerticalAlignment="Top" Margin="2,6,0,0"
+                         Fill="{Binding Status, Converter={x:Static conv:EnvStatusToBrushConverter.Instance}}" />
+                <StackPanel Grid.Column="1" Spacing="1" Margin="8,0,0,0">
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <TextBlock Text="{Binding Name}" FontSize="13" Foreground="{StaticResource Text0Brush}"
+                               TextTrimming="CharacterEllipsis" />
+                    <Border CornerRadius="999" Padding="7,0" Background="{StaticResource AccentTintBrush}"
+                            VerticalAlignment="Center">
+                      <Border.IsVisible>
+                        <MultiBinding Converter="{x:Static conv:EnvIsActiveConverter.Instance}">
+                          <Binding Path="Id" />
+                          <Binding Path="((vm:ProfilesViewModel)DataContext).ActiveId"
+                                   RelativeSource="{RelativeSource AncestorType=ListBox}" />
+                        </MultiBinding>
+                      </Border.IsVisible>
+                      <TextBlock Text="active" FontSize="11" Foreground="{StaticResource AccentBrush}" />
+                    </Border>
+                  </StackPanel>
+                  <TextBlock Text="{Binding Subtitle}" FontSize="11" Foreground="{StaticResource Text3Brush}"
+                             TextTrimming="CharacterEllipsis" />
+                </StackPanel>
+              </Grid>
             </DataTemplate>
           </ListBox.ItemTemplate>
         </ListBox>
       </DockPanel>
     </Border>
 
-    <!-- Detail -->
-    <ScrollViewer Grid.Column="1">
-      <StackPanel Margin="24,16" Spacing="14" IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}">
+    <!-- Detail: scrolling content above a pinned status footer. -->
+    <DockPanel Grid.Column="1">
+      <Border DockPanel.Dock="Bottom" Background="{StaticResource MicaBrush}"
+              BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0" MinHeight="30" Padding="18,0">
+        <TextBlock Text="{Binding Status}" FontSize="12" Foreground="{StaticResource Text2Brush}"
+                   VerticalAlignment="Center" />
+      </Border>
 
-        <StackPanel Orientation="Horizontal" Spacing="10">
-          <TextBlock x:Name="DetailTitle" Text="{Binding Selected.Name}"
-                     FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource Text0Brush}" />
-          <Border IsVisible="{Binding IsSelectedActive}" VerticalAlignment="Center"
-                  Background="{StaticResource AccentTintBrush}" CornerRadius="999" Padding="8,2">
-            <TextBlock Text="active" FontSize="11" Foreground="{StaticResource AccentBrush}" />
-          </Border>
-        </StackPanel>
+      <ScrollViewer>
+        <StackPanel Margin="24,16" Spacing="14" IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}">
 
-        <TabControl>
-          <!-- FO Environment fields + authentication (editable; committed by Save). -->
-          <TabItem Header="FO Environment">
-            <StackPanel Spacing="14" Margin="0,12,0,0">
-              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="Name" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding DraftName, Mode=TwoWay}" />
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Base URL" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding DraftUrl, Mode=TwoWay}"
-                         FontFamily="Cascadia Code,Consolas,monospace" />
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="Tenant ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding DraftTenant, Mode=TwoWay}"
-                         FontFamily="Cascadia Code,Consolas,monospace" />
-                <TextBlock Grid.Row="3" Grid.Column="0" Text="Default company" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding DraftLegal, Mode=TwoWay}" />
-                <TextBlock Grid.Row="4" Grid.Column="0" Text="Tier" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding DraftTier, Mode=TwoWay}" />
-              </Grid>
+          <!-- Header: the profile Name is the inline-editable title (it relates to the profile itself,
+               so it lives here rather than on the FO tab). -->
+          <Grid ColumnDefinitions="Auto,Auto,*">
+            <TextBox x:Name="DetailTitle" Grid.Column="0" Classes="profileTitle"
+                     Text="{Binding DraftName, Mode=TwoWay}" PlaceholderText="New environment">
+              <TextBox.Resources>
+                <SolidColorBrush x:Key="TextControlBackground" Color="Transparent" />
+                <SolidColorBrush x:Key="TextControlBackgroundPointerOver" Color="Transparent" />
+                <SolidColorBrush x:Key="TextControlBackgroundFocused" Color="Transparent" />
+                <SolidColorBrush x:Key="TextControlBackgroundDisabled" Color="Transparent" />
+                <SolidColorBrush x:Key="TextControlBorderBrush" Color="Transparent" />
+                <SolidColorBrush x:Key="TextControlBorderBrushPointerOver" Color="Transparent" />
+                <SolidColorBrush x:Key="TextControlBorderBrushDisabled" Color="Transparent" />
+              </TextBox.Resources>
+            </TextBox>
+            <Border Grid.Column="1" IsVisible="{Binding IsSelectedActive}" VerticalAlignment="Center"
+                    Background="{StaticResource AccentTintBrush}" CornerRadius="999" Padding="8,2" Margin="8,0,0,0">
+              <TextBlock Text="active" FontSize="11" Foreground="{StaticResource AccentBrush}" />
+            </Border>
+          </Grid>
 
-              <!-- Authentication -->
-              <Separator />
-              <StackPanel Orientation="Horizontal" Spacing="8">
-                <TextBlock Text="Authentication" FontWeight="SemiBold" Foreground="{StaticResource Text1Brush}"
-                           VerticalAlignment="Center" />
-                <Border IsVisible="{Binding HasSecret}" Background="{StaticResource OkBgBrush}"
-                        CornerRadius="999" Padding="8,1" VerticalAlignment="Center">
-                  <TextBlock Text="secret stored" FontSize="11" Foreground="{StaticResource OkBrush}" />
-                </Border>
-              </StackPanel>
+          <!-- Profile-level actions sit above the tab strip so they're reachable from every tab
+               (Set active / Save). Tab-specific Test buttons stay inside their tabs. -->
+          <StackPanel Orientation="Horizontal" Spacing="8">
+            <Button Content="{Binding SetActiveLabel}" Command="{Binding SetActiveCommand}"
+                    IsEnabled="{Binding CanSetActive}" />
+            <Button Content="Save" Command="{Binding SaveCommand}"
+                    Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}" />
+          </StackPanel>
 
-              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="Auth mode" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <ComboBox Grid.Row="0" Grid.Column="1" Width="220" HorizontalAlignment="Left"
-                          ItemsSource="{Binding AuthModes}" SelectedItem="{Binding DraftAuthMode, Mode=TwoWay}">
-                  <ComboBox.ItemTemplate>
-                    <DataTemplate x:DataType="models:FoAuthMode">
-                      <TextBlock Text="{Binding Converter={x:Static conv:FoAuthModeLabelConverter.Instance}}" />
-                    </DataTemplate>
-                  </ComboBox.ItemTemplate>
-                </ComboBox>
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Client ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding DraftClientId, Mode=TwoWay}"
-                         PlaceholderText="App (client) ID" FontFamily="Cascadia Code,Consolas,monospace" />
-                <TextBlock Grid.Row="2" Grid.Column="1" IsVisible="{Binding ShowFoDefaultClientIdNote}"
-                           Text="Default global Client ID from Microsoft (editable)." FontSize="11"
-                           Foreground="{StaticResource Text3Brush}" />
-              </Grid>
+          <TabControl>
+            <!-- FO Environment fields + authentication (editable; committed by Save). -->
+            <TabItem Header="FO Environment">
+              <StackPanel Spacing="14" Margin="0,12,0,0">
+                <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="6">
+                  <TextBlock Grid.Row="0" Grid.Column="0" Text="Base URL" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                  <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding DraftUrl, Mode=TwoWay}"
+                           PlaceholderText="https://contoso.operations.dynamics.com"
+                           FontFamily="{StaticResource MonoFontFamily}" />
+                  <TextBlock Grid.Row="1" Grid.Column="0" Text="Tenant ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                  <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding DraftTenant, Mode=TwoWay}"
+                           FontFamily="{StaticResource MonoFontFamily}" />
+                  <TextBlock Grid.Row="2" Grid.Column="0" Text="Default company" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                  <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding DraftLegal, Mode=TwoWay}" PlaceholderText="USMF" />
+                  <TextBlock Grid.Row="3" Grid.Column="0" Text="Environment type" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                  <ComboBox Grid.Row="3" Grid.Column="1" Width="220" HorizontalAlignment="Left"
+                            ItemsSource="{Binding EnvironmentTypes}" SelectedItem="{Binding DraftEnvironmentType, Mode=TwoWay}" />
+                </Grid>
 
-              <!-- Client secret only applies to the app-only ClientSecret mode. -->
-              <Grid IsVisible="{Binding IsFoClientSecretMode}" ColumnDefinitions="130,*,Auto,Auto" ColumnSpacing="8">
-                <TextBlock Grid.Column="0" Text="Client secret" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <TextBox Grid.Column="1" Text="{Binding SecretInput, Mode=TwoWay}" PasswordChar="●"
-                         PlaceholderText="Enter a new secret to store" FontFamily="Cascadia Code,Consolas,monospace" />
-                <Button Grid.Column="2" Content="Store" Command="{Binding SaveSecretCommand}" />
-                <Button Grid.Column="3" Content="Clear" Command="{Binding ClearSecretCommand}" />
-              </Grid>
-
-              <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button Content="Set active" Command="{Binding SetActiveCommand}" />
-                <Button Content="Save" Command="{Binding SaveCommand}" />
-                <Button Content="Test connection" Command="{Binding TestConnectionCommand}" />
-                <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingFoConnection}" Width="90" Height="4"
+                <!-- Authentication -->
+                <Separator />
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <TextBlock Text="Authentication" FontWeight="SemiBold" Foreground="{StaticResource Text1Brush}"
                              VerticalAlignment="Center" />
-              </StackPanel>
-            </StackPanel>
-          </TabItem>
-
-          <!-- CE / Dataverse: linked Dataverse environment for dual-write. -->
-          <TabItem Header="CE · Dataverse">
-            <StackPanel Spacing="12" Margin="0,12,0,0">
-              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="Dataverse URL" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding DraftDataverseUrl, Mode=TwoWay}"
-                         PlaceholderText="org.crm.dynamics.com" FontFamily="Cascadia Code,Consolas,monospace" />
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Tenant ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <TextBox Grid.Row="1" Grid.Column="1" IsReadOnly="True" Text="{Binding DraftTenant}"
-                         FontFamily="Cascadia Code,Consolas,monospace" />
-                <TextBlock Grid.Row="2" Grid.Column="0" Text="Auth mode" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <ComboBox Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch"
-                          ItemsSource="{Binding AuthModes}" SelectedItem="{Binding DraftDataverseAuthMode, Mode=TwoWay}">
-                  <ComboBox.ItemTemplate>
-                    <DataTemplate x:DataType="models:FoAuthMode">
-                      <TextBlock Text="{Binding Converter={x:Static conv:FoAuthModeLabelConverter.Instance}}" />
-                    </DataTemplate>
-                  </ComboBox.ItemTemplate>
-                </ComboBox>
-                <TextBlock Grid.Row="3" Grid.Column="0" Text="Client ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding DraftDataverseClientId, Mode=TwoWay}"
-                         PlaceholderText="Dataverse app (client) ID" FontFamily="Cascadia Code,Consolas,monospace" />
-                <TextBlock Grid.Row="4" Grid.Column="1" IsVisible="{Binding ShowDataverseDefaultClientIdNote}"
-                           Text="Default global Client ID from Microsoft (editable)." FontSize="11"
-                           Foreground="{StaticResource Text3Brush}" />
-                <TextBlock Grid.Row="5" Grid.Column="0" Text="Web API" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <TextBox Grid.Row="5" Grid.Column="1" IsReadOnly="True" Text="{Binding DataverseWebApi, Mode=OneWay}"
-                         FontFamily="Cascadia Code,Consolas,monospace" />
-              </Grid>
-
-              <Grid ColumnDefinitions="130,*,Auto,Auto" ColumnSpacing="8" IsVisible="{Binding IsDataverseClientSecretMode}">
-                <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                  <TextBlock Text="Client secret" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                  <Border IsVisible="{Binding HasDataverseSecret}" Background="{StaticResource OkBgBrush}"
-                          CornerRadius="999" Padding="6,1" VerticalAlignment="Center">
-                    <TextBlock Text="set" FontSize="11" Foreground="{StaticResource OkBrush}" />
+                  <Border IsVisible="{Binding HasSecret}" Background="{StaticResource OkBgBrush}"
+                          CornerRadius="999" Padding="8,1" VerticalAlignment="Center">
+                    <TextBlock Text="secret stored" FontSize="11" Foreground="{StaticResource OkBrush}" />
                   </Border>
                 </StackPanel>
-                <TextBox Grid.Column="1" Text="{Binding DataverseSecretInput, Mode=TwoWay}" PasswordChar="●"
-                         PlaceholderText="Enter a new Dataverse secret to store" FontFamily="Cascadia Code,Consolas,monospace" />
-                <Button Grid.Column="2" Content="Store" Command="{Binding SaveDataverseSecretCommand}" />
-                <Button Grid.Column="3" Content="Clear" Command="{Binding ClearDataverseSecretCommand}" />
-              </Grid>
 
-              <StackPanel Orientation="Horizontal" Spacing="10">
-                <Button Content="Test Dataverse connection" Command="{Binding TestDataverseConnectionCommand}" />
-                <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingDataverseConnection}" Width="90" Height="4"
-                             VerticalAlignment="Center" />
+                <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
+                  <TextBlock Grid.Row="0" Grid.Column="0" Text="Auth mode" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                  <ComboBox Grid.Row="0" Grid.Column="1" Width="220" HorizontalAlignment="Left"
+                            ItemsSource="{Binding AuthModes}" SelectedItem="{Binding DraftAuthMode, Mode=TwoWay}">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="models:FoAuthMode">
+                        <TextBlock Text="{Binding Converter={x:Static conv:FoAuthModeLabelConverter.Instance}}" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                  <TextBlock Grid.Row="1" Grid.Column="0" Text="Client ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                  <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding DraftClientId, Mode=TwoWay}"
+                           PlaceholderText="App (client) ID" FontFamily="{StaticResource MonoFontFamily}" />
+                  <TextBlock Grid.Row="2" Grid.Column="1" IsVisible="{Binding ShowFoDefaultClientIdNote}"
+                             Text="Default global Client ID from Microsoft (editable)." FontSize="11"
+                             Foreground="{StaticResource Text3Brush}" />
+                </Grid>
+
+                <!-- Client secret only applies to the app-only ClientSecret mode. -->
+                <Grid IsVisible="{Binding IsFoClientSecretMode}" ColumnDefinitions="130,*,Auto,Auto" ColumnSpacing="8">
+                  <TextBlock Grid.Column="0" Text="Client secret" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                  <TextBox Grid.Column="1" Text="{Binding SecretInput, Mode=TwoWay}" PasswordChar="●"
+                           PlaceholderText="Enter a new secret to store" FontFamily="{StaticResource MonoFontFamily}" />
+                  <Button Grid.Column="2" Content="Store" Command="{Binding SaveSecretCommand}" />
+                  <Button Grid.Column="3" Content="Clear" Command="{Binding ClearSecretCommand}" />
+                </Grid>
+
+                <!-- Tab-specific connection test stays in the FO tab. -->
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Content="Test connection" Command="{Binding TestConnectionCommand}" />
+                  <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingFoConnection}" Width="90" Height="4"
+                               VerticalAlignment="Center" />
+                </StackPanel>
               </StackPanel>
+            </TabItem>
 
-              <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}"
-                         Text="The linked Dataverse environment + its own app registration (used by Dual-Write). The Dataverse client ID is a separate app reg from the FO one; the tenant is shared with the FO environment. The client secret is DPAPI-protected at rest and never displayed or logged." />
-            </StackPanel>
-          </TabItem>
+            <!-- CE / Dataverse: linked Dataverse environment for dual-write. -->
+            <TabItem Header="CE · Dataverse">
+              <StackPanel Spacing="12" Margin="0,12,0,0">
+                <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto" RowSpacing="6">
+                  <TextBlock Grid.Row="0" Grid.Column="0" Text="Dataverse URL" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                  <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding DraftDataverseUrl, Mode=TwoWay}"
+                           PlaceholderText="org.crm.dynamics.com" FontFamily="{StaticResource MonoFontFamily}" />
+                  <TextBlock Grid.Row="1" Grid.Column="0" Text="Tenant ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                  <TextBox Grid.Row="1" Grid.Column="1" IsReadOnly="True" Text="{Binding DraftTenant}" Opacity="0.7"
+                           FontFamily="{StaticResource MonoFontFamily}" />
+                  <TextBlock Grid.Row="2" Grid.Column="0" Text="Auth mode" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                  <ComboBox Grid.Row="2" Grid.Column="1" HorizontalAlignment="Stretch"
+                            ItemsSource="{Binding AuthModes}" SelectedItem="{Binding DraftDataverseAuthMode, Mode=TwoWay}">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="models:FoAuthMode">
+                        <TextBlock Text="{Binding Converter={x:Static conv:FoAuthModeLabelConverter.Instance}}" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                  <TextBlock Grid.Row="3" Grid.Column="0" Text="Client ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                  <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding DraftDataverseClientId, Mode=TwoWay}"
+                           PlaceholderText="Dataverse app (client) ID" FontFamily="{StaticResource MonoFontFamily}" />
+                  <TextBlock Grid.Row="4" Grid.Column="1" IsVisible="{Binding ShowDataverseDefaultClientIdNote}"
+                             Text="Default global Client ID from Microsoft (editable)." FontSize="11"
+                             Foreground="{StaticResource Text3Brush}" />
+                  <TextBlock Grid.Row="5" Grid.Column="0" Text="Web API" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                  <TextBox Grid.Row="5" Grid.Column="1" IsReadOnly="True" Text="{Binding DataverseWebApi, Mode=OneWay}" Opacity="0.7"
+                           FontFamily="{StaticResource MonoFontFamily}" />
+                </Grid>
 
-          <!-- Data Integrator: delegated token (ROPC service account or interactive), never app-only. -->
-          <TabItem Header="Data Integrator">
-            <StackPanel Spacing="12" Margin="0,12,0,0">
-              <Border Background="{StaticResource InfoBgBrush}" BorderBrush="{StaticResource InfoBrush}"
-                      BorderThickness="1" CornerRadius="8" Padding="12,8">
-                <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}"
-                           Text="Used by Dual-Write Operations &amp; Compare. The gateway requires a delegated Data Integrator token — app-only is not available." />
-              </Border>
-
-              <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto,Auto" RowSpacing="6">
-                <TextBlock Grid.Row="0" Grid.Column="0" Text="Mode" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <ComboBox Grid.Row="0" Grid.Column="1" Width="220" HorizontalAlignment="Left"
-                          ItemsSource="{Binding DiModes}" SelectedItem="{Binding DraftDiMode, Mode=TwoWay}">
-                  <ComboBox.ItemTemplate>
-                    <DataTemplate x:DataType="models:DiAuthMode">
-                      <TextBlock Text="{Binding Converter={x:Static conv:DiAuthModeLabelConverter.Instance}}" />
-                    </DataTemplate>
-                  </ComboBox.ItemTemplate>
-                </ComboBox>
-                <TextBlock Grid.Row="1" Grid.Column="0" Text="Client ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <TextBox Grid.Row="1" Grid.Column="1" Text="{Binding DraftDiClientId, Mode=TwoWay}"
-                         PlaceholderText="Data Integrator app (client) ID" FontFamily="Cascadia Code,Consolas,monospace" />
-                <TextBlock Grid.Row="2" Grid.Column="1" IsVisible="{Binding ShowDiDefaultClientIdNote}"
-                           Text="Well-known Data Integrator Client ID from Microsoft (editable)." FontSize="11"
-                           Foreground="{StaticResource Text3Brush}" />
-                <TextBlock Grid.Row="3" Grid.Column="0" Text="Gateway URL" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding DraftGatewayUrl, Mode=TwoWay}"
-                         PlaceholderText="Dual-write management gateway base URL" FontFamily="Cascadia Code,Consolas,monospace" />
-              </Grid>
-
-              <!-- ROPC service account -->
-              <StackPanel Spacing="8" IsVisible="{Binding IsRopc}">
-                <Border Background="{StaticResource WarnBgBrush}" BorderBrush="{StaticResource WarnBrush}"
-                        BorderThickness="1" CornerRadius="8" Padding="12,8">
-                  <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}"
-                             Text="Use a non-MFA service account — ROPC fails under MFA (AADSTS50076). The password is DPAPI-encrypted at rest." />
-                </Border>
-                <Grid ColumnDefinitions="130,*,Auto,Auto" ColumnSpacing="8">
+                <Grid ColumnDefinitions="130,*,Auto,Auto" ColumnSpacing="8" IsVisible="{Binding IsDataverseClientSecretMode}">
                   <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
-                    <TextBlock Text="Secret" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                    <Border IsVisible="{Binding HasDiSecret}" Background="{StaticResource OkBgBrush}"
+                    <TextBlock Text="Client secret" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                    <Border IsVisible="{Binding HasDataverseSecret}" Background="{StaticResource OkBgBrush}"
                             CornerRadius="999" Padding="6,1" VerticalAlignment="Center">
                       <TextBlock Text="set" FontSize="11" Foreground="{StaticResource OkBrush}" />
                     </Border>
                   </StackPanel>
-                  <TextBox Grid.Column="1" Text="{Binding DiSecretInput, Mode=TwoWay}" PasswordChar="●"
-                           PlaceholderText="Service-account password" FontFamily="Cascadia Code,Consolas,monospace" />
-                  <Button Grid.Column="2" Content="Store" Command="{Binding SaveDiSecretCommand}" />
-                  <Button Grid.Column="3" Content="Clear" Command="{Binding ClearDiSecretCommand}" />
+                  <TextBox Grid.Column="1" Text="{Binding DataverseSecretInput, Mode=TwoWay}" PasswordChar="●"
+                           PlaceholderText="Enter a new Dataverse secret to store" FontFamily="{StaticResource MonoFontFamily}" />
+                  <Button Grid.Column="2" Content="Store" Command="{Binding SaveDataverseSecretCommand}" />
+                  <Button Grid.Column="3" Content="Clear" Command="{Binding ClearDataverseSecretCommand}" />
                 </Grid>
-              </StackPanel>
 
-              <!-- Interactive (portal) sign-in -->
-              <StackPanel Spacing="8" IsVisible="{Binding IsInteractive}">
+                <StackPanel Orientation="Horizontal" Spacing="10">
+                  <Button Content="Test Dataverse connection" Command="{Binding TestDataverseConnectionCommand}" />
+                  <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingDataverseConnection}" Width="90" Height="4"
+                               VerticalAlignment="Center" />
+                </StackPanel>
+
                 <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}"
-                           Text="Sign-in opens the Microsoft Data Integrator portal in an embedded browser and captures the delegated token AND your regional gateway host automatically — you don't need to enter a Client ID or Gateway URL above. Renews silently after the first sign-in. (Windows only.)" />
+                           Text="The linked Dataverse environment + its own app registration (used by Dual-Write). The Dataverse client ID is a separate app reg from the FO one; the tenant is shared with the FO environment. The client secret is DPAPI-protected at rest and never displayed or logged." />
               </StackPanel>
+            </TabItem>
 
-              <!-- Gateway connection test (used by Dual-Write Operations &amp; Compare). Drives the portal
-                   sign-in for the F&amp;O environment, then resolves the linkage. Interactive only. -->
-              <StackPanel Orientation="Horizontal" Spacing="10" IsVisible="{Binding IsInteractive}">
-                <Button Content="Sign in &amp; test gateway" Command="{Binding TestGatewayCommand}"
-                        Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}" />
-                <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingGateway}" Width="90" Height="4"
-                             VerticalAlignment="Center" />
+            <!-- Data Integrator: delegated token (ROPC service account or interactive), never app-only. -->
+            <TabItem Header="Data Integrator">
+              <StackPanel Spacing="12" Margin="0,12,0,0">
+                <Border Background="{StaticResource InfoBgBrush}" BorderBrush="{StaticResource InfoBrush}"
+                        BorderThickness="1" CornerRadius="8" Padding="12,8">
+                  <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}"
+                             Text="Used by Dual-Write Operations &amp; Compare. The gateway requires a delegated Data Integrator token — app-only is not available." />
+                </Border>
+
+                <Grid ColumnDefinitions="130,*" RowDefinitions="Auto" RowSpacing="6">
+                  <TextBlock Grid.Row="0" Grid.Column="0" Text="Mode" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                  <ComboBox Grid.Row="0" Grid.Column="1" Width="220" HorizontalAlignment="Left"
+                            ItemsSource="{Binding DiModes}" SelectedItem="{Binding DraftDiMode, Mode=TwoWay}">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="models:DiAuthMode">
+                        <TextBlock Text="{Binding Converter={x:Static conv:DiAuthModeLabelConverter.Instance}}" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                </Grid>
+
+                <!-- ROPC service account: Client ID + Gateway URL are entered manually only here. In
+                     Interactive mode the portal sign-in captures both, so they're hidden. -->
+                <StackPanel Spacing="8" IsVisible="{Binding IsRopc}">
+                  <Grid ColumnDefinitions="130,*" RowDefinitions="Auto,Auto,Auto" RowSpacing="6">
+                    <TextBlock Grid.Row="0" Grid.Column="0" Text="Client ID" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                    <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding DraftDiClientId, Mode=TwoWay}"
+                             PlaceholderText="Data Integrator app (client) ID" FontFamily="{StaticResource MonoFontFamily}" />
+                    <TextBlock Grid.Row="1" Grid.Column="1" IsVisible="{Binding ShowDiDefaultClientIdNote}"
+                               Text="Well-known Data Integrator Client ID from Microsoft (editable)." FontSize="11"
+                               Foreground="{StaticResource Text3Brush}" />
+                    <TextBlock Grid.Row="2" Grid.Column="0" Text="Gateway URL" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                    <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding DraftGatewayUrl, Mode=TwoWay}"
+                             PlaceholderText="Dual-write management gateway base URL" FontFamily="{StaticResource MonoFontFamily}" />
+                  </Grid>
+                  <Border Background="{StaticResource WarnBgBrush}" BorderBrush="{StaticResource WarnBrush}"
+                          BorderThickness="1" CornerRadius="8" Padding="12,8">
+                    <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}">
+                      <Run Text="Use a non-MFA service account — ROPC fails under MFA (" /><Run
+                        Text="AADSTS50076" FontFamily="{StaticResource MonoFontFamily}" /><Run
+                        Text="). The password is DPAPI-encrypted at rest." />
+                    </TextBlock>
+                  </Border>
+                  <Grid ColumnDefinitions="130,*,Auto,Auto" ColumnSpacing="8">
+                    <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                      <TextBlock Text="Secret" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
+                      <Border IsVisible="{Binding HasDiSecret}" Background="{StaticResource OkBgBrush}"
+                              CornerRadius="999" Padding="6,1" VerticalAlignment="Center">
+                        <TextBlock Text="set" FontSize="11" Foreground="{StaticResource OkBrush}" />
+                      </Border>
+                    </StackPanel>
+                    <TextBox Grid.Column="1" Text="{Binding DiSecretInput, Mode=TwoWay}" PasswordChar="●"
+                             PlaceholderText="Service-account password" FontFamily="{StaticResource MonoFontFamily}" />
+                    <Button Grid.Column="2" Content="Store" Command="{Binding SaveDiSecretCommand}" />
+                    <Button Grid.Column="3" Content="Clear" Command="{Binding ClearDiSecretCommand}" />
+                  </Grid>
+                </StackPanel>
+
+                <!-- Interactive (portal) sign-in: nothing to configure (client id + gateway captured automatically). -->
+                <StackPanel Spacing="8" IsVisible="{Binding IsInteractive}">
+                  <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}"
+                             Text="Sign-in opens the Microsoft Data Integrator portal in an embedded browser and captures the delegated token AND your regional gateway host automatically — nothing to configure here. Renews silently after the first sign-in. (Windows only.)" />
+                  <StackPanel Orientation="Horizontal" Spacing="10">
+                    <Button Content="Sign in &amp; test gateway" Command="{Binding TestGatewayCommand}"
+                            Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}" />
+                    <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingGateway}" Width="90" Height="4"
+                                 VerticalAlignment="Center" />
+                  </StackPanel>
+                </StackPanel>
+
+                <TextBlock Text="{Binding DiStatus}" FontSize="12" Foreground="{StaticResource Text2Brush}"
+                           FontFamily="{StaticResource MonoFontFamily}"
+                           IsVisible="{Binding DiStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
               </StackPanel>
-
-              <TextBlock Text="{Binding DiStatus}" FontSize="12" Foreground="{StaticResource Text2Brush}"
-                         IsVisible="{Binding DiStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
-            </StackPanel>
-          </TabItem>
-        </TabControl>
-
-        <TextBlock Text="{Binding Status}" FontSize="12" Foreground="{StaticResource Text2Brush}" />
-      </StackPanel>
-    </ScrollViewer>
+            </TabItem>
+          </TabControl>
+        </StackPanel>
+      </ScrollViewer>
+    </DockPanel>
   </Grid>
 </UserControl>

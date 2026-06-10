@@ -48,7 +48,8 @@ public sealed class CoreProfileStore : IProfileStore
             var dvAuthMode = await profiles.GetSettingAsync(DataverseAuthModeKey(env.Id), ct).ConfigureAwait(false);
             var foClientId = await profiles.GetSettingAsync(FoClientIdKey(env.Id), ct).ConfigureAwait(false);
             var dvClientId = await profiles.GetSettingAsync(DataverseClientIdKey(env.Id), ct).ConfigureAwait(false);
-            cache.Add(Map(env, dataverse?.BaseUrl, sp, dvSp, diClientId, diMode, gatewayUrl, foAuthMode, dvAuthMode, foClientId, dvClientId));
+            var envType = await profiles.GetSettingAsync(EnvironmentTypeKey(env.Id), ct).ConfigureAwait(false);
+            cache.Add(Map(env, dataverse?.BaseUrl, sp, dvSp, diClientId, diMode, gatewayUrl, foAuthMode, dvAuthMode, foClientId, dvClientId, envType));
         }
 
         var activeId = await profiles.GetDefaultEnvironmentIdAsync(ct).ConfigureAwait(false);
@@ -110,6 +111,9 @@ public sealed class CoreProfileStore : IProfileStore
         SetOrClearSetting(FoAuthModeKey(profile.Id), profile.AuthMode.ToString());
         SetOrClearSetting(DataverseAuthModeKey(profile.Id), profile.DataverseAuthMode.ToString());
 
+        // Environment type (Production / Non-production). Persist the normalised bucket from the profile.
+        SetOrClearSetting(EnvironmentTypeKey(profile.Id), profile.Tier);
+
         var index = _cache.FindIndex(p => p.Id == profile.Id);
         if (index >= 0)
         {
@@ -139,6 +143,7 @@ public sealed class CoreProfileStore : IProfileStore
         RunBlocking(() => _profiles.DeleteSettingAsync(DataverseAuthModeKey(id)));
         RunBlocking(() => _profiles.DeleteSettingAsync(FoClientIdKey(id)));
         RunBlocking(() => _profiles.DeleteSettingAsync(DataverseClientIdKey(id)));
+        RunBlocking(() => _profiles.DeleteSettingAsync(EnvironmentTypeKey(id)));
 
         RunBlocking(() => _profiles.DeleteEnvironmentAsync(id));
         _cache.RemoveAll(p => p.Id == id);
@@ -227,7 +232,7 @@ public sealed class CoreProfileStore : IProfileStore
 
     private static EnvProfile Map(FoEnvironment env, string? dataverseUrl, ServicePrincipal? sp, ServicePrincipal? dataverseSp,
         string? diClientId, string? diMode, string? gatewayUrl, string? foAuthMode, string? dataverseAuthMode,
-        string? foClientId, string? dataverseClientId)
+        string? foClientId, string? dataverseClientId, string? environmentType)
     {
         var foMode = ResolveAuthMode(foAuthMode, sp);
         var dvMode = ResolveAuthMode(dataverseAuthMode, dataverseSp);
@@ -237,7 +242,9 @@ public sealed class CoreProfileStore : IProfileStore
             env.BaseUrl,
             env.TenantId,
             env.DefaultCompany ?? string.Empty,
-            Tier: string.Empty,
+            // The stored type drives the "Environment type" dropdown + subtitle; a blank/legacy value
+            // normalises to Non-production in EnvProfile.
+            Tier: environmentType ?? string.Empty,
             Status: EnvStatus.Disconnected, // a connection test sets the live status (later wiring)
             LatencyMs: null,
             DataverseUrl: string.IsNullOrWhiteSpace(dataverseUrl) ? null : dataverseUrl,
@@ -282,6 +289,10 @@ public sealed class CoreProfileStore : IProfileStore
     private static string FoClientIdKey(string envId) => $"fo.clientId:{envId}";
 
     private static string DataverseClientIdKey(string envId) => $"dv.clientId:{envId}";
+
+    // Environment type (Production / Non-production) lives in Settings — FoEnvironment has no such
+    // column and the WPF app ignores this key.
+    private static string EnvironmentTypeKey(string envId) => $"env.type:{envId}";
 
     private static AuthMode ToCoreAuthMode(FoAuthMode mode) =>
         mode == FoAuthMode.Certificate ? AuthMode.Certificate : AuthMode.ClientSecret;

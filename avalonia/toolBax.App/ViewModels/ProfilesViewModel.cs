@@ -33,6 +33,8 @@ public partial class ProfilesViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsSelectedActive))]
+    [NotifyPropertyChangedFor(nameof(SetActiveLabel))]
+    [NotifyPropertyChangedFor(nameof(CanSetActive))]
     [NotifyPropertyChangedFor(nameof(HasSecret))]
     [NotifyPropertyChangedFor(nameof(HasDataverseSecret))]
     private EnvProfile? _selected;
@@ -43,6 +45,8 @@ public partial class ProfilesViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsSelectedActive))]
+    [NotifyPropertyChangedFor(nameof(SetActiveLabel))]
+    [NotifyPropertyChangedFor(nameof(CanSetActive))]
     private string? _activeId;
 
     [ObservableProperty]
@@ -70,8 +74,13 @@ public partial class ProfilesViewModel : ObservableObject
     [ObservableProperty]
     private string _draftLegal = string.Empty;
 
+    /// <summary>Environment type — Production / Non-production — backed by the free-text <c>Tier</c> field
+    /// (item (b) of the redesign; the old free-text "Tier" box became this two-option dropdown).</summary>
     [ObservableProperty]
-    private string _draftTier = string.Empty;
+    private string _draftEnvironmentType = EnvProfile.NonProductionType;
+
+    /// <summary>The fixed options for the "Environment type" dropdown.</summary>
+    public string[] EnvironmentTypes { get; } = { EnvProfile.ProductionType, EnvProfile.NonProductionType };
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(DataverseWebApi))]
@@ -163,6 +172,7 @@ public partial class ProfilesViewModel : ObservableObject
         _auth = auth ?? new FakeAuthService();
         _gatewayTester = gatewayTester ?? new FakeDualWriteGatewayTester();
         Profiles = new ObservableCollection<EnvProfile>(store.GetAll());
+        Profiles.CollectionChanged += (_, _) => OnPropertyChanged(nameof(CanDeleteProfile));
         _activeId = store.ActiveId;
         _selected = Profiles.FirstOrDefault(p => p.Id == _activeId) ?? Profiles.FirstOrDefault();
         LoadDrafts(_selected);
@@ -211,7 +221,7 @@ public partial class ProfilesViewModel : ObservableObject
         DraftUrl = profile?.Url ?? string.Empty;
         DraftTenant = profile?.Tenant ?? string.Empty;
         DraftLegal = profile?.Legal ?? string.Empty;
-        DraftTier = profile?.Tier ?? string.Empty;
+        DraftEnvironmentType = EnvProfile.NormalizeEnvironmentType(profile?.Tier);
         DraftDataverseUrl = profile?.DataverseUrl ?? string.Empty;
         DraftDataverseClientId = profile?.DataverseClientId ?? string.Empty;
         DraftDataverseAuthMode = profile?.DataverseAuthMode ?? FoAuthMode.Interactive;
@@ -240,6 +250,15 @@ public partial class ProfilesViewModel : ObservableObject
                 p.Legal.Contains(Search, StringComparison.OrdinalIgnoreCase));
 
     public bool IsSelectedActive => Selected is not null && Selected.Id == ActiveId;
+
+    /// <summary>Header "Set active" button label — reads "Active" once this is the active environment.</summary>
+    public string SetActiveLabel => IsSelectedActive ? "Active" : "Set active";
+
+    /// <summary>The header "Set active" button is disabled when the selection is already active.</summary>
+    public bool CanSetActive => Selected is not null && !IsSelectedActive;
+
+    /// <summary>Delete is disabled when only one environment remains (always keep at least one).</summary>
+    public bool CanDeleteProfile => Profiles.Count > 1;
 
     /// <summary>Whether the selected environment has a client secret stored (Auth tab).</summary>
     public bool HasSecret => Selected is not null && _secrets.HasSecret(Selected.Id);
@@ -550,7 +569,7 @@ public partial class ProfilesViewModel : ObservableObject
             Url = DraftUrl,
             Tenant = DraftTenant,
             Legal = DraftLegal,
-            Tier = DraftTier,
+            Tier = DraftEnvironmentType,
             DataverseUrl = string.IsNullOrWhiteSpace(DraftDataverseUrl) ? null : DraftDataverseUrl,
             DataverseClientId = string.IsNullOrWhiteSpace(DraftDataverseClientId) ? null : DraftDataverseClientId,
             DataverseAuthMode = DraftDataverseAuthMode,
