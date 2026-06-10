@@ -27,7 +27,8 @@
         <TextBlock Text="⚠" Foreground="{StaticResource WarnBrush}" VerticalAlignment="Center" />
         <TextBlock VerticalAlignment="Center" TextWrapping="Wrap">
           <Run Text="Live environment." FontWeight="SemiBold" Foreground="{StaticResource Text0Brush}" />
-          <Run Text="{Binding ConnectionName}" Foreground="{StaticResource Text1Brush}" />
+          <Run Text="{Binding ConnectionName}" Foreground="{StaticResource AccentBrush}" />
+          <Run Text="— every action is confirmed before it runs." Foreground="{StaticResource Text1Brush}" />
         </TextBlock>
       </StackPanel>
     </Border>

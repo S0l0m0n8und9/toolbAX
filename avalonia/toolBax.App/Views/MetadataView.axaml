@@ -25,8 +25,14 @@
               <StackPanel Spacing="1" Margin="0,2">
                 <TextBlock Text="{Binding Name}" FontSize="13"
                            FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text0Brush}" />
-                <TextBlock FontSize="11" Foreground="{StaticResource Text3Brush}"
-                           Text="{Binding FieldCount, StringFormat='{}{0} props'}" />
+                <TextBlock FontSize="11" Foreground="{StaticResource Text3Brush}">
+                  <TextBlock.Text>
+                    <MultiBinding StringFormat="{}{0} props · {1}">
+                      <Binding Path="FieldCount" />
+                      <Binding Path="Module" />
+                    </MultiBinding>
+                  </TextBlock.Text>
+                </TextBlock>
               </StackPanel>
             </DataTemplate>
           </ListBox.ItemTemplate>
@@ -41,11 +47,23 @@
       <StackPanel Grid.Row="0" Spacing="4" Margin="0,0,0,12">
         <TextBlock FontSize="11" Foreground="{StaticResource Text3Brush}"
                    Text="{Binding Selected.Module, StringFormat='ENTITY · {0}'}" />
-        <TextBlock x:Name="DetailTitle" Text="{Binding Selected.Name}"
-                   FontSize="24" FontWeight="SemiBold"
-                   FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text0Brush}" />
-        <TextBlock FontSize="12" Foreground="{StaticResource Text2Brush}"
-                   Text="{Binding Selected.Pk, StringFormat='pk: {0}'}" />
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <TextBlock x:Name="DetailTitle" Text="{Binding Selected.Name}"
+                     FontSize="24" FontWeight="SemiBold"
+                     FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text0Brush}" />
+          <Border IsVisible="{Binding Selected.CompanyAware}" VerticalAlignment="Center"
+                  Background="{StaticResource Layer3Brush}" CornerRadius="999" Padding="8,2">
+            <TextBlock Text="company-aware" FontSize="11" Foreground="{StaticResource Text2Brush}" />
+          </Border>
+        </StackPanel>
+        <TextBlock FontSize="12" Foreground="{StaticResource Text2Brush}">
+          <TextBlock.Text>
+            <MultiBinding StringFormat="{}pk: {0} · {1} properties">
+              <Binding Path="Selected.Pk" />
+              <Binding Path="Selected.FieldCount" />
+            </MultiBinding>
+          </TextBlock.Text>
+        </TextBlock>
       </StackPanel>
 
       <!-- Property search (when cached) -->
@@ -61,7 +79,16 @@
         <DataGrid.Columns>
           <DataGridTextColumn Header="Property" Binding="{Binding Name}" Width="2*" />
           <DataGridTextColumn Header="Type" Binding="{Binding TypeDisplay}" Width="*" />
-          <DataGridTextColumn Header="Key" Binding="{Binding IsKey}" Width="Auto" />
+          <DataGridTemplateColumn Header="Key" Width="Auto">
+            <DataGridTemplateColumn.CellTemplate>
+              <DataTemplate x:DataType="models:EntityField">
+                <Border IsVisible="{Binding IsKey}" Background="{StaticResource WarnBgBrush}" CornerRadius="999"
+                        Padding="6,1" Margin="4,0" HorizontalAlignment="Left" VerticalAlignment="Center">
+                  <TextBlock Text="key" FontSize="11" Foreground="{StaticResource WarnBrush}" />
+                </Border>
+              </DataTemplate>
+            </DataGridTemplateColumn.CellTemplate>
+          </DataGridTemplateColumn>
           <DataGridTextColumn Header="Mandatory" Binding="{Binding Mandatory}" Width="Auto" />
           <DataGridTextColumn Header="Nullable" Binding="{Binding Nullable}" Width="Auto" />
           <DataGridTextColumn Header="Max Len" Binding="{Binding MaxLengthDisplay}" Width="Auto" />
