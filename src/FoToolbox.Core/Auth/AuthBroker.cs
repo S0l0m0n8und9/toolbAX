@@ -1,5 +1,6 @@
 using FoToolbox.Core.Models;
 using FoToolbox.Core.Profiles;
+using Microsoft.Identity.Client;
 using System;
 using System.Runtime.Versioning;
 using System.Threading;
@@ -17,12 +18,17 @@ public sealed record AuthTokenRequest(
     ServicePrincipal Principal,
     string ServiceName = "service",
     string? PendingClientSecret = null,
-    string? PendingBearerToken = null);
+    string? PendingBearerToken = null)
+{
+    /// <summary>Synthesized record printing would leak Pending* secrets; print only safe members.</summary>
+    public override string ToString() => $"AuthTokenRequest({ServiceName}, {Principal.AuthMode}, {ResourceBaseUrl})";
+}
 
 /// <summary>
 /// The single token-acquisition pipeline. Routes by <see cref="ServicePrincipal.AuthMode"/>:
-/// Interactive → delegated MSAL (silent-first, browser fallback); ClientSecret/Certificate →
-/// client-credentials via <see cref="AuthService"/>; BearerToken → vault/env-var resolution.
+/// Interactive → delegated MSAL (silent-first, browser fallback);
+/// ClientSecret → client-credentials via <see cref="AuthService"/> (Certificate mode is accepted
+/// but not yet implemented and fails with an actionable error); BearerToken → vault/env-var resolution.
 /// Both the live request path and "Test connection" must call this so they can never diverge.
 /// </summary>
 [SupportedOSPlatform("windows")]
@@ -53,7 +59,8 @@ public sealed class AuthBroker
         {
             AuthMode.Interactive => AcquireInteractiveAsync(request, cancellationToken),
             AuthMode.BearerToken => ResolveBearerAsync(request, cancellationToken),
-            _ => AcquireClientCredentialAsync(request, cancellationToken),
+            AuthMode.ClientSecret or AuthMode.Certificate => AcquireClientCredentialAsync(request, cancellationToken),
+            _ => throw new InvalidOperationException($"Unsupported auth mode '{request.Principal.AuthMode}'."),
         };
 
     private async Task<string> AcquireInteractiveAsync(AuthTokenRequest request, CancellationToken cancellationToken)
@@ -67,12 +74,28 @@ public sealed class AuthBroker
         // Serialize interactive acquisitions: concurrent requests (e.g. several plugins loading at
         // once) must not each open a browser. The first acquisition populates the MSAL cache; the
         // rest then complete silently.
+        // Liveness contract: this gate releases only when the in-flight interactive sign-in completes
+        // or the cancellation token fires. Callers must pass a cancellable token (e.g. an HttpClient
+        // timeout CancellationToken) so that a queued waiter cannot block indefinitely behind a
+        // stalled browser sign-in.
         await _interactiveGate.WaitAsync(cancellationToken);
         try
         {
-            var result = await _interactive.AcquireTokenAsync(
-                new InteractiveTokenRequest(request.Principal.ClientId, request.TenantId, request.ResourceBaseUrl, _authorityBase),
-                cancellationToken);
+            InteractiveTokenResult result;
+            try
+            {
+                result = await _interactive.AcquireTokenAsync(
+                    new InteractiveTokenRequest(request.Principal.ClientId, request.TenantId, request.ResourceBaseUrl, _authorityBase),
+                    cancellationToken);
+            }
+            catch (MsalException ex)
+            {
+                var message = InteractiveSignInError.Describe(ex) ?? ex.Message;
+                var recovery = new AuthRecoveryException(request.ServiceName, message, requiresInteractiveReauth: true, ex);
+                _interactiveFallback?.Invoke(recovery);
+                throw recovery;
+            }
+            // TenantMismatchException is not MsalException — it propagates as-is.
             AuthService.ValidateTokenTenant(result.AccessToken, request.TenantId);
             return result.AccessToken;
         }
@@ -111,6 +134,13 @@ public sealed class AuthBroker
         if (!string.IsNullOrWhiteSpace(fromEnv))
         {
             return new ClientSecretCredential(fromEnv);
+        }
+
+        if (sp.AuthMode == AuthMode.Certificate)
+        {
+            throw new InvalidOperationException(
+                "Certificate authentication is not yet supported by the unified auth pipeline. " +
+                "Configure a client secret or switch the profile to Interactive.");
         }
 
         throw new InvalidOperationException(

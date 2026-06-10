@@ -1,6 +1,7 @@
 using FoToolbox.Core.Auth;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.Profiles;
+using Microsoft.Identity.Client;
 using System;
 using System.IO;
 using System.Threading;
@@ -211,5 +212,83 @@ public class AuthBrokerTests
         {
             Environment.SetEnvironmentVariable("FOTB_CLIENT_SECRET", null);
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Fix 1: AuthTokenRequest.ToString() must not leak secrets
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    [Trait("Category", "Auth")]
+    public void AuthTokenRequest_ToString_Does_Not_Leak_Pending_Secrets()
+    {
+        var sp = new ServicePrincipal("sp1", "env1", "client-id", AuthMode.ClientSecret, null, null, AuthTarget.Fo);
+        var request = new AuthTokenRequest(
+            ResourceBaseUrl: "https://contoso.operations.dynamics.com",
+            TenantId: "tenant-1",
+            Principal: sp,
+            ServiceName: "MySvc",
+            PendingClientSecret: "s3cret-XYZ",
+            PendingBearerToken: "tok-ABC");
+
+        var text = request.ToString();
+
+        Assert.DoesNotContain("s3cret-XYZ", text);
+        Assert.DoesNotContain("tok-ABC", text);
+        Assert.Contains("https://contoso.operations.dynamics.com", text);
+    }
+
+    // -----------------------------------------------------------------------
+    // Fix 2: Certificate mode → honest actionable error
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    [Trait("Category", "Auth")]
+    public async Task Certificate_Mode_Without_Secret_Throws_Certificate_Specific_Message()
+    {
+        var vault = await NewVaultAsync();
+        var broker = new AuthBroker(vault);
+        var sp = new ServicePrincipal("sp1", "env1", "client-id", AuthMode.Certificate, null, "thumb-ABC", AuthTarget.Fo);
+        var request = new AuthTokenRequest("https://contoso.operations.dynamics.com", "tenant-1", sp);
+
+        Environment.SetEnvironmentVariable("FOTB_CLIENT_SECRET", null);
+        try
+        {
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => broker.AcquireTokenAsync(request));
+            Assert.Contains("Certificate", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("FOTB_CLIENT_SECRET", null);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Fix 4: MSAL errors from interactive arm wrapped as AuthRecoveryException
+    // -----------------------------------------------------------------------
+
+    private sealed class ThrowingInteractiveProvider : IInteractiveTokenProvider
+    {
+        private readonly Exception _toThrow;
+        public ThrowingInteractiveProvider(Exception toThrow) => _toThrow = toThrow;
+        public Task<InteractiveTokenResult> AcquireTokenAsync(InteractiveTokenRequest request, CancellationToken cancellationToken = default)
+            => throw _toThrow;
+    }
+
+    [Fact]
+    [Trait("Category", "Auth")]
+    public async Task Interactive_MsalClientException_Wraps_As_AuthRecoveryException()
+    {
+        var msalEx = new MsalClientException("authentication_canceled", "User canceled authentication.");
+        var fake = new ThrowingInteractiveProvider(msalEx);
+
+        var vault = await NewVaultAsync();
+        var broker = new AuthBroker(vault, interactiveProvider: fake);
+        var sp = new ServicePrincipal("sp1", "env1", "public-client-id", AuthMode.Interactive, null, null, AuthTarget.Fo);
+        var request = new AuthTokenRequest("https://contoso.operations.dynamics.com", "tenant-1", sp, "MySvc");
+
+        var ex = await Assert.ThrowsAsync<AuthRecoveryException>(() => broker.AcquireTokenAsync(request));
+        Assert.True(ex.RequiresInteractiveReauth);
+        Assert.IsType<MsalClientException>(ex.InnerException);
     }
 }
