@@ -1,7 +1,9 @@
+using FoToolbox.Core.Auth;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.Profiles;
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -47,5 +49,167 @@ public class AuthBrokerTests
         Assert.Same(app1, app2);
         Assert.NotSame(app1, app3);
         Assert.NotSame(app1, app4);
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 5: AuthBroker tests
+    // -----------------------------------------------------------------------
+
+    private static string CreateJwt(DateTimeOffset expiresUtc, string? tenantId = null)
+    {
+        static string B64Url(string s) => Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(s))
+            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
+        var header = B64Url("{\"alg\":\"none\"}");
+        var tid = tenantId is null ? "" : $",\"tid\":\"{tenantId}\"";
+        var payload = B64Url($"{{\"exp\":{expiresUtc.ToUnixTimeSeconds()}{tid}}}");
+        return $"{header}.{payload}.sig";
+    }
+
+    private static async Task<SecretVaultService> NewVaultAsync()
+    {
+        var db = Path.GetTempFileName();
+        var store = new ProfileStore(db);
+        await store.EnsureCreatedAsync();
+        return new SecretVaultService(store.ConnectionString);
+    }
+
+    private sealed class FakeInteractiveProvider : IInteractiveTokenProvider
+    {
+        public InteractiveTokenRequest? LastRequest;
+        public string Token = "";
+        public Task<InteractiveTokenResult> AcquireTokenAsync(InteractiveTokenRequest request, CancellationToken cancellationToken = default)
+        {
+            LastRequest = request;
+            return Task.FromResult(new InteractiveTokenResult(Token, DateTimeOffset.UtcNow.AddHours(1)));
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Auth")]
+    public async Task Interactive_Mode_Routes_To_Interactive_Provider_With_Sp_ClientId()
+    {
+        var fake = new FakeInteractiveProvider();
+        var freshToken = CreateJwt(DateTimeOffset.UtcNow.AddHours(1), "tenant-1");
+        fake.Token = freshToken;
+
+        var vault = await NewVaultAsync();
+        var broker = new AuthBroker(vault, interactiveProvider: fake);
+        var sp = new ServicePrincipal("sp1", "env1", "public-client-id", AuthMode.Interactive, null, null, AuthTarget.Fo);
+        var request = new AuthTokenRequest("https://contoso.operations.dynamics.com", "tenant-1", sp);
+
+        var token = await broker.AcquireTokenAsync(request);
+
+        Assert.Equal(freshToken, token);
+        Assert.NotNull(fake.LastRequest);
+        Assert.Equal("public-client-id", fake.LastRequest!.ClientId);
+        Assert.Equal("tenant-1", fake.LastRequest.TenantId);
+        Assert.Equal("https://contoso.operations.dynamics.com", fake.LastRequest.ResourceBaseUrl);
+    }
+
+    [Fact]
+    [Trait("Category", "Auth")]
+    public async Task Interactive_Mode_Rejects_Cross_Tenant_Token()
+    {
+        var fake = new FakeInteractiveProvider();
+        // Token contains tid "other-tenant" but request expects "tenant-1"
+        fake.Token = CreateJwt(DateTimeOffset.UtcNow.AddHours(1), "other-tenant");
+
+        var vault = await NewVaultAsync();
+        var broker = new AuthBroker(vault, interactiveProvider: fake);
+        var sp = new ServicePrincipal("sp1", "env1", "public-client-id", AuthMode.Interactive, null, null, AuthTarget.Fo);
+        var request = new AuthTokenRequest("https://contoso.operations.dynamics.com", "tenant-1", sp);
+
+        await Assert.ThrowsAsync<TenantMismatchException>(() => broker.AcquireTokenAsync(request));
+    }
+
+    [Fact]
+    [Trait("Category", "Auth")]
+    public async Task Interactive_Mode_Without_ClientId_Throws_Actionable_Message()
+    {
+        var fake = new FakeInteractiveProvider();
+        var vault = await NewVaultAsync();
+        var broker = new AuthBroker(vault, interactiveProvider: fake);
+        var sp = new ServicePrincipal("sp1", "env1", "", AuthMode.Interactive, null, null, AuthTarget.Fo);
+        var request = new AuthTokenRequest("https://contoso.operations.dynamics.com", "tenant-1", sp);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => broker.AcquireTokenAsync(request));
+        Assert.Contains("client ID", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Profiles", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    [Trait("Category", "Auth")]
+    public async Task BearerToken_Mode_Resolves_Pending_Token_First()
+    {
+        var vault = await NewVaultAsync();
+        var broker = new AuthBroker(vault);
+        var sp = new ServicePrincipal("sp1", "env1", "", AuthMode.BearerToken, null, null, AuthTarget.Fo);
+        var fresh = CreateJwt(DateTimeOffset.UtcNow.AddHours(1));
+        // Pass as "Bearer <token>" to exercise normalization
+        var request = new AuthTokenRequest("https://contoso.operations.dynamics.com", "tenant-1", sp,
+            PendingBearerToken: $"Bearer {fresh}");
+
+        var token = await broker.AcquireTokenAsync(request);
+
+        // Prefix must be stripped
+        Assert.Equal(fresh, token);
+    }
+
+    [Fact]
+    [Trait("Category", "Auth")]
+    public async Task BearerToken_Mode_Reads_Vault_Then_EnvVar_And_Rejects_Expired()
+    {
+        var vault = await NewVaultAsync();
+        var expiredToken = CreateJwt(DateTimeOffset.UtcNow.AddHours(-1));
+        var secretRef = await vault.StoreSecretAsync("bearer", new BearerTokenPayload { AccessToken = expiredToken });
+
+        var broker = new AuthBroker(vault);
+        var sp = new ServicePrincipal("sp1", "env1", "", AuthMode.BearerToken, secretRef, null, AuthTarget.Fo);
+        var request = new AuthTokenRequest("https://contoso.operations.dynamics.com", "tenant-1", sp);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => broker.AcquireTokenAsync(request));
+        Assert.Contains("expired", ex.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    [Trait("Category", "Auth")]
+    public async Task BearerToken_Mode_Falls_Back_To_Target_Specific_EnvVar()
+    {
+        var vault = await NewVaultAsync();
+        var broker = new AuthBroker(vault);
+        var sp = new ServicePrincipal("sp1", "env1", "", AuthMode.BearerToken, null, null, AuthTarget.Dataverse);
+        var fresh = CreateJwt(DateTimeOffset.UtcNow.AddHours(1));
+        Environment.SetEnvironmentVariable("FOTB_CE_BEARER_TOKEN", fresh);
+        try
+        {
+            var request = new AuthTokenRequest("https://contoso.crm.dynamics.com", "tenant-1", sp);
+            var token = await broker.AcquireTokenAsync(request);
+            Assert.Equal(fresh, token);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("FOTB_CE_BEARER_TOKEN", null);
+        }
+    }
+
+    [Fact]
+    [Trait("Category", "Auth")]
+    public async Task ClientSecret_Mode_Without_Any_Credential_Throws_Actionable_Message()
+    {
+        var vault = await NewVaultAsync();
+        var broker = new AuthBroker(vault);
+        var sp = new ServicePrincipal("sp1", "env1", "client-id", AuthMode.ClientSecret, null, null, AuthTarget.Fo);
+        var request = new AuthTokenRequest("https://contoso.operations.dynamics.com", "tenant-1", sp);
+
+        Environment.SetEnvironmentVariable("FOTB_CLIENT_SECRET", null);
+        try
+        {
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => broker.AcquireTokenAsync(request));
+            Assert.Contains("FOTB_CLIENT_SECRET", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("FOTB_CLIENT_SECRET", null);
+        }
     }
 }
