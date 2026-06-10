@@ -108,5 +108,15 @@ public sealed class MsalTokenProvider : ITokenProvider
 }
 
 public abstract record ClientCredential;
-public sealed record ClientSecretCredential(string Secret) : ClientCredential;
-public sealed record ClientCertificateCredential(System.Security.Cryptography.X509Certificates.X509Certificate2 Certificate) : ClientCredential;
+
+public sealed record ClientSecretCredential(string Secret) : ClientCredential
+{
+    /// <summary>Synthesized record printing would leak the raw secret.</summary>
+    public override string ToString() => "ClientSecretCredential(redacted)";
+}
+
+public sealed record ClientCertificateCredential(System.Security.Cryptography.X509Certificates.X509Certificate2 Certificate) : ClientCredential
+{
+    /// <summary>Print only the thumbprint, never the certificate contents.</summary>
+    public override string ToString() => $"ClientCertificateCredential({Certificate.Thumbprint})";
+}

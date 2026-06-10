@@ -264,6 +264,42 @@ public class AuthBrokerTests
     }
 
     // -----------------------------------------------------------------------
+    // Fix 3: ClientSecretCredential.ToString() must not leak the raw secret
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    [Trait("Category", "Auth")]
+    public void ClientSecretCredential_ToString_Does_Not_Contain_Raw_Secret()
+    {
+        var cred = new FoToolbox.Core.Auth.ClientSecretCredential("s3cret-XYZ");
+
+        var text = cred.ToString();
+
+        Assert.DoesNotContain("s3cret-XYZ", text);
+    }
+
+    [Fact]
+    [Trait("Category", "Auth")]
+    public void ClientCertificateCredential_ToString_Prints_Thumbprint_Only()
+    {
+        using var rsa = System.Security.Cryptography.RSA.Create(2048);
+        var request = new System.Security.Cryptography.X509Certificates.CertificateRequest(
+            "CN=Test",
+            rsa,
+            System.Security.Cryptography.HashAlgorithmName.SHA256,
+            System.Security.Cryptography.RSASignaturePadding.Pkcs1);
+        using var cert = request.CreateSelfSigned(DateTimeOffset.UtcNow, DateTimeOffset.UtcNow.AddYears(1));
+        var cred = new FoToolbox.Core.Auth.ClientCertificateCredential(cert);
+
+        var text = cred.ToString();
+
+        // Must contain the thumbprint (available from the cert)
+        Assert.Contains(cert.Thumbprint, text, StringComparison.OrdinalIgnoreCase);
+        // Must not spill private key material or the full cert subject/raw bytes
+        Assert.DoesNotContain("BEGIN CERTIFICATE", text, StringComparison.OrdinalIgnoreCase);
+    }
+
+    // -----------------------------------------------------------------------
     // Fix 4: MSAL errors from interactive arm wrapped as AuthRecoveryException
     // -----------------------------------------------------------------------
 

@@ -499,6 +499,11 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
                 Status = $"FO connection failed: {detail}\n{body}";
             }
         }
+        catch (OperationCanceledException)
+        {
+            detail = "Sign-in timed out after 5 minutes.";
+            Status = $"FO connection test failed: {detail}";
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "FO connection test failed for {Env}", env.Name);
@@ -556,6 +561,11 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
                 detail = $"{(int)resp.StatusCode} {resp.ReasonPhrase}";
                 Status = $"CE connection failed: {detail}\n{body}";
             }
+        }
+        catch (OperationCanceledException)
+        {
+            detail = "Sign-in timed out after 5 minutes.";
+            Status = $"CE connection test failed: {detail}";
         }
         catch (Exception ex)
         {
@@ -700,10 +710,17 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         {
             Status = $"Opening Microsoft sign-in for {Side(target)} in your browser...";
             var resourceBaseUrl = NormalizeResourceBaseUrl(target, baseUrl);
+            // 5-minute timeout honours the broker's liveness contract: an abandoned browser window
+            // must not hold the interactive gate indefinitely and wedge the Sign-in button.
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
             var result = await InteractiveTokenProvider.AcquireTokenAsync(
                 new InteractiveTokenRequest(clientId, tenantId, resourceBaseUrl),
-                CancellationToken.None);
+                cts.Token);
             await StoreAcquiredBearerTokenAsync(target, env, ceEnv, result.AccessToken);
+        }
+        catch (OperationCanceledException)
+        {
+            Status = $"{Side(target)} sign-in timed out after 5 minutes.";
         }
         catch (Exception ex)
         {
@@ -797,7 +814,10 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             PendingClientSecret: pendingClientSecret,
             PendingBearerToken: pendingBearerToken);
 
-        return await Broker.AcquireTokenAsync(request, CancellationToken.None);
+        // 5-minute timeout honours the broker's liveness contract: an abandoned browser sign-in
+        // during "Test connection" must not hold the interactive gate forever and wedge the Test buttons.
+        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        return await Broker.AcquireTokenAsync(request, cts.Token);
     }
 
     private static async Task<string> GetAzCliAccessTokenAsync(string tenantId, string scope, CancellationToken cancellationToken)

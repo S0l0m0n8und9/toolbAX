@@ -30,9 +30,6 @@ public sealed class CoreAuthService : IAuthService
     private readonly IInteractiveTokenProvider _interactive;
     private readonly AuthBroker _broker;
 
-    private IInteractiveTokenProvider Interactive => _interactive;
-    private AuthBroker Broker => _broker;
-
     public CoreAuthService(ProfileService profiles, SecretVaultService vault,
         string authorityBase = "https://login.microsoftonline.com")
     {
@@ -68,7 +65,7 @@ public sealed class CoreAuthService : IAuthService
 
             var interactiveSp = new ServicePrincipal(
                 $"interactive-fo-{env.Id}", env.Id, env.ClientId!, AuthMode.Interactive, null, null, AuthTarget.Fo);
-            return await Broker.AcquireTokenAsync(
+            return await _broker.AcquireTokenAsync(
                 new AuthTokenRequest(resourceBase, env.Tenant, interactiveSp, "F&O"), ct).ConfigureAwait(false);
         }
 
@@ -81,7 +78,7 @@ public sealed class CoreAuthService : IAuthService
             throw new InvalidOperationException("No client secret is stored for this environment.");
         }
 
-        return await Broker.AcquireTokenAsync(
+        return await _broker.AcquireTokenAsync(
             new AuthTokenRequest(resourceBase, env.Tenant, sp, "F&O"), ct).ConfigureAwait(false);
     }
 
@@ -109,7 +106,7 @@ public sealed class CoreAuthService : IAuthService
 
             var interactiveSp = new ServicePrincipal(
                 $"interactive-dv-{env.Id}", env.Id, env.DataverseClientId!, AuthMode.Interactive, null, null, AuthTarget.Dataverse);
-            return await Broker.AcquireTokenAsync(
+            return await _broker.AcquireTokenAsync(
                 new AuthTokenRequest(resourceBase, env.Tenant, interactiveSp, "Dataverse"), ct).ConfigureAwait(false);
         }
 
@@ -124,7 +121,7 @@ public sealed class CoreAuthService : IAuthService
 
         // The Dataverse token is scoped to the (normalized) Dataverse resource, not F&O; the tenant is
         // shared with the F&O environment. The broker resolves THIS SP's secret from the vault.
-        return await Broker.AcquireTokenAsync(
+        return await _broker.AcquireTokenAsync(
             new AuthTokenRequest(resourceBase, env.Tenant, sp, "Dataverse"), ct).ConfigureAwait(false);
     }
 
@@ -149,7 +146,7 @@ public sealed class CoreAuthService : IAuthService
 
         // Dual-write is always interactive; forward the injected authority so sovereign/GCC endpoints
         // apply here too. Uses the shared Interactive provider to share the MSAL token cache.
-        var result = await Interactive
+        var result = await _interactive
             .AcquireTokenAsync(
                 new InteractiveTokenRequest(clientId, env.Tenant, DualWriteAuthConstants.ResourceBaseUrl, _authorityBase), ct)
             .ConfigureAwait(false);
