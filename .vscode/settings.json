@@ -43,5 +43,6 @@
         "taskState"
     ],
     "ralphCodex.promptBudgetProfile": "claude",
-    "ralphCodex.reasoningEffort": "medium"
+    "ralphCodex.reasoningEffort": "medium",
+    "claudeCode.useTerminal": true
 }
