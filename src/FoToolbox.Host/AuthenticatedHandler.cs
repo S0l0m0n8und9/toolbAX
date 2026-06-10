@@ -21,13 +21,12 @@ internal sealed class AuthenticatedHandler : DelegatingHandler
     private readonly AuthTokenRequest _request;
     private readonly string _serviceName;
 
+    /// <summary>
+    /// Test/standalone convenience only — constructs a private, unshared <see cref="AuthBroker"/> (no shared
+    /// MSAL cache, no reauth-coordinator fallback); production code must pass the shared broker.
+    /// </summary>
     public AuthenticatedHandler(FoEnvironment env, ServicePrincipal sp, SecretVaultService vault, AuthReauthCoordinator? reauthCoordinator = null)
         : this(env, sp, new AuthBroker(vault), reauthCoordinator)
-    {
-    }
-
-    public AuthenticatedHandler(string resourceBaseUrl, string tenantId, ServicePrincipal sp, SecretVaultService vault, AuthReauthCoordinator? reauthCoordinator = null)
-        : this(resourceBaseUrl, tenantId, sp, new AuthBroker(vault), reauthCoordinator)
     {
     }
 

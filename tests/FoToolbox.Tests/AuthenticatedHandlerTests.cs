@@ -3,7 +3,6 @@ using FoToolbox.Core.Models;
 using FoToolbox.Core.Profiles;
 using FoToolbox.Host;
 using System;
-using System.IO;
 using System.Net;
 using System.Net.Http;
 using System.Threading;
@@ -84,8 +83,8 @@ public class AuthenticatedHandlerTests
     {
         var env = new FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com", "contoso-tenant", null);
         var sp = new ServicePrincipal("sp", env.Id, "public-client-id", AuthMode.Interactive, null, null);
-        var fakeToken = CreateJwt(DateTimeOffset.UtcNow.AddHours(1), "contoso-tenant");
-        var vault = await NewVaultAsync();
+        var fakeToken = CreateJwtToken(DateTimeOffset.UtcNow.AddHours(1), "contoso-tenant");
+        var vault = new SecretVaultService($"Data Source={Guid.NewGuid():N};Mode=Memory;Cache=Shared");
         var broker = new AuthBroker(vault, new FakeInteractiveProvider(fakeToken));
 
         string? observedAuthHeader = null;
@@ -99,14 +98,6 @@ public class AuthenticatedHandlerTests
 
         Assert.True(response.IsSuccessStatusCode);
         Assert.Equal($"Bearer {fakeToken}", observedAuthHeader);
-    }
-
-    private static async Task<SecretVaultService> NewVaultAsync()
-    {
-        var db = Path.GetTempFileName();
-        var store = new ProfileStore(db);
-        await store.EnsureCreatedAsync();
-        return new SecretVaultService(store.ConnectionString);
     }
 
     private sealed class FakeInteractiveProvider : IInteractiveTokenProvider
@@ -144,7 +135,7 @@ public class AuthenticatedHandlerTests
         }
     }
 
-    private static string CreateJwtToken(DateTimeOffset expiry)
+    private static string CreateJwtToken(DateTimeOffset expiry, string? tenantId = null)
     {
         static string Encode(string json)
         {
@@ -152,18 +143,9 @@ public class AuthenticatedHandlerTests
             return Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
         }
 
-        var header = Encode("{\"alg\":\"none\",\"typ\":\"JWT\"}");
-        var payload = Encode($"{{\"exp\":{expiry.ToUnixTimeSeconds()}}}");
-        return $"{header}.{payload}.signature";
-    }
-
-    private static string CreateJwt(DateTimeOffset expiry, string? tenantId = null)
-    {
-        static string B64Url(string s) => Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(s))
-            .TrimEnd('=').Replace('+', '-').Replace('/', '_');
-        var header = B64Url("{\"alg\":\"none\"}");
         var tid = tenantId is null ? "" : $",\"tid\":\"{tenantId}\"";
-        var payload = B64Url($"{{\"exp\":{expiry.ToUnixTimeSeconds()}{tid}}}");
-        return $"{header}.{payload}.sig";
+        var header = Encode("{\"alg\":\"none\",\"typ\":\"JWT\"}");
+        var payload = Encode($"{{\"exp\":{expiry.ToUnixTimeSeconds()}{tid}}}");
+        return $"{header}.{payload}.signature";
     }
 }
