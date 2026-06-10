@@ -11,7 +11,6 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -47,6 +46,14 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     /// Defaults to the real MSAL provider; tests substitute a fake.
     /// </summary>
     internal IInteractiveTokenProvider InteractiveTokenProvider { get; set; } = new MsalInteractiveTokenProvider();
+
+    private AuthBroker? _broker;
+    /// <summary>Lazily built so tests that swap <see cref="InteractiveTokenProvider"/> get a broker using their fake.</summary>
+    internal AuthBroker Broker
+    {
+        get => _broker ??= new AuthBroker(_vault, InteractiveTokenProvider);
+        set => _broker = value;
+    }
 
     public ProfileItem? Selected
     {
@@ -461,7 +468,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         try
         {
             Status = "Testing FO connection...";
-            var token = await AcquireTokenForTestAsync(env.BaseUrl, env.TenantId, sp, PendingFoBearerToken, PendingFoClientSecret, "FOTB_BEARER_TOKEN", "FOTB_CLIENT_SECRET", AuthTarget.Fo);
+            var token = await AcquireTokenForTestAsync(env.BaseUrl, env.TenantId, sp, PendingFoBearerToken, PendingFoClientSecret, AuthTarget.Fo);
 
             using var http = new HttpClient();
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -519,7 +526,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         try
         {
             Status = "Testing CE connection...";
-            var token = await AcquireTokenForTestAsync(env.BaseUrl, env.TenantId, sp, PendingCeBearerToken, PendingCeClientSecret, "FOTB_CE_BEARER_TOKEN", "FOTB_CE_CLIENT_SECRET", AuthTarget.Dataverse);
+            var token = await AcquireTokenForTestAsync(env.BaseUrl, env.TenantId, sp, PendingCeBearerToken, PendingCeClientSecret, AuthTarget.Dataverse);
 
             using var http = new HttpClient();
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -697,7 +704,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     /// </summary>
     private async Task StoreAcquiredBearerTokenAsync(AuthTarget target, FoEnvironment env, DataverseEnvironment ceEnv, string rawToken)
     {
-        var normalizedToken = NormalizeBearerToken(rawToken);
+        var normalizedToken = BearerTokenText.Normalize(rawToken);
 
         if (target == AuthTarget.Fo) PendingFoBearerToken = normalizedToken;
         else PendingCeBearerToken = normalizedToken;
@@ -708,7 +715,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             return;
         }
 
-        var tokenStatus = TryGetJwtExpiryUtc(normalizedToken, out var expiryUtc)
+        var tokenStatus = JwtInspector.TryGetExpiryUtc(normalizedToken, out var expiryUtc)
             ? $"{Side(target)} bearer token acquired and saved. Expires {expiryUtc.UtcDateTime:u}."
             : $"{Side(target)} bearer token acquired and saved.";
 
@@ -738,28 +745,25 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         ServicePrincipal sp,
         string? pendingBearerToken,
         string? pendingClientSecret,
-        string bearerTokenEnvVar,
-        string clientSecretEnvVar,
         AuthTarget target)
     {
-        if (sp.AuthMode == AuthMode.BearerToken)
-        {
-            return await ResolveBearerTokenForTestAsync(sp, pendingBearerToken, bearerTokenEnvVar);
-        }
-
-        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(sp.ClientId))
+        if (sp.AuthMode != AuthMode.BearerToken &&
+            sp.AuthMode != AuthMode.Interactive &&
+            (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(sp.ClientId)))
         {
             throw new InvalidOperationException("Tenant ID and Client ID are required to test this auth mode.");
         }
 
-        var authorityBase = "https://login.microsoftonline.com";
-        var credential = await ResolveCredentialForTestAsync(sp, pendingClientSecret, clientSecretEnvVar);
-        var tokenProvider = new MsalTokenProvider(authorityBase, (_, _) => Task.FromResult(credential));
-        var auth = new AuthService(tokenProvider);
-        var resourceBase = target == AuthTarget.Fo
-            ? ResourceUrlNormalizer.NormalizeFoBaseUrl(baseUrl)
-            : ResourceUrlNormalizer.NormalizeDataverseResourceBaseUrl(baseUrl);
-        return await auth.AcquireTokenAsync(resourceBase, tenantId, sp, CancellationToken.None);
+        var resourceBase = NormalizeResourceBaseUrl(target, baseUrl);
+        var request = new AuthTokenRequest(
+            resourceBase,
+            tenantId,
+            sp,
+            ServiceName: target == AuthTarget.Fo ? "Finance and Operations" : "Dataverse",
+            PendingClientSecret: pendingClientSecret,
+            PendingBearerToken: pendingBearerToken);
+
+        return await Broker.AcquireTokenAsync(request, CancellationToken.None);
     }
 
     private static async Task<string> GetAzCliAccessTokenAsync(string tenantId, string scope, CancellationToken cancellationToken)
@@ -888,71 +892,6 @@ try {{
         return text.Substring(0, maxChars) + "...";
     }
 
-    private async Task<string> ResolveBearerTokenForTestAsync(ServicePrincipal sp, string? pendingToken, string envVarName)
-    {
-        if (!string.IsNullOrWhiteSpace(pendingToken))
-        {
-            var normalized = NormalizeBearerToken(pendingToken);
-            if (TryGetJwtExpiryUtc(normalized, out var expiryUtc) && expiryUtc <= DateTimeOffset.UtcNow)
-            {
-                throw new InvalidOperationException($"Bearer token expired at {expiryUtc:u}. Retrieve a fresh token.");
-            }
-            return normalized;
-        }
-
-        if (!string.IsNullOrWhiteSpace(sp.SecretRef))
-        {
-            var payload = await _vault.ReadSecretAsync<BearerTokenPayload>(sp.SecretRef);
-            if (!string.IsNullOrWhiteSpace(payload?.AccessToken))
-            {
-                var normalized = NormalizeBearerToken(payload.AccessToken);
-                if (TryGetJwtExpiryUtc(normalized, out var expiryUtc) && expiryUtc <= DateTimeOffset.UtcNow)
-                {
-                    throw new InvalidOperationException($"Stored bearer token expired at {expiryUtc:u}. Retrieve a fresh token.");
-                }
-                return normalized;
-            }
-        }
-
-        var token = Environment.GetEnvironmentVariable(envVarName);
-        if (!string.IsNullOrWhiteSpace(token))
-        {
-            var normalized = NormalizeBearerToken(token);
-            if (TryGetJwtExpiryUtc(normalized, out var expiryUtc) && expiryUtc <= DateTimeOffset.UtcNow)
-            {
-                throw new InvalidOperationException($"{envVarName} expired at {expiryUtc:u}. Set a fresh token.");
-            }
-            return normalized;
-        }
-
-        throw new InvalidOperationException($"No bearer token found. Paste a token and Save, or set {envVarName}.");
-    }
-
-    private async Task<FoToolbox.Core.Auth.ClientCredential> ResolveCredentialForTestAsync(ServicePrincipal sp, string? pendingClientSecret, string envVarName)
-    {
-        if (!string.IsNullOrWhiteSpace(pendingClientSecret))
-        {
-            return new ClientSecretCredential(pendingClientSecret);
-        }
-
-        if (!string.IsNullOrWhiteSpace(sp.SecretRef))
-        {
-            var payload = await _vault.ReadSecretAsync<ClientSecretPayload>(sp.SecretRef);
-            if (!string.IsNullOrWhiteSpace(payload?.Value))
-            {
-                return new ClientSecretCredential(payload.Value);
-            }
-        }
-
-        var secret = Environment.GetEnvironmentVariable(envVarName);
-        if (!string.IsNullOrWhiteSpace(secret))
-        {
-            return new ClientSecretCredential(secret);
-        }
-
-        throw new InvalidOperationException($"No client secret configured for this profile. Set it in Profiles and Save, or set {envVarName}.");
-    }
-
     private async Task<ServicePrincipal> PersistCredentialsForPrincipalAsync(
         ServicePrincipal principal,
         string? pendingClientSecret,
@@ -989,8 +928,8 @@ try {{
             principal = principal with { CertThumbprint = null };
             if (!string.IsNullOrWhiteSpace(pendingBearerToken))
             {
-                var token = NormalizeBearerToken(pendingBearerToken);
-                var expiresUtc = TryGetJwtExpiryUtc(token, out var expiryUtc) ? expiryUtc.UtcDateTime.ToString("o") : null;
+                var token = BearerTokenText.Normalize(pendingBearerToken);
+                var expiresUtc = JwtInspector.TryGetExpiryUtc(token, out var expiryUtc) ? expiryUtc.UtcDateTime.ToString("o") : null;
                 var secretRef = await _vault.StoreSecretAsync("BearerToken", new BearerTokenPayload { AccessToken = token, ExpiresUtc = expiresUtc });
                 principal = principal with { SecretRef = secretRef };
                 updateSecretRef(secretRef);
@@ -1028,56 +967,6 @@ try {{
                 : "Certificate thumbprint set.",
             _ => "No stored credential."
         };
-    }
-
-    private static string NormalizeBearerToken(string token)
-    {
-        var trimmed = token.Trim();
-        if (trimmed.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-        {
-            trimmed = trimmed["Bearer ".Length..];
-        }
-
-        var sb = new StringBuilder(trimmed.Length);
-        foreach (var ch in trimmed)
-        {
-            if (!char.IsWhiteSpace(ch)) sb.Append(ch);
-        }
-
-        return sb.ToString();
-    }
-
-    private static bool TryGetJwtExpiryUtc(string jwt, out DateTimeOffset expiryUtc)
-    {
-        expiryUtc = default;
-        if (string.IsNullOrWhiteSpace(jwt)) return false;
-        var parts = jwt.Split('.');
-        if (parts.Length < 2) return false;
-
-        try
-        {
-            var payloadBytes = Base64UrlDecode(parts[1]);
-            if (payloadBytes.Length == 0) return false;
-            using var doc = JsonDocument.Parse(payloadBytes);
-            if (!doc.RootElement.TryGetProperty("exp", out var expEl)) return false;
-            if (!expEl.TryGetInt64(out var seconds)) return false;
-            expiryUtc = DateTimeOffset.FromUnixTimeSeconds(seconds);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static byte[] Base64UrlDecode(string input)
-    {
-        var s = input.Replace('-', '+').Replace('_', '/');
-        var pad = s.Length % 4;
-        if (pad == 2) s += "==";
-        else if (pad == 3) s += "=";
-        else if (pad != 0) return Array.Empty<byte>();
-        return Convert.FromBase64String(s);
     }
 
     public bool IsActive(ProfileItem? item) =>
@@ -1161,16 +1050,6 @@ try {{
         }
     }
 
-    private sealed class ClientSecretPayload
-    {
-        public string? Value { get; set; }
-    }
-
-    private sealed class BearerTokenPayload
-    {
-        public string? AccessToken { get; set; }
-        public string? ExpiresUtc { get; set; }
-    }
 }
 
 internal sealed class ProfileItem
