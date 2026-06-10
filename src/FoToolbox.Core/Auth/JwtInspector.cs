@@ -41,6 +41,9 @@ public static class JwtInspector
         {
             if (doc!.RootElement.TryGetProperty("exp", out var exp) && exp.TryGetInt64(out var seconds))
             {
+                // Guard against out-of-range values (e.g. exp mistakenly in milliseconds).
+                // Valid range for DateTimeOffset.FromUnixTimeSeconds is [-62135596800, 253402300799].
+                if (seconds < -62135596800L || seconds > 253402300799L) return false;
                 expiryUtc = DateTimeOffset.FromUnixTimeSeconds(seconds);
                 return true;
             }
@@ -65,7 +68,13 @@ public static class JwtInspector
                 case 1: return false;
             }
             var bytes = Convert.FromBase64String(normalized);
-            document = JsonDocument.Parse(Encoding.UTF8.GetString(bytes));
+            var doc = JsonDocument.Parse(Encoding.UTF8.GetString(bytes));
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                doc.Dispose();
+                return false;
+            }
+            document = doc;
             return true;
         }
         catch (FormatException) { return false; }
