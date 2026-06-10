@@ -582,4 +582,99 @@ public class PostBuilderViewModelTests
         Assert.Equal("CustomersV3", vm.SelectedEntity!.Name);
         Assert.NotEmpty(vm.Fields);
     }
+
+    // --- Confirm-on-mutation + behavioural refinements ---
+
+    // Records the ConfirmRequest and returns a fixed decision (confirm/cancel).
+    private sealed class CapturingDialogs : IDialogService
+    {
+        private readonly bool _confirm;
+        public ConfirmRequest? Last { get; private set; }
+        public CapturingDialogs(bool confirm) => _confirm = confirm;
+        public Task<bool> ConfirmAsync(ConfirmRequest request)
+        {
+            Last = request;
+            return Task.FromResult(_confirm);
+        }
+    }
+
+    [Fact]
+    public async Task Send_is_blocked_when_the_confirm_dialog_is_declined()
+    {
+        var recorder = new RecordingODataClient();
+        var dialogs = new CapturingDialogs(confirm: false);
+        var vm = new PostBuilderViewModel(recorder, dialogs: dialogs) { Method = "DELETE", Path = "/data/E(1)" };
+
+        await vm.SendCommand.ExecuteAsync(null);
+
+        Assert.Null(recorder.LastPath); // the gateway is never called when the user cancels
+        Assert.Contains("cancelled", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(dialogs.Last); // the confirm was actually presented
+    }
+
+    [Fact]
+    public async Task Confirmed_send_proceeds_to_the_client()
+    {
+        var recorder = new RecordingODataClient();
+        var vm = new PostBuilderViewModel(recorder, dialogs: new CapturingDialogs(confirm: true))
+        { Method = "DELETE", Path = "/data/E(1)" };
+
+        await vm.SendCommand.ExecuteAsync(null);
+
+        Assert.Equal("/data/E(1)", recorder.LastPath);
+    }
+
+    [Fact]
+    public async Task Destructive_methods_confirm_with_a_danger_caveat()
+    {
+        var dialogs = new CapturingDialogs(confirm: false);
+        var vm = new PostBuilderViewModel(new RecordingODataClient(), dialogs: dialogs)
+        { Method = "DELETE", Path = "/data/E(1)" };
+
+        await vm.SendCommand.ExecuteAsync(null);
+
+        Assert.True(dialogs.Last!.IsDanger);
+        Assert.Contains("permanent", dialogs.Last!.Caveat, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Send DELETE", dialogs.Last!.ConfirmLabel);
+    }
+
+    [Fact]
+    public void Switching_to_a_keyed_method_auto_enables_if_match()
+    {
+        var vm = MakeVm(); // POST by default
+        Assert.False(vm.UseIfMatch);
+
+        vm.Method = "PATCH";
+        Assert.True(vm.UseIfMatch); // PATCH/DELETE default to optimistic concurrency
+
+        vm.Method = "POST";
+        Assert.False(vm.UseIfMatch); // a create has no If-Match
+    }
+
+    [Fact]
+    public void Grid_seeds_the_company_code_default()
+    {
+        var vm = MakeGridVm();
+        vm.Method = "PATCH";
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        Assert.Equal("usmf", vm.Fields.Single(f => f.Name == "dataAreaId").Value);
+    }
+
+    [Fact]
+    public void Included_field_count_and_summary_track_the_grid()
+    {
+        var vm = MakeGridVm();
+        vm.Method = "PATCH";
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        var before = vm.IncludedFieldCount;
+        vm.Fields.Single(f => f.Name == "OrganizationName").Include = true;
+
+        Assert.Equal(before + 1, vm.IncludedFieldCount);
+        Assert.Contains("CustomersV3", vm.GridSummary);
+        Assert.Contains(vm.IncludedFieldCount.ToString(), vm.GridSummary);
+    }
 }

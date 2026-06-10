@@ -29,6 +29,7 @@ public partial class PostBuilderViewModel : ObservableObject
     private readonly IODataClient _client;
     private readonly IClipboardService _clipboard;
     private readonly IMetadataService _metadata;
+    private readonly IDialogService _dialogs;
 
     // True only while RefreshEntityFilter is rebuilding FilteredEntities, so the transient selection
     // null a bound ComboBox emits during Clear() doesn't run OnSelectedEntityChanged's side-effects.
@@ -134,15 +135,25 @@ public partial class PostBuilderViewModel : ObservableObject
     /// <summary>The selected entity's fields (grid rows that build the payload).</summary>
     public ObservableCollection<PostFieldRow> Fields { get; } = new();
 
-    public PostBuilderViewModel(IODataClient client, IClipboardService? clipboard = null, IMetadataService? metadata = null)
+    public PostBuilderViewModel(IODataClient client, IClipboardService? clipboard = null,
+        IMetadataService? metadata = null, IDialogService? dialogs = null)
     {
         _client = client;
         _clipboard = clipboard ?? new FakeClipboardService();
         _metadata = metadata ?? new FakeMetadataService();
+        _dialogs = dialogs ?? new AutoConfirmDialogs();
         Entities = new ObservableCollection<EntitySet>(_metadata.GetEntities());
         RefreshEntityFilter();
         // No entity is auto-selected: grid mode is opt-in, so construction leaves the raw body/path intact.
     }
+
+    /// <summary>Number of grid fields currently included in the payload.</summary>
+    public int IncludedFieldCount => Fields.Count(f => f.Include);
+
+    /// <summary>"{Entity} · N field(s) included" context line shown while the grid is in use.</summary>
+    public string GridSummary => SelectedEntity is null
+        ? string.Empty
+        : $"{SelectedEntity.Name} · {IncludedFieldCount} field{(IncludedFieldCount == 1 ? string.Empty : "s")} included";
 
     /// <summary>The full "{METHOD} {path}" line that will be sent (with cross-company applied).</summary>
     public string RequestUrl => $"{Method} {EffectivePath()}";
@@ -222,6 +233,9 @@ public partial class PostBuilderViewModel : ObservableObject
     // Method affects mandatory enforcement (POST enforces, PATCH/DELETE don't), so rebuild the payload.
     partial void OnMethodChanged(string value)
     {
+        // PATCH/DELETE default to sending If-Match (optimistic concurrency); a POST create has no use for
+        // it. The user can still toggle it off afterward.
+        UseIfMatch = IsKeyedMethod(value);
         if (UseFieldGrid)
         {
             RebuildPayload();
@@ -322,9 +336,24 @@ public partial class PostBuilderViewModel : ObservableObject
             var mandatory = f.IsKey || !f.Nullable;
             var (editor, members) = ResolveEditor(f);
             var row = new PostFieldRow(f.Name, f.TypeDisplay, mandatory, f.IsKey, include: mandatory, editor, members);
+            // Seed sensible defaults so a write starts closer to ready (mirrors the prototype): the
+            // company code, and a concrete false for Booleans. Set before subscribing so it doesn't
+            // trigger a per-field payload rebuild (RebuildPayload runs once after the grid is built).
+            if (string.Equals(f.Name, "dataAreaId", StringComparison.OrdinalIgnoreCase))
+            {
+                row.Value = "usmf";
+            }
+            else if (editor == PostFieldEditor.Bool)
+            {
+                row.Value = "false";
+            }
+
             row.PropertyChanged += OnFieldChanged;
             Fields.Add(row);
         }
+
+        OnPropertyChanged(nameof(IncludedFieldCount));
+        OnPropertyChanged(nameof(GridSummary));
     }
 
     // Chooses the Value-cell editor for a field: a dropdown for enums (when the members are known),
@@ -354,6 +383,11 @@ public partial class PostBuilderViewModel : ObservableObject
         {
             RebuildPayload();
             OnPropertyChanged(nameof(RequestUrl)); // a key value may have changed the target predicate
+            if (e.PropertyName == nameof(PostFieldRow.Include))
+            {
+                OnPropertyChanged(nameof(IncludedFieldCount));
+                OnPropertyChanged(nameof(GridSummary));
+            }
         }
     }
 
@@ -426,9 +460,35 @@ public partial class PostBuilderViewModel : ObservableObject
 
     // IncludeCancelCommand: surfaces SendCancelCommand and lets the generated AsyncRelayCommand carry
     // the token's lifecycle, so an in-flight send can be cancelled on navigate-away/shutdown.
+    // Confirm-on-mutation: every send is a live write, so gate it behind a confirm dialog (PATCH/DELETE
+    // are styled destructive, with a caveat). Mirrors the Operations screen's confirm-on-mutation rule.
+    private Task<bool> ConfirmSendAsync()
+    {
+        var danger = IsKeyedMethod(Method);
+        var caveat = string.Equals(Method, "DELETE", StringComparison.OrdinalIgnoreCase)
+            ? "Delete is permanent — the targeted record will be removed."
+            : string.Equals(Method, "PATCH", StringComparison.OrdinalIgnoreCase)
+                ? "Patch overwrites the targeted record's fields."
+                : null;
+
+        return _dialogs.ConfirmAsync(new ConfirmRequest(
+            Title: $"Send {Method}?",
+            Message: $"Sends a live {Method} request to the selected environment.",
+            Targets: new[] { EffectivePath() },
+            ConfirmLabel: $"Send {Method}",
+            IsDanger: danger,
+            Caveat: caveat));
+    }
+
     [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanSend))]
     private async Task Send(CancellationToken ct)
     {
+        if (!await ConfirmSendAsync())
+        {
+            StatusText = "Send cancelled.";
+            return;
+        }
+
         IsBusy = true;
         StatusText = "Sending…";
         try

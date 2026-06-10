@@ -36,6 +36,7 @@ public partial class ShellViewModel : ObservableObject
     private readonly IFileSaveService _fileSave;
     private readonly IDualWriteGatewayTester _gatewayTester;
     private readonly IDualWriteCompareService _compareService;
+    private readonly IDialogService _dialogs;
     private object? _operationsContent;
     private object? _profilesContent;
     private object? _metadataContent;
@@ -77,7 +78,8 @@ public partial class ShellViewModel : ObservableObject
         IDualWriteMapReader? mapReader = null,
         IFileSaveService? fileSave = null,
         IDualWriteGatewayTester? gatewayTester = null,
-        IDualWriteCompareService? compareService = null)
+        IDualWriteCompareService? compareService = null,
+        IDialogService? dialogs = null)
     {
         _operationsContentFactory = operationsContentFactory ?? DefaultOperationsContent;
         _profileStore = profileStore ?? new FakeProfileStore();
@@ -93,6 +95,8 @@ public partial class ShellViewModel : ObservableObject
         _fileSave = fileSave ?? new FakeFileSaveService();
         _gatewayTester = gatewayTester ?? new FakeDualWriteGatewayTester();
         _compareService = compareService ?? new FakeDualWriteCompareService();
+        // Real Fluent confirm dialog for mutating actions (POST Builder send); tests pass a stub.
+        _dialogs = dialogs ?? new DialogService();
 
         Tools = new[]
         {
@@ -150,7 +154,7 @@ public partial class ShellViewModel : ObservableObject
         "ops" => _operationsContent ??= _operationsContentFactory(),
         "profiles" => _profilesContent ??= CreateProfilesContent(),
         "metadata" => _metadataContent ??= new MetadataViewModel(_metadataService),
-        "post" => _postContent ??= new PostBuilderViewModel(_odataClient, _clipboard, _metadataService),
+        "post" => _postContent ??= new PostBuilderViewModel(_odataClient, _clipboard, _metadataService, _dialogs),
         "query" => _queryContent ??= new QueryBuilderViewModel(_metadataService, _odataClient, _clipboard, _fileSave),
         "mapbrowser" => _mapBrowserContent ??= new DualWriteMapViewModel(_mapReader, _fileSave, _odataClient, _metadataService),
         "compare" => _compareContent ??= new DualWriteCompareViewModel(_profileStore, _compareService),
