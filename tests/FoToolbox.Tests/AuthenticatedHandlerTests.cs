@@ -77,6 +77,48 @@ public class AuthenticatedHandlerTests
         }
     }
 
+    [Trait("Category", "Auth")]
+    [Fact]
+    public async Task SendAsync_Interactive_Mode_Attaches_Delegated_Token()
+    {
+        var env = new FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com", "contoso-tenant", null);
+        var sp = new ServicePrincipal("sp", env.Id, "public-client-id", AuthMode.Interactive, null, null);
+        var fakeToken = CreateJwtToken(DateTimeOffset.UtcNow.AddHours(1), "contoso-tenant");
+        var vault = new SecretVaultService($"Data Source={Guid.NewGuid():N};Mode=Memory;Cache=Shared");
+        var broker = new AuthBroker(vault, new FakeInteractiveProvider(fakeToken));
+
+        string? observedAuthHeader = null;
+        var handler = new AuthenticatedHandler(env, sp, broker, new AuthReauthCoordinator())
+        {
+            InnerHandler = new CapturingHandler(req => observedAuthHeader = req.Headers.Authorization?.ToString())
+        };
+
+        using var http = new HttpClient(handler);
+        var response = await http.GetAsync("https://contoso.operations.dynamics.com/data");
+
+        Assert.True(response.IsSuccessStatusCode);
+        Assert.Equal($"Bearer {fakeToken}", observedAuthHeader);
+    }
+
+    private sealed class FakeInteractiveProvider : IInteractiveTokenProvider
+    {
+        private readonly string _token;
+        public FakeInteractiveProvider(string token) => _token = token;
+        public Task<InteractiveTokenResult> AcquireTokenAsync(InteractiveTokenRequest request, CancellationToken cancellationToken = default)
+            => Task.FromResult(new InteractiveTokenResult(_token, DateTimeOffset.UtcNow.AddHours(1)));
+    }
+
+    private sealed class CapturingHandler : HttpMessageHandler
+    {
+        private readonly Action<HttpRequestMessage> _observe;
+        public CapturingHandler(Action<HttpRequestMessage> observe) => _observe = observe;
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            _observe(request);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
+        }
+    }
+
     private sealed class UnauthorizedHandler : HttpMessageHandler
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -93,7 +135,7 @@ public class AuthenticatedHandlerTests
         }
     }
 
-    private static string CreateJwtToken(DateTimeOffset expiry)
+    private static string CreateJwtToken(DateTimeOffset expiry, string? tenantId = null)
     {
         static string Encode(string json)
         {
@@ -101,8 +143,9 @@ public class AuthenticatedHandlerTests
             return Convert.ToBase64String(bytes).TrimEnd('=').Replace('+', '-').Replace('/', '_');
         }
 
+        var tid = tenantId is null ? "" : $",\"tid\":\"{tenantId}\"";
         var header = Encode("{\"alg\":\"none\",\"typ\":\"JWT\"}");
-        var payload = Encode($"{{\"exp\":{expiry.ToUnixTimeSeconds()}}}");
+        var payload = Encode($"{{\"exp\":{expiry.ToUnixTimeSeconds()}{tid}}}");
         return $"{header}.{payload}.signature";
     }
 }

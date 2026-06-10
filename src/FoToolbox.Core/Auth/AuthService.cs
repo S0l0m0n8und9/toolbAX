@@ -1,7 +1,5 @@
 using FoToolbox.Core.Models;
 using System;
-using System.Text;
-using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Identity.Client;
@@ -78,7 +76,7 @@ public sealed class AuthService
             return;
         }
 
-        if (!TryExtractTokenTenant(token, out var tokenTenantId))
+        if (!JwtInspector.TryGetTenantId(token, out var tokenTenantId))
         {
             return;
         }
@@ -87,49 +85,6 @@ public sealed class AuthService
         {
             throw new TenantMismatchException(expectedTenantId, tokenTenantId);
         }
-    }
-
-    private static bool TryExtractTokenTenant(string token, out string tenantId)
-    {
-        tenantId = string.Empty;
-        if (string.IsNullOrWhiteSpace(token))
-        {
-            return false;
-        }
-
-        var parts = token.Split('.');
-        if (parts.Length < 2)
-        {
-            return false;
-        }
-
-        try
-        {
-            var payloadJson = DecodeBase64UrlToUtf8String(parts[1]);
-            using var document = JsonDocument.Parse(payloadJson);
-            if (document.RootElement.TryGetProperty("tid", out var tid) && tid.ValueKind == JsonValueKind.String)
-            {
-                tenantId = tid.GetString() ?? string.Empty;
-                return !string.IsNullOrWhiteSpace(tenantId);
-            }
-        }
-        catch (FormatException) { }
-        catch (JsonException) { }
-
-        return false;
-    }
-
-    private static string DecodeBase64UrlToUtf8String(string base64Url)
-    {
-        var normalized = base64Url.Replace('-', '+').Replace('_', '/');
-        switch (normalized.Length % 4)
-        {
-            case 2: normalized += "=="; break;
-            case 3: normalized += "="; break;
-        }
-
-        var bytes = Convert.FromBase64String(normalized);
-        return Encoding.UTF8.GetString(bytes);
     }
 
     private Exception BuildFailure(Exception? failure)

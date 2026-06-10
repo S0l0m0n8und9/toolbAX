@@ -59,6 +59,22 @@
                 </DataTrigger>
             </Style.Triggers>
         </Style>
+        <Style x:Key="VisibleWhenFoInteractive" TargetType="{x:Type FrameworkElement}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Selected.FoPrincipal.AuthMode}" Value="{x:Static models:AuthMode.Interactive}">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="VisibleWhenCeInteractive" TargetType="{x:Type FrameworkElement}">
+            <Setter Property="Visibility" Value="Collapsed" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding Selected.DataversePrincipal.AuthMode}" Value="{x:Static models:AuthMode.Interactive}">
+                    <Setter Property="Visibility" Value="Visible" />
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
 
         <Style x:Key="CardBorder" TargetType="{x:Type Border}">
             <Setter Property="Background" Value="{DynamicResource Fo.SurfaceBrush}" />
@@ -218,6 +234,7 @@
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
+                                            <RowDefinition Height="Auto" />
                                         </Grid.RowDefinitions>
 
                                         <TextBlock Grid.Row="0" Grid.Column="0" Text="Client ID" VerticalAlignment="Center" />
@@ -270,6 +287,13 @@
                                               Style="{StaticResource VisibleWhenFoCertificate}">
                                             <TextBox Text="{Binding Selected.FoPrincipal.CertThumbprint, UpdateSourceTrigger=PropertyChanged}" />
                                         </Grid>
+
+                                        <TextBlock Grid.Row="8" Grid.Column="1" Margin="{DynamicResource Fo.Margin.FormRow}"
+                                                   Style="{StaticResource VisibleWhenFoInteractive}"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource Fo.SubtleTextBrush}"
+                                                   FontSize="{DynamicResource Fo.FontSize.Small}"
+                                                   Text="{Binding FoStoredCredentialStatus}" />
                                     </Grid>
                                 </StackPanel>
                             </Border>
@@ -287,6 +311,7 @@
                                             <ColumnDefinition Width="*" />
                                         </Grid.ColumnDefinitions>
                                         <Grid.RowDefinitions>
+                                            <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
                                             <RowDefinition Height="Auto" />
@@ -347,6 +372,13 @@
                                               Style="{StaticResource VisibleWhenCeCertificate}">
                                             <TextBox Text="{Binding Selected.DataversePrincipal.CertThumbprint, UpdateSourceTrigger=PropertyChanged}" />
                                         </Grid>
+
+                                        <TextBlock Grid.Row="8" Grid.Column="1" Margin="{DynamicResource Fo.Margin.FormRow}"
+                                                   Style="{StaticResource VisibleWhenCeInteractive}"
+                                                   TextWrapping="Wrap"
+                                                   Foreground="{DynamicResource Fo.SubtleTextBrush}"
+                                                   FontSize="{DynamicResource Fo.FontSize.Small}"
+                                                   Text="{Binding CeStoredCredentialStatus}" />
                                     </Grid>
                                 </StackPanel>
                             </Border>

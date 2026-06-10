@@ -78,8 +78,10 @@ public partial class MainWindow : Window
         var ct = _cts.Token;
         var bundle = await _bootstrapper.ResolveProfileAsync(ct);
 
+        // Inject the bootstrapper's shared AuthBroker so Profiles Test/sign-in flows serialize on
+        // the same interactive gate (and MSAL cache) as live plugin-driven token renewals.
         _profilesView ??= new ProfilesView(new ProfilesViewModel(
-            ProfilePaths.ResolveProfileDbPath(), _logger, ApplyProfile));
+            ProfilePaths.ResolveProfileDbPath(), _logger, ApplyProfile, _bootstrapper.AuthBroker));
         _vm.ProfilesViewModelHost = (ProfilesViewModel)_profilesView.DataContext;
 
         if (_profilesView.DataContext is ProfilesViewModel profilesVm)

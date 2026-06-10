@@ -11,7 +11,6 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Runtime.CompilerServices;
 using System.Text;
-using System.Text.Json;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -45,8 +44,38 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     /// <summary>
     /// Interactive (delegated user) token acquirer used by the "Sign in with Microsoft" route.
     /// Defaults to the real MSAL provider; tests substitute a fake.
+    /// Setting this property resets a lazily built <see cref="Broker"/> so the next access rebuilds
+    /// with the new provider. An explicitly injected broker (constructor or property assignment)
+    /// is never discarded by this setter — it carries its own interactive provider.
     /// </summary>
-    internal IInteractiveTokenProvider InteractiveTokenProvider { get; set; } = new MsalInteractiveTokenProvider();
+    private IInteractiveTokenProvider _interactiveTokenProvider = new MsalInteractiveTokenProvider();
+    internal IInteractiveTokenProvider InteractiveTokenProvider
+    {
+        get => _interactiveTokenProvider;
+        set
+        {
+            _interactiveTokenProvider = value;
+            if (!_brokerInjected)
+            {
+                _broker = null;
+            }
+        }
+    }
+
+    private AuthBroker? _broker;
+    private bool _brokerInjected;
+    /// <summary>
+    /// The token pipeline used by Test connection and the Sign-in buttons. Prefer injecting the
+    /// host's shared <see cref="AuthBroker"/> (via the constructor or this setter) so these flows
+    /// serialize on the same interactive gate — and share the same MSAL cache — as live
+    /// plugin-driven renewals. Without injection it is lazily built from
+    /// <see cref="InteractiveTokenProvider"/> and rebuilt whenever that property is set.
+    /// </summary>
+    internal AuthBroker Broker
+    {
+        get => _broker ??= new AuthBroker(_vault, InteractiveTokenProvider);
+        set { _broker = value; _brokerInjected = true; }
+    }
 
     public ProfileItem? Selected
     {
@@ -187,13 +216,17 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler<ConnectionTestedEventArgs>? ConnectionTested;
 
-    public ProfilesViewModel(string dbPath, ILogger logger, Action<ProfileBundle> applyProfile)
+    public ProfilesViewModel(string dbPath, ILogger logger, Action<ProfileBundle> applyProfile, AuthBroker? broker = null)
     {
         _store = new ProfileStore(dbPath);
         _profiles = new ProfileService(_store);
         _vault = new SecretVaultService(_store.ConnectionString);
         _logger = logger;
         _applyProfile = applyProfile;
+        if (broker is not null)
+        {
+            Broker = broker;
+        }
 
         RefreshCommand = new AsyncCommand(RefreshAsync);
         AddProfileCommand = new AsyncCommand(AddAsync);
@@ -263,8 +296,8 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         var envId = Guid.NewGuid().ToString("N");
         var env = new FoEnvironment(envId, "New environment", string.Empty, string.Empty, null);
         var ceEnv = new DataverseEnvironment(envId, string.Empty, string.Empty);
-        var foSp = new ServicePrincipal(Guid.NewGuid().ToString("N"), envId, string.Empty, AuthMode.ClientSecret, null, null, AuthTarget.Fo);
-        var ceSp = new ServicePrincipal(Guid.NewGuid().ToString("N"), envId, string.Empty, AuthMode.ClientSecret, null, null, AuthTarget.Dataverse);
+        var foSp = new ServicePrincipal(Guid.NewGuid().ToString("N"), envId, string.Empty, AuthMode.Interactive, null, null, AuthTarget.Fo);
+        var ceSp = new ServicePrincipal(Guid.NewGuid().ToString("N"), envId, string.Empty, AuthMode.Interactive, null, null, AuthTarget.Dataverse);
         var profile = new ProfileItem(new EnvironmentEditor(env), new DataverseEnvironmentEditor(ceEnv), new ServicePrincipalEditor(foSp), new ServicePrincipalEditor(ceSp));
         Profiles.Add(profile);
         Selected = profile;
@@ -309,7 +342,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         }
     }
 
-    private async Task<bool> SaveAsync(bool promptForPluginRefresh)
+    internal async Task<bool> SaveAsync(bool promptForPluginRefresh)
     {
         if (Selected is null) return false;
 
@@ -357,6 +390,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
                 () => PendingFoClientSecret = null,
                 () => PendingFoBearerToken = null,
                 nameof(FoStoredCredentialStatus));
+            Selected.FoPrincipal.CertThumbprint = foSp.CertThumbprint;
 
             ceSp = await PersistCredentialsForPrincipalAsync(
                 ceSp,
@@ -366,6 +400,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
                 () => PendingCeClientSecret = null,
                 () => PendingCeBearerToken = null,
                 nameof(CeStoredCredentialStatus));
+            Selected.DataversePrincipal.CertThumbprint = ceSp.CertThumbprint;
 
             await _profiles.UpsertServicePrincipalAsync(foSp);
             await _profiles.UpsertServicePrincipalAsync(ceSp);
@@ -461,7 +496,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         try
         {
             Status = "Testing FO connection...";
-            var token = await AcquireTokenForTestAsync(env.BaseUrl, env.TenantId, sp, PendingFoBearerToken, PendingFoClientSecret, "FOTB_BEARER_TOKEN", "FOTB_CLIENT_SECRET", AuthTarget.Fo);
+            var token = await AcquireTokenForTestAsync(env.BaseUrl, env.TenantId, sp, PendingFoBearerToken, PendingFoClientSecret, AuthTarget.Fo);
 
             using var http = new HttpClient();
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -480,6 +515,11 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
                 detail = $"{(int)resp.StatusCode} {resp.ReasonPhrase}";
                 Status = $"FO connection failed: {detail}\n{body}";
             }
+        }
+        catch (OperationCanceledException)
+        {
+            detail = "Sign-in timed out after 5 minutes.";
+            Status = $"FO connection test failed: {detail}";
         }
         catch (Exception ex)
         {
@@ -519,7 +559,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         try
         {
             Status = "Testing CE connection...";
-            var token = await AcquireTokenForTestAsync(env.BaseUrl, env.TenantId, sp, PendingCeBearerToken, PendingCeClientSecret, "FOTB_CE_BEARER_TOKEN", "FOTB_CE_CLIENT_SECRET", AuthTarget.Dataverse);
+            var token = await AcquireTokenForTestAsync(env.BaseUrl, env.TenantId, sp, PendingCeBearerToken, PendingCeClientSecret, AuthTarget.Dataverse);
 
             using var http = new HttpClient();
             http.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
@@ -538,6 +578,11 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
                 detail = $"{(int)resp.StatusCode} {resp.ReasonPhrase}";
                 Status = $"CE connection failed: {detail}\n{body}";
             }
+        }
+        catch (OperationCanceledException)
+        {
+            detail = "Sign-in timed out after 5 minutes.";
+            Status = $"CE connection test failed: {detail}";
         }
         catch (Exception ex)
         {
@@ -582,6 +627,11 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             ? Selected.FoPrincipal.AuthMode
             : Selected.DataversePrincipal.AuthMode;
 
+        if (authMode == AuthMode.Interactive)
+        {
+            return AcquireTokenInteractiveAsync(target);
+        }
+
         if (authMode != AuthMode.BearerToken)
         {
             var credentialLabel = authMode == AuthMode.ClientSecret ? "client secret" : "certificate settings";
@@ -616,7 +666,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         tenantId = target == AuthTarget.Fo ? env.TenantId : ceEnv.TenantId;
         clientId = principal.ClientId ?? string.Empty;
 
-        if (principal.AuthMode != AuthMode.BearerToken)
+        if (principal.AuthMode != AuthMode.BearerToken && principal.AuthMode != AuthMode.Interactive)
         {
             Status = $"Switch {Side(target)} Auth mode to BearerToken to retrieve a bearer token.";
             return false;
@@ -677,10 +727,27 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         {
             Status = $"Opening Microsoft sign-in for {Side(target)} in your browser...";
             var resourceBaseUrl = NormalizeResourceBaseUrl(target, baseUrl);
-            var result = await InteractiveTokenProvider.AcquireTokenAsync(
-                new InteractiveTokenRequest(clientId, tenantId, resourceBaseUrl),
-                CancellationToken.None);
-            await StoreAcquiredBearerTokenAsync(target, env, ceEnv, result.AccessToken);
+            // Route through the Broker (a synthetic Interactive-mode principal forces the delegated
+            // path even when the profile is in BearerToken mode) so this click serializes on the
+            // broker's interactive gate — when the shared host broker is injected, that's the same
+            // gate and MSAL cache live plugin-driven renewals use, so a concurrent renewal and a
+            // button click can never open two browser windows. The broker also tenant-validates the
+            // returned token. The 5-minute timeout protects this call's own liveness: an abandoned
+            // browser window must not hold the gate indefinitely and wedge the Sign-in button.
+            var interactiveSp = new ServicePrincipal(
+                $"interactive-{Side(target).ToLowerInvariant()}-{env.Id}", env.Id, clientId, AuthMode.Interactive, null, null, target);
+            var request = new AuthTokenRequest(
+                resourceBaseUrl,
+                tenantId,
+                interactiveSp,
+                ServiceName: target == AuthTarget.Fo ? "Finance and Operations" : "Dataverse");
+            using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+            var accessToken = await Broker.AcquireTokenAsync(request, cts.Token);
+            await StoreAcquiredBearerTokenAsync(target, env, ceEnv, accessToken);
+        }
+        catch (OperationCanceledException)
+        {
+            Status = $"{Side(target)} sign-in timed out after 5 minutes.";
         }
         catch (Exception ex)
         {
@@ -694,13 +761,22 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     /// <summary>
     /// Shared tail for both token-acquisition routes: normalise, persist to the DPAPI vault via
     /// <see cref="SaveAsync"/>, report expiry, and refresh dependent plugins when the profile is active.
+    /// For Interactive-mode principals the token is NOT stashed in <see cref="PendingFoBearerToken"/> /
+    /// <see cref="PendingCeBearerToken"/> and no "bearer token saved" message is emitted.
     /// </summary>
     private async Task StoreAcquiredBearerTokenAsync(AuthTarget target, FoEnvironment env, DataverseEnvironment ceEnv, string rawToken)
     {
-        var normalizedToken = NormalizeBearerToken(rawToken);
+        var normalizedToken = BearerTokenText.Normalize(rawToken);
 
-        if (target == AuthTarget.Fo) PendingFoBearerToken = normalizedToken;
-        else PendingCeBearerToken = normalizedToken;
+        var principal = target == AuthTarget.Fo ? Selected!.FoPrincipal : Selected!.DataversePrincipal;
+        var isInteractive = principal.AuthMode == AuthMode.Interactive;
+
+        if (!isInteractive)
+        {
+            // BearerToken mode: stash the pending token so SaveAsync will vault it.
+            if (target == AuthTarget.Fo) PendingFoBearerToken = normalizedToken;
+            else PendingCeBearerToken = normalizedToken;
+        }
 
         var saveSucceeded = await SaveAsync(promptForPluginRefresh: false);
         if (!saveSucceeded)
@@ -708,9 +784,19 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             return;
         }
 
-        var tokenStatus = TryGetJwtExpiryUtc(normalizedToken, out var expiryUtc)
-            ? $"{Side(target)} bearer token acquired and saved. Expires {expiryUtc.UtcDateTime:u}."
-            : $"{Side(target)} bearer token acquired and saved.";
+        string tokenStatus;
+        if (isInteractive)
+        {
+            tokenStatus = JwtInspector.TryGetExpiryUtc(normalizedToken, out var expiryUtc)
+                ? $"Signed in. Token expires {expiryUtc.UtcDateTime:u}; renews silently."
+                : "Signed in. Token renews silently.";
+        }
+        else
+        {
+            tokenStatus = JwtInspector.TryGetExpiryUtc(normalizedToken, out var expiryUtc)
+                ? $"{Side(target)} bearer token acquired and saved. Expires {expiryUtc.UtcDateTime:u}."
+                : $"{Side(target)} bearer token acquired and saved.";
+        }
 
         if (IsSelectedProfileActive(env.Id))
         {
@@ -738,28 +824,27 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         ServicePrincipal sp,
         string? pendingBearerToken,
         string? pendingClientSecret,
-        string bearerTokenEnvVar,
-        string clientSecretEnvVar,
         AuthTarget target)
     {
-        if (sp.AuthMode == AuthMode.BearerToken)
-        {
-            return await ResolveBearerTokenForTestAsync(sp, pendingBearerToken, bearerTokenEnvVar);
-        }
-
-        if (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(sp.ClientId))
+        if (sp.AuthMode is AuthMode.ClientSecret or AuthMode.Certificate &&
+            (string.IsNullOrWhiteSpace(tenantId) || string.IsNullOrWhiteSpace(sp.ClientId)))
         {
             throw new InvalidOperationException("Tenant ID and Client ID are required to test this auth mode.");
         }
 
-        var authorityBase = "https://login.microsoftonline.com";
-        var credential = await ResolveCredentialForTestAsync(sp, pendingClientSecret, clientSecretEnvVar);
-        var tokenProvider = new MsalTokenProvider(authorityBase, (_, _) => Task.FromResult(credential));
-        var auth = new AuthService(tokenProvider);
-        var resourceBase = target == AuthTarget.Fo
-            ? ResourceUrlNormalizer.NormalizeFoBaseUrl(baseUrl)
-            : ResourceUrlNormalizer.NormalizeDataverseResourceBaseUrl(baseUrl);
-        return await auth.AcquireTokenAsync(resourceBase, tenantId, sp, CancellationToken.None);
+        var resourceBase = NormalizeResourceBaseUrl(target, baseUrl);
+        var request = new AuthTokenRequest(
+            resourceBase,
+            tenantId,
+            sp,
+            ServiceName: target == AuthTarget.Fo ? "Finance and Operations" : "Dataverse",
+            PendingClientSecret: pendingClientSecret,
+            PendingBearerToken: pendingBearerToken);
+
+        // 5-minute timeout honours the broker's liveness contract: an abandoned browser sign-in
+        // during "Test connection" must not hold the interactive gate forever and wedge the Test buttons.
+        using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
+        return await Broker.AcquireTokenAsync(request, cts.Token);
     }
 
     private static async Task<string> GetAzCliAccessTokenAsync(string tenantId, string scope, CancellationToken cancellationToken)
@@ -888,71 +973,6 @@ try {{
         return text.Substring(0, maxChars) + "...";
     }
 
-    private async Task<string> ResolveBearerTokenForTestAsync(ServicePrincipal sp, string? pendingToken, string envVarName)
-    {
-        if (!string.IsNullOrWhiteSpace(pendingToken))
-        {
-            var normalized = NormalizeBearerToken(pendingToken);
-            if (TryGetJwtExpiryUtc(normalized, out var expiryUtc) && expiryUtc <= DateTimeOffset.UtcNow)
-            {
-                throw new InvalidOperationException($"Bearer token expired at {expiryUtc:u}. Retrieve a fresh token.");
-            }
-            return normalized;
-        }
-
-        if (!string.IsNullOrWhiteSpace(sp.SecretRef))
-        {
-            var payload = await _vault.ReadSecretAsync<BearerTokenPayload>(sp.SecretRef);
-            if (!string.IsNullOrWhiteSpace(payload?.AccessToken))
-            {
-                var normalized = NormalizeBearerToken(payload.AccessToken);
-                if (TryGetJwtExpiryUtc(normalized, out var expiryUtc) && expiryUtc <= DateTimeOffset.UtcNow)
-                {
-                    throw new InvalidOperationException($"Stored bearer token expired at {expiryUtc:u}. Retrieve a fresh token.");
-                }
-                return normalized;
-            }
-        }
-
-        var token = Environment.GetEnvironmentVariable(envVarName);
-        if (!string.IsNullOrWhiteSpace(token))
-        {
-            var normalized = NormalizeBearerToken(token);
-            if (TryGetJwtExpiryUtc(normalized, out var expiryUtc) && expiryUtc <= DateTimeOffset.UtcNow)
-            {
-                throw new InvalidOperationException($"{envVarName} expired at {expiryUtc:u}. Set a fresh token.");
-            }
-            return normalized;
-        }
-
-        throw new InvalidOperationException($"No bearer token found. Paste a token and Save, or set {envVarName}.");
-    }
-
-    private async Task<FoToolbox.Core.Auth.ClientCredential> ResolveCredentialForTestAsync(ServicePrincipal sp, string? pendingClientSecret, string envVarName)
-    {
-        if (!string.IsNullOrWhiteSpace(pendingClientSecret))
-        {
-            return new ClientSecretCredential(pendingClientSecret);
-        }
-
-        if (!string.IsNullOrWhiteSpace(sp.SecretRef))
-        {
-            var payload = await _vault.ReadSecretAsync<ClientSecretPayload>(sp.SecretRef);
-            if (!string.IsNullOrWhiteSpace(payload?.Value))
-            {
-                return new ClientSecretCredential(payload.Value);
-            }
-        }
-
-        var secret = Environment.GetEnvironmentVariable(envVarName);
-        if (!string.IsNullOrWhiteSpace(secret))
-        {
-            return new ClientSecretCredential(secret);
-        }
-
-        throw new InvalidOperationException($"No client secret configured for this profile. Set it in Profiles and Save, or set {envVarName}.");
-    }
-
     private async Task<ServicePrincipal> PersistCredentialsForPrincipalAsync(
         ServicePrincipal principal,
         string? pendingClientSecret,
@@ -984,13 +1004,20 @@ try {{
                 }
             }
         }
+        else if (principal.AuthMode == AuthMode.Interactive)
+        {
+            // Interactive auth acquires tokens via MSAL at runtime; the vault stores nothing.
+            principal = principal with { CertThumbprint = null, SecretRef = null };
+            updateSecretRef(null);
+            OnPropertyChanged(statusPropertyName);
+        }
         else if (principal.AuthMode == AuthMode.BearerToken)
         {
             principal = principal with { CertThumbprint = null };
             if (!string.IsNullOrWhiteSpace(pendingBearerToken))
             {
-                var token = NormalizeBearerToken(pendingBearerToken);
-                var expiresUtc = TryGetJwtExpiryUtc(token, out var expiryUtc) ? expiryUtc.UtcDateTime.ToString("o") : null;
+                var token = BearerTokenText.Normalize(pendingBearerToken);
+                var expiresUtc = JwtInspector.TryGetExpiryUtc(token, out var expiryUtc) ? expiryUtc.UtcDateTime.ToString("o") : null;
                 var secretRef = await _vault.StoreSecretAsync("BearerToken", new BearerTokenPayload { AccessToken = token, ExpiresUtc = expiresUtc });
                 principal = principal with { SecretRef = secretRef };
                 updateSecretRef(secretRef);
@@ -1017,6 +1044,7 @@ try {{
         if (principal is null) return string.Empty;
         return principal.AuthMode switch
         {
+            AuthMode.Interactive => "Signs you in via your browser when a tool first needs access, then renews silently. Requires a public-client app registration with an http://localhost redirect. No secret is stored.",
             AuthMode.BearerToken => principal.SecretRef is null or ""
                 ? "No stored bearer token."
                 : "Bearer token stored (DPAPI).",
@@ -1028,56 +1056,6 @@ try {{
                 : "Certificate thumbprint set.",
             _ => "No stored credential."
         };
-    }
-
-    private static string NormalizeBearerToken(string token)
-    {
-        var trimmed = token.Trim();
-        if (trimmed.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-        {
-            trimmed = trimmed["Bearer ".Length..];
-        }
-
-        var sb = new StringBuilder(trimmed.Length);
-        foreach (var ch in trimmed)
-        {
-            if (!char.IsWhiteSpace(ch)) sb.Append(ch);
-        }
-
-        return sb.ToString();
-    }
-
-    private static bool TryGetJwtExpiryUtc(string jwt, out DateTimeOffset expiryUtc)
-    {
-        expiryUtc = default;
-        if (string.IsNullOrWhiteSpace(jwt)) return false;
-        var parts = jwt.Split('.');
-        if (parts.Length < 2) return false;
-
-        try
-        {
-            var payloadBytes = Base64UrlDecode(parts[1]);
-            if (payloadBytes.Length == 0) return false;
-            using var doc = JsonDocument.Parse(payloadBytes);
-            if (!doc.RootElement.TryGetProperty("exp", out var expEl)) return false;
-            if (!expEl.TryGetInt64(out var seconds)) return false;
-            expiryUtc = DateTimeOffset.FromUnixTimeSeconds(seconds);
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static byte[] Base64UrlDecode(string input)
-    {
-        var s = input.Replace('-', '+').Replace('_', '/');
-        var pad = s.Length % 4;
-        if (pad == 2) s += "==";
-        else if (pad == 3) s += "=";
-        else if (pad != 0) return Array.Empty<byte>();
-        return Convert.FromBase64String(s);
     }
 
     public bool IsActive(ProfileItem? item) =>
@@ -1161,16 +1139,6 @@ try {{
         }
     }
 
-    private sealed class ClientSecretPayload
-    {
-        public string? Value { get; set; }
-    }
-
-    private sealed class BearerTokenPayload
-    {
-        public string? AccessToken { get; set; }
-        public string? ExpiresUtc { get; set; }
-    }
 }
 
 internal sealed class ProfileItem

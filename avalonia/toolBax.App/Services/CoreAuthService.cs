@@ -12,10 +12,10 @@ using ToolBax.Core.Services;
 namespace ToolBax.App.Services;
 
 /// <summary>
-/// Real <see cref="IAuthService"/>: mints an F&amp;O bearer token via FoToolbox's
-/// <see cref="AuthService"/> + <see cref="MsalTokenProvider"/> (client credentials), resolving the
-/// environment's service-principal secret from the DPAPI vault. Windows-only (DPAPI); the composition
-/// root wires the in-memory fake elsewhere.
+/// Real <see cref="IAuthService"/>: acquires F&amp;O and Dataverse tokens via the shared
+/// <see cref="AuthBroker"/> (which routes client-credentials through <see cref="AuthService"/> and
+/// delegated-interactive through <see cref="MsalInteractiveTokenProvider"/>). Windows-only (DPAPI);
+/// the composition root wires the in-memory fake elsewhere.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class CoreAuthService : IAuthService
@@ -24,11 +24,11 @@ public sealed class CoreAuthService : IAuthService
     private readonly SecretVaultService _vault;
     private readonly string _authorityBase;
 
-    // Stable across calls (the SP is supplied per acquisition via the credential callback), so the
-    // MSAL provider/auth object graph is reused rather than rebuilt each Test-connection.
-    private MsalTokenProvider? _provider;
-    private AuthService? _auth;
-    private IInteractiveTokenProvider? _interactive;
+    // Both objects are stable across calls; the shared Interactive instance means F&O,
+    // Dataverse, and dual-write interactive flows all share the same MSAL token cache.
+    // Eager init here eliminates a benign-but-real race when Acquire* is called from threadpool continuations.
+    private readonly IInteractiveTokenProvider _interactive;
+    private readonly AuthBroker _broker;
 
     public CoreAuthService(ProfileService profiles, SecretVaultService vault,
         string authorityBase = "https://login.microsoftonline.com")
@@ -36,6 +36,8 @@ public sealed class CoreAuthService : IAuthService
         _profiles = profiles;
         _vault = vault;
         _authorityBase = authorityBase;
+        _interactive = new MsalInteractiveTokenProvider();
+        _broker = new AuthBroker(_vault, _interactive, _authorityBase);
     }
 
     public async Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default)
@@ -50,27 +52,34 @@ public sealed class CoreAuthService : IAuthService
             throw new InvalidOperationException("No F&O environment URL is configured.");
         }
 
+        var resourceBase = ResourceUrlNormalizer.NormalizeFoBaseUrl(env.Url);
+
         // Interactive (MFA): a delegated browser sign-in (loopback), scoped to the F&O resource — no
         // app-only service principal / stored secret. Silent after the first sign-in (token cache).
         if (env.AuthMode == FoAuthMode.Interactive)
         {
-            return await AcquireInteractiveTokenAsync(
-                env.ClientId, env.Tenant, ResourceUrlNormalizer.NormalizeFoBaseUrl(env.Url), "F&O", ct).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(env.ClientId))
+            {
+                throw new InvalidOperationException("No F&O client ID is configured for interactive sign-in.");
+            }
+
+            var interactiveSp = new ServicePrincipal(
+                $"interactive-fo-{env.Id}", env.Id, env.ClientId!, AuthMode.Interactive, null, null, AuthTarget.Fo);
+            return await _broker.AcquireTokenAsync(
+                new AuthTokenRequest(resourceBase, env.Tenant, interactiveSp, "F&O"), ct).ConfigureAwait(false);
         }
 
         var sp = await _profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Fo, ct).ConfigureAwait(false)
             ?? throw new InvalidOperationException("No F&O service principal is configured (set a client ID on the FO Environment tab).");
-        if (string.IsNullOrEmpty(sp.SecretRef))
+        // Pre-check: surfaces the Avalonia-specific message immediately and keeps the broker's
+        // FOTB_* env-var fallback narrowed to vault-read failures — don't remove as redundant.
+        if (string.IsNullOrWhiteSpace(sp.SecretRef))
         {
             throw new InvalidOperationException("No client secret is stored for this environment.");
         }
 
-        _provider ??= new MsalTokenProvider(_authorityBase, ResolveCredentialAsync);
-        _auth ??= new AuthService(_provider);
-        var foEnv = new FoEnvironment(env.Id, env.Name, env.Url, env.Tenant,
-            string.IsNullOrWhiteSpace(env.Legal) ? null : env.Legal);
-
-        return await _auth.AcquireTokenAsync(foEnv, sp, ct).ConfigureAwait(false);
+        return await _broker.AcquireTokenAsync(
+            new AuthTokenRequest(resourceBase, env.Tenant, sp, "F&O"), ct).ConfigureAwait(false);
     }
 
     public async Task<string> AcquireDataverseTokenAsync(EnvProfile env, CancellationToken ct = default)
@@ -85,27 +94,35 @@ public sealed class CoreAuthService : IAuthService
             throw new InvalidOperationException("No tenant ID is configured for this environment.");
         }
 
+        var resourceBase = ResourceUrlNormalizer.NormalizeDataverseResourceBaseUrl(env.DataverseUrl);
+
         // Interactive (MFA): delegated browser sign-in scoped to the (normalized) Dataverse resource.
         if (env.DataverseAuthMode == FoAuthMode.Interactive)
         {
-            return await AcquireInteractiveTokenAsync(
-                env.DataverseClientId, env.Tenant, ResourceUrlNormalizer.NormalizeDataverseResourceBaseUrl(env.DataverseUrl), "Dataverse", ct).ConfigureAwait(false);
+            if (string.IsNullOrWhiteSpace(env.DataverseClientId))
+            {
+                throw new InvalidOperationException("No Dataverse client ID is configured for interactive sign-in.");
+            }
+
+            var interactiveSp = new ServicePrincipal(
+                $"interactive-dv-{env.Id}", env.Id, env.DataverseClientId!, AuthMode.Interactive, null, null, AuthTarget.Dataverse);
+            return await _broker.AcquireTokenAsync(
+                new AuthTokenRequest(resourceBase, env.Tenant, interactiveSp, "Dataverse"), ct).ConfigureAwait(false);
         }
 
         var sp = await _profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Dataverse, ct).ConfigureAwait(false)
             ?? throw new InvalidOperationException("No Dataverse service principal is configured (set a Dataverse client ID on the CE/Dataverse tab).");
-        if (string.IsNullOrEmpty(sp.SecretRef))
+        // Pre-check: surfaces the Avalonia-specific message immediately and keeps the broker's
+        // FOTB_* env-var fallback narrowed to vault-read failures — don't remove as redundant.
+        if (string.IsNullOrWhiteSpace(sp.SecretRef))
         {
             throw new InvalidOperationException("No client secret is stored for the Dataverse app registration.");
         }
 
-        _provider ??= new MsalTokenProvider(_authorityBase, ResolveCredentialAsync);
-        _auth ??= new AuthService(_provider);
-
         // The Dataverse token is scoped to the (normalized) Dataverse resource, not F&O; the tenant is
-        // shared with the F&O environment. The credential callback resolves THIS SP's secret.
-        var resourceBaseUrl = ResourceUrlNormalizer.NormalizeDataverseResourceBaseUrl(env.DataverseUrl);
-        return await _auth.AcquireTokenAsync(resourceBaseUrl, env.Tenant, sp, ct).ConfigureAwait(false);
+        // shared with the F&O environment. The broker resolves THIS SP's secret from the vault.
+        return await _broker.AcquireTokenAsync(
+            new AuthTokenRequest(resourceBase, env.Tenant, sp, "Dataverse"), ct).ConfigureAwait(false);
     }
 
     public async Task<string> AcquireDualWriteTokenAsync(EnvProfile env, CancellationToken ct = default)
@@ -122,43 +139,17 @@ public sealed class CoreAuthService : IAuthService
             ? DualWriteAuthConstants.ClientId
             : env.DataIntegratorClientId;
 
-        return await AcquireInteractiveTokenAsync(
-            clientId, env.Tenant, DualWriteAuthConstants.ResourceBaseUrl, "Data Integrator", ct).ConfigureAwait(false);
-    }
-
-    // Delegated (interactive) token via the loopback MSAL provider — silent after a prior sign-in.
-    // Used by the Interactive auth mode (F&O / Dataverse) and the Data Integrator gateway.
-    private async Task<string> AcquireInteractiveTokenAsync(string? clientId, string tenant, string resourceBaseUrl, string label, CancellationToken ct)
-    {
         if (string.IsNullOrWhiteSpace(clientId))
         {
-            throw new InvalidOperationException($"No {label} client ID is configured for interactive sign-in.");
+            throw new InvalidOperationException("No Data Integrator client ID is configured for interactive sign-in.");
         }
 
-        // Forward the injected authority (defaults to public-cloud AAD) so a sovereign/GCC endpoint
-        // configured on this service applies to interactive sign-in too, not just client credentials.
-        _interactive ??= new MsalInteractiveTokenProvider();
+        // Dual-write is always interactive; forward the injected authority so sovereign/GCC endpoints
+        // apply here too. Uses the shared Interactive provider to share the MSAL token cache.
         var result = await _interactive
-            .AcquireTokenAsync(new InteractiveTokenRequest(clientId, tenant, resourceBaseUrl, _authorityBase), ct)
+            .AcquireTokenAsync(
+                new InteractiveTokenRequest(clientId, env.Tenant, DualWriteAuthConstants.ResourceBaseUrl, _authorityBase), ct)
             .ConfigureAwait(false);
         return result.AccessToken;
-    }
-
-    private async Task<ClientCredential> ResolveCredentialAsync(ServicePrincipal sp, CancellationToken ct)
-    {
-        if (sp.AuthMode == AuthMode.Certificate)
-        {
-            throw new NotSupportedException("Certificate auth is not yet wired in the Avalonia host; use a client secret.");
-        }
-
-        if (sp.AuthMode != AuthMode.ClientSecret)
-        {
-            throw new NotSupportedException($"Auth mode '{sp.AuthMode}' is not supported for the client-credentials flow.");
-        }
-
-        var secret = await _vault.ReadSecretAsync<string>(sp.SecretRef!, ct).ConfigureAwait(false)
-            ?? throw new InvalidOperationException("The stored client secret could not be read.");
-
-        return new ClientSecretCredential(secret);
     }
 }

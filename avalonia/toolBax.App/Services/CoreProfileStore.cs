@@ -292,8 +292,10 @@ public sealed class CoreProfileStore : IProfileStore
         // BearerToken is FoToolbox's delegated (captured/pasted user token) mode — NOT app-only. The
         // Avalonia app's delegated equivalent is a fresh interactive MSAL sign-in, so a legacy WPF
         // bearer-token profile must surface as Interactive (and never hit the client-credentials path,
-        // which rejects BearerToken). Anything else is an app-only client secret.
-        AuthMode.BearerToken => FoAuthMode.Interactive,
+        // which rejects BearerToken). Interactive maps to Interactive so a WPF-written Interactive SP
+        // (AuthMode.Interactive) round-trips correctly into the Avalonia UI. Anything else is an
+        // app-only client secret.
+        AuthMode.BearerToken or AuthMode.Interactive => FoAuthMode.Interactive,
         _ => FoAuthMode.ClientSecret,
     };
 
