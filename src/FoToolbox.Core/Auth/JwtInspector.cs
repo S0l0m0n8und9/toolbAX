@@ -39,7 +39,7 @@ public static class JwtInspector
         if (!TryParsePayload(token, out var doc)) return false;
         using (doc)
         {
-            if (doc!.RootElement.TryGetProperty("exp", out var exp) && exp.TryGetInt64(out var seconds))
+            if (doc!.RootElement.TryGetProperty("exp", out var exp) && exp.ValueKind == JsonValueKind.Number && exp.TryGetInt64(out var seconds))
             {
                 // Guard against out-of-range values (e.g. exp mistakenly in milliseconds).
                 // Valid range for DateTimeOffset.FromUnixTimeSeconds is [-62135596800, 253402300799].

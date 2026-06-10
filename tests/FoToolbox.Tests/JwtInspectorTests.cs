@@ -102,4 +102,14 @@ public class JwtInspectorTests
         var jwt = MakeJwtWithRawPayload("{\"exp\":1780000000000}");
         Assert.False(JwtInspector.TryGetExpiryUtc(jwt, out _));
     }
+
+    // Fix: string-typed exp claim must not throw InvalidOperationException
+    [Trait("Category", "Auth")]
+    [Fact]
+    public void TryGetExpiryUtc_StringTyped_Exp_ReturnsFalse_DoesNotThrow()
+    {
+        // JWT payload has exp as a JSON string, not a number — TryGetInt64 would throw without the ValueKind guard
+        var jwt = MakeJwtWithRawPayload("{\"exp\":\"1700000000\"}");
+        Assert.False(JwtInspector.TryGetExpiryUtc(jwt, out _));
+    }
 }
