@@ -279,8 +279,8 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         var envId = Guid.NewGuid().ToString("N");
         var env = new FoEnvironment(envId, "New environment", string.Empty, string.Empty, null);
         var ceEnv = new DataverseEnvironment(envId, string.Empty, string.Empty);
-        var foSp = new ServicePrincipal(Guid.NewGuid().ToString("N"), envId, string.Empty, AuthMode.ClientSecret, null, null, AuthTarget.Fo);
-        var ceSp = new ServicePrincipal(Guid.NewGuid().ToString("N"), envId, string.Empty, AuthMode.ClientSecret, null, null, AuthTarget.Dataverse);
+        var foSp = new ServicePrincipal(Guid.NewGuid().ToString("N"), envId, string.Empty, AuthMode.Interactive, null, null, AuthTarget.Fo);
+        var ceSp = new ServicePrincipal(Guid.NewGuid().ToString("N"), envId, string.Empty, AuthMode.Interactive, null, null, AuthTarget.Dataverse);
         var profile = new ProfileItem(new EnvironmentEditor(env), new DataverseEnvironmentEditor(ceEnv), new ServicePrincipalEditor(foSp), new ServicePrincipalEditor(ceSp));
         Profiles.Add(profile);
         Selected = profile;
@@ -373,6 +373,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
                 () => PendingFoClientSecret = null,
                 () => PendingFoBearerToken = null,
                 nameof(FoStoredCredentialStatus));
+            Selected.FoPrincipal.CertThumbprint = foSp.CertThumbprint;
 
             ceSp = await PersistCredentialsForPrincipalAsync(
                 ceSp,
@@ -382,6 +383,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
                 () => PendingCeClientSecret = null,
                 () => PendingCeBearerToken = null,
                 nameof(CeStoredCredentialStatus));
+            Selected.DataversePrincipal.CertThumbprint = ceSp.CertThumbprint;
 
             await _profiles.UpsertServicePrincipalAsync(foSp);
             await _profiles.UpsertServicePrincipalAsync(ceSp);
@@ -598,6 +600,11 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             ? Selected.FoPrincipal.AuthMode
             : Selected.DataversePrincipal.AuthMode;
 
+        if (authMode == AuthMode.Interactive)
+        {
+            return AcquireTokenInteractiveAsync(target);
+        }
+
         if (authMode != AuthMode.BearerToken)
         {
             var credentialLabel = authMode == AuthMode.ClientSecret ? "client secret" : "certificate settings";
@@ -632,7 +639,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         tenantId = target == AuthTarget.Fo ? env.TenantId : ceEnv.TenantId;
         clientId = principal.ClientId ?? string.Empty;
 
-        if (principal.AuthMode != AuthMode.BearerToken)
+        if (principal.AuthMode != AuthMode.BearerToken && principal.AuthMode != AuthMode.Interactive)
         {
             Status = $"Switch {Side(target)} Auth mode to BearerToken to retrieve a bearer token.";
             return false;
@@ -931,6 +938,13 @@ try {{
                 }
             }
         }
+        else if (principal.AuthMode == AuthMode.Interactive)
+        {
+            // Interactive auth acquires tokens via MSAL at runtime; the vault stores nothing.
+            principal = principal with { CertThumbprint = null, SecretRef = null };
+            updateSecretRef(null);
+            OnPropertyChanged(statusPropertyName);
+        }
         else if (principal.AuthMode == AuthMode.BearerToken)
         {
             principal = principal with { CertThumbprint = null };
@@ -964,6 +978,7 @@ try {{
         if (principal is null) return string.Empty;
         return principal.AuthMode switch
         {
+            AuthMode.Interactive => "Interactive sign-in — tokens are acquired in your browser when needed and renewed silently.",
             AuthMode.BearerToken => principal.SecretRef is null or ""
                 ? "No stored bearer token."
                 : "Bearer token stored (DPAPI).",

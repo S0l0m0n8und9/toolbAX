@@ -35,6 +35,120 @@ public sealed class ProfilesViewModelInteractiveAuthTests
         return new ProfileItem(new EnvironmentEditor(env), new DataverseEnvironmentEditor(ceEnv), new ServicePrincipalEditor(foSp), new ServicePrincipalEditor(ceSp));
     }
 
+    // ── Task 8: Interactive AuthMode ────────────────────────────────────────
+
+    [Fact]
+    public void NewProfile_AddCommand_DefaultsToInteractiveAuthMode()
+    {
+        var dir = Directory.CreateTempSubdirectory("profiles-interactive-default");
+        var dbPath = Path.Combine(dir.FullName, "profiles.db");
+        try
+        {
+            var vm = new ProfilesViewModel(dbPath, NullLogger.Instance, _ => { });
+            vm.AddProfileCommand.Execute(null);
+
+            var selected = Assert.IsType<ProfileItem>(vm.Selected);
+            Assert.Equal(AuthMode.Interactive, selected.FoPrincipal.AuthMode);
+            Assert.Equal(AuthMode.Interactive, selected.DataversePrincipal.AuthMode);
+        }
+        finally
+        {
+            try { Directory.Delete(dir.FullName, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task Save_InteractiveMode_ClearsCertThumbprintAndSecretRef()
+    {
+        var dir = Directory.CreateTempSubdirectory("profiles-interactive-save");
+        var dbPath = Path.Combine(dir.FullName, "profiles.db");
+        try
+        {
+            var vm = new ProfilesViewModel(dbPath, NullLogger.Instance, _ => { });
+            await vm.RefreshAsync();
+            vm.AddProfileCommand.Execute(null);
+
+            var selected = Assert.IsType<ProfileItem>(vm.Selected);
+            selected.Environment.Name = "Env";
+            selected.Environment.BaseUrl = "https://contoso.operations.dynamics.com";
+            selected.Environment.TenantId = "99999999-9999-9999-9999-999999999999";
+            selected.FoPrincipal.ClientId = "11111111-2222-3333-4444-555555555555";
+            selected.FoPrincipal.AuthMode = AuthMode.Interactive;
+            // Simulate leftover cert/secret that should be cleared on save
+            selected.FoPrincipal.CertThumbprint = "AABBCCDD";
+            selected.FoPrincipal.SecretRef = "old-secret-ref";
+
+            var saveMethod = typeof(ProfilesViewModel).GetMethod("SaveAsync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
+            Assert.NotNull(saveMethod);
+            var task = Assert.IsAssignableFrom<Task<bool>>(saveMethod!.Invoke(vm, new object[] { false }));
+            var result = await task;
+
+            Assert.True(result);
+            // After saving an Interactive-mode principal, cert and secret must be null.
+            Assert.Null(selected.FoPrincipal.CertThumbprint);
+            Assert.Null(selected.FoPrincipal.SecretRef);
+            Assert.Equal(AuthMode.Interactive, selected.FoPrincipal.AuthMode);
+        }
+        finally
+        {
+            try { Directory.Delete(dir.FullName, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task StoredCredentialStatus_InteractiveMode_ShowsInteractiveMessage()
+    {
+        var dir = Directory.CreateTempSubdirectory("profiles-interactive-status");
+        var dbPath = Path.Combine(dir.FullName, "profiles.db");
+        try
+        {
+            var vm = new ProfilesViewModel(dbPath, NullLogger.Instance, _ => { });
+            await vm.RefreshAsync();
+            vm.AddProfileCommand.Execute(null);
+
+            var selected = Assert.IsType<ProfileItem>(vm.Selected);
+            selected.FoPrincipal.AuthMode = AuthMode.Interactive;
+
+            Assert.Contains("browser", vm.FoStoredCredentialStatus, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            try { Directory.Delete(dir.FullName, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task BeginInteractiveReauth_InteractiveMode_TriggersSignInFlow()
+    {
+        var dir = Directory.CreateTempSubdirectory("profiles-interactive-reauth");
+        var dbPath = Path.Combine(dir.FullName, "profiles.db");
+        try
+        {
+            var vm = new ProfilesViewModel(dbPath, NullLogger.Instance, _ => { });
+            var fake = new FakeInteractiveTokenProvider();
+            vm.InteractiveTokenProvider = fake;
+
+            await vm.RefreshAsync();
+            vm.Selected = BuildProfile(
+                Guid.NewGuid().ToString("N"),
+                AuthMode.Interactive,
+                "11111111-2222-3333-4444-555555555555",
+                "https://contoso.operations.dynamics.com",
+                "99999999-9999-9999-9999-999999999999");
+
+            await vm.BeginInteractiveReauthAsync("Finance and Operations");
+
+            // For Interactive mode, BeginInteractiveReauth should trigger the sign-in flow.
+            Assert.Equal(1, fake.Calls);
+        }
+        finally
+        {
+            try { Directory.Delete(dir.FullName, recursive: true); } catch { }
+        }
+    }
+
+    // ── existing tests ───────────────────────────────────────────────────────
+
     [Fact]
     public async Task InteractiveSignIn_BearerTokenMode_AcquiresViaProviderAndStoresToken()
     {
