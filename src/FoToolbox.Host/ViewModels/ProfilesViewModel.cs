@@ -44,24 +44,37 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     /// <summary>
     /// Interactive (delegated user) token acquirer used by the "Sign in with Microsoft" route.
     /// Defaults to the real MSAL provider; tests substitute a fake.
-    /// Setting this property resets <see cref="Broker"/> so the next access rebuilds with the new provider.
+    /// Setting this property resets a lazily built <see cref="Broker"/> so the next access rebuilds
+    /// with the new provider. An explicitly injected broker (constructor or property assignment)
+    /// is never discarded by this setter — it carries its own interactive provider.
     /// </summary>
     private IInteractiveTokenProvider _interactiveTokenProvider = new MsalInteractiveTokenProvider();
     internal IInteractiveTokenProvider InteractiveTokenProvider
     {
         get => _interactiveTokenProvider;
-        set { _interactiveTokenProvider = value; _broker = null; }
+        set
+        {
+            _interactiveTokenProvider = value;
+            if (!_brokerInjected)
+            {
+                _broker = null;
+            }
+        }
     }
 
     private AuthBroker? _broker;
+    private bool _brokerInjected;
     /// <summary>
-    /// Lazily built from <see cref="InteractiveTokenProvider"/>; rebuilt whenever that property is set.
-    /// Assign directly to inject a fully configured broker (e.g. in tests that need a complete fake).
+    /// The token pipeline used by Test connection and the Sign-in buttons. Prefer injecting the
+    /// host's shared <see cref="AuthBroker"/> (via the constructor or this setter) so these flows
+    /// serialize on the same interactive gate — and share the same MSAL cache — as live
+    /// plugin-driven renewals. Without injection it is lazily built from
+    /// <see cref="InteractiveTokenProvider"/> and rebuilt whenever that property is set.
     /// </summary>
     internal AuthBroker Broker
     {
         get => _broker ??= new AuthBroker(_vault, InteractiveTokenProvider);
-        set => _broker = value;
+        set { _broker = value; _brokerInjected = true; }
     }
 
     public ProfileItem? Selected
@@ -203,13 +216,17 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler<ConnectionTestedEventArgs>? ConnectionTested;
 
-    public ProfilesViewModel(string dbPath, ILogger logger, Action<ProfileBundle> applyProfile)
+    public ProfilesViewModel(string dbPath, ILogger logger, Action<ProfileBundle> applyProfile, AuthBroker? broker = null)
     {
         _store = new ProfileStore(dbPath);
         _profiles = new ProfileService(_store);
         _vault = new SecretVaultService(_store.ConnectionString);
         _logger = logger;
         _applyProfile = applyProfile;
+        if (broker is not null)
+        {
+            Broker = broker;
+        }
 
         RefreshCommand = new AsyncCommand(RefreshAsync);
         AddProfileCommand = new AsyncCommand(AddAsync);
@@ -710,13 +727,23 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         {
             Status = $"Opening Microsoft sign-in for {Side(target)} in your browser...";
             var resourceBaseUrl = NormalizeResourceBaseUrl(target, baseUrl);
-            // 5-minute timeout honours the broker's liveness contract: an abandoned browser window
-            // must not hold the interactive gate indefinitely and wedge the Sign-in button.
+            // Route through the Broker (a synthetic Interactive-mode principal forces the delegated
+            // path even when the profile is in BearerToken mode) so this click serializes on the
+            // broker's interactive gate — when the shared host broker is injected, that's the same
+            // gate and MSAL cache live plugin-driven renewals use, so a concurrent renewal and a
+            // button click can never open two browser windows. The broker also tenant-validates the
+            // returned token. The 5-minute timeout protects this call's own liveness: an abandoned
+            // browser window must not hold the gate indefinitely and wedge the Sign-in button.
+            var interactiveSp = new ServicePrincipal(
+                $"interactive-{Side(target).ToLowerInvariant()}-{env.Id}", env.Id, clientId, AuthMode.Interactive, null, null, target);
+            var request = new AuthTokenRequest(
+                resourceBaseUrl,
+                tenantId,
+                interactiveSp,
+                ServiceName: target == AuthTarget.Fo ? "Finance and Operations" : "Dataverse");
             using var cts = new CancellationTokenSource(TimeSpan.FromMinutes(5));
-            var result = await InteractiveTokenProvider.AcquireTokenAsync(
-                new InteractiveTokenRequest(clientId, tenantId, resourceBaseUrl),
-                cts.Token);
-            await StoreAcquiredBearerTokenAsync(target, env, ceEnv, result.AccessToken);
+            var accessToken = await Broker.AcquireTokenAsync(request, cts.Token);
+            await StoreAcquiredBearerTokenAsync(target, env, ceEnv, accessToken);
         }
         catch (OperationCanceledException)
         {

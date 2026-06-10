@@ -36,11 +36,14 @@ public class MainWindowAuthRecoveryTests
 
                         var ctor = profilesViewType.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
                             .Single();
+                        // Activator matches constructor arity exactly (optional parameters are not
+                        // applied), so pass the optional AuthBroker explicitly as null.
                         var profilesVm = Activator.CreateInstance(
                             profilesViewModelType,
                             "Data Source=:memory:",
                             Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
-                            (Action<FoToolbox.Core.Profiles.ProfileBundle>)(_ => { }))
+                            (Action<FoToolbox.Core.Profiles.ProfileBundle>)(_ => { }),
+                            null)
                             ?? throw new Xunit.Sdk.XunitException("ProfilesViewModel could not be created.");
                         profilesView = ctor.Invoke(new[] { profilesVm });
                         SetPrivateField(window, "_profilesView", profilesView);
@@ -157,11 +160,14 @@ public class MainWindowAuthRecoveryTests
 
             var ctor = profilesViewType.GetConstructors(BindingFlags.Instance | BindingFlags.NonPublic)
                 .Single();
+            // Activator matches constructor arity exactly (optional parameters are not applied),
+            // so pass the optional AuthBroker explicitly as null (lazily-built broker).
             var profilesVm = Activator.CreateInstance(
                 profilesViewModelType,
                 "Data Source=:memory:",
                 Microsoft.Extensions.Logging.Abstractions.NullLogger.Instance,
-                (Action<FoToolbox.Core.Profiles.ProfileBundle>)(_ => { }))
+                (Action<FoToolbox.Core.Profiles.ProfileBundle>)(_ => { }),
+                null)
                 ?? throw new Xunit.Sdk.XunitException("ProfilesViewModel could not be created.");
             profilesView = ctor.Invoke(new[] { profilesVm });
             SetPrivateField(window, "_profilesView", profilesView);

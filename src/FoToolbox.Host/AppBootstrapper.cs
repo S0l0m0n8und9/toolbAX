@@ -43,6 +43,13 @@ internal sealed class AppBootstrapper : IDisposable
     public AuthReauthCoordinator ReauthCoordinator => _reauthCoordinator;
 
     /// <summary>
+    /// The single token pipeline shared by the live request path (via <see cref="AuthenticatedHandler"/>)
+    /// and the Profiles UI (Test connection / Sign in with Microsoft). Sharing one instance means one
+    /// interactive gate (never two concurrent browser prompts) and one MSAL app/token cache.
+    /// </summary>
+    public AuthBroker AuthBroker => _authBroker;
+
+    /// <summary>
     /// Resolves (or seeds) the default profile from the database.
     /// Returns <c>null</c> when no profile could be determined.
     /// </summary>
