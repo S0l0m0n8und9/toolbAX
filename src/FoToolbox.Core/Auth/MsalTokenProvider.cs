@@ -1,6 +1,9 @@
 using FoToolbox.Core.Models;
 using Microsoft.Identity.Client;
 using System;
+using System.Collections.Concurrent;
+using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -14,6 +17,7 @@ public sealed class MsalTokenProvider : ITokenProvider
     private readonly string _authorityBase;
     private readonly Func<ServicePrincipal, CancellationToken, Task<ClientCredential>> _credentialProvider;
     private readonly int _maxAttempts;
+    private readonly ConcurrentDictionary<string, IConfidentialClientApplication> _apps = new();
 
     [Obsolete("Use the async credential-provider constructor overload.")]
     public MsalTokenProvider(string authorityBase, Func<ServicePrincipal, ClientCredential> credentialProvider, int maxAttempts = 3)
@@ -28,36 +32,58 @@ public sealed class MsalTokenProvider : ITokenProvider
         _maxAttempts = Math.Max(1, maxAttempts);
     }
 
+    /// <summary>
+    /// Returns the cached <see cref="IConfidentialClientApplication"/> for the given
+    /// (clientId, authority, credential fingerprint) triple, building a new one on first use
+    /// or after credential rotation.
+    /// </summary>
+    internal IConfidentialClientApplication GetOrCreateApp(ServicePrincipal principal, string authority, ClientCredential credential)
+    {
+        var fingerprint = credential switch
+        {
+            ClientSecretCredential s => Sha256Hex(s.Secret),
+            ClientCertificateCredential c => c.Certificate.Thumbprint,
+            _ => throw new InvalidOperationException("Unsupported credential type.")
+        };
+        var cacheKey = $"{principal.ClientId}|{authority}|{fingerprint}";
+
+        return _apps.GetOrAdd(cacheKey, _ =>
+        {
+            var appBuilder = ConfidentialClientApplicationBuilder
+                .Create(principal.ClientId)
+                .WithAuthority(authority);
+
+            appBuilder = credential switch
+            {
+                ClientSecretCredential secret => appBuilder.WithClientSecret(secret.Secret),
+                ClientCertificateCredential cert => appBuilder.WithCertificate(cert.Certificate),
+                _ => throw new InvalidOperationException("Unsupported credential type.")
+            };
+
+            return appBuilder.Build();
+        });
+    }
+
+    private static string Sha256Hex(string value)
+    {
+        var hash = SHA256.HashData(Encoding.UTF8.GetBytes(value));
+        return Convert.ToHexString(hash);
+    }
+
     public async Task<string> GetTokenAsync(TokenRequest request, CancellationToken cancellationToken = default)
     {
         var attempts = 0;
         Exception? last = null;
+
+        var credential = await _credentialProvider(request.Principal, cancellationToken);
+        var authority = $"{_authorityBase}/{request.TenantId}";
+        var app = GetOrCreateApp(request.Principal, authority, credential);
 
         while (attempts < _maxAttempts)
         {
             attempts++;
             try
             {
-                var credential = await _credentialProvider(request.Principal, cancellationToken);
-                var authority = $"{_authorityBase}/{request.TenantId}";
-                var appBuilder = ConfidentialClientApplicationBuilder
-                    .Create(request.Principal.ClientId)
-                    .WithAuthority(authority);
-
-                if (credential is ClientSecretCredential secret)
-                {
-                    appBuilder = appBuilder.WithClientSecret(secret.Secret);
-                }
-                else if (credential is ClientCertificateCredential cert)
-                {
-                    appBuilder = appBuilder.WithCertificate(cert.Certificate);
-                }
-                else
-                {
-                    throw new InvalidOperationException("Unsupported credential type.");
-                }
-
-                var app = appBuilder.Build();
                 var result = await app.AcquireTokenForClient(new[] { request.Scope })
                     .WithSendX5C(true)
                     .ExecuteAsync(cancellationToken);

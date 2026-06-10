@@ -24,4 +24,28 @@ public class AuthBrokerTests
 
         Assert.Equal(AuthMode.Interactive, loaded!.AuthMode);
     }
+
+    [Fact]
+    [Trait("Category", "Auth")]
+    public void MsalTokenProvider_Reuses_App_For_Same_Credential_And_Rebuilds_On_Rotation()
+    {
+        var provider = new FoToolbox.Core.Auth.MsalTokenProvider(
+            "https://login.microsoftonline.com",
+            (_, _) => Task.FromResult<FoToolbox.Core.Auth.ClientCredential>(new FoToolbox.Core.Auth.ClientSecretCredential("secret-1")));
+
+        var sp = new ServicePrincipal("sp", "env", "client-id", AuthMode.ClientSecret, null, null);
+        var authority = "https://login.microsoftonline.com/tenant";
+        var cred1 = new FoToolbox.Core.Auth.ClientSecretCredential("secret-1");
+        var cred2 = new FoToolbox.Core.Auth.ClientSecretCredential("secret-2");
+
+        var app1 = provider.GetOrCreateApp(sp, authority, cred1);
+        var app2 = provider.GetOrCreateApp(sp, authority, cred1);
+        var app3 = provider.GetOrCreateApp(sp, authority, cred2);
+        // different authority (tenant) → different app entry
+        var app4 = provider.GetOrCreateApp(sp, "https://login.microsoftonline.com/other-tenant", cred1);
+
+        Assert.Same(app1, app2);
+        Assert.NotSame(app1, app3);
+        Assert.NotSame(app1, app4);
+    }
 }
