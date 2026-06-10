@@ -78,10 +78,7 @@ public sealed class ProfilesViewModelInteractiveAuthTests
             selected.FoPrincipal.CertThumbprint = "AABBCCDD";
             selected.FoPrincipal.SecretRef = "old-secret-ref";
 
-            var saveMethod = typeof(ProfilesViewModel).GetMethod("SaveAsync", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic);
-            Assert.NotNull(saveMethod);
-            var task = Assert.IsAssignableFrom<Task<bool>>(saveMethod!.Invoke(vm, new object[] { false }));
-            var result = await task;
+            var result = await vm.SaveAsync(promptForPluginRefresh: false);
 
             Assert.True(result);
             // After saving an Interactive-mode principal, cert and secret must be null.
@@ -140,6 +137,43 @@ public sealed class ProfilesViewModelInteractiveAuthTests
 
             // For Interactive mode, BeginInteractiveReauth should trigger the sign-in flow.
             Assert.Equal(1, fake.Calls);
+            // Fix 4: Interactive flow must not vault any secret — SecretRef must remain null.
+            Assert.Null(vm.Selected!.FoPrincipal.SecretRef);
+        }
+        finally
+        {
+            try { Directory.Delete(dir.FullName, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task BeginInteractiveReauth_InteractiveMode_DoesNotSetPendingBearerTokenOrClaimSaved()
+    {
+        // Fix 1: Interactive reauth must not stash/announce a bearer token.
+        var dir = Directory.CreateTempSubdirectory("profiles-interactive-reauth-no-bearer");
+        var dbPath = Path.Combine(dir.FullName, "profiles.db");
+        try
+        {
+            var vm = new ProfilesViewModel(dbPath, NullLogger.Instance, _ => { });
+            var fake = new FakeInteractiveTokenProvider();
+            vm.InteractiveTokenProvider = fake;
+
+            await vm.RefreshAsync();
+            vm.Selected = BuildProfile(
+                Guid.NewGuid().ToString("N"),
+                AuthMode.Interactive,
+                "11111111-2222-3333-4444-555555555555",
+                "https://contoso.operations.dynamics.com",
+                "99999999-9999-9999-9999-999999999999");
+
+            await vm.BeginInteractiveReauthAsync("Finance and Operations");
+
+            Assert.Equal(1, fake.Calls);
+            // PendingFoBearerToken must NOT be populated — no plaintext token in the VM.
+            Assert.True(string.IsNullOrEmpty(vm.PendingFoBearerToken),
+                $"Expected PendingFoBearerToken to be null/empty but was: {vm.PendingFoBearerToken}");
+            // Status must not claim a bearer token was "saved".
+            Assert.DoesNotContain("bearer token acquired and saved", vm.Status, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

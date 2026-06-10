@@ -293,7 +293,7 @@
                                                    TextWrapping="Wrap"
                                                    Foreground="{DynamicResource Fo.SubtleTextBrush}"
                                                    FontSize="{DynamicResource Fo.FontSize.Small}"
-                                                   Text="Signs you in via your browser when a tool first needs access, then renews silently. Requires a public-client app registration with an http://localhost redirect. No secret is stored." />
+                                                   Text="{Binding FoStoredCredentialStatus}" />
                                     </Grid>
                                 </StackPanel>
                             </Border>
@@ -378,7 +378,7 @@
                                                    TextWrapping="Wrap"
                                                    Foreground="{DynamicResource Fo.SubtleTextBrush}"
                                                    FontSize="{DynamicResource Fo.FontSize.Small}"
-                                                   Text="Signs you in via your browser when a tool first needs access, then renews silently. Requires a public-client app registration with an http://localhost redirect. No secret is stored." />
+                                                   Text="{Binding CeStoredCredentialStatus}" />
                                     </Grid>
                                 </StackPanel>
                             </Border>

@@ -325,7 +325,7 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
         }
     }
 
-    private async Task<bool> SaveAsync(bool promptForPluginRefresh)
+    internal async Task<bool> SaveAsync(bool promptForPluginRefresh)
     {
         if (Selected is null) return false;
 
@@ -717,13 +717,22 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
     /// <summary>
     /// Shared tail for both token-acquisition routes: normalise, persist to the DPAPI vault via
     /// <see cref="SaveAsync"/>, report expiry, and refresh dependent plugins when the profile is active.
+    /// For Interactive-mode principals the token is NOT stashed in <see cref="PendingFoBearerToken"/> /
+    /// <see cref="PendingCeBearerToken"/> and no "bearer token saved" message is emitted.
     /// </summary>
     private async Task StoreAcquiredBearerTokenAsync(AuthTarget target, FoEnvironment env, DataverseEnvironment ceEnv, string rawToken)
     {
         var normalizedToken = BearerTokenText.Normalize(rawToken);
 
-        if (target == AuthTarget.Fo) PendingFoBearerToken = normalizedToken;
-        else PendingCeBearerToken = normalizedToken;
+        var principal = target == AuthTarget.Fo ? Selected!.FoPrincipal : Selected!.DataversePrincipal;
+        var isInteractive = principal.AuthMode == AuthMode.Interactive;
+
+        if (!isInteractive)
+        {
+            // BearerToken mode: stash the pending token so SaveAsync will vault it.
+            if (target == AuthTarget.Fo) PendingFoBearerToken = normalizedToken;
+            else PendingCeBearerToken = normalizedToken;
+        }
 
         var saveSucceeded = await SaveAsync(promptForPluginRefresh: false);
         if (!saveSucceeded)
@@ -731,9 +740,19 @@ internal sealed class ProfilesViewModel : INotifyPropertyChanged
             return;
         }
 
-        var tokenStatus = JwtInspector.TryGetExpiryUtc(normalizedToken, out var expiryUtc)
-            ? $"{Side(target)} bearer token acquired and saved. Expires {expiryUtc.UtcDateTime:u}."
-            : $"{Side(target)} bearer token acquired and saved.";
+        string tokenStatus;
+        if (isInteractive)
+        {
+            tokenStatus = JwtInspector.TryGetExpiryUtc(normalizedToken, out var expiryUtc)
+                ? $"Signed in. Token expires {expiryUtc.UtcDateTime:u}; renews silently."
+                : "Signed in. Token renews silently.";
+        }
+        else
+        {
+            tokenStatus = JwtInspector.TryGetExpiryUtc(normalizedToken, out var expiryUtc)
+                ? $"{Side(target)} bearer token acquired and saved. Expires {expiryUtc.UtcDateTime:u}."
+                : $"{Side(target)} bearer token acquired and saved.";
+        }
 
         if (IsSelectedProfileActive(env.Id))
         {
@@ -978,7 +997,7 @@ try {{
         if (principal is null) return string.Empty;
         return principal.AuthMode switch
         {
-            AuthMode.Interactive => "Interactive sign-in — tokens are acquired in your browser when needed and renewed silently.",
+            AuthMode.Interactive => "Signs you in via your browser when a tool first needs access, then renews silently. Requires a public-client app registration with an http://localhost redirect. No secret is stored.",
             AuthMode.BearerToken => principal.SecretRef is null or ""
                 ? "No stored bearer token."
                 : "Bearer token stored (DPAPI).",
