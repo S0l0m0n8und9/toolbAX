@@ -123,6 +123,65 @@ public partial class QueryBuilderViewModel : ObservableObject
     [ObservableProperty]
     private bool _crossCompany;
 
+    // --- Filter builder (nested AND/OR tree) ---
+
+    // Field/enum metadata the condition rows use to populate dropdowns + pick value editors. Rebuilt
+    // whenever the selected entity's fields (re)load.
+    private QueryFilterContext _filterContext = new(Array.Empty<EntityField>(), _ => Array.Empty<string>());
+
+    private QueryFilterGroup _filterRoot = null!;
+
+    /// <summary>Root AND/OR group of the visual filter builder (Builder mode).</summary>
+    public QueryFilterGroup FilterRoot
+    {
+        get => _filterRoot;
+        private set => SetProperty(ref _filterRoot, value);
+    }
+
+    /// <summary>Builder (visual tree) vs Raw ($filter text). Raw overrides the builder when non-empty.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsBuilderMode))]
+    private bool _isRawFilterMode;
+
+    public bool IsBuilderMode => !IsRawFilterMode;
+
+    /// <summary>Legal entity used to scope a company-aware query when cross-company is off (dataAreaId).</summary>
+    [ObservableProperty]
+    private string _company = "usmf";
+
+    /// <summary>The builder tree rendered to an OData <c>$filter</c> expression ("" when no conditions).</summary>
+    public string BuilderFilter => FilterRoot.Render() ?? string.Empty;
+
+    // Raw text only takes effect in Raw mode (and only when non-blank), mirroring the prototype.
+    private bool UsingRawFilter => IsRawFilterMode && !string.IsNullOrWhiteSpace(Filter);
+
+    /// <summary>
+    /// The actual <c>$filter</c> that will be sent: the raw text (Raw mode) or the builder expression,
+    /// with a <c>dataAreaId eq '{company}'</c> clause prepended for a company-aware entity when
+    /// cross-company is off.
+    /// </summary>
+    public string EffectiveFilter
+    {
+        get
+        {
+            var baseFilter = UsingRawFilter ? Filter.Trim() : BuilderFilter;
+            if (!CrossCompany && SelectedEntity?.CompanyAware == true && !string.IsNullOrWhiteSpace(Company))
+            {
+                var clause = $"dataAreaId eq '{Company.Trim().Replace("'", "''")}'";
+                return string.IsNullOrEmpty(baseFilter) ? clause : $"({clause}) and ({baseFilter})";
+            }
+
+            return baseFilter;
+        }
+    }
+
+    public bool HasEffectiveFilter => !string.IsNullOrEmpty(EffectiveFilter);
+
+    /// <summary>Header caption for the Filter section ("N conditions" / "raw $filter").</summary>
+    public string FilterSummary => IsRawFilterMode
+        ? "raw $filter"
+        : $"{FilterRoot.ConditionCount} condition{(FilterRoot.ConditionCount == 1 ? string.Empty : "s")}";
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RunCommand))]
     [NotifyCanExecuteChangedFor(nameof(LoadMoreCommand))]
@@ -183,6 +242,8 @@ public partial class QueryBuilderViewModel : ObservableObject
         _client = client;
         _clipboard = clipboard ?? new FakeClipboardService();
         _fileSave = fileSave ?? new FakeFileSaveService();
+        // An empty root until the first entity's fields load (rebuilt by RebuildFilterContext).
+        _filterRoot = new QueryFilterGroup(_filterContext, OnFilterTreeChanged, isRoot: true);
         // The fake seeds its catalogue synchronously; the real service starts empty and fills in via
         // InitializeAsync (triggered by the view on load).
         Entities = new ObservableCollection<EntitySet>(metadata.GetEntities());
@@ -226,6 +287,9 @@ public partial class QueryBuilderViewModel : ObservableObject
 
         // Default cross-company to the entity's company-awareness; the user can still override it.
         CrossCompany = value?.CompanyAware ?? false;
+        // A fresh entity starts in Builder mode with no raw text (the tree is rebuilt in LoadFields).
+        IsRawFilterMode = false;
+        Filter = string.Empty;
         LoadFields();                              // show what's cached immediately
         OnPropertyChanged(nameof(NotCachedMessage));
         ExportAllCsvCommand.NotifyCanExecuteChanged();
@@ -279,7 +343,9 @@ public partial class QueryBuilderViewModel : ObservableObject
         FilteredFields.Clear();
         foreach (var f in Fields)
         {
-            if (string.IsNullOrEmpty(term) || f.Name.Contains(term, StringComparison.OrdinalIgnoreCase))
+            if (string.IsNullOrEmpty(term)
+                || f.Name.Contains(term, StringComparison.OrdinalIgnoreCase)
+                || f.TypeDisplay.Contains(term, StringComparison.OrdinalIgnoreCase))
             {
                 FilteredFields.Add(f);
             }
@@ -301,12 +367,52 @@ public partial class QueryBuilderViewModel : ObservableObject
     }
 
     // Each option recomputes the live URL preview.
-    partial void OnFilterChanged(string value) => UpdateQueryUrl();
+    partial void OnFilterChanged(string value) => OnFilterTreeChanged();
     partial void OnOrderByChanged(string value) => UpdateQueryUrl();
     partial void OnTopChanged(string value) => UpdateQueryUrl();
     partial void OnSkipChanged(string value) => UpdateQueryUrl();
     partial void OnCountChanged(bool value) => UpdateQueryUrl();
-    partial void OnCrossCompanyChanged(bool value) => UpdateQueryUrl();
+    partial void OnCrossCompanyChanged(bool value) => OnFilterTreeChanged();
+    partial void OnIsRawFilterModeChanged(bool value) => OnFilterTreeChanged();
+    partial void OnCompanyChanged(string value) => OnFilterTreeChanged();
+
+    // The filter tree (or its mode / company scope) changed: refresh the dependent previews + URL.
+    private void OnFilterTreeChanged()
+    {
+        OnPropertyChanged(nameof(BuilderFilter));
+        OnPropertyChanged(nameof(EffectiveFilter));
+        OnPropertyChanged(nameof(HasEffectiveFilter));
+        OnPropertyChanged(nameof(FilterSummary));
+        UpdateQueryUrl();
+    }
+
+    // Rebuilds the filter context (field + enum metadata) and resets the builder tree for the selected
+    // entity. The condition rows read field names + enum members from this context.
+    private void RebuildFilterContext()
+    {
+        var fields = (SelectedEntity is null ? null : _metadata.GetFields(SelectedEntity.Name))
+            ?? (IReadOnlyList<EntityField>)Array.Empty<EntityField>();
+        _filterContext = new QueryFilterContext(
+            fields,
+            enumType => _metadata.GetEnumMembers(enumType) ?? Array.Empty<string>());
+        FilterRoot = new QueryFilterGroup(_filterContext, OnFilterTreeChanged, isRoot: true);
+    }
+
+    [RelayCommand]
+    private void SetFilterMode(string mode) =>
+        IsRawFilterMode = string.Equals(mode, "raw", StringComparison.OrdinalIgnoreCase);
+
+    [RelayCommand]
+    private async Task CopyUrl()
+    {
+        if (string.IsNullOrEmpty(QueryUrl))
+        {
+            return;
+        }
+
+        await _clipboard.SetTextAsync(QueryUrl);
+        StatusText = "Query URL copied to the clipboard.";
+    }
 
     // Fetches the selected entity's fields if they aren't cached yet, then rebuilds the field chips.
     [RelayCommand]
@@ -344,13 +450,16 @@ public partial class QueryBuilderViewModel : ObservableObject
             foreach (var f in fields)
             {
                 // Default selection = the primary key fields, mirroring the prototype's minimal $select.
-                var chip = new FieldChipViewModel(f.Name, f.IsKey, isSelected: f.IsKey);
+                // Carry the type + mandatory metadata so the field row shows a type line + REQ marker.
+                var chip = new FieldChipViewModel(f.Name, f.IsKey, isSelected: f.IsKey,
+                    isMandatory: f.Mandatory, typeDisplay: f.TypeDisplay);
                 chip.PropertyChanged += OnChipChanged;
                 Fields.Add(chip);
             }
         }
 
         LoadNavigations();
+        RebuildFilterContext();   // the builder's condition rows read this entity's fields + enums
         RefreshFieldFilter();
         UpdateQueryUrl();
         OnPropertyChanged(nameof(FieldSelectionLabel));
@@ -460,9 +569,10 @@ public partial class QueryBuilderViewModel : ObservableObject
         var select = string.Join(",", SelectedFields());
         parts.Add($"$select={(select.Length == 0 ? "*" : select)}");
 
-        if (!string.IsNullOrWhiteSpace(Filter))
+        var effectiveFilter = EffectiveFilter;
+        if (!string.IsNullOrWhiteSpace(effectiveFilter))
         {
-            parts.Add($"$filter={Encode(Filter.Trim())}");
+            parts.Add($"$filter={Encode(effectiveFilter)}");
         }
 
         if (!string.IsNullOrWhiteSpace(OrderBy))
@@ -498,10 +608,8 @@ public partial class QueryBuilderViewModel : ObservableObject
             }
         }
 
-        if (CrossCompany)
-        {
-            parts.Add("cross-company=true");
-        }
+        // Emit the flag either way — the prototype always states cross-company explicitly.
+        parts.Add(CrossCompany ? "cross-company=true" : "cross-company=false");
 
         return $"/data/{SelectedEntity.Name}?{string.Join("&", parts)}";
     }

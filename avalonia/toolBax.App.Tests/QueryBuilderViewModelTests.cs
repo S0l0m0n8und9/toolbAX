@@ -113,6 +113,7 @@ public class QueryBuilderViewModelTests
         var vm = MakeVm();
         vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
 
+        vm.IsRawFilterMode = true; // raw $filter is now a mode; the typed text only applies in Raw mode
         vm.Filter = "CustomerGroupId eq 'DOM'";
         vm.OrderBy = "OrganizationName desc";
         vm.Top = "25";
@@ -157,6 +158,7 @@ public class QueryBuilderViewModelTests
         var recorder = new RecordingODataClient();
         var vm = new QueryBuilderViewModel(new FakeMetadataService(), recorder);
         vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.IsRawFilterMode = true; // raw $filter is now a mode
         vm.Filter = "Name eq 'A B'";
 
         await vm.RunCommand.ExecuteAsync(null);
@@ -673,5 +675,209 @@ public class QueryBuilderViewModelTests
 
         Assert.False(vm.IsBusy);
         Assert.True(vm.RunCommand.CanExecute(null));
+    }
+
+    // --- Filter builder (nested AND/OR tree) ---
+
+    private static QueryFilterOperator Op(string op) => QueryFilterOperator.All.Single(o => o.Op == op);
+
+    private static QueryFilterCondition AddCondition(QueryBuilderViewModel vm)
+    {
+        vm.FilterRoot.AddConditionCommand.Execute(null);
+        return (QueryFilterCondition)vm.FilterRoot.Children[^1];
+    }
+
+    [Fact]
+    public void Builder_condition_renders_into_the_filter_and_url()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3"); // company-aware → cross-company on
+
+        var cond = AddCondition(vm);
+        cond.Field = "OrganizationName";
+        cond.Operator = Op("eq");
+        cond.Value = "Acme";
+
+        Assert.Equal("OrganizationName eq 'Acme'", vm.BuilderFilter);
+        Assert.Equal("OrganizationName eq 'Acme'", vm.EffectiveFilter); // cross-company on → no dataAreaId clause
+        Assert.Contains("$filter=OrganizationName eq 'Acme'", vm.QueryUrl);
+    }
+
+    [Fact]
+    public void Builder_function_operator_renders_as_a_function_call()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        var cond = AddCondition(vm);
+        cond.Field = "OrganizationName";
+        cond.Operator = Op("contains");
+        cond.Value = "Contoso";
+
+        Assert.Equal("contains(OrganizationName,'Contoso')", vm.BuilderFilter);
+    }
+
+    [Fact]
+    public void Builder_numeric_value_is_emitted_unquoted_and_strings_quoted()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        var cond = AddCondition(vm);
+        cond.Field = "CreditLimit"; // Decimal → numeric
+        cond.Operator = Op("gt");
+        cond.Value = "10000";
+        Assert.True(cond.IsNumeric);
+        Assert.Equal("CreditLimit gt 10000", vm.BuilderFilter);
+
+        cond.Field = "OrganizationName"; // String → quoted (changing the field clears the value)
+        cond.Value = "O'Brien";
+        Assert.Equal("OrganizationName gt 'O''Brien'", vm.BuilderFilter); // embedded quote doubled
+    }
+
+    [Fact]
+    public void Builder_nested_group_renders_with_parentheses_and_the_group_operator()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        var a = AddCondition(vm);
+        a.Field = "OrganizationName"; a.Operator = Op("eq"); a.Value = "A";
+
+        vm.FilterRoot.AddGroupCommand.Execute(null);
+        var group = (QueryFilterGroup)vm.FilterRoot.Children[^1];
+        group.SetOpCommand.Execute("or");
+        group.AddConditionCommand.Execute(null);
+        var b = (QueryFilterCondition)group.Children[0];
+        b.Field = "CustomerGroupId"; b.Operator = Op("eq"); b.Value = "B";
+        group.AddConditionCommand.Execute(null);
+        var c = (QueryFilterCondition)group.Children[1];
+        c.Field = "CurrencyCode"; c.Operator = Op("eq"); c.Value = "USD";
+
+        // Root defaults to AND; the nested group combines with OR.
+        Assert.Equal("(OrganizationName eq 'A' and (CustomerGroupId eq 'B' or CurrencyCode eq 'USD'))", vm.BuilderFilter);
+        Assert.Equal(3, vm.FilterRoot.ConditionCount);
+    }
+
+    [Fact]
+    public void Enum_field_exposes_its_members_for_the_value_editor()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        var cond = AddCondition(vm);
+        cond.Field = "IsOneTime"; // Enum<NoYes>
+
+        Assert.True(cond.IsEnum);
+        Assert.Equal(new[] { "No", "Yes" }, cond.EnumMembers);
+
+        cond.Value = "Yes";
+        Assert.Equal("IsOneTime eq 'Yes'", vm.BuilderFilter);
+    }
+
+    [Fact]
+    public void Empty_or_incomplete_conditions_contribute_nothing()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        var cond = AddCondition(vm); // no value yet
+        cond.Field = "OrganizationName";
+
+        Assert.True(vm.CrossCompany);                 // company-aware default → no dataAreaId clause
+        Assert.Equal(string.Empty, vm.BuilderFilter); // a value-less condition is skipped
+        Assert.False(vm.HasEffectiveFilter);          // …so there's no effective filter at all
+    }
+
+    [Fact]
+    public void Raw_filter_overrides_the_builder_only_in_raw_mode()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        var cond = AddCondition(vm);
+        cond.Field = "OrganizationName"; cond.Operator = Op("eq"); cond.Value = "A";
+        Assert.Equal("OrganizationName eq 'A'", vm.EffectiveFilter); // builder mode
+
+        vm.IsRawFilterMode = true;
+        vm.Filter = "CreditLimit gt 5000";
+        Assert.Equal("CreditLimit gt 5000", vm.EffectiveFilter); // raw overrides the builder
+
+        vm.Filter = "   "; // blank raw → falls back to the builder even in raw mode
+        Assert.Equal("OrganizationName eq 'A'", vm.EffectiveFilter);
+    }
+
+    [Fact]
+    public void Cross_company_off_injects_dataAreaId_for_a_company_aware_entity()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3"); // company-aware
+        vm.CrossCompany = false;
+        vm.Company = "usmf";
+
+        Assert.Equal("dataAreaId eq 'usmf'", vm.EffectiveFilter);
+        Assert.Contains("cross-company=false", vm.QueryUrl);
+
+        var cond = AddCondition(vm);
+        cond.Field = "OrganizationName"; cond.Operator = Op("eq"); cond.Value = "A";
+        Assert.Equal("(dataAreaId eq 'usmf') and (OrganizationName eq 'A')", vm.EffectiveFilter);
+    }
+
+    [Fact]
+    public void Cross_company_clause_is_not_injected_for_a_non_company_aware_entity()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "ChartOfAccounts"); // not company-aware
+        // CrossCompany defaults to the entity's company-awareness (false here) but no dataAreaId applies.
+        Assert.False(vm.CrossCompany);
+        Assert.Equal(string.Empty, vm.EffectiveFilter);
+        Assert.DoesNotContain("dataAreaId", vm.QueryUrl);
+        Assert.Contains("cross-company=false", vm.QueryUrl);
+    }
+
+    [Fact]
+    public async Task Copy_url_copies_the_query_url_to_the_clipboard()
+    {
+        var clipboard = new FakeClipboardService();
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient(), clipboard);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        await vm.CopyUrlCommand.ExecuteAsync(null);
+
+        Assert.Equal(vm.QueryUrl, clipboard.LastText);
+        Assert.Contains("copied", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Changing_the_entity_resets_the_filter_builder_and_mode()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        AddCondition(vm);
+        Assert.Equal(1, vm.FilterRoot.ConditionCount);
+        vm.IsRawFilterMode = true;
+        vm.Filter = "x eq 'y'";
+
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "SalesOrderHeadersV2"); // different entity
+
+        Assert.Equal(0, vm.FilterRoot.ConditionCount); // a fresh, empty builder
+        Assert.False(vm.IsRawFilterMode);              // back to Builder mode
+        Assert.Equal(string.Empty, vm.Filter);         // raw text cleared
+    }
+
+    [Fact]
+    public void Field_chips_carry_type_and_mandatory_metadata()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        var currency = vm.Fields.Single(f => f.Name == "CurrencyCode"); // mandatory, non-key String(3)
+        Assert.True(currency.ShowReq);
+        Assert.Equal("String(3)", currency.TypeDisplay);
+
+        var isOneTime = vm.Fields.Single(f => f.Name == "IsOneTime");
+        Assert.Equal("Enum<NoYes>", isOneTime.TypeDisplay);
+
+        var key = vm.Fields.Single(f => f.Name == "CustomerAccount"); // key → PK marker, not REQ
+        Assert.False(key.ShowReq);
     }
 }
