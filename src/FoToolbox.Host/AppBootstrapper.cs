@@ -25,6 +25,7 @@ internal sealed class AppBootstrapper : IDisposable
     private readonly ILogger _logger;
     private readonly SecretVaultService _vault;
     private readonly AuthReauthCoordinator _reauthCoordinator;
+    private readonly AuthBroker _authBroker;
     private HttpClient? _foHttpClient;
     private HttpClient? _dataverseHttpClient;
 
@@ -36,6 +37,7 @@ internal sealed class AppBootstrapper : IDisposable
         var store = new ProfileStore(profileDbPath);
         _vault = new SecretVaultService(store.ConnectionString);
         _reauthCoordinator = new AuthReauthCoordinator();
+        _authBroker = new AuthBroker(_vault, interactiveFallback: ex => _reauthCoordinator.Notify(ex));
     }
 
     public AuthReauthCoordinator ReauthCoordinator => _reauthCoordinator;
@@ -102,12 +104,12 @@ internal sealed class AppBootstrapper : IDisposable
 
     private HttpClient CreateAuthenticatedHttpClient(FoEnvironment env, ServicePrincipal sp)
     {
-        return new HttpClient(new AuthenticatedHandler(env, sp, _vault, _reauthCoordinator));
+        return new HttpClient(new AuthenticatedHandler(env, sp, _authBroker, _reauthCoordinator));
     }
 
     private HttpClient CreateAuthenticatedHttpClient(string resourceBaseUrl, string tenantId, ServicePrincipal sp)
     {
-        return new HttpClient(new AuthenticatedHandler(resourceBaseUrl, tenantId, sp, _vault, _reauthCoordinator));
+        return new HttpClient(new AuthenticatedHandler(resourceBaseUrl, tenantId, sp, _authBroker, _reauthCoordinator));
     }
 
     internal static string ResolvePluginRoot()
