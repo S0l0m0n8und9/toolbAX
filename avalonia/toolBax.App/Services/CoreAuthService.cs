@@ -24,13 +24,14 @@ public sealed class CoreAuthService : IAuthService
     private readonly SecretVaultService _vault;
     private readonly string _authorityBase;
 
-    // Both objects are lazy and stable across calls; the shared Interactive instance means F&O,
+    // Both objects are stable across calls; the shared Interactive instance means F&O,
     // Dataverse, and dual-write interactive flows all share the same MSAL token cache.
-    private AuthBroker? _broker;
-    private IInteractiveTokenProvider? _interactive;
+    // Eager init here eliminates a benign-but-real race when Acquire* is called from threadpool continuations.
+    private readonly IInteractiveTokenProvider _interactive;
+    private readonly AuthBroker _broker;
 
-    private AuthBroker Broker => _broker ??= new AuthBroker(_vault, Interactive, _authorityBase);
-    private IInteractiveTokenProvider Interactive => _interactive ??= new MsalInteractiveTokenProvider();
+    private IInteractiveTokenProvider Interactive => _interactive;
+    private AuthBroker Broker => _broker;
 
     public CoreAuthService(ProfileService profiles, SecretVaultService vault,
         string authorityBase = "https://login.microsoftonline.com")
@@ -38,6 +39,8 @@ public sealed class CoreAuthService : IAuthService
         _profiles = profiles;
         _vault = vault;
         _authorityBase = authorityBase;
+        _interactive = new MsalInteractiveTokenProvider();
+        _broker = new AuthBroker(_vault, _interactive, _authorityBase);
     }
 
     public async Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default)
@@ -71,7 +74,9 @@ public sealed class CoreAuthService : IAuthService
 
         var sp = await _profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Fo, ct).ConfigureAwait(false)
             ?? throw new InvalidOperationException("No F&O service principal is configured (set a client ID on the FO Environment tab).");
-        if (string.IsNullOrEmpty(sp.SecretRef))
+        // Pre-check: surfaces the Avalonia-specific message immediately and keeps the broker's
+        // FOTB_* env-var fallback narrowed to vault-read failures — don't remove as redundant.
+        if (string.IsNullOrWhiteSpace(sp.SecretRef))
         {
             throw new InvalidOperationException("No client secret is stored for this environment.");
         }
@@ -110,7 +115,9 @@ public sealed class CoreAuthService : IAuthService
 
         var sp = await _profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Dataverse, ct).ConfigureAwait(false)
             ?? throw new InvalidOperationException("No Dataverse service principal is configured (set a Dataverse client ID on the CE/Dataverse tab).");
-        if (string.IsNullOrEmpty(sp.SecretRef))
+        // Pre-check: surfaces the Avalonia-specific message immediately and keeps the broker's
+        // FOTB_* env-var fallback narrowed to vault-read failures — don't remove as redundant.
+        if (string.IsNullOrWhiteSpace(sp.SecretRef))
         {
             throw new InvalidOperationException("No client secret is stored for the Dataverse app registration.");
         }
