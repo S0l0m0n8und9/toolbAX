@@ -969,6 +969,29 @@ public class QueryBuilderViewModelTests
     }
 
     [Fact]
+    public void Switching_entity_notifies_the_filter_header_and_summary_so_they_cannot_go_stale()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        AddCondition(vm);
+        AddCondition(vm);
+        AddCondition(vm);
+        Assert.Equal("Filter · 3", vm.FilterTabHeader);
+
+        var raised = new List<string>();
+        vm.PropertyChanged += (_, e) => { if (e.PropertyName is not null) raised.Add(e.PropertyName); };
+
+        // Both entities are company-aware and we stay in builder mode with no raw text, so CrossCompany,
+        // IsRawFilterMode and Filter don't change on the switch — only LoadFields/RebuildFilterContext run.
+        // Without an explicit notification the bound Filter tab header would keep showing "Filter · 3".
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "SalesOrderHeadersV2");
+
+        Assert.Equal(0, vm.FilterRoot.ConditionCount); // fresh, empty builder for the new entity
+        Assert.Contains(nameof(QueryBuilderViewModel.FilterTabHeader), raised);
+        Assert.Contains(nameof(QueryBuilderViewModel.FilterSummary), raised);
+    }
+
+    [Fact]
     public void Field_chips_carry_type_and_mandatory_metadata()
     {
         var vm = MakeVm();

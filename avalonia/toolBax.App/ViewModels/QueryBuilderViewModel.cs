@@ -425,6 +425,12 @@ public partial class QueryBuilderViewModel : ObservableObject
             fields,
             enumType => _metadata.GetEnumMembers(enumType) ?? Array.Empty<string>());
         FilterRoot = new QueryFilterGroup(_filterContext, OnFilterTreeChanged, isRoot: true);
+        // FilterRoot was just replaced by a fresh (empty) tree. Its condition count drives both the
+        // Filter section summary and the Filter tab header, so refresh them — switching entities in
+        // builder mode (the common no-op path where IsRawFilterMode/Filter/CrossCompany don't change)
+        // doesn't otherwise raise these, leaving the previous entity's count stale.
+        OnPropertyChanged(nameof(FilterSummary));
+        OnPropertyChanged(nameof(FilterTabHeader));
     }
 
     [RelayCommand]
