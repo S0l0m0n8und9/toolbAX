@@ -30,6 +30,9 @@ public partial class QueryBuilderViewModel : ObservableObject
     // Hard cap on pages an "export all" will follow, so a misbehaving nextLink can't loop forever.
     private const int MaxExportPages = 500;
 
+    /// <summary>Zero-based index of the Results tab — Fields(0) · Filter(1) · Joins(2) · Results(3).</summary>
+    public const int ResultsTabIndex = 3;
+
     // True only while RefreshEntityFilter is rebuilding FilteredEntities, so the transient selection
     // null a bound ListBox emits during Clear() doesn't run OnSelectedEntityChanged's side-effects
     // (which would wipe the field selection + query URL on every keystroke in the entity search box).
@@ -190,6 +193,10 @@ public partial class QueryBuilderViewModel : ObservableObject
 
     [ObservableProperty]
     private bool _hasRun;
+
+    /// <summary>Active workspace tab (two-way bound to the TabControl). Run / Load more jump to Results.</summary>
+    [ObservableProperty]
+    private int _selectedTabIndex;
 
     /// <summary>True only when the last run returned a 2xx — gates the success badge.</summary>
     [ObservableProperty]
@@ -639,6 +646,7 @@ public partial class QueryBuilderViewModel : ObservableObject
 
         IsBusy = true;
         StatusText = "Running…";
+        SelectedTabIndex = ResultsTabIndex; // land on Results so rows are visible as they load
         try
         {
             var columns = SelectedColumns().ToList();
@@ -694,6 +702,7 @@ public partial class QueryBuilderViewModel : ObservableObject
 
         IsBusy = true;
         StatusText = "Loading more…";
+        SelectedTabIndex = ResultsTabIndex; // Load more can be triggered from any tab; show the grid
         try
         {
             var response = await _client.SendAsync("GET", link, body: null, ct);

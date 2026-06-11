@@ -677,6 +677,49 @@ public class QueryBuilderViewModelTests
         Assert.True(vm.RunCommand.CanExecute(null));
     }
 
+    [Fact]
+    public async Task Run_switches_to_the_results_tab()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        Assert.Equal(0, vm.SelectedTabIndex); // Fields is the default tab
+
+        await vm.RunCommand.ExecuteAsync(null);
+
+        Assert.Equal(QueryBuilderViewModel.ResultsTabIndex, vm.SelectedTabIndex);
+    }
+
+    [Fact]
+    public async Task Load_more_switches_to_the_results_tab()
+    {
+        const string page1 = "{\"@odata.nextLink\":\"https://x/data/E?$skiptoken=p2\",\"value\":[{\"CustomerAccount\":\"US-1\"}]}";
+        const string page2 = "{\"value\":[{\"CustomerAccount\":\"US-2\"}]}";
+        var client = new PagingODataClient(
+            new ODataResponse(200, "OK", page1, 5),
+            new ODataResponse(200, "OK", page2, 5));
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        await vm.RunCommand.ExecuteAsync(null);
+        vm.SelectedTabIndex = 0; // pretend the user navigated back to Fields
+
+        await vm.LoadMoreCommand.ExecuteAsync(null);
+
+        Assert.Equal(QueryBuilderViewModel.ResultsTabIndex, vm.SelectedTabIndex);
+    }
+
+    [Fact]
+    public async Task Export_all_does_not_change_the_active_tab()
+    {
+        var fileSave = new FakeFileSaveService("C:/tmp/x.csv");
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient(), fileSave: fileSave);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        Assert.Equal(0, vm.SelectedTabIndex);
+
+        await vm.ExportAllCsvCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, vm.SelectedTabIndex); // export writes a file; it must not jump to Results
+    }
+
     // --- Filter builder (nested AND/OR tree) ---
 
     private static QueryFilterOperator Op(string op) => QueryFilterOperator.All.Single(o => o.Op == op);
