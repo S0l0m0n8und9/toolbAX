@@ -62,6 +62,9 @@
               </DataTemplate>
             </ComboBox.ItemTemplate>
           </ComboBox>
+          <TextBlock Text="{Binding GridSummary}" FontSize="11" Foreground="{StaticResource Text3Brush}"
+                     FontFamily="Cascadia Code,Consolas,monospace"
+                     IsVisible="{Binding GridSummary, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         </StackPanel>
 
         <!-- Validation issues (field-grid mode). These block Send, so error styling; a concise count

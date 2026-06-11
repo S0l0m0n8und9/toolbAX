@@ -32,7 +32,9 @@ public class ShellViewModelTests
     public async Task Shell_routes_its_odata_client_into_the_post_builder()
     {
         var recorder = new RecordingODataClient();
-        var shell = new ShellViewModel(odataClient: recorder);
+        // Auto-confirm the send so the routing assertion runs headless (the real DialogService would open
+        // a ConfirmWindow); the confirm-gate behaviour itself is covered in PostBuilderViewModelTests.
+        var shell = new ShellViewModel(odataClient: recorder, dialogs: new AutoConfirmDialogs());
         shell.CurrentTool = shell.Tools.Single(t => t.Id == "post");
         var post = Assert.IsType<PostBuilderViewModel>(shell.CurrentContent);
 
