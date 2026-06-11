@@ -89,12 +89,18 @@ public sealed partial class QueryFilterCondition : QueryFilterNode
 
     public IReadOnlyList<string> FieldNames => _context.FieldNames;
 
-    public IReadOnlyList<QueryFilterOperator> Operators => QueryFilterOperator.All;
+    // Function operators (contains/startswith/endswith) are string-only; hide them for numeric/enum
+    // fields so an invalid expression like contains(CreditLimit,10000) can't be composed.
+    public IReadOnlyList<QueryFilterOperator> Operators =>
+        IsNumeric || IsEnum
+            ? QueryFilterOperator.All.Where(o => !o.IsFunction).ToList()
+            : QueryFilterOperator.All;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsEnum))]
     [NotifyPropertyChangedFor(nameof(IsNumeric))]
     [NotifyPropertyChangedFor(nameof(EnumMembers))]
+    [NotifyPropertyChangedFor(nameof(Operators))]
     private string? _field;
 
     [ObservableProperty]
@@ -122,6 +128,13 @@ public sealed partial class QueryFilterCondition : QueryFilterNode
     partial void OnFieldChanged(string? value)
     {
         Value = string.Empty;
+        // If the field switched to numeric/enum while a string-only function operator was selected, fall
+        // back to a comparison operator so the rendered filter stays valid.
+        if ((IsNumeric || IsEnum) && Operator.IsFunction)
+        {
+            Operator = QueryFilterOperator.All[0]; // eq
+        }
+
         _onChanged();
     }
 
@@ -133,7 +146,8 @@ public sealed partial class QueryFilterCondition : QueryFilterNode
 
     public override string? Render()
     {
-        if (string.IsNullOrEmpty(Field) || string.IsNullOrEmpty(Value))
+        // Whitespace-only is treated as empty (so a stray space can't render as a bare 0 / '').
+        if (string.IsNullOrEmpty(Field) || string.IsNullOrWhiteSpace(Value))
         {
             return null;
         }
@@ -243,6 +257,8 @@ public sealed partial class QueryFilterGroup : QueryFilterNode
             return parts[0];
         }
 
-        return $"({string.Join($" {Op} ", parts)})";
+        // Nested groups wrap in parens to bind precedence; the root doesn't need redundant outer parens.
+        var joined = string.Join($" {Op} ", parts);
+        return IsRoot ? joined : $"({joined})";
     }
 }

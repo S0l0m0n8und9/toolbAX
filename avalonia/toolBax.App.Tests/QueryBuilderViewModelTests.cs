@@ -754,8 +754,8 @@ public class QueryBuilderViewModelTests
         var c = (QueryFilterCondition)group.Children[1];
         c.Field = "CurrencyCode"; c.Operator = Op("eq"); c.Value = "USD";
 
-        // Root defaults to AND; the nested group combines with OR.
-        Assert.Equal("(OrganizationName eq 'A' and (CustomerGroupId eq 'B' or CurrencyCode eq 'USD'))", vm.BuilderFilter);
+        // Root defaults to AND (no redundant outer parens); the nested group combines with OR.
+        Assert.Equal("OrganizationName eq 'A' and (CustomerGroupId eq 'B' or CurrencyCode eq 'USD')", vm.BuilderFilter);
         Assert.Equal(3, vm.FilterRoot.ConditionCount);
     }
 
@@ -879,5 +879,44 @@ public class QueryBuilderViewModelTests
 
         var key = vm.Fields.Single(f => f.Name == "CustomerAccount"); // key → PK marker, not REQ
         Assert.False(key.ShowReq);
+    }
+
+    [Fact]
+    public void Function_operators_are_hidden_for_numeric_fields_and_a_selected_one_is_reset()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        var cond = AddCondition(vm);
+
+        cond.Field = "OrganizationName"; // string → function ops offered
+        Assert.Contains(cond.Operators, o => o.Op == "contains");
+        cond.Operator = Op("contains");
+
+        cond.Field = "CreditLimit"; // numeric → function ops hidden + the selected one falls back
+        Assert.DoesNotContain(cond.Operators, o => o.IsFunction);
+        Assert.False(cond.Operator.IsFunction);
+    }
+
+    [Fact]
+    public void Whitespace_only_value_contributes_no_filter()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        var cond = AddCondition(vm);
+        cond.Field = "OrganizationName";
+        cond.Value = "   "; // whitespace is treated as empty
+
+        Assert.Equal(string.Empty, vm.BuilderFilter);
+    }
+
+    [Fact]
+    public void Root_group_omits_redundant_outer_parentheses()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        var a = AddCondition(vm); a.Field = "OrganizationName"; a.Operator = Op("eq"); a.Value = "A";
+        var b = AddCondition(vm); b.Field = "CustomerGroupId"; b.Operator = Op("eq"); b.Value = "B";
+
+        Assert.Equal("OrganizationName eq 'A' and CustomerGroupId eq 'B'", vm.BuilderFilter);
     }
 }
