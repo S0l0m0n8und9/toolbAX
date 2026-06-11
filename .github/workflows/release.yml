@@ -7,24 +7,15 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to publish (e.g. v0.1.1). Must already exist on the repo."
+        description: "Tag to publish (e.g. v1.0.0). Must already exist on the repo."
         required: true
 
 permissions:
   contents: write
 
-env:
-  RUNTIME_VERSION: "10.0.8"
-  RUNTIME_URL: "https://builds.dotnet.microsoft.com/dotnet/WindowsDesktop/10.0.8/windowsdesktop-runtime-10.0.8-win-x64.exe"
-
 jobs:
   build:
     runs-on: windows-latest
-    env:
-      # Job-level boolean derived from the presence of signing secrets. GitHub Actions does
-      # not allow `secrets.X != ''` directly inside step `if:` expressions; lifting it into
-      # an env var is the standard workaround.
-      HAS_SIGNING_CERT: ${{ secrets.SIGN_CERT_FILE_BASE64 != '' && secrets.SIGN_CERT_PASSWORD != '' }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -36,98 +27,62 @@ jobs:
         with:
           global-json-file: global.json
 
-      - name: Install WiX CLI + extensions
+      - name: Derive version from tag
+        id: ver
         shell: pwsh
         run: |
-          # Pin to WiX 6.x — v7 (default since late 2026) requires accepting the OSMF EULA
-          # and gates dotnet tool exec behind it. The repo's bundle theme + extensions target
-          # WiX 6.0.2 schemas; keep CI on the same major.
-          dotnet tool install --global wix --version 6.0.2
-          wix extension add -g WixToolset.Bal.wixext/6.0.2
-          wix extension add -g WixToolset.Util.wixext/6.0.2
+          $tag = "${{ github.event.inputs.tag || github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
+          Write-Host "Tag $tag -> version $version"
 
-      - name: Stage .NET Desktop Runtime payload
+      - name: Publish self-contained (win-x64)
         shell: pwsh
         run: |
-          $dest = "install/redist/windowsdesktop-runtime-${{ env.RUNTIME_VERSION }}-win-x64.exe"
-          New-Item -ItemType Directory -Force -Path "install/redist" | Out-Null
-          Invoke-WebRequest -Uri "${{ env.RUNTIME_URL }}" -OutFile $dest
+          dotnet publish avalonia/toolBax.App/toolBax.App.csproj `
+            -c Release -r win-x64 --self-contained true `
+            -p:PublishSingleFile=true `
+            -p:IncludeNativeLibrariesForSelfExtract=true `
+            -p:Version=${{ steps.ver.outputs.version }} `
+            -p:FileVersion=${{ steps.ver.outputs.version }} `
+            -o publish
 
-      - name: Materialise signing cert from secret
-        if: env.HAS_SIGNING_CERT == 'true'
-        shell: pwsh
-        env:
-          CERT_BASE64: ${{ secrets.SIGN_CERT_FILE_BASE64 }}
-        run: |
-          $pfxPath = Join-Path $env:RUNNER_TEMP "sign.pfx"
-          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:CERT_BASE64))
-          "SIGN_PFX_PATH=$pfxPath" | Out-File -Append $env:GITHUB_ENV
-
-      - name: Build installer bundle (signed Release)
-        if: env.HAS_SIGNING_CERT == 'true'
-        shell: pwsh
-        env:
-          SIGN_CERT_PASSWORD: ${{ secrets.SIGN_CERT_PASSWORD }}
-        run: |
-          pwsh -NoProfile -ExecutionPolicy Bypass -File install/build.ps1 `
-            -Configuration Release `
-            -SignCertificateFile $env:SIGN_PFX_PATH `
-            -SignCertificatePassword $env:SIGN_CERT_PASSWORD
-
-      - name: Build installer bundle (unsigned Debug fallback)
-        if: env.HAS_SIGNING_CERT != 'true'
-        shell: pwsh
-        run: pwsh -NoProfile -ExecutionPolicy Bypass -File install/build.ps1 -Configuration Debug
-
-      - name: Wipe signing cert from runner
-        if: always() && env.HAS_SIGNING_CERT == 'true' && env.SIGN_PFX_PATH != ''
+      - name: Verify the executable was produced
         shell: pwsh
         run: |
-          if (Test-Path $env:SIGN_PFX_PATH) {
-            Remove-Item $env:SIGN_PFX_PATH -Force
+          if (-not (Test-Path publish/toolbAX.exe)) {
+            throw "publish/toolbAX.exe was not produced by dotnet publish."
           }
+          Get-Item publish/toolbAX.exe | Select-Object Name, Length, LastWriteTime
 
-      - name: Verify bundle was produced
+      - name: Zip the portable app
         shell: pwsh
         run: |
-          if (-not (Test-Path install/FoToolboxBundle.exe)) {
-            throw "install/FoToolboxBundle.exe was not produced by build.ps1."
-          }
-          Get-Item install/FoToolboxBundle.exe | Select-Object Name, Length, LastWriteTime
+          # Drop debug symbols so the release asset stays lean (Core project refs emit PDBs that
+          # -p:DebugType doesn't reliably suppress across references).
+          Get-ChildItem publish -Recurse -Filter *.pdb | Remove-Item -Force
+          Compress-Archive -Path publish/* -DestinationPath toolbAX-win-x64.zip -Force
 
-      - name: Compose signed release notes
-        if: env.HAS_SIGNING_CERT == 'true'
+      - name: Compose release notes
         shell: pwsh
         run: |
           @'
-          ## FOtoolbox installer bundle
+          ## toolbAX — portable app (Avalonia)
 
-          Downloads the .NET 10 Desktop Runtime if missing, then installs the app to `%LOCALAPPDATA%\FoToolbox\` (per-user).
+          Cross-platform Avalonia build of toolbAX. This is a **self-contained** Windows x64 build — no .NET runtime install required.
 
-          Signed with the FOtoolbox code-signing certificate. If your machine doesn't trust the issuer, Windows may still prompt — this is normal for newer/less-established publishers and resolves once SmartScreen accumulates download reputation.
+          **Install:** download `toolbAX-win-x64.zip`, extract it anywhere, and run `toolbAX.exe`.
+
+          > ⚠️ **Unsigned.** Windows SmartScreen will show "Windows protected your PC" — click **More info** → **Run anyway**. A signed release path is on the roadmap.
 
           See the auto-generated change log below for what's new.
           '@ | Out-File -Encoding utf8 release-notes.md
 
-      - name: Compose unsigned release notes
-        if: env.HAS_SIGNING_CERT != 'true'
-        shell: pwsh
-        run: |
-          @'
-          ## FOtoolbox installer bundle
-
-          Downloads the .NET 10 Desktop Runtime if missing, then installs the app to `%LOCALAPPDATA%\FoToolbox\` (per-user).
-
-          > ⚠️ **Unsigned bundle.** Windows SmartScreen will show "Windows protected your PC" — click **More info** → **Run anyway**. A signed release path is on the roadmap.
-
-          See the auto-generated change log below for what's new.
-          '@ | Out-File -Encoding utf8 release-notes.md
-
-      - name: Publish release with bundle asset
+      - name: Publish release with portable zip
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          files: install/FoToolboxBundle.exe
+          files: toolbAX-win-x64.zip
           generate_release_notes: true
           body_path: release-notes.md
           prerelease: ${{ startsWith(github.event.inputs.tag || github.ref_name, 'v0.') || contains(github.event.inputs.tag || github.ref_name, '-') }}

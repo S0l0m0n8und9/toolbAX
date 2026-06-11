@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
-  <assemblyIdentity version="1.0.0.0" name="toolBax.App" />
+  <assemblyIdentity version="1.0.0.0" name="toolbAX" />
   <!-- Declare supported OS versions. Required for Avalonia's NativeControlHost (e.g. the embedded
        WebView2 dual-write sign-in): without it, Win32 reports a capped OS version (6.2) and child-window
        creation fails with "Unable to create child window for native control host". -->

@@ -16,6 +16,11 @@
         <BooleanToVisibilityConverter x:Key="BoolToVis" />
     </Window.Resources>
 
+    <DockPanel>
+      <Border DockPanel.Dock="Top" Background="#5A3A00" Padding="10,4">
+        <TextBlock Foreground="#FFD08A" FontSize="11.5" TextWrapping="Wrap"
+                   Text="This WPF host is deprecated and no longer released. The maintained app is the cross-platform Avalonia build (avalonia/toolBax.App)." />
+      </Border>
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="32" />   <!-- 00 title bar  -->
@@ -314,4 +319,5 @@
             </DockPanel>
         </Border>
     </Grid>
+    </DockPanel>
 </Window>

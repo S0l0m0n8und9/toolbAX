@@ -12,6 +12,9 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         AppDiagnostics.Initialize();
+        AppDiagnostics.Logger.LogWarning(
+            "The WPF host (FoToolbox.Host) is deprecated and no longer released. " +
+            "The maintained app is the cross-platform Avalonia build (avalonia/toolBax.App).");
 
         DispatcherUnhandledException += OnDispatcherUnhandledException;
         AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;

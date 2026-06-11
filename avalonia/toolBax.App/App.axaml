@@ -11,7 +11,7 @@
   <Application.Resources>
     <ResourceDictionary>
       <ResourceDictionary.MergedDictionaries>
-        <ResourceInclude Source="avares://toolBax.App/Themes/Tokens.axaml" />
+        <ResourceInclude Source="avares://toolbAX/Themes/Tokens.axaml" />
       </ResourceDictionary.MergedDictionaries>
     </ResourceDictionary>
   </Application.Resources>

@@ -2,6 +2,8 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
+    <!-- Public release exe is brand-named (avares:// authority in App.axaml + app.manifest identity follow). -->
+    <AssemblyName>toolbAX</AssemblyName>
     <!-- Cross-platform target: Avalonia does not need the Windows Desktop runtime, and a
          platform-neutral core is a goal of the migration (#35). Windows-only concerns (DPAPI,
          WebView2) will live behind interfaces. -->
