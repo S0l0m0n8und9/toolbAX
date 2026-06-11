@@ -78,10 +78,8 @@ public sealed class MsalInteractiveTokenProvider : IInteractiveTokenProvider
             return;
         }
 
-        // The resource isn't part of the cache key ({clientId}|{tenantId}); a placeholder satisfies
-        // BuildApp's validation without affecting which cached session is evicted.
-        var request = new InteractiveTokenRequest(clientId, tenantId, "https://placeholder.invalid");
-        var app = BuildApp(request);
+        // Sign-out only needs the cache-key inputs — no resource/scope is involved.
+        var app = BuildApp(clientId, tenantId);
 
         // Remove every cached account (MSAL clears its in-cache entries; the AfterAccess hook persists
         // the now-emptied cache), then delete the persisted blob outright so nothing survives a restart.
@@ -94,15 +92,25 @@ public sealed class MsalInteractiveTokenProvider : IInteractiveTokenProvider
         _cacheStore.Remove($"{clientId}|{tenantId}");
     }
 
-    private IPublicClientApplication BuildApp(InteractiveTokenRequest request)
+    private IPublicClientApplication BuildApp(InteractiveTokenRequest request) =>
+        BuildApp(request.ClientId, request.TenantId, request.AuthorityBase, request.RedirectUri);
+
+    // The resource/scope is not needed to build the app or key its cache — only these four inputs are.
+    // Keeping this overload explicit lets sign-out evict by (clientId, tenantId) without inventing a
+    // placeholder resource URL, so a future change to how the app is built can't silently break sign-out.
+    private IPublicClientApplication BuildApp(
+        string clientId,
+        string tenantId,
+        string authorityBase = "https://login.microsoftonline.com",
+        string redirectUri = "http://localhost")
     {
         var app = PublicClientApplicationBuilder
-            .Create(request.ClientId)
-            .WithAuthority(BuildAuthority(request.AuthorityBase, request.TenantId))
-            .WithRedirectUri(request.RedirectUri)
+            .Create(clientId)
+            .WithAuthority(BuildAuthority(authorityBase, tenantId))
+            .WithRedirectUri(redirectUri)
             .Build();
 
-        var cacheKey = $"{request.ClientId}|{request.TenantId}";
+        var cacheKey = $"{clientId}|{tenantId}";
         app.UserTokenCache.SetBeforeAccess(args =>
         {
             // Cache read is best-effort: a missing/corrupt cache must not break sign-in — just

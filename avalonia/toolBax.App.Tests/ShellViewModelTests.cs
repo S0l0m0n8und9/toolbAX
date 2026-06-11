@@ -142,6 +142,29 @@ public class ShellViewModelTests
         Assert.Equal("uat-eur", shell.ActiveEnvironment!.Id);
     }
 
+    private sealed class ThrowingDialogs : IDialogService
+    {
+        public Task<bool> ConfirmAsync(ConfirmRequest request) =>
+            throw new InvalidOperationException("dialog window closed");
+    }
+
+    [Fact]
+    public async Task Switching_environment_survives_a_refresh_prompt_failure()
+    {
+        // The ActiveChanged path is fire-and-forget, so a dialog failure must be handled, not left as an
+        // unobserved/faulting task. The environment switch is committed regardless; only the refresh is skipped.
+        var shell = new ShellViewModel(dialogs: new ThrowingDialogs());
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var before = shell.CurrentContent;
+        var other = shell.Environments.First(e => e.Id != shell.ActiveEnvironment!.Id);
+
+        shell.SetActiveEnvironmentCommand.Execute(other);
+        await shell.SetActiveEnvironmentCommand.ExecutionTask!; // must complete, not fault
+
+        Assert.Equal(other.Id, shell.ActiveEnvironment!.Id); // switch committed
+        Assert.Same(before, shell.CurrentContent);           // refresh skipped on failure
+    }
+
     // Records confirm requests so a test can prove the refresh prompt is shown, and returns a fixed answer.
     private sealed class RecordingDialogs : IDialogService
     {

@@ -252,17 +252,27 @@ public partial class ShellViewModel : ObservableObject
             return; // first selection, or re-selecting the current one — nothing to refresh.
         }
 
-        var refresh = await _dialogs.ConfirmAsync(new ConfirmRequest(
-            Title: "Active environment changed",
-            Message: $"Switched to '{target.Name}'. Refresh open tools so they use this environment? Unsaved input in those tools will be discarded.",
-            Targets: Array.Empty<string>(),
-            ConfirmLabel: "Refresh tools",
-            IsDanger: false));
-
-        if (refresh)
+        // Best-effort: this also runs from the fire-and-forget ActiveChanged handler, so a dialog failure
+        // (e.g. the window closing mid-prompt) must surface as a trace warning, not an unobserved exception.
+        // The environment switch above is already committed; only the optional tool refresh is at risk.
+        try
         {
-            // Rebuild the open data tool so its cached entities/metadata/results reflect the new environment.
-            InvalidateToolContent();
+            var refresh = await _dialogs.ConfirmAsync(new ConfirmRequest(
+                Title: "Active environment changed",
+                Message: $"Switched to '{target.Name}'. Refresh open tools so they use this environment? Unsaved input in those tools will be discarded.",
+                Targets: Array.Empty<string>(),
+                ConfirmLabel: "Refresh tools",
+                IsDanger: false));
+
+            if (refresh)
+            {
+                // Rebuild the open data tool so its cached entities/metadata/results reflect the new environment.
+                InvalidateToolContent();
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning($"Tool-refresh prompt failed after switching to '{target.Name}': {ex}");
         }
     }
 
