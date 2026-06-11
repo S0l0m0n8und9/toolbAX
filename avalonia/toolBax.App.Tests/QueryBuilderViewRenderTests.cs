@@ -57,6 +57,28 @@ public class QueryBuilderViewRenderTests
     }
 
     [AvaloniaFact]
+    public void Renders_the_four_workspace_tabs()
+    {
+        var view = new QueryBuilderView
+        {
+            DataContext = new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient()),
+        };
+        var window = new Window { Content = view, Width = 1100, Height = 720 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            // All four tab headers are realized by the tab strip (only the selected tab's *content* is lazy).
+            var tabs = view.GetVisualDescendants().OfType<TabItem>().ToList();
+            Assert.Equal(4, tabs.Count);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
     public void Field_list_is_viewport_bounded_and_scrolls_so_large_entities_cannot_balloon_it()
     {
         var view = new QueryBuilderView
