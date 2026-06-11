@@ -57,7 +57,11 @@ jobs:
 
       - name: Zip the portable app
         shell: pwsh
-        run: Compress-Archive -Path publish/* -DestinationPath toolbAX-win-x64.zip -Force
+        run: |
+          # Drop debug symbols so the release asset stays lean (Core project refs emit PDBs that
+          # -p:DebugType doesn't reliably suppress across references).
+          Get-ChildItem publish -Recurse -Filter *.pdb | Remove-Item -Force
+          Compress-Archive -Path publish/* -DestinationPath toolbAX-win-x64.zip -Force
 
       - name: Compose release notes
         shell: pwsh

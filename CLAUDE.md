@@ -10,6 +10,16 @@ XrmToolBox-style: profile/auth management, OData metadata + query tooling, and a
 
 ## Build / test
 
+The shipping **Avalonia** app + its headless tests (this is the primary codebase):
+
+```powershell
+dotnet restore .\avalonia\toolBax.slnx
+dotnet build   .\avalonia\toolBax.slnx -c Release --no-restore
+dotnet test    .\avalonia\toolBax.slnx -c Release --no-build
+```
+
+The deprecated WPF host + Core (still built/tested in CI, not released):
+
 ```powershell
 dotnet restore .\FoToolbox.sln
 dotnet build  .\FoToolbox.sln -c Release --no-restore

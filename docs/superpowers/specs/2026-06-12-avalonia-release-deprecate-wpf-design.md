@@ -44,26 +44,26 @@ Avalonia publish:
      `dotnet publish avalonia/toolBax.App/toolBax.App.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:Version=<ver> -p:FileVersion=<ver> -o publish`
      (default `EnableWebView2=true` on Windows; single-file self-extract carries the Skia / WebView2 /
      SQLite native libraries.)
-  5. Zip the publish output to `FoToolbox-win-x64.zip` (PowerShell `Compress-Archive publish/* …`).
+  5. Zip the publish output to `toolbAX-win-x64.zip` (PowerShell `Compress-Archive publish/* …`).
   6. Compose portable-app release notes (see below) to `release-notes.md`.
   7. `softprops/action-gh-release@v2` with:
      - `tag_name: ${{ github.event.inputs.tag || github.ref_name }}`
-     - `files: FoToolbox-win-x64.zip`
+     - `files: toolbAX-win-x64.zip`
      - `generate_release_notes: true`
      - `body_path: release-notes.md`
      - `prerelease: ${{ startsWith(<tag>, 'v0.') || contains(<tag>, '-') }}` — **same gating as today**,
        so `v1.0.0` publishes as a full (non-prerelease) release.
 - **Permissions:** `contents: write` (unchanged).
 - **Release notes blurb:** portable self-contained app; no install needed; unzip and run
-  `FoToolbox.exe`; unsigned ⇒ SmartScreen "Windows protected your PC" → **More info** → **Run anyway**;
+  `toolbAX.exe`; unsigned ⇒ SmartScreen "Windows protected your PC" → **More info** → **Run anyway**;
   signing is on the roadmap. Followed by the auto-generated change log.
 
 ### 2. Executable name
 
-Rename the Avalonia app's output to `FoToolbox.exe` via `<AssemblyName>FoToolbox</AssemblyName>` in
+Rename the Avalonia app's output to `toolbAX.exe` via `<AssemblyName>toolbAX</AssemblyName>` in
 `avalonia/toolBax.App/toolBax.App.csproj`, so the public download runs a brand-matching executable
 rather than `toolBax.App.exe`. (Namespaces/`x:Class` are unaffected — only the output assembly/exe name
-changes.) The release notes and zip reference `FoToolbox.exe`.
+changes.) The release notes and zip reference `toolbAX.exe`.
 
 > Interpreting the user's "sure" as including this rename. If not wanted, drop §2 and the exe stays
 > `toolBax.App.exe` — flag at the spec-review gate.
@@ -98,12 +98,12 @@ changes.) The release notes and zip reference `FoToolbox.exe`.
 
 - **Local publish smoke (pre-merge):** run the exact `dotnet publish … -r win-x64 --self-contained
   true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true` command and confirm it
-  produces a runnable `FoToolbox.exe` whose self-extract includes the Skia/WebView2/SQLite natives
+  produces a runnable `toolbAX.exe` whose self-extract includes the Skia/WebView2/SQLite natives
   (launch it, or at minimum confirm the single exe is produced and is self-contained).
 - **CI:** the existing Avalonia headless tests (`avalonia-tests`) continue to gate the app; the
   `AssemblyName` change must not break them (run `dotnet test avalonia/toolBax.slnx`).
 - **Post-release verification:** the `release.yml` run succeeds; the GitHub release for `v1.0.0` is
-  **non-prerelease**, not a draft, and has the `FoToolbox-win-x64.zip` asset with generated notes.
+  **non-prerelease**, not a draft, and has the `toolbAX-win-x64.zip` asset with generated notes.
 
 ## Risks / notes
 
