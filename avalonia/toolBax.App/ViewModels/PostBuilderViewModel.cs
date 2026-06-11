@@ -341,7 +341,7 @@ public partial class PostBuilderViewModel : ObservableObject
             // trigger a per-field payload rebuild (RebuildPayload runs once after the grid is built).
             if (string.Equals(f.Name, "dataAreaId", StringComparison.OrdinalIgnoreCase))
             {
-                row.Value = "usmf";
+                row.Value = "USMF"; // company codes are conventionally uppercase (matches the raw-body template)
             }
             else if (editor == PostFieldEditor.Bool)
             {

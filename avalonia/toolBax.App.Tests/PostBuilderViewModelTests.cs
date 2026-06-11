@@ -659,7 +659,7 @@ public class PostBuilderViewModelTests
         vm.UseFieldGrid = true;
         vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
 
-        Assert.Equal("usmf", vm.Fields.Single(f => f.Name == "dataAreaId").Value);
+        Assert.Equal("USMF", vm.Fields.Single(f => f.Name == "dataAreaId").Value);
     }
 
     [Fact]
