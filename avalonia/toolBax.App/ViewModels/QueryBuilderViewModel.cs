@@ -30,6 +30,9 @@ public partial class QueryBuilderViewModel : ObservableObject
     // Hard cap on pages an "export all" will follow, so a misbehaving nextLink can't loop forever.
     private const int MaxExportPages = 500;
 
+    /// <summary>Zero-based index of the Results tab — Fields(0) · Filter(1) · Joins(2) · Results(3).</summary>
+    public const int ResultsTabIndex = 3;
+
     // True only while RefreshEntityFilter is rebuilding FilteredEntities, so the transient selection
     // null a bound ListBox emits during Clear() doesn't run OnSelectedEntityChanged's side-effects
     // (which would wipe the field selection + query URL on every keystroke in the entity search box).
@@ -54,6 +57,7 @@ public partial class QueryBuilderViewModel : ObservableObject
 
     /// <summary>True when the selected entity exposes navigation properties to expand.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(JoinsTabHeader))]
     private bool _hasNavigations;
 
     /// <summary>Joins are secondary to $select, so the panel is collapsed until the user opens it.</summary>
@@ -88,6 +92,7 @@ public partial class QueryBuilderViewModel : ObservableObject
     private EntitySet? _selectedEntity;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FieldsTabHeader))]
     private bool _hasFields;
 
     // Surfaces a $metadata load/auth failure so the view shows it instead of a silently blank list.
@@ -141,6 +146,7 @@ public partial class QueryBuilderViewModel : ObservableObject
     /// <summary>Builder (visual tree) vs Raw ($filter text). Raw overrides the builder when non-empty.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsBuilderMode))]
+    [NotifyPropertyChangedFor(nameof(FilterTabHeader))]
     private bool _isRawFilterMode;
 
     public bool IsBuilderMode => !IsRawFilterMode;
@@ -189,7 +195,12 @@ public partial class QueryBuilderViewModel : ObservableObject
     private bool _isBusy;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ResultsTabHeader))]
     private bool _hasRun;
+
+    /// <summary>Active workspace tab (two-way bound to the TabControl). Run / Load more jump to Results.</summary>
+    [ObservableProperty]
+    private int _selectedTabIndex;
 
     /// <summary>True only when the last run returned a 2xx — gates the success badge.</summary>
     [ObservableProperty]
@@ -200,6 +211,7 @@ public partial class QueryBuilderViewModel : ObservableObject
     private string _statusBadge = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ResultsTabHeader))]
     private int _rowCount;
 
     [ObservableProperty]
@@ -227,6 +239,22 @@ public partial class QueryBuilderViewModel : ObservableObject
     /// <summary>"N of M selected" — the $select field count, so large field lists stay legible.</summary>
     public string FieldSelectionLabel =>
         HasFields ? $"{Fields.Count(f => f.IsSelected)} of {Fields.Count} selected" : string.Empty;
+
+    /// <summary>Fields tab header: "Fields · {selected}/{total}" (plain "Fields" when not cached).</summary>
+    public string FieldsTabHeader =>
+        HasFields ? $"Fields · {Fields.Count(f => f.IsSelected)}/{Fields.Count}" : "Fields";
+
+    /// <summary>Filter tab header: "Filter · {N}" (builder), "Filter · raw" (raw mode), or "Filter".</summary>
+    public string FilterTabHeader => IsRawFilterMode
+        ? "Filter · raw"
+        : FilterRoot.ConditionCount > 0 ? $"Filter · {FilterRoot.ConditionCount}" : "Filter";
+
+    /// <summary>Joins tab header: "Joins · {selected}/{total}" (plain "Joins" when the entity has none).</summary>
+    public string JoinsTabHeader =>
+        HasNavigations ? $"Joins · {Navigations.Count(n => n.IsSelected)}/{Navigations.Count}" : "Joins";
+
+    /// <summary>Results tab header: "Results · {rowCount}" after a run, otherwise plain "Results".</summary>
+    public string ResultsTabHeader => HasRun ? $"Results · {RowCount}" : "Results";
 
     /// <summary>"Entities · N" (or "M of N" while a search is narrowing the list).</summary>
     public string EntityCountLabel =>
@@ -383,6 +411,7 @@ public partial class QueryBuilderViewModel : ObservableObject
         OnPropertyChanged(nameof(EffectiveFilter));
         OnPropertyChanged(nameof(HasEffectiveFilter));
         OnPropertyChanged(nameof(FilterSummary));
+        OnPropertyChanged(nameof(FilterTabHeader));
         UpdateQueryUrl();
     }
 
@@ -396,6 +425,12 @@ public partial class QueryBuilderViewModel : ObservableObject
             fields,
             enumType => _metadata.GetEnumMembers(enumType) ?? Array.Empty<string>());
         FilterRoot = new QueryFilterGroup(_filterContext, OnFilterTreeChanged, isRoot: true);
+        // FilterRoot was just replaced by a fresh (empty) tree. Its condition count drives both the
+        // Filter section summary and the Filter tab header, so refresh them — switching entities in
+        // builder mode (the common no-op path where IsRawFilterMode/Filter/CrossCompany don't change)
+        // doesn't otherwise raise these, leaving the previous entity's count stale.
+        OnPropertyChanged(nameof(FilterSummary));
+        OnPropertyChanged(nameof(FilterTabHeader));
     }
 
     [RelayCommand]
@@ -463,6 +498,7 @@ public partial class QueryBuilderViewModel : ObservableObject
         RefreshFieldFilter();
         UpdateQueryUrl();
         OnPropertyChanged(nameof(FieldSelectionLabel));
+        OnPropertyChanged(nameof(FieldsTabHeader));
     }
 
     // Rebuilds the navigation-property ($expand) chips for the selected entity. Cached alongside the
@@ -489,6 +525,7 @@ public partial class QueryBuilderViewModel : ObservableObject
 
         RefreshNavigationFilter();
         OnPropertyChanged(nameof(JoinsHeader));
+        OnPropertyChanged(nameof(JoinsTabHeader));
     }
 
     // A chip's selection (toggled by the command or the view's ToggleButton) is the single source of
@@ -508,6 +545,8 @@ public partial class QueryBuilderViewModel : ObservableObject
             // cheap and only one will actually change.
             OnPropertyChanged(nameof(FieldSelectionLabel));
             OnPropertyChanged(nameof(JoinsHeader));
+            OnPropertyChanged(nameof(FieldsTabHeader));
+            OnPropertyChanged(nameof(JoinsTabHeader));
         }
     }
 
@@ -546,6 +585,7 @@ public partial class QueryBuilderViewModel : ObservableObject
         UpdateQueryUrl();
         ExportAllCsvCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(FieldSelectionLabel));
+        OnPropertyChanged(nameof(FieldsTabHeader));
     }
 
     private void UpdateQueryUrl() => QueryUrl = SelectedEntity is null ? string.Empty : "GET " + BuildPath(forRequest: false);
@@ -639,6 +679,7 @@ public partial class QueryBuilderViewModel : ObservableObject
 
         IsBusy = true;
         StatusText = "Running…";
+        SelectedTabIndex = ResultsTabIndex; // land on Results so rows are visible as they load
         try
         {
             var columns = SelectedColumns().ToList();
@@ -694,6 +735,7 @@ public partial class QueryBuilderViewModel : ObservableObject
 
         IsBusy = true;
         StatusText = "Loading more…";
+        SelectedTabIndex = ResultsTabIndex; // Load more can be triggered from any tab; show the grid
         try
         {
             var response = await _client.SendAsync("GET", link, body: null, ct);
