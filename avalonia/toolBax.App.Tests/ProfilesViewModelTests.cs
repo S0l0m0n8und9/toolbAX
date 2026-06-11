@@ -76,7 +76,72 @@ public class ProfilesViewModelTests
         Assert.Equal(apac.Url, vm.DraftUrl);
         Assert.Equal(apac.Tenant, vm.DraftTenant);
         Assert.Equal(apac.Legal, vm.DraftLegal);
-        Assert.Equal(apac.Tier, vm.DraftTier);
+        // "Prod" tier normalises to the Production environment-type bucket.
+        Assert.Equal(EnvProfile.ProductionType, vm.DraftEnvironmentType);
+    }
+
+    [Fact]
+    public void Environment_type_normalizes_from_the_stored_tier()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+
+        // "Prod" → Production; "Tier 1"/"Tier 2"/"Sandbox" → Non-production.
+        vm.Selected = vm.Profiles.Single(p => p.Id == "prd-apac");
+        Assert.Equal(EnvProfile.ProductionType, vm.DraftEnvironmentType);
+
+        vm.Selected = vm.Profiles.Single(p => p.Id == "dev-usmf");
+        Assert.Equal(EnvProfile.NonProductionType, vm.DraftEnvironmentType);
+
+        vm.Selected = vm.Profiles.Single(p => p.Id == "sbx-fin");
+        Assert.Equal(EnvProfile.NonProductionType, vm.DraftEnvironmentType);
+    }
+
+    [Fact]
+    public void Save_writes_the_environment_type_into_tier_and_subtitle()
+    {
+        var store = new FakeProfileStore();
+        var vm = new ProfilesViewModel(store);
+        vm.Selected = vm.Profiles.Single(p => p.Id == "dev-usmf");
+
+        vm.DraftEnvironmentType = EnvProfile.ProductionType;
+        vm.SaveCommand.Execute(null);
+
+        var saved = store.GetAll().Single(p => p.Id == "dev-usmf");
+        Assert.Equal(EnvProfile.ProductionType, saved.Tier);
+        Assert.Equal(EnvProfile.ProductionType, saved.EnvironmentType);
+        Assert.EndsWith(EnvProfile.ProductionType, saved.Subtitle); // "USMF · Production"
+    }
+
+    [Fact]
+    public void Delete_is_disabled_only_when_one_profile_remains()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+        Assert.True(vm.CanDeleteProfile); // seeded with 4
+
+        // Delete down to the last one.
+        while (vm.Profiles.Count > 1)
+        {
+            vm.Selected = vm.Profiles[0];
+            vm.DeleteProfileCommand.Execute(null);
+        }
+
+        Assert.Single(vm.Profiles);
+        Assert.False(vm.CanDeleteProfile);
+    }
+
+    [Fact]
+    public void Set_active_label_and_enablement_track_the_active_selection()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+        var inactive = vm.Profiles.Single(p => p.Id == "uat-eur");
+
+        vm.Selected = inactive;
+        Assert.Equal("Set active", vm.SetActiveLabel);
+        Assert.True(vm.CanSetActive);
+
+        vm.SetActiveCommand.Execute(null);
+        Assert.Equal("Active", vm.SetActiveLabel);
+        Assert.False(vm.CanSetActive);
     }
 
     [Fact]

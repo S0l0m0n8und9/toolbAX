@@ -89,9 +89,28 @@ public sealed record EnvProfile(
     FoAuthMode DataverseAuthMode = FoAuthMode.Interactive,
     string? DualWriteGatewayUrl = null)
 {
+    /// <summary>The two environment-type buckets offered by the Profiles "Environment type" dropdown
+    /// (the free-text <see cref="Tier"/> is normalised to one of these for display + editing).</summary>
+    public const string ProductionType = "Production";
 
-    /// <summary>List-item subtitle, e.g. "USMF · Tier 1".</summary>
-    public string Subtitle => $"{Legal} · {Tier}";
+    public const string NonProductionType = "Non-production";
+
+    /// <summary>
+    /// Normalises a free-text tier (e.g. "Prod", "Tier 1", "Sandbox") to one of the two environment-type
+    /// buckets: anything starting with "prod" (case-insensitive) is Production, everything else
+    /// Non-production. Mirrors the design prototype's normalisation so legacy tier strings map cleanly.
+    /// </summary>
+    public static string NormalizeEnvironmentType(string? tier) =>
+        !string.IsNullOrWhiteSpace(tier) &&
+        tier.TrimStart().StartsWith("prod", StringComparison.OrdinalIgnoreCase)
+            ? ProductionType
+            : NonProductionType;
+
+    /// <summary>Production / Non-production bucket derived from <see cref="Tier"/>.</summary>
+    public string EnvironmentType => NormalizeEnvironmentType(Tier);
+
+    /// <summary>List-item subtitle, e.g. "USMF · Non-production".</summary>
+    public string Subtitle => $"{Legal} · {EnvironmentType}";
 
     /// <summary>Compare-picker label, e.g. "USMF · USMF Dev".</summary>
     public string PickerLabel => $"{Legal} · {Name}";
