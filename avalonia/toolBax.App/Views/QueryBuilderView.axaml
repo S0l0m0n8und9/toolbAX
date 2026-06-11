@@ -5,6 +5,87 @@
              x:Class="ToolBax.App.Views.QueryBuilderView"
              x:DataType="vm:QueryBuilderViewModel">
 
+  <UserControl.Styles>
+    <!-- Segmented toggle (AND/OR, Builder/Raw): flat buttons; the active one fills amber. -->
+    <Style Selector="Button.seg">
+      <Setter Property="MinHeight" Value="26" />
+      <Setter Property="Padding" Value="12,0" />
+      <Setter Property="FontSize" Value="12" />
+      <Setter Property="CornerRadius" Value="0" />
+      <Setter Property="Background" Value="Transparent" />
+      <Setter Property="Foreground" Value="{StaticResource Text2Brush}" />
+    </Style>
+    <Style Selector="Button.seg.active">
+      <Setter Property="Background" Value="{StaticResource AccentBrush}" />
+      <Setter Property="Foreground" Value="{StaticResource OnAccentBrush}" />
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <!-- Nested (non-root) filter group box. -->
+    <Style Selector="Border.subgroup">
+      <Setter Property="Background" Value="{StaticResource Layer1Brush}" />
+      <Setter Property="BorderBrush" Value="{StaticResource StrokeBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="8" />
+      <Setter Property="Margin" Value="0,4,0,0" />
+    </Style>
+  </UserControl.Styles>
+
+  <!-- Recursive filter-tree templates: a group renders its children through these same templates. -->
+  <UserControl.DataTemplates>
+    <DataTemplate DataType="vm:QueryFilterCondition">
+      <Grid ColumnDefinitions="160,118,*,Auto" ColumnSpacing="7" Margin="0,3,0,0">
+        <ComboBox Grid.Column="0" ItemsSource="{Binding FieldNames}" SelectedItem="{Binding Field, Mode=TwoWay}"
+                  HorizontalAlignment="Stretch" FontFamily="{StaticResource MonoFontFamily}" FontSize="12.5" />
+        <ComboBox Grid.Column="1" ItemsSource="{Binding Operators}" SelectedItem="{Binding Operator, Mode=TwoWay}"
+                  HorizontalAlignment="Stretch" FontSize="12.5">
+          <ComboBox.ItemTemplate>
+            <DataTemplate x:DataType="vm:QueryFilterOperator">
+              <TextBlock Text="{Binding Display}" FontFamily="{StaticResource MonoFontFamily}" />
+            </DataTemplate>
+          </ComboBox.ItemTemplate>
+        </ComboBox>
+        <!-- Enum fields get a member dropdown; everything else a free-text value. -->
+        <ComboBox Grid.Column="2" IsVisible="{Binding IsEnum}" ItemsSource="{Binding EnumMembers}"
+                  SelectedItem="{Binding Value, Mode=TwoWay}" HorizontalAlignment="Stretch"
+                  FontFamily="{StaticResource MonoFontFamily}" FontSize="12.5" />
+        <TextBox Grid.Column="2" IsVisible="{Binding !IsEnum}" Text="{Binding Value, Mode=TwoWay}"
+                 PlaceholderText="value…" FontFamily="{StaticResource MonoFontFamily}" FontSize="12.5" />
+        <Button Grid.Column="3" Content="✕" Command="{Binding RemoveSelfCommand}" IsVisible="{Binding CanRemove}"
+                Padding="9,2" ToolTip.Tip="Remove condition" />
+      </Grid>
+    </DataTemplate>
+
+    <DataTemplate DataType="vm:QueryFilterGroup">
+      <Border Classes.subgroup="{Binding !IsRoot}">
+        <StackPanel Spacing="6">
+          <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto,Auto" ColumnSpacing="8">
+            <Border Grid.Column="0" BorderBrush="{StaticResource Stroke2Brush}" BorderThickness="1"
+                    CornerRadius="6" ClipToBounds="True">
+              <StackPanel Orientation="Horizontal">
+                <Button Classes="seg" Classes.active="{Binding IsAnd}" Content="AND"
+                        Command="{Binding SetOpCommand}" CommandParameter="and" />
+                <Button Classes="seg" Classes.active="{Binding IsOr}" Content="OR"
+                        Command="{Binding SetOpCommand}" CommandParameter="or" />
+              </StackPanel>
+            </Border>
+            <TextBlock Grid.Column="1" Text="{Binding HeaderText}" FontSize="11.5"
+                       Foreground="{StaticResource Text3Brush}" VerticalAlignment="Center" />
+            <Button Grid.Column="3" Content="+ Condition" Command="{Binding AddConditionCommand}"
+                    FontSize="11" Padding="8,3" />
+            <Button Grid.Column="4" Content="+ Group" Command="{Binding AddGroupCommand}"
+                    FontSize="11" Padding="8,3" ToolTip.Tip="Add a nested group" />
+            <Button Grid.Column="5" Content="✕" Command="{Binding RemoveSelfCommand}"
+                    IsVisible="{Binding CanRemove}" FontSize="11" Padding="8,3" ToolTip.Tip="Remove group" />
+          </Grid>
+          <TextBlock Text="Empty group — add a condition." IsVisible="{Binding IsEmptyNonRoot}"
+                     FontSize="12" Foreground="{StaticResource Text3Brush}" />
+          <ItemsControl ItemsSource="{Binding Children}" />
+        </StackPanel>
+      </Border>
+    </DataTemplate>
+  </UserControl.DataTemplates>
+
   <Grid ColumnDefinitions="260,*">
 
     <!-- Entity list -->
@@ -26,7 +107,7 @@
             <DataTemplate x:DataType="models:EntitySet">
               <Grid ColumnDefinitions="*,Auto">
                 <TextBlock Grid.Column="0" Text="{Binding Name}" FontSize="12.5"
-                           FontFamily="Cascadia Code,Consolas,monospace"
+                           FontFamily="{StaticResource MonoFontFamily}"
                            Foreground="{StaticResource Text0Brush}" />
                 <TextBlock Grid.Column="1" Text="{Binding FieldCount}" FontSize="11"
                            Foreground="{StaticResource Text3Brush}" VerticalAlignment="Center" />
@@ -38,12 +119,12 @@
     </Border>
 
     <!-- Content -->
-    <Grid Grid.Column="1" Margin="24,16,24,0" RowDefinitions="Auto,Auto,Auto,Auto,*,28">
+    <Grid Grid.Column="1" Margin="24,16,24,0" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*,28">
 
       <!-- Title row -->
       <StackPanel Grid.Row="0" Orientation="Horizontal" Spacing="10" Margin="0,0,0,12">
         <TextBlock Text="{Binding SelectedEntity.Name}" FontSize="24" FontWeight="SemiBold"
-                   FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text0Brush}"
+                   FontFamily="{StaticResource MonoFontFamily}" Foreground="{StaticResource Text0Brush}"
                    VerticalAlignment="Center" />
         <Border IsVisible="{Binding SelectedEntity.CompanyAware}"
                 Background="{StaticResource Layer3Brush}" CornerRadius="999" Padding="8,2"
@@ -51,15 +132,17 @@
           <TextBlock Text="company-aware" FontSize="11" Foreground="{StaticResource Text2Brush}" />
         </Border>
         <TextBlock Text="{Binding SelectedEntity.Pk, StringFormat='pk: {0}'}" FontSize="11"
-                   FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text3Brush}"
+                   FontFamily="{StaticResource MonoFontFamily}" Foreground="{StaticResource Text3Brush}"
                    VerticalAlignment="Center" />
       </StackPanel>
 
-      <!-- Query URL + Run -->
+      <!-- Query URL + actions -->
       <Grid Grid.Row="1" ColumnDefinitions="*,Auto" ColumnSpacing="8">
         <TextBox Grid.Column="0" Text="{Binding QueryUrl}" IsReadOnly="True"
-                 FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text1Brush}" />
+                 FontFamily="{StaticResource MonoFontFamily}" Foreground="{StaticResource Text1Brush}" />
         <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8">
+          <Button Content="Copy URL" Command="{Binding CopyUrlCommand}"
+                  ToolTip.Tip="Copy the query URL to the clipboard" />
           <Button Content="Run" Command="{Binding RunCommand}"
                   Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}" />
           <Button Content="Copy CSV" Command="{Binding ExportCsvCommand}"
@@ -71,27 +154,78 @@
         </StackPanel>
       </Grid>
 
-      <!-- Query options -->
-      <Grid Grid.Row="2" ColumnDefinitions="*,*,Auto" ColumnSpacing="8" Margin="0,8,0,0">
-        <TextBox Grid.Column="0" Text="{Binding Filter, Mode=TwoWay}"
-                 PlaceholderText="$filter — e.g. CustomerGroupId eq 'DOM'"
-                 FontFamily="Cascadia Code,Consolas,monospace" />
-        <TextBox Grid.Column="1" Text="{Binding OrderBy, Mode=TwoWay}"
+      <!-- Query options ($orderby / paging / cross-company + company) -->
+      <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,8,0,0">
+        <TextBox Grid.Column="0" Text="{Binding OrderBy, Mode=TwoWay}"
                  PlaceholderText="$orderby — e.g. Name desc"
-                 FontFamily="Cascadia Code,Consolas,monospace" />
-        <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                 FontFamily="{StaticResource MonoFontFamily}" />
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
           <TextBlock Text="top" FontSize="11" Foreground="{StaticResource Text3Brush}" VerticalAlignment="Center" />
-          <TextBox Width="60" Text="{Binding Top, Mode=TwoWay}" ToolTip.Tip="$top" />
+          <TextBox Width="56" Text="{Binding Top, Mode=TwoWay}" ToolTip.Tip="$top" />
           <TextBlock Text="skip" FontSize="11" Foreground="{StaticResource Text3Brush}" VerticalAlignment="Center" />
-          <TextBox Width="60" Text="{Binding Skip, Mode=TwoWay}" ToolTip.Tip="$skip" />
+          <TextBox Width="56" Text="{Binding Skip, Mode=TwoWay}" ToolTip.Tip="$skip" />
           <CheckBox Content="$count" IsChecked="{Binding Count, Mode=TwoWay}" />
           <CheckBox Content="cross-company" IsChecked="{Binding CrossCompany, Mode=TwoWay}" />
+          <TextBlock Text="company" FontSize="11" Foreground="{StaticResource Text3Brush}" VerticalAlignment="Center" />
+          <TextBox Width="72" Text="{Binding Company, Mode=TwoWay}" IsEnabled="{Binding !CrossCompany}"
+                   FontFamily="{StaticResource MonoFontFamily}" ToolTip.Tip="dataAreaId used when cross-company is off" />
         </StackPanel>
       </Grid>
 
+      <!-- Filter section header + Builder/Raw toggle -->
+      <Grid Grid.Row="3" ColumnDefinitions="Auto,Auto,*,Auto" ColumnSpacing="10" Margin="0,14,0,6">
+        <TextBlock Grid.Column="0" Text="Filter" FontWeight="SemiBold" FontSize="14" VerticalAlignment="Center" />
+        <TextBlock Grid.Column="1" Text="{Binding FilterSummary}" FontSize="11.5"
+                   Foreground="{StaticResource Text3Brush}" VerticalAlignment="Center" />
+        <Border Grid.Column="3" BorderBrush="{StaticResource Stroke2Brush}" BorderThickness="1"
+                CornerRadius="6" ClipToBounds="True">
+          <StackPanel Orientation="Horizontal">
+            <Button Classes="seg" Classes.active="{Binding IsBuilderMode}" Content="Builder"
+                    Command="{Binding SetFilterModeCommand}" CommandParameter="builder" />
+            <Button Classes="seg" Classes.active="{Binding IsRawFilterMode}" Content="Raw $filter"
+                    Command="{Binding SetFilterModeCommand}" CommandParameter="raw" />
+          </StackPanel>
+        </Border>
+      </Grid>
+
+      <!-- Filter builder (tree) or raw $filter, + the effective-filter preview -->
+      <ScrollViewer Grid.Row="4" MaxHeight="240" Margin="0,0,0,4">
+        <StackPanel Spacing="8">
+          <Border IsVisible="{Binding IsBuilderMode}" Background="{StaticResource Layer1Brush}"
+                  BorderBrush="{StaticResource StrokeBrush}" BorderThickness="1" CornerRadius="8" Padding="12">
+            <ContentControl Content="{Binding FilterRoot}" />
+          </Border>
+          <StackPanel IsVisible="{Binding IsRawFilterMode}" Spacing="8">
+            <TextBox Text="{Binding Filter, Mode=TwoWay}" AcceptsReturn="True" MinHeight="76" TextWrapping="Wrap"
+                     FontFamily="{StaticResource MonoFontFamily}" FontSize="12.5"
+                     PlaceholderText="e.g. BlockedForInvoice eq 'No' and CreditLimit gt 10000" />
+            <Border Background="{StaticResource WarnBgBrush}" BorderBrush="{StaticResource WarnBrush}"
+                    BorderThickness="1" CornerRadius="8" Padding="12,8">
+              <TextBlock TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}" FontSize="12"
+                         Text="Raw $filter overrides the builder — builder conditions are ignored while this box has text." />
+            </Border>
+          </StackPanel>
+          <Grid ColumnDefinitions="Auto,*" ColumnSpacing="8">
+            <TextBlock Grid.Column="0" Text="EFFECTIVE" FontSize="11" FontFamily="{StaticResource MonoFontFamily}"
+                       Foreground="{StaticResource Text3Brush}" VerticalAlignment="Top" Margin="0,7,0,0" />
+            <Border Grid.Column="1" Background="{StaticResource AppBackgroundBrush}"
+                    BorderBrush="{StaticResource DividerBrush}" BorderThickness="1" CornerRadius="6" Padding="10,7">
+              <Panel>
+                <TextBlock Text="{Binding EffectiveFilter}" IsVisible="{Binding HasEffectiveFilter}"
+                           FontFamily="{StaticResource MonoFontFamily}" FontSize="12" TextWrapping="Wrap"
+                           Foreground="{StaticResource OkBrush}" />
+                <TextBlock Text="no filter" IsVisible="{Binding !HasEffectiveFilter}"
+                           FontFamily="{StaticResource MonoFontFamily}" FontSize="12"
+                           Foreground="{StaticResource Text3Brush}" />
+              </Panel>
+            </Border>
+          </Grid>
+        </StackPanel>
+      </ScrollViewer>
+
       <!-- Field selection (cached) or not-cached hint. A virtualizing, bounded-height list scales to
            entities with hundreds of fields; the toolbar searches + bulk-selects them. -->
-      <DockPanel Grid.Row="3" IsVisible="{Binding HasFields}" Margin="0,12,0,0">
+      <DockPanel Grid.Row="5" IsVisible="{Binding HasFields}" Margin="0,8,0,0">
         <Grid DockPanel.Dock="Top" ColumnDefinitions="260,Auto,Auto,*,Auto" ColumnSpacing="8" Margin="0,0,0,8">
           <TextBox Grid.Column="0" Text="{Binding FieldSearch, Mode=TwoWay}" PlaceholderText="Search fields…" />
           <Button Grid.Column="1" Content="Select all" Command="{Binding SelectAllFieldsCommand}"
@@ -102,8 +236,7 @@
                      Foreground="{StaticResource Text3Brush}" VerticalAlignment="Center" />
         </Grid>
         <!-- Joins ($expand): tick a navigation property to expand the related entity. Collapsed by
-             default (secondary to $select); when opened it's searchable + bounded + virtualized, like
-             the field list — so an entity with dozens of navigations can't balloon the layout. -->
+             default (secondary to $select); searchable + bounded + virtualized when opened. -->
         <Expander DockPanel.Dock="Bottom" IsVisible="{Binding HasNavigations}" Margin="0,8,0,0"
                   IsExpanded="{Binding IsJoinsExpanded, Mode=TwoWay}" Header="{Binding JoinsHeader}">
           <DockPanel Margin="0,4,0,0">
@@ -123,21 +256,22 @@
             </ListBox>
           </DockPanel>
         </Expander>
-        <!-- A virtualizing list of checkboxes (not a selection list): the CheckBox.IsChecked (bound to
-             FieldChipViewModel.IsSelected) is the sole source of truth. No SelectionMode, and the CheckBox
-             stretches across the row so every click lands on it (and is handled) — so the ListBox's own
-             row-selection never engages and there's no misleading highlight. -->
-        <ListBox x:Name="FieldList" ItemsSource="{Binding FilteredFields}" MaxHeight="190"
+        <ListBox x:Name="FieldList" ItemsSource="{Binding FilteredFields}" MaxHeight="170"
                  Background="Transparent" BorderThickness="0">
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="vm:FieldChipViewModel">
               <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" Padding="6,0"
                         HorizontalAlignment="Stretch" HorizontalContentAlignment="Left">
-                <StackPanel Orientation="Horizontal" Spacing="4">
+                <StackPanel Orientation="Horizontal" Spacing="6">
+                  <TextBlock Text="{Binding Name}" FontSize="12.5"
+                             FontFamily="{StaticResource MonoFontFamily}" VerticalAlignment="Center" />
                   <TextBlock Text="PK" IsVisible="{Binding IsKey}" FontSize="11"
                              Foreground="{StaticResource WarnBrush}" VerticalAlignment="Center" />
-                  <TextBlock Text="{Binding Name}" FontSize="12"
-                             FontFamily="Cascadia Code,Consolas,monospace" VerticalAlignment="Center" />
+                  <TextBlock Text="REQ" IsVisible="{Binding ShowReq}" FontSize="11"
+                             Foreground="{StaticResource InfoBrush}" VerticalAlignment="Center" />
+                  <TextBlock Text="{Binding TypeDisplay}" IsVisible="{Binding HasTypeDisplay}" FontSize="11"
+                             FontFamily="{StaticResource MonoFontFamily}" Foreground="{StaticResource Text3Brush}"
+                             VerticalAlignment="Center" />
                 </StackPanel>
               </CheckBox>
             </DataTemplate>
@@ -145,7 +279,7 @@
         </ListBox>
       </DockPanel>
 
-      <Border Grid.Row="3" IsVisible="{Binding !HasFields}" VerticalAlignment="Top" Margin="0,12,0,0"
+      <Border Grid.Row="5" IsVisible="{Binding !HasFields}" VerticalAlignment="Top" Margin="0,8,0,0"
               Background="{StaticResource InfoBgBrush}" BorderBrush="{StaticResource InfoBrush}"
               BorderThickness="1" CornerRadius="8" Padding="12,8">
         <TextBlock Text="{Binding NotCachedMessage}" TextWrapping="Wrap"
@@ -153,13 +287,13 @@
       </Border>
 
       <!-- Results grid (columns built in code-behind from ResultColumns) -->
-      <DataGrid Grid.Row="4" x:Name="ResultsGrid" Margin="0,12,0,0"
+      <DataGrid Grid.Row="6" x:Name="ResultsGrid" Margin="0,12,0,0"
                 ItemsSource="{Binding ResultRows}" IsReadOnly="True"
                 AutoGenerateColumns="False" GridLinesVisibility="Horizontal"
                 Background="{StaticResource Layer1Brush}" />
 
       <!-- Status bar -->
-      <Border Grid.Row="5" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0">
+      <Border Grid.Row="7" BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0">
         <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
           <TextBlock Text="{Binding StatusText}" FontSize="11.5"
                      Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />

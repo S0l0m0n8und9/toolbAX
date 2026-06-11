@@ -82,4 +82,30 @@ public class QueryBuilderViewRenderTests
             window.Close();
         }
     }
+
+    [AvaloniaFact]
+    public void Adding_a_condition_materialises_the_builder_row_editors()
+    {
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient());
+        var view = new QueryBuilderView { DataContext = vm };
+        var window = new Window { Content = view, Width = 1100, Height = 760 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            // Builder mode is the default; adding a condition should render its field + operator combos
+            // through the recursive group → ItemsControl → condition template path.
+            var before = view.GetVisualDescendants().OfType<ComboBox>().Count();
+            vm.FilterRoot.AddConditionCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+            var after = view.GetVisualDescendants().OfType<ComboBox>().Count();
+
+            Assert.True(after >= before + 2,
+                $"expected the condition's field + operator combos to render (before {before}, after {after}).");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
 }
