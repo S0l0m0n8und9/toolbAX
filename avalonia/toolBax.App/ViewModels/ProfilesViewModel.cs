@@ -172,7 +172,11 @@ public partial class ProfilesViewModel : ObservableObject
         _auth = auth ?? new FakeAuthService();
         _gatewayTester = gatewayTester ?? new FakeDualWriteGatewayTester();
         Profiles = new ObservableCollection<EnvProfile>(store.GetAll());
-        Profiles.CollectionChanged += (_, _) => OnPropertyChanged(nameof(CanDeleteProfile));
+        Profiles.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(CanDeleteProfile));
+            DeleteProfileCommand.NotifyCanExecuteChanged();
+        };
         _activeId = store.ActiveId;
         _selected = Profiles.FirstOrDefault(p => p.Id == _activeId) ?? Profiles.FirstOrDefault();
         LoadDrafts(_selected);
@@ -342,10 +346,12 @@ public partial class ProfilesViewModel : ObservableObject
         Status = "Added a new environment — fill in the details and Save.";
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanDeleteProfile))]
     private void DeleteProfile()
     {
-        if (Selected is null)
+        // Enforce the "keep at least one profile" invariant on the command itself, not just the button's
+        // IsEnabled binding — ICommand.Execute bypasses CanExecute, so guard here too.
+        if (Selected is null || Profiles.Count <= 1)
         {
             return;
         }

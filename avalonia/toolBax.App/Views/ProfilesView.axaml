@@ -43,7 +43,7 @@
             <DataTemplate x:DataType="models:EnvProfile">
               <Grid ColumnDefinitions="Auto,*" Margin="0,2">
                 <!-- Status dot: connected→ok, token-expired→warn, disconnected→err. -->
-                <Ellipse Grid.Column="0" Width="7" Height="7" VerticalAlignment="Top" Margin="2,6,0,0"
+                <Ellipse x:Name="StatusDot" Grid.Column="0" Width="7" Height="7" VerticalAlignment="Top" Margin="2,6,0,0"
                          Fill="{Binding Status, Converter={x:Static conv:EnvStatusToBrushConverter.Instance}}" />
                 <StackPanel Grid.Column="1" Spacing="1" Margin="8,0,0,0">
                   <StackPanel Orientation="Horizontal" Spacing="6">

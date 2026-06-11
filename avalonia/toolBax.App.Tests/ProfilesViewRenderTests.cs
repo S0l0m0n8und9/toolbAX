@@ -49,8 +49,8 @@ public class ProfilesViewRenderTests
         {
             var list = view.GetVisualDescendants().OfType<ListBox>().First(l => l.Name == "ProfilesList");
 
-            // One status dot per row.
-            Assert.Equal(4, list.GetVisualDescendants().OfType<Ellipse>().Count());
+            // One status dot per row (filter by name so Fluent's own template Ellipses can't inflate it).
+            Assert.Equal(4, list.GetVisualDescendants().OfType<Ellipse>().Count(e => e.Name == "StatusDot"));
 
             // Exactly one master-list row shows the "active" badge — the active profile (dev-usmf).
             var activeBadges = list.GetVisualDescendants().OfType<TextBlock>()

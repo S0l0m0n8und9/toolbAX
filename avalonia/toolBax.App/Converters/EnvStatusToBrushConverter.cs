@@ -27,7 +27,10 @@ public sealed class EnvStatusToBrushConverter : IValueConverter
             }
             : "Text2Brush";
 
-        if (Application.Current?.TryGetResource(key, null, out var brush) == true && brush is IBrush resolved)
+        // Resolve against the active theme variant (not null) so the lookup still finds tokens even if
+        // they're ever moved into a ThemeDictionaries section.
+        var themeVariant = Application.Current?.ActualThemeVariant;
+        if (Application.Current?.TryGetResource(key, themeVariant, out var brush) == true && brush is IBrush resolved)
         {
             return resolved;
         }
