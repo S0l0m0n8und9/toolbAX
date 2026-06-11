@@ -31,6 +31,22 @@ public sealed class MsalInteractiveTokenProviderTests
             MsalInteractiveTokenProvider.BuildAuthority("https://login.microsoftonline.com/", "11111111-1111-1111-1111-111111111111"));
     }
 
+    [Fact]
+    public async Task SignOutAsync_EvictsThePersistedCacheEntryForTheClientAndTenant()
+    {
+        var store = new InMemoryMsalTokenCacheStore();
+        // The provider keys its persisted blob by "{clientId}|{tenantId}".
+        store.Save("11111111-1111-1111-1111-111111111111|22222222-2222-2222-2222-222222222222",
+            new byte[] { 1, 2, 3 });
+        var provider = new MsalInteractiveTokenProvider(store);
+
+        await provider.SignOutAsync(
+            "11111111-1111-1111-1111-111111111111",
+            "22222222-2222-2222-2222-222222222222");
+
+        Assert.Null(store.Load("11111111-1111-1111-1111-111111111111|22222222-2222-2222-2222-222222222222"));
+    }
+
     [Theory]
     [InlineData("", "tenant", "https://x.operations.dynamics.com", "Client ID")]
     [InlineData("client", "", "https://x.operations.dynamics.com", "Tenant")]

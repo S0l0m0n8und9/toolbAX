@@ -24,11 +24,24 @@ public sealed class FakeAuthService : IAuthService
         _dualWriteToken = dualWriteToken ?? (_ => "fake-dualwrite-token");
     }
 
+    /// <summary>The most recent environment passed to <see cref="SignOutAsync"/> (null until called).</summary>
+    public EnvProfile? LastSignedOut { get; private set; }
+
+    /// <summary>How many times <see cref="SignOutAsync"/> has been called.</summary>
+    public int SignOutCount { get; private set; }
+
     public Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default) => Resolve(_token, env);
 
     public Task<string> AcquireDataverseTokenAsync(EnvProfile env, CancellationToken ct = default) => Resolve(_dataverseToken, env);
 
     public Task<string> AcquireDualWriteTokenAsync(EnvProfile env, CancellationToken ct = default) => Resolve(_dualWriteToken, env);
+
+    public Task SignOutAsync(EnvProfile env, CancellationToken ct = default)
+    {
+        LastSignedOut = env;
+        SignOutCount++;
+        return Task.CompletedTask;
+    }
 
     // Surface a throwing delegate as a faulted task (TAP contract), not a synchronous throw.
     private static Task<string> Resolve(Func<EnvProfile, string> token, EnvProfile env)

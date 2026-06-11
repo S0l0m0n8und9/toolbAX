@@ -22,4 +22,23 @@ public interface IAuthService
     /// / Dataverse tokens.
     /// </summary>
     Task<string> AcquireDualWriteTokenAsync(EnvProfile env, CancellationToken ct = default);
+
+    /// <summary>
+    /// As <see cref="AcquireFoTokenAsync(EnvProfile, CancellationToken)"/>, but <paramref name="forceRefresh"/>
+    /// bypasses any cached access token (refreshing from the STS). Used by "Test connection" so a pass
+    /// proves a live token, not just a cached one. Defaults to the cached path for callers that don't care.
+    /// </summary>
+    Task<string> AcquireFoTokenAsync(EnvProfile env, bool forceRefresh, CancellationToken ct = default)
+        => AcquireFoTokenAsync(env, ct);
+
+    /// <summary>As <see cref="AcquireDataverseTokenAsync(EnvProfile, CancellationToken)"/> with a force-refresh option.</summary>
+    Task<string> AcquireDataverseTokenAsync(EnvProfile env, bool forceRefresh, CancellationToken ct = default)
+        => AcquireDataverseTokenAsync(env, ct);
+
+    /// <summary>
+    /// Evicts any cached delegated (interactive) sessions for the profile so the next acquisition forces a
+    /// fresh sign-in — the per-profile "Sign out" action. App-only tokens are unaffected. Default no-op so
+    /// fakes need not implement it.
+    /// </summary>
+    Task SignOutAsync(EnvProfile env, CancellationToken ct = default) => Task.CompletedTask;
 }

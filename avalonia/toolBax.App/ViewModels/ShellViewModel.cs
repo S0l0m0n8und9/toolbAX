@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using ToolBax.App.Models;
@@ -36,6 +37,7 @@ public partial class ShellViewModel : ObservableObject
     private readonly IFileSaveService _fileSave;
     private readonly IDualWriteGatewayTester _gatewayTester;
     private readonly IDualWriteCompareService _compareService;
+    private readonly IConnectionTester _connectionTester;
     private readonly IDialogService _dialogs;
     private object? _operationsContent;
     private object? _profilesContent;
@@ -79,6 +81,7 @@ public partial class ShellViewModel : ObservableObject
         IFileSaveService? fileSave = null,
         IDualWriteGatewayTester? gatewayTester = null,
         IDualWriteCompareService? compareService = null,
+        IConnectionTester? connectionTester = null,
         IDialogService? dialogs = null)
     {
         _operationsContentFactory = operationsContentFactory ?? DefaultOperationsContent;
@@ -95,6 +98,7 @@ public partial class ShellViewModel : ObservableObject
         _fileSave = fileSave ?? new FakeFileSaveService();
         _gatewayTester = gatewayTester ?? new FakeDualWriteGatewayTester();
         _compareService = compareService ?? new FakeDualWriteCompareService();
+        _connectionTester = connectionTester ?? new FakeConnectionTester();
         // Real Fluent confirm dialog for mutating actions (POST Builder send); tests pass a stub.
         _dialogs = dialogs ?? new DialogService();
 
@@ -165,13 +169,13 @@ public partial class ShellViewModel : ObservableObject
     // the shell's environment switcher in sync.
     private ProfilesViewModel CreateProfilesContent()
     {
-        var profiles = new ProfilesViewModel(_profileStore, _secretStore, _authBroker, _authService, _gatewayTester);
+        var profiles = new ProfilesViewModel(_profileStore, _secretStore, _authBroker, _authService, _gatewayTester, _connectionTester);
         profiles.ActiveChanged += id =>
         {
             var match = Environments.FirstOrDefault(e => e.Id == id);
             if (match is not null)
             {
-                ActiveEnvironment = match;
+                _ = ApplyActiveEnvironmentSwitchAsync(match);
             }
         };
         profiles.ProfileSaved += updated =>
@@ -226,12 +230,52 @@ public partial class ShellViewModel : ObservableObject
     private void CloseCommandPalette() => IsCommandPaletteOpen = false;
 
     [RelayCommand]
-    private void SetActiveEnvironment(EnvProfile? env)
+    private Task SetActiveEnvironment(EnvProfile? env) => ApplyActiveEnvironmentSwitchAsync(env);
+
+    // The single funnel for a deliberate active-environment switch (header switcher OR Profiles' "Set
+    // active"). Profile rename/delete update ActiveEnvironment directly and intentionally bypass this —
+    // they aren't switches and must not discard open tool state. The active environment always changes;
+    // refreshing the open tools (which discards their unsaved input) is gated behind a confirm prompt.
+    private async Task ApplyActiveEnvironmentSwitchAsync(EnvProfile? target)
     {
-        if (env is not null)
+        if (target is null)
         {
-            ActiveEnvironment = env;
-            _profileStore.ActiveId = env.Id;
+            return;
         }
+
+        var previous = ActiveEnvironment;
+        ActiveEnvironment = target;
+        _profileStore.ActiveId = target.Id;
+
+        if (previous is null || previous.Id == target.Id)
+        {
+            return; // first selection, or re-selecting the current one — nothing to refresh.
+        }
+
+        var refresh = await _dialogs.ConfirmAsync(new ConfirmRequest(
+            Title: "Active environment changed",
+            Message: $"Switched to '{target.Name}'. Refresh open tools so they use this environment? Unsaved input in those tools will be discarded.",
+            Targets: Array.Empty<string>(),
+            ConfirmLabel: "Refresh tools",
+            IsDanger: false));
+
+        if (refresh)
+        {
+            // Rebuild the open data tool so its cached entities/metadata/results reflect the new environment.
+            InvalidateToolContent();
+        }
+    }
+
+    // Drops the cached data-tool view-models so they rebuild against the active environment on next view.
+    // Home (just a subtitle) and Profiles (owns the switcher + its event subscriptions) are preserved.
+    private void InvalidateToolContent()
+    {
+        _operationsContent = null;
+        _metadataContent = null;
+        _postContent = null;
+        _queryContent = null;
+        _mapBrowserContent = null;
+        _compareContent = null;
+        CurrentContent = ResolveContent(CurrentTool);
     }
 }

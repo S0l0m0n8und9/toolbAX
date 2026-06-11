@@ -18,7 +18,8 @@ public sealed record AuthTokenRequest(
     ServicePrincipal Principal,
     string ServiceName = "service",
     string? PendingClientSecret = null,
-    string? PendingBearerToken = null)
+    string? PendingBearerToken = null,
+    bool ForceRefresh = false)
 {
     /// <summary>Synthesized record printing would leak Pending* secrets; print only safe members.</summary>
     public override string ToString() => $"AuthTokenRequest({ServiceName}, {Principal.AuthMode}, {ResourceBaseUrl})";
@@ -85,7 +86,7 @@ public sealed class AuthBroker
             try
             {
                 result = await _interactive.AcquireTokenAsync(
-                    new InteractiveTokenRequest(request.Principal.ClientId, request.TenantId, request.ResourceBaseUrl, _authorityBase),
+                    new InteractiveTokenRequest(request.Principal.ClientId, request.TenantId, request.ResourceBaseUrl, _authorityBase, ForceRefresh: request.ForceRefresh),
                     cancellationToken);
             }
             catch (MsalException ex)
@@ -115,8 +116,16 @@ public sealed class AuthBroker
                 Task.FromResult<ClientCredential>(new ClientSecretCredential(request.PendingClientSecret!)));
 
         var auth = new AuthService(provider, request.ServiceName, _interactiveFallback);
-        return await auth.AcquireTokenAsync(request.ResourceBaseUrl, request.TenantId, request.Principal, cancellationToken);
+        return await auth.AcquireTokenAsync(request.ResourceBaseUrl, request.TenantId, request.Principal, cancellationToken, request.ForceRefresh);
     }
+
+    /// <summary>
+    /// Evicts the cached delegated (interactive) session for the given client/tenant so the next
+    /// acquisition requires a fresh sign-in. App-only (client-credentials) tokens are not affected —
+    /// MSAL refreshes those automatically near expiry.
+    /// </summary>
+    public Task SignOutInteractiveAsync(string clientId, string tenantId, CancellationToken cancellationToken = default) =>
+        _interactive.SignOutAsync(clientId, tenantId, cancellationToken);
 
     private async Task<ClientCredential> ResolveStoredCredentialAsync(ServicePrincipal sp, CancellationToken cancellationToken)
     {

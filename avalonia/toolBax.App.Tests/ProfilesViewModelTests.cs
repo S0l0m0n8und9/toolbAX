@@ -297,9 +297,9 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
-    public async Task Test_connection_reports_success_when_a_token_is_acquired()
+    public async Task Test_connection_reports_success_when_the_metadata_probe_passes()
     {
-        var vm = new ProfilesViewModel(new FakeProfileStore(), auth: new FakeAuthService());
+        var vm = new ProfilesViewModel(new FakeProfileStore(), connectionTester: new FakeConnectionTester());
         vm.Selected = vm.Profiles.First();
 
         await vm.TestConnectionCommand.ExecuteAsync(null);
@@ -309,10 +309,12 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
-    public async Task Test_connection_reports_the_failure_message()
+    public async Task Test_connection_reports_the_probe_failure_message()
     {
-        var failing = new FakeAuthService(_ => throw new InvalidOperationException("AADSTS700016: app not found"));
-        var vm = new ProfilesViewModel(new FakeProfileStore(), auth: failing);
+        // A token can be minted yet the metadata endpoint rejects it — the probe (not just token
+        // acquisition) is what the status must reflect.
+        var tester = new FakeConnectionTester(fo: _ => new ConnectionTestResult(false, "401 Unauthorized (AADSTS700016)"));
+        var vm = new ProfilesViewModel(new FakeProfileStore(), connectionTester: tester);
         vm.Selected = vm.Profiles.First();
 
         await vm.TestConnectionCommand.ExecuteAsync(null);
@@ -323,9 +325,9 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
-    public async Task Test_dataverse_connection_reports_success_when_a_token_is_acquired()
+    public async Task Test_dataverse_connection_reports_success_when_the_probe_passes()
     {
-        var vm = new ProfilesViewModel(new FakeProfileStore(), auth: new FakeAuthService());
+        var vm = new ProfilesViewModel(new FakeProfileStore(), connectionTester: new FakeConnectionTester());
         vm.Selected = vm.Profiles.First();
 
         await vm.TestDataverseConnectionCommand.ExecuteAsync(null);
@@ -336,11 +338,10 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
-    public async Task Test_dataverse_connection_reports_the_failure_message()
+    public async Task Test_dataverse_connection_reports_the_probe_failure_message()
     {
-        // The Dataverse token delegate throws; the F&O one is the default (so this is Dataverse-specific).
-        var failing = new FakeAuthService(dataverseToken: _ => throw new InvalidOperationException("AADSTS500011: resource not found"));
-        var vm = new ProfilesViewModel(new FakeProfileStore(), auth: failing);
+        var tester = new FakeConnectionTester(dataverse: _ => new ConnectionTestResult(false, "AADSTS500011: resource not found"));
+        var vm = new ProfilesViewModel(new FakeProfileStore(), connectionTester: tester);
         vm.Selected = vm.Profiles.First();
 
         await vm.TestDataverseConnectionCommand.ExecuteAsync(null);
@@ -349,6 +350,51 @@ public class ProfilesViewModelTests
         Assert.Contains("failed", vm.Status);
         Assert.Contains("AADSTS500011", vm.Status);
         Assert.False(vm.IsTestingDataverseConnection);
+    }
+
+    [Fact]
+    public async Task Sign_out_evicts_the_selected_profiles_cached_session()
+    {
+        var auth = new FakeAuthService();
+        var vm = new ProfilesViewModel(new FakeProfileStore(), auth: auth);
+        vm.Selected = vm.Profiles.First();
+
+        await vm.SignOutCommand.ExecuteAsync(null);
+
+        Assert.Equal(vm.Selected!.Id, auth.LastSignedOut?.Id);
+        Assert.Contains("Signed out", vm.Status);
+    }
+
+    [Fact]
+    public void Saving_an_auth_config_change_evicts_the_old_cached_session()
+    {
+        var auth = new FakeAuthService();
+        var vm = new ProfilesViewModel(new FakeProfileStore(), auth: auth);
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+
+        vm.DraftClientId = "11111111-changed-client-id";
+        vm.SaveCommand.Execute(null);
+
+        // Changing the client id makes any cached token for the old identity stale → evict it.
+        Assert.Equal("uat-eur", auth.LastSignedOut?.Id);
+    }
+
+    [Fact]
+    public void Saving_a_non_auth_change_does_not_evict_the_session()
+    {
+        var auth = new FakeAuthService();
+        var vm = new ProfilesViewModel(new FakeProfileStore(), auth: auth);
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+
+        // First save normalises drafts↔store (a fresh interactive profile auto-fills its client id).
+        vm.SaveCommand.Execute(null);
+        var evictionsAfterNormalize = auth.SignOutCount;
+
+        // A pure rename changes nothing about the auth identity, so it must not force a re-auth.
+        vm.DraftName = "EMEA UAT (renamed)";
+        vm.SaveCommand.Execute(null);
+
+        Assert.Equal(evictionsAfterNormalize, auth.SignOutCount);
     }
 
     [Fact]

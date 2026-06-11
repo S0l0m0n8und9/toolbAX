@@ -28,10 +28,10 @@ public sealed class AuthService
         return await AcquireTokenAsync(resourceBaseUrl, env.TenantId, sp, cancellationToken);
     }
 
-    public async Task<string> AcquireTokenAsync(string resourceBaseUrl, string tenantId, ServicePrincipal sp, CancellationToken cancellationToken = default)
+    public async Task<string> AcquireTokenAsync(string resourceBaseUrl, string tenantId, ServicePrincipal sp, CancellationToken cancellationToken = default, bool forceRefresh = false)
     {
         var scope = $"{resourceBaseUrl.TrimEnd('/')}/.default";
-        var request = new TokenRequest(scope, tenantId, sp);
+        var request = new TokenRequest(scope, tenantId, sp, forceRefresh);
 
         var attempts = 0;
         Exception? last = null;
@@ -140,4 +140,4 @@ public interface ITokenProvider
     Task<string> GetTokenAsync(TokenRequest request, CancellationToken cancellationToken = default);
 }
 
-public sealed record TokenRequest(string Scope, string TenantId, ServicePrincipal Principal);
+public sealed record TokenRequest(string Scope, string TenantId, ServicePrincipal Principal, bool ForceRefresh = false);

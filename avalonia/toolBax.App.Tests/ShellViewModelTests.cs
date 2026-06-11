@@ -134,12 +134,113 @@ public class ShellViewModelTests
     [Fact]
     public void SetActiveEnvironment_changes_the_active_environment()
     {
-        var shell = new ShellViewModel();
+        var shell = new ShellViewModel(dialogs: new StubDialogs());
         var uat = shell.Environments.Single(e => e.Id == "uat-eur");
 
         shell.SetActiveEnvironmentCommand.Execute(uat);
 
         Assert.Equal("uat-eur", shell.ActiveEnvironment!.Id);
+    }
+
+    // Records confirm requests so a test can prove the refresh prompt is shown, and returns a fixed answer.
+    private sealed class RecordingDialogs : IDialogService
+    {
+        private readonly bool _answer;
+        public int Calls { get; private set; }
+        public ConfirmRequest? Last { get; private set; }
+        public RecordingDialogs(bool answer) => _answer = answer;
+        public Task<bool> ConfirmAsync(ConfirmRequest request)
+        {
+            Calls++;
+            Last = request;
+            return Task.FromResult(_answer);
+        }
+    }
+
+    [Fact]
+    public void Confirming_the_refresh_prompt_rebuilds_the_open_data_tool_against_the_new_profile()
+    {
+        var shell = new ShellViewModel(dialogs: new AutoConfirmDialogs());
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var before = shell.CurrentContent;
+        var other = shell.Environments.First(e => e.Id != shell.ActiveEnvironment!.Id);
+
+        shell.SetActiveEnvironmentCommand.Execute(other);
+
+        // Confirmed → the open tool is rebuilt so its cached metadata/results reflect the new environment.
+        Assert.IsType<QueryBuilderViewModel>(shell.CurrentContent);
+        Assert.NotSame(before, shell.CurrentContent);
+    }
+
+    [Fact]
+    public void Declining_the_refresh_prompt_keeps_the_open_tool()
+    {
+        var shell = new ShellViewModel(dialogs: new StubDialogs()); // declines
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var before = shell.CurrentContent;
+        var other = shell.Environments.First(e => e.Id != shell.ActiveEnvironment!.Id);
+
+        shell.SetActiveEnvironmentCommand.Execute(other);
+
+        Assert.Same(before, shell.CurrentContent); // declined → unsaved tool state is preserved
+        Assert.Equal(other.Id, shell.ActiveEnvironment!.Id); // …but the active environment still switched
+    }
+
+    [Fact]
+    public void Switching_environment_prompts_before_refreshing_tools()
+    {
+        var dialogs = new RecordingDialogs(answer: false);
+        var shell = new ShellViewModel(dialogs: dialogs);
+        var other = shell.Environments.First(e => e.Id != shell.ActiveEnvironment!.Id);
+
+        shell.SetActiveEnvironmentCommand.Execute(other);
+
+        Assert.Equal(1, dialogs.Calls);
+        Assert.Contains(other.Name, dialogs.Last!.Message);
+    }
+
+    [Fact]
+    public void Switching_environment_does_not_evict_the_previous_session()
+    {
+        // Narrowed eviction: a plain environment switch must NOT clear cached sign-ins (that would force a
+        // browser re-auth on every switch when one app registration spans many environments).
+        var auth = new FakeAuthService();
+        var shell = new ShellViewModel(authService: auth, dialogs: new AutoConfirmDialogs());
+        var other = shell.Environments.First(e => e.Id != shell.ActiveEnvironment!.Id);
+
+        shell.SetActiveEnvironmentCommand.Execute(other);
+
+        Assert.Null(auth.LastSignedOut);
+    }
+
+    [Fact]
+    public void Reselecting_the_active_environment_does_not_rebuild_or_prompt()
+    {
+        var dialogs = new RecordingDialogs(answer: true);
+        var shell = new ShellViewModel(dialogs: dialogs);
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var before = shell.CurrentContent;
+        var active = shell.ActiveEnvironment!;
+
+        shell.SetActiveEnvironmentCommand.Execute(active);
+
+        Assert.Same(before, shell.CurrentContent); // not rebuilt — same environment
+        Assert.Equal(0, dialogs.Calls);            // no prompt for a no-op reselect
+    }
+
+    [Fact]
+    public void Switching_environment_preserves_the_profiles_screen_instance()
+    {
+        // The Profiles screen owns the env switcher + its event subscriptions; rebuilding it would
+        // double-subscribe. It must survive a refresh even though data tools are rebuilt.
+        var shell = new ShellViewModel(dialogs: new AutoConfirmDialogs());
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
+        var profiles = shell.CurrentContent;
+        var other = shell.Environments.First(e => e.Id != shell.ActiveEnvironment!.Id);
+
+        shell.SetActiveEnvironmentCommand.Execute(other);
+
+        Assert.Same(profiles, shell.CurrentContent);
     }
 
     [Fact]
@@ -154,7 +255,7 @@ public class ShellViewModelTests
     public void Activating_a_profile_in_profiles_updates_the_shell_switcher()
     {
         // Shell + Profiles share one IProfileStore, and Profiles' SetActive syncs the shell switcher.
-        var shell = new ShellViewModel();
+        var shell = new ShellViewModel(dialogs: new StubDialogs());
         shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
         var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
 
@@ -190,7 +291,7 @@ public class ShellViewModelTests
     [Fact]
     public void Switching_environment_updates_the_cached_home_subtitle()
     {
-        var shell = new ShellViewModel();
+        var shell = new ShellViewModel(dialogs: new StubDialogs());
         var home = Assert.IsType<PluginsHomeViewModel>(shell.CurrentContent);
         var other = shell.Environments.First(e => e.Name != home.EnvName);
 

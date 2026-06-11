@@ -48,9 +48,13 @@ public sealed class MsalInteractiveTokenProvider : IInteractiveTokenProvider
         AuthenticationResult result;
         try
         {
-            // Silent-first: reuse the cached session/refresh token when one exists.
+            // Silent-first: reuse the cached session/refresh token when one exists. ForceRefresh
+            // bypasses the cached access token (refreshing from the STS) so "Test connection" can
+            // prove the token is live, not just present in the cache.
             result = account is not null
-                ? await app.AcquireTokenSilent(new[] { scope }, account).ExecuteAsync(cancellationToken).ConfigureAwait(false)
+                ? await app.AcquireTokenSilent(new[] { scope }, account)
+                    .WithForceRefresh(request.ForceRefresh)
+                    .ExecuteAsync(cancellationToken).ConfigureAwait(false)
                 : await AcquireInteractiveAsync(app, scope, cancellationToken).ConfigureAwait(false);
         }
         catch (MsalUiRequiredException)
@@ -66,6 +70,29 @@ public sealed class MsalInteractiveTokenProvider : IInteractiveTokenProvider
         app.AcquireTokenInteractive(new[] { scope })
             .WithUseEmbeddedWebView(false)
             .ExecuteAsync(cancellationToken);
+
+    public async Task SignOutAsync(string clientId, string tenantId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(tenantId))
+        {
+            return;
+        }
+
+        // The resource isn't part of the cache key ({clientId}|{tenantId}); a placeholder satisfies
+        // BuildApp's validation without affecting which cached session is evicted.
+        var request = new InteractiveTokenRequest(clientId, tenantId, "https://placeholder.invalid");
+        var app = BuildApp(request);
+
+        // Remove every cached account (MSAL clears its in-cache entries; the AfterAccess hook persists
+        // the now-emptied cache), then delete the persisted blob outright so nothing survives a restart.
+        var accounts = await app.GetAccountsAsync().ConfigureAwait(false);
+        foreach (var account in accounts)
+        {
+            await app.RemoveAsync(account).ConfigureAwait(false);
+        }
+
+        _cacheStore.Remove($"{clientId}|{tenantId}");
+    }
 
     private IPublicClientApplication BuildApp(InteractiveTokenRequest request)
     {
