@@ -70,7 +70,7 @@
 
                 <Border Grid.Row="1" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0"
                         Padding="16,10">
-                  <Grid ColumnDefinitions="Auto,Auto,*,Auto">
+                  <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
                     <Border Grid.Column="0" Background="{StaticResource Layer3Brush}" CornerRadius="3" Padding="6,1">
                       <TextBlock Text="{Binding ShortcutLabel}" FontSize="11" Foreground="{StaticResource Text2Brush}" />
                     </Border>
@@ -79,7 +79,9 @@
                       <TextBlock Text="operates live" FontSize="11" Foreground="{StaticResource WarnBrush}" />
                     </Border>
                     <TextBlock Grid.Column="3" Text="built-in" FontSize="11" IsVisible="{Binding Builtin}"
-                               Foreground="{StaticResource Text3Brush}" VerticalAlignment="Center" />
+                               Foreground="{StaticResource Text3Brush}" VerticalAlignment="Center" Margin="0,0,8,0" />
+                    <TextBlock Grid.Column="4" Text="→" FontSize="14" Foreground="{StaticResource Text3Brush}"
+                               VerticalAlignment="Center" />
                   </Grid>
                 </Border>
               </Grid>

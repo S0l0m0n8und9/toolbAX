@@ -65,8 +65,12 @@
       <ItemsControl.ItemTemplate>
         <DataTemplate x:DataType="vm:DiffBucket">
           <Border Background="{StaticResource Layer3Brush}" CornerRadius="999" Padding="10,3" Margin="0,0,8,0">
-            <TextBlock Text="{Binding Label}" FontSize="11.5"
-                       Foreground="{Binding Verdict, Converter={x:Static conv:VerdictToBrushConverter.Instance}}" />
+            <StackPanel Orientation="Horizontal" Spacing="6">
+              <Ellipse Width="7" Height="7" VerticalAlignment="Center"
+                       Fill="{Binding Verdict, Converter={x:Static conv:VerdictToBrushConverter.Instance}}" />
+              <TextBlock Text="{Binding Label}" FontSize="11.5"
+                         Foreground="{Binding Verdict, Converter={x:Static conv:VerdictToBrushConverter.Instance}}" />
+            </StackPanel>
           </Border>
         </DataTemplate>
       </ItemsControl.ItemTemplate>
