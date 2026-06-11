@@ -1,7 +1,12 @@
 # CLAUDE.md
 
-FO Toolbox (toolbAX) — a Windows WPF desktop toolbox for Dynamics 365 Finance & Operations (F&O),
+FO Toolbox (toolbAX) — a desktop toolbox for Dynamics 365 Finance & Operations (F&O),
 XrmToolBox-style: profile/auth management, OData metadata + query tooling, and a plugin system.
+
+> **Shipping app:** the released product is the cross-platform **Avalonia** app (`avalonia/toolBax.App`).
+> The original **WPF host** (`src/FoToolbox.Host`) is **deprecated** — it still builds and is tested in CI,
+> but it is no longer released and new work targets the Avalonia app. Releases ship a self-contained
+> win-x64 portable zip (`toolbAX-win-x64.zip`) built by `.github/workflows/release.yml`.
 
 ## Build / test
 
@@ -12,7 +17,8 @@ dotnet test   .\FoToolbox.sln -c Release --no-build
 ```
 
 - SDK is pinned in `global.json` (`10.0.201`, `latestPatch`). Targets the .NET 10 Desktop Runtime.
-- Run the app from `src/FoToolbox.Host`.
+- Run the released app from `avalonia/toolBax.App` (`dotnet run --project avalonia/toolBax.App`).
+  The WPF host in `src/FoToolbox.Host` is deprecated (still builds/tests, not released).
 - `TreatWarningsAsErrors` is on **only in CI** (`Directory.Build.props`, gated on `$(CI)`). Don't add
   warnings expecting local builds to catch them — CI will fail even when your machine is green.
 - NuGet versions are centrally managed in `Directory.Packages.props` (CPM). Add/bump versions there,
