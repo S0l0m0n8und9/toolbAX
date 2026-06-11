@@ -57,7 +57,7 @@ public class QueryBuilderViewRenderTests
     }
 
     [AvaloniaFact]
-    public void Field_list_stays_height_bounded_so_large_entities_cannot_balloon_it()
+    public void Field_list_is_viewport_bounded_and_scrolls_so_large_entities_cannot_balloon_it()
     {
         var view = new QueryBuilderView
         {
@@ -68,14 +68,17 @@ public class QueryBuilderViewRenderTests
         Dispatcher.UIThread.RunJobs();
         try
         {
+            // Fields is the default tab, so the list renders for CustomersV3 (which has cached fields).
             var fieldList = view.GetVisualDescendants().OfType<ListBox>()
                 .FirstOrDefault(lb => lb.Name == "FieldList");
+            Assert.NotNull(fieldList);
 
-            Assert.NotNull(fieldList); // CustomersV3 has cached fields, so the list renders
-            // A bounded MaxHeight (with the virtualizing ListBox) is what keeps an entity with hundreds
-            // of fields from growing the picker unbounded — guard it so the regression can't return.
-            Assert.True(double.IsFinite(fieldList!.MaxHeight) && fieldList.MaxHeight > 0,
-                "The Query Builder field list must keep a finite MaxHeight (bounded + scrollable).");
+            // Under the tabbed layout the bounding comes from the tab filling a fixed grid row inside the
+            // window (not an arbitrary MaxHeight): the list never exceeds the viewport, and overflow scrolls
+            // via the ListBox's built-in ScrollViewer. Guard both so the "balloon" regression can't return.
+            Assert.True(fieldList!.Bounds.Height > 0 && fieldList.Bounds.Height <= window.Height,
+                $"field list height {fieldList.Bounds.Height} must be >0 and within the {window.Height}px viewport.");
+            Assert.NotNull(fieldList.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault());
         }
         finally
         {
@@ -93,6 +96,10 @@ public class QueryBuilderViewRenderTests
         Dispatcher.UIThread.RunJobs();
         try
         {
+            // The filter builder lives in the Filter tab; select it so its content is realized.
+            vm.SelectedTabIndex = 1;
+            Dispatcher.UIThread.RunJobs();
+
             // Builder mode is the default; adding a condition should render its field + operator combos
             // through the recursive group → ItemsControl → condition template path.
             var before = view.GetVisualDescendants().OfType<ComboBox>().Count();

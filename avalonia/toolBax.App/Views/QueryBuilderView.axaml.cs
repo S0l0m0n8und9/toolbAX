@@ -1,5 +1,6 @@
 using System;
 using System.ComponentModel;
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Data;
 using Avalonia.Interactivity;
@@ -91,4 +92,9 @@ public partial class QueryBuilderView : UserControl
             });
         }
     }
+
+    // The Results DataGrid lives inside a TabItem, so the TabControl only realizes it when the Results
+    // tab is first shown. Rebuild its dynamic columns when it attaches — the ResultColumns-change
+    // trigger alone can fire while another tab is active, when FindControl("ResultsGrid") returns null.
+    private void OnResultsGridAttached(object? sender, VisualTreeAttachmentEventArgs e) => RebuildColumns();
 }
