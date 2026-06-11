@@ -720,6 +720,67 @@ public class QueryBuilderViewModelTests
         Assert.Equal(0, vm.SelectedTabIndex); // export writes a file; it must not jump to Results
     }
 
+    [Fact]
+    public void Fields_tab_header_tracks_selection_and_falls_back_when_uncached()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        // PK fields are selected by default (dataAreaId + CustomerAccount).
+        Assert.Equal($"Fields · {vm.Fields.Count(f => f.IsSelected)}/{vm.Fields.Count}", vm.FieldsTabHeader);
+
+        vm.ClearFieldsCommand.Execute(null);
+        Assert.Equal($"Fields · 0/{vm.Fields.Count}", vm.FieldsTabHeader);
+
+        vm.SelectAllFieldsCommand.Execute(null);
+        Assert.Equal($"Fields · {vm.Fields.Count}/{vm.Fields.Count}", vm.FieldsTabHeader);
+
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "VendorsV2"); // no cached fields
+        Assert.False(vm.HasFields);
+        Assert.Equal("Fields", vm.FieldsTabHeader);
+    }
+
+    [Fact]
+    public void Filter_tab_header_tracks_condition_count_and_raw_mode()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        Assert.Equal("Filter", vm.FilterTabHeader); // no conditions yet
+
+        AddCondition(vm);
+        Assert.Equal("Filter · 1", vm.FilterTabHeader);
+
+        vm.IsRawFilterMode = true;
+        Assert.Equal("Filter · raw", vm.FilterTabHeader);
+    }
+
+    [Fact]
+    public void Joins_tab_header_tracks_selection_and_falls_back_when_none()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        Assert.Equal($"Joins · 0/{vm.Navigations.Count}", vm.JoinsTabHeader);
+
+        vm.Navigations.Single(n => n.Name == "PrimaryContact").IsSelected = true;
+        Assert.Equal($"Joins · 1/{vm.Navigations.Count}", vm.JoinsTabHeader);
+
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "VendorsV2"); // no navigations
+        Assert.False(vm.HasNavigations);
+        Assert.Equal("Joins", vm.JoinsTabHeader);
+    }
+
+    [Fact]
+    public async Task Results_tab_header_shows_row_count_after_a_run()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        Assert.Equal("Results", vm.ResultsTabHeader); // before any run
+
+        await vm.RunCommand.ExecuteAsync(null);
+
+        Assert.Equal($"Results · {vm.RowCount}", vm.ResultsTabHeader);
+    }
+
     // --- Filter builder (nested AND/OR tree) ---
 
     private static QueryFilterOperator Op(string op) => QueryFilterOperator.All.Single(o => o.Op == op);

@@ -57,6 +57,7 @@ public partial class QueryBuilderViewModel : ObservableObject
 
     /// <summary>True when the selected entity exposes navigation properties to expand.</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(JoinsTabHeader))]
     private bool _hasNavigations;
 
     /// <summary>Joins are secondary to $select, so the panel is collapsed until the user opens it.</summary>
@@ -91,6 +92,7 @@ public partial class QueryBuilderViewModel : ObservableObject
     private EntitySet? _selectedEntity;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FieldsTabHeader))]
     private bool _hasFields;
 
     // Surfaces a $metadata load/auth failure so the view shows it instead of a silently blank list.
@@ -144,6 +146,7 @@ public partial class QueryBuilderViewModel : ObservableObject
     /// <summary>Builder (visual tree) vs Raw ($filter text). Raw overrides the builder when non-empty.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsBuilderMode))]
+    [NotifyPropertyChangedFor(nameof(FilterTabHeader))]
     private bool _isRawFilterMode;
 
     public bool IsBuilderMode => !IsRawFilterMode;
@@ -192,6 +195,7 @@ public partial class QueryBuilderViewModel : ObservableObject
     private bool _isBusy;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ResultsTabHeader))]
     private bool _hasRun;
 
     /// <summary>Active workspace tab (two-way bound to the TabControl). Run / Load more jump to Results.</summary>
@@ -207,6 +211,7 @@ public partial class QueryBuilderViewModel : ObservableObject
     private string _statusBadge = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ResultsTabHeader))]
     private int _rowCount;
 
     [ObservableProperty]
@@ -234,6 +239,22 @@ public partial class QueryBuilderViewModel : ObservableObject
     /// <summary>"N of M selected" — the $select field count, so large field lists stay legible.</summary>
     public string FieldSelectionLabel =>
         HasFields ? $"{Fields.Count(f => f.IsSelected)} of {Fields.Count} selected" : string.Empty;
+
+    /// <summary>Fields tab header: "Fields · {selected}/{total}" (plain "Fields" when not cached).</summary>
+    public string FieldsTabHeader =>
+        HasFields ? $"Fields · {Fields.Count(f => f.IsSelected)}/{Fields.Count}" : "Fields";
+
+    /// <summary>Filter tab header: "Filter · {N}" (builder), "Filter · raw" (raw mode), or "Filter".</summary>
+    public string FilterTabHeader => IsRawFilterMode
+        ? "Filter · raw"
+        : FilterRoot.ConditionCount > 0 ? $"Filter · {FilterRoot.ConditionCount}" : "Filter";
+
+    /// <summary>Joins tab header: "Joins · {selected}/{total}" (plain "Joins" when the entity has none).</summary>
+    public string JoinsTabHeader =>
+        HasNavigations ? $"Joins · {Navigations.Count(n => n.IsSelected)}/{Navigations.Count}" : "Joins";
+
+    /// <summary>Results tab header: "Results · {rowCount}" after a run, otherwise plain "Results".</summary>
+    public string ResultsTabHeader => HasRun ? $"Results · {RowCount}" : "Results";
 
     /// <summary>"Entities · N" (or "M of N" while a search is narrowing the list).</summary>
     public string EntityCountLabel =>
@@ -390,6 +411,7 @@ public partial class QueryBuilderViewModel : ObservableObject
         OnPropertyChanged(nameof(EffectiveFilter));
         OnPropertyChanged(nameof(HasEffectiveFilter));
         OnPropertyChanged(nameof(FilterSummary));
+        OnPropertyChanged(nameof(FilterTabHeader));
         UpdateQueryUrl();
     }
 
@@ -470,6 +492,7 @@ public partial class QueryBuilderViewModel : ObservableObject
         RefreshFieldFilter();
         UpdateQueryUrl();
         OnPropertyChanged(nameof(FieldSelectionLabel));
+        OnPropertyChanged(nameof(FieldsTabHeader));
     }
 
     // Rebuilds the navigation-property ($expand) chips for the selected entity. Cached alongside the
@@ -496,6 +519,7 @@ public partial class QueryBuilderViewModel : ObservableObject
 
         RefreshNavigationFilter();
         OnPropertyChanged(nameof(JoinsHeader));
+        OnPropertyChanged(nameof(JoinsTabHeader));
     }
 
     // A chip's selection (toggled by the command or the view's ToggleButton) is the single source of
@@ -515,6 +539,8 @@ public partial class QueryBuilderViewModel : ObservableObject
             // cheap and only one will actually change.
             OnPropertyChanged(nameof(FieldSelectionLabel));
             OnPropertyChanged(nameof(JoinsHeader));
+            OnPropertyChanged(nameof(FieldsTabHeader));
+            OnPropertyChanged(nameof(JoinsTabHeader));
         }
     }
 
@@ -553,6 +579,7 @@ public partial class QueryBuilderViewModel : ObservableObject
         UpdateQueryUrl();
         ExportAllCsvCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(FieldSelectionLabel));
+        OnPropertyChanged(nameof(FieldsTabHeader));
     }
 
     private void UpdateQueryUrl() => QueryUrl = SelectedEntity is null ? string.Empty : "GET " + BuildPath(forRequest: false);
