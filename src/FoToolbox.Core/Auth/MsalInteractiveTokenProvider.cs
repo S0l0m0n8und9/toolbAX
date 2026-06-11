@@ -48,9 +48,13 @@ public sealed class MsalInteractiveTokenProvider : IInteractiveTokenProvider
         AuthenticationResult result;
         try
         {
-            // Silent-first: reuse the cached session/refresh token when one exists.
+            // Silent-first: reuse the cached session/refresh token when one exists. ForceRefresh
+            // bypasses the cached access token (refreshing from the STS) so "Test connection" can
+            // prove the token is live, not just present in the cache.
             result = account is not null
-                ? await app.AcquireTokenSilent(new[] { scope }, account).ExecuteAsync(cancellationToken).ConfigureAwait(false)
+                ? await app.AcquireTokenSilent(new[] { scope }, account)
+                    .WithForceRefresh(request.ForceRefresh)
+                    .ExecuteAsync(cancellationToken).ConfigureAwait(false)
                 : await AcquireInteractiveAsync(app, scope, cancellationToken).ConfigureAwait(false);
         }
         catch (MsalUiRequiredException)
@@ -67,15 +71,46 @@ public sealed class MsalInteractiveTokenProvider : IInteractiveTokenProvider
             .WithUseEmbeddedWebView(false)
             .ExecuteAsync(cancellationToken);
 
-    private IPublicClientApplication BuildApp(InteractiveTokenRequest request)
+    public async Task SignOutAsync(string clientId, string tenantId, CancellationToken cancellationToken = default)
+    {
+        if (string.IsNullOrWhiteSpace(clientId) || string.IsNullOrWhiteSpace(tenantId))
+        {
+            return;
+        }
+
+        // Sign-out only needs the cache-key inputs — no resource/scope is involved.
+        var app = BuildApp(clientId, tenantId);
+
+        // Remove every cached account (MSAL clears its in-cache entries; the AfterAccess hook persists
+        // the now-emptied cache), then delete the persisted blob outright so nothing survives a restart.
+        var accounts = await app.GetAccountsAsync().ConfigureAwait(false);
+        foreach (var account in accounts)
+        {
+            await app.RemoveAsync(account).ConfigureAwait(false);
+        }
+
+        _cacheStore.Remove($"{clientId}|{tenantId}");
+    }
+
+    private IPublicClientApplication BuildApp(InteractiveTokenRequest request) =>
+        BuildApp(request.ClientId, request.TenantId, request.AuthorityBase, request.RedirectUri);
+
+    // The resource/scope is not needed to build the app or key its cache — only these four inputs are.
+    // Keeping this overload explicit lets sign-out evict by (clientId, tenantId) without inventing a
+    // placeholder resource URL, so a future change to how the app is built can't silently break sign-out.
+    private IPublicClientApplication BuildApp(
+        string clientId,
+        string tenantId,
+        string authorityBase = "https://login.microsoftonline.com",
+        string redirectUri = "http://localhost")
     {
         var app = PublicClientApplicationBuilder
-            .Create(request.ClientId)
-            .WithAuthority(BuildAuthority(request.AuthorityBase, request.TenantId))
-            .WithRedirectUri(request.RedirectUri)
+            .Create(clientId)
+            .WithAuthority(BuildAuthority(authorityBase, tenantId))
+            .WithRedirectUri(redirectUri)
             .Build();
 
-        var cacheKey = $"{request.ClientId}|{request.TenantId}";
+        var cacheKey = $"{clientId}|{tenantId}";
         app.UserTokenCache.SetBeforeAccess(args =>
         {
             // Cache read is best-effort: a missing/corrupt cache must not break sign-in — just

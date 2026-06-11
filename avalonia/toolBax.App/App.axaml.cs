@@ -64,6 +64,12 @@ public partial class App : Application
             var compareService = authService is CoreAuthService
                 ? (IDualWriteCompareService)new CoreDualWriteCompareService(dwConnector)
                 : new FakeDualWriteCompareService();
+            // "Test connection" forces a fresh token and probes the real data endpoint ($metadata /
+            // WhoAmI); with degraded/non-Windows auth the fake reports a canned pass so design-mode
+            // doesn't hit the network.
+            var connectionTester = authService is CoreAuthService
+                ? (IConnectionTester)new CoreConnectionTester(authService)
+                : new FakeConnectionTester();
             shell = new ShellViewModel(
                 operationsContentFactory: () => new DualWriteOpsViewModel(dwConnector, activeEnv, new DialogService()),
                 profileStore: profileStore,
@@ -78,7 +84,8 @@ public partial class App : Application
                 mapReader: mapReader,
                 fileSave: new StorageFileSaveService(window),
                 gatewayTester: gatewayTester,
-                compareService: compareService);
+                compareService: compareService,
+                connectionTester: connectionTester);
             window.DataContext = shell;
             desktop.MainWindow = window;
         }

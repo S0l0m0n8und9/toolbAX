@@ -20,6 +20,59 @@ public sealed class MsalTokenCacheStoreTests
     }
 
     [Fact]
+    public void InMemory_Remove_EvictsTheKey()
+    {
+        var store = new InMemoryMsalTokenCacheStore();
+        store.Save("k1", Encoding.UTF8.GetBytes("cache-blob"));
+
+        store.Remove("k1");
+
+        Assert.Null(store.Load("k1"));
+    }
+
+    [Fact]
+    public void InMemory_Remove_IsNoOpForUnknownKey()
+    {
+        var store = new InMemoryMsalTokenCacheStore();
+        store.Remove("never-saved"); // must not throw
+        Assert.Null(store.Load("never-saved"));
+    }
+
+    [Fact]
+    public void DpapiFile_Remove_DeletesThePersistedBlob()
+    {
+        var dir = Directory.CreateTempSubdirectory("msal-cache").FullName;
+        try
+        {
+            var store = new DpapiFileMsalTokenCacheStore(dir);
+            store.Save("env-1", Encoding.UTF8.GetBytes("the-bytes"));
+            Assert.NotNull(store.Load("env-1"));
+
+            store.Remove("env-1");
+
+            Assert.Null(store.Load("env-1"));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void DpapiFile_Remove_IsNoOpForUnknownKey()
+    {
+        var dir = Directory.CreateTempSubdirectory("msal-cache").FullName;
+        try
+        {
+            new DpapiFileMsalTokenCacheStore(dir).Remove("never-saved"); // must not throw
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
     public void DpapiFile_RoundTripsAcrossInstances()
     {
         var dir = Directory.CreateTempSubdirectory("msal-cache").FullName;

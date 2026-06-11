@@ -86,6 +86,7 @@ public sealed class MsalTokenProvider : ITokenProvider
             {
                 var result = await app.AcquireTokenForClient(new[] { request.Scope })
                     .WithSendX5C(true)
+                    .WithForceRefresh(request.ForceRefresh)
                     .ExecuteAsync(cancellationToken);
 
                 return result.AccessToken;

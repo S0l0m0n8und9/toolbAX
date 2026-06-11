@@ -40,7 +40,10 @@ public sealed class CoreAuthService : IAuthService
         _broker = new AuthBroker(_vault, _interactive, _authorityBase);
     }
 
-    public async Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default)
+    public Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default) =>
+        AcquireFoTokenAsync(env, forceRefresh: false, ct);
+
+    public async Task<string> AcquireFoTokenAsync(EnvProfile env, bool forceRefresh, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(env.Tenant))
         {
@@ -66,7 +69,7 @@ public sealed class CoreAuthService : IAuthService
             var interactiveSp = new ServicePrincipal(
                 $"interactive-fo-{env.Id}", env.Id, env.ClientId!, AuthMode.Interactive, null, null, AuthTarget.Fo);
             return await _broker.AcquireTokenAsync(
-                new AuthTokenRequest(resourceBase, env.Tenant, interactiveSp, "F&O"), ct).ConfigureAwait(false);
+                new AuthTokenRequest(resourceBase, env.Tenant, interactiveSp, "F&O", ForceRefresh: forceRefresh), ct).ConfigureAwait(false);
         }
 
         var sp = await _profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Fo, ct).ConfigureAwait(false)
@@ -79,10 +82,13 @@ public sealed class CoreAuthService : IAuthService
         }
 
         return await _broker.AcquireTokenAsync(
-            new AuthTokenRequest(resourceBase, env.Tenant, sp, "F&O"), ct).ConfigureAwait(false);
+            new AuthTokenRequest(resourceBase, env.Tenant, sp, "F&O", ForceRefresh: forceRefresh), ct).ConfigureAwait(false);
     }
 
-    public async Task<string> AcquireDataverseTokenAsync(EnvProfile env, CancellationToken ct = default)
+    public Task<string> AcquireDataverseTokenAsync(EnvProfile env, CancellationToken ct = default) =>
+        AcquireDataverseTokenAsync(env, forceRefresh: false, ct);
+
+    public async Task<string> AcquireDataverseTokenAsync(EnvProfile env, bool forceRefresh, CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(env.DataverseUrl))
         {
@@ -107,7 +113,7 @@ public sealed class CoreAuthService : IAuthService
             var interactiveSp = new ServicePrincipal(
                 $"interactive-dv-{env.Id}", env.Id, env.DataverseClientId!, AuthMode.Interactive, null, null, AuthTarget.Dataverse);
             return await _broker.AcquireTokenAsync(
-                new AuthTokenRequest(resourceBase, env.Tenant, interactiveSp, "Dataverse"), ct).ConfigureAwait(false);
+                new AuthTokenRequest(resourceBase, env.Tenant, interactiveSp, "Dataverse", ForceRefresh: forceRefresh), ct).ConfigureAwait(false);
         }
 
         var sp = await _profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Dataverse, ct).ConfigureAwait(false)
@@ -122,7 +128,32 @@ public sealed class CoreAuthService : IAuthService
         // The Dataverse token is scoped to the (normalized) Dataverse resource, not F&O; the tenant is
         // shared with the F&O environment. The broker resolves THIS SP's secret from the vault.
         return await _broker.AcquireTokenAsync(
-            new AuthTokenRequest(resourceBase, env.Tenant, sp, "Dataverse"), ct).ConfigureAwait(false);
+            new AuthTokenRequest(resourceBase, env.Tenant, sp, "Dataverse", ForceRefresh: forceRefresh), ct).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Evicts the cached delegated (interactive) sessions for this environment's F&amp;O and Dataverse
+    /// client ids, so the next token acquisition forces a fresh sign-in. App-only (client-secret) tokens
+    /// have no per-user cache to clear; MSAL refreshes those automatically.
+    /// </summary>
+    public async Task SignOutAsync(EnvProfile env, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(env.Tenant))
+        {
+            return;
+        }
+
+        if (!string.IsNullOrWhiteSpace(env.ClientId))
+        {
+            await _broker.SignOutInteractiveAsync(env.ClientId!, env.Tenant, ct).ConfigureAwait(false);
+        }
+
+        // The Dataverse app reg is keyed separately; only evict it when it differs from the F&O one.
+        if (!string.IsNullOrWhiteSpace(env.DataverseClientId) &&
+            !string.Equals(env.DataverseClientId, env.ClientId, StringComparison.OrdinalIgnoreCase))
+        {
+            await _broker.SignOutInteractiveAsync(env.DataverseClientId!, env.Tenant, ct).ConfigureAwait(false);
+        }
     }
 
     public async Task<string> AcquireDualWriteTokenAsync(EnvProfile env, CancellationToken ct = default)

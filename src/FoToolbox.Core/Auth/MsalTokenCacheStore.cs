@@ -15,6 +15,9 @@ public interface IMsalTokenCacheStore
 {
     byte[]? Load(string key);
     void Save(string key, byte[] data);
+
+    /// <summary>Evicts the cached blob for <paramref name="key"/>. No-op when the key is absent.</summary>
+    void Remove(string key);
 }
 
 /// <summary>In-memory store for tests and transient sessions.</summary>
@@ -25,6 +28,8 @@ public sealed class InMemoryMsalTokenCacheStore : IMsalTokenCacheStore
     public byte[]? Load(string key) => _items.TryGetValue(key, out var data) ? data : null;
 
     public void Save(string key, byte[] data) => _items[key] = data;
+
+    public void Remove(string key) => _items.TryRemove(key, out _);
 }
 
 /// <summary>
@@ -67,6 +72,25 @@ public sealed class DpapiFileMsalTokenCacheStore : IMsalTokenCacheStore
         Directory.CreateDirectory(_directory);
         var encrypted = ProtectedData.Protect(data, optionalEntropy: null, scope: DataProtectionScope.CurrentUser);
         File.WriteAllBytes(PathFor(key), encrypted);
+    }
+
+    public void Remove(string key)
+    {
+        var path = PathFor(key);
+        // Best-effort: a sign-out must not fail because the blob was already gone or briefly locked.
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 
     private string PathFor(string key)

@@ -77,11 +77,18 @@ public class AuthBrokerTests
     private sealed class FakeInteractiveProvider : IInteractiveTokenProvider
     {
         public InteractiveTokenRequest? LastRequest;
+        public (string ClientId, string TenantId)? LastSignOut;
         public string Token = "";
         public Task<InteractiveTokenResult> AcquireTokenAsync(InteractiveTokenRequest request, CancellationToken cancellationToken = default)
         {
             LastRequest = request;
             return Task.FromResult(new InteractiveTokenResult(Token, DateTimeOffset.UtcNow.AddHours(1)));
+        }
+
+        public Task SignOutAsync(string clientId, string tenantId, CancellationToken cancellationToken = default)
+        {
+            LastSignOut = (clientId, tenantId);
+            return Task.CompletedTask;
         }
     }
 
@@ -105,6 +112,39 @@ public class AuthBrokerTests
         Assert.Equal("public-client-id", fake.LastRequest!.ClientId);
         Assert.Equal("tenant-1", fake.LastRequest.TenantId);
         Assert.Equal("https://contoso.operations.dynamics.com", fake.LastRequest.ResourceBaseUrl);
+    }
+
+    [Theory]
+    [Trait("Category", "Auth")]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Interactive_Mode_Forwards_ForceRefresh_To_Interactive_Provider(bool forceRefresh)
+    {
+        var fake = new FakeInteractiveProvider();
+        fake.Token = CreateJwt(DateTimeOffset.UtcNow.AddHours(1), "tenant-1");
+
+        var vault = await NewVaultAsync();
+        var broker = new AuthBroker(vault, interactiveProvider: fake);
+        var sp = new ServicePrincipal("sp1", "env1", "public-client-id", AuthMode.Interactive, null, null, AuthTarget.Fo);
+        var request = new AuthTokenRequest("https://contoso.operations.dynamics.com", "tenant-1", sp, ForceRefresh: forceRefresh);
+
+        await broker.AcquireTokenAsync(request);
+
+        Assert.NotNull(fake.LastRequest);
+        Assert.Equal(forceRefresh, fake.LastRequest!.ForceRefresh);
+    }
+
+    [Fact]
+    [Trait("Category", "Auth")]
+    public async Task SignOutInteractiveAsync_Routes_To_Interactive_Provider()
+    {
+        var fake = new FakeInteractiveProvider();
+        var vault = await NewVaultAsync();
+        var broker = new AuthBroker(vault, interactiveProvider: fake);
+
+        await broker.SignOutInteractiveAsync("public-client-id", "tenant-1");
+
+        Assert.Equal(("public-client-id", "tenant-1"), fake.LastSignOut);
     }
 
     [Fact]

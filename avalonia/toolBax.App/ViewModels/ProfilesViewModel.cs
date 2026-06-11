@@ -24,6 +24,7 @@ public partial class ProfilesViewModel : ObservableObject
     private readonly IInteractiveAuthBroker _broker;
     private readonly IAuthService _auth;
     private readonly IDualWriteGatewayTester _gatewayTester;
+    private readonly IConnectionTester _connectionTester;
 
     public ObservableCollection<EnvProfile> Profiles { get; }
 
@@ -164,13 +165,15 @@ public partial class ProfilesViewModel : ObservableObject
         ISecretStore? secrets = null,
         IInteractiveAuthBroker? broker = null,
         IAuthService? auth = null,
-        IDualWriteGatewayTester? gatewayTester = null)
+        IDualWriteGatewayTester? gatewayTester = null,
+        IConnectionTester? connectionTester = null)
     {
         _store = store;
         _secrets = secrets ?? new FakeSecretStore();
         _broker = broker ?? new FakeInteractiveAuthBroker();
         _auth = auth ?? new FakeAuthService();
         _gatewayTester = gatewayTester ?? new FakeDualWriteGatewayTester();
+        _connectionTester = connectionTester ?? new FakeConnectionTester();
         Profiles = new ObservableCollection<EnvProfile>(store.GetAll());
         Profiles.CollectionChanged += (_, _) =>
         {
@@ -294,8 +297,12 @@ public partial class ProfilesViewModel : ObservableObject
         Status = $"Testing connection to '{Selected.Name}'…";
         try
         {
-            await _auth.AcquireFoTokenAsync(Selected, ct);
-            Status = $"Connected to '{Selected.Name}' — token acquired.";
+            // Probe the same endpoint the tools use (/data/$metadata) with a fresh token, so a green
+            // test means the FO tool screens will actually load — not just that a token was minted.
+            var result = await _connectionTester.TestFoAsync(Selected, ct);
+            Status = result.Success
+                ? $"Connected to '{Selected.Name}' — {result.Message}"
+                : $"Connection to '{Selected.Name}' failed: {result.Message}";
         }
         catch (Exception ex)
         {
@@ -319,8 +326,11 @@ public partial class ProfilesViewModel : ObservableObject
         Status = $"Testing Dataverse connection for '{Selected.Name}'…";
         try
         {
-            await _auth.AcquireDataverseTokenAsync(Selected, ct);
-            Status = $"Connected to Dataverse for '{Selected.Name}' — token acquired.";
+            // Probe Dataverse /WhoAmI with a fresh token — the same auth the Map Browser uses.
+            var result = await _connectionTester.TestDataverseAsync(Selected, ct);
+            Status = result.Success
+                ? $"Connected to Dataverse for '{Selected.Name}' — {result.Message}"
+                : $"Dataverse connection for '{Selected.Name}' failed: {result.Message}";
         }
         catch (Exception ex)
         {
@@ -546,6 +556,26 @@ public partial class ProfilesViewModel : ObservableObject
     }
 
     [RelayCommand]
+    private async Task SignOut(CancellationToken ct)
+    {
+        if (Selected is null)
+        {
+            return;
+        }
+
+        var name = Selected.Name;
+        try
+        {
+            await _auth.SignOutAsync(Selected, ct);
+            Status = $"Signed out of '{name}' — the cached token was cleared; you'll be asked to sign in again next time.";
+        }
+        catch (Exception ex)
+        {
+            Status = $"Sign out of '{name}' failed: {ex.Message}";
+        }
+    }
+
+    [RelayCommand]
     private void SetActive()
     {
         if (Selected is null)
@@ -566,6 +596,10 @@ public partial class ProfilesViewModel : ObservableObject
         {
             return;
         }
+
+        // Captured before the swap so we can tell whether the auth identity changed (and evict the old
+        // cached session if so).
+        var previous = Selected;
 
         // Commit the editable drafts onto a new immutable record, persist, and swap it into the list
         // so the master + detail reflect the edit.
@@ -597,5 +631,32 @@ public partial class ProfilesViewModel : ObservableObject
         Selected = updated;
         Status = $"Saved '{updated.Name}'.";
         ProfileSaved?.Invoke(updated);
+
+        // If the auth identity changed (client id / tenant / mode), any token cached for the OLD identity
+        // is now stale — evict it so the next call signs in fresh. A plain rename leaves SSO intact.
+        if (AuthIdentityChanged(previous, updated))
+        {
+            _ = EvictStaleSessionAsync(previous);
+        }
+    }
+
+    private static bool AuthIdentityChanged(EnvProfile before, EnvProfile after) =>
+        !string.Equals(before.ClientId, after.ClientId, StringComparison.OrdinalIgnoreCase) ||
+        !string.Equals(before.DataverseClientId, after.DataverseClientId, StringComparison.OrdinalIgnoreCase) ||
+        !string.Equals(before.Tenant, after.Tenant, StringComparison.OrdinalIgnoreCase) ||
+        before.AuthMode != after.AuthMode ||
+        before.DataverseAuthMode != after.DataverseAuthMode;
+
+    private async Task EvictStaleSessionAsync(EnvProfile env)
+    {
+        // Best-effort: a failed cache eviction must never block saving a profile.
+        try
+        {
+            await _auth.SignOutAsync(env);
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning($"Failed to evict cached session for '{env.Name}': {ex}");
+        }
     }
 }
