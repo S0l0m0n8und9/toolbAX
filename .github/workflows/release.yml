@@ -58,9 +58,11 @@ jobs:
       - name: Zip the portable app
         shell: pwsh
         run: |
-          # Drop debug symbols so the release asset stays lean (Core project refs emit PDBs that
-          # -p:DebugType doesn't reliably suppress across references).
-          Get-ChildItem publish -Recurse -Filter *.pdb | Remove-Item -Force
+          # Drop debug symbols (PDBs) and package XML doc files so the release asset stays lean —
+          # neither is needed at runtime by the self-contained single-file app. PDBs come from the
+          # Core project refs (which -p:DebugType doesn't reliably suppress across references); the
+          # *.xml IntelliSense docs leak out of the WebView2 NuGet package.
+          Get-ChildItem publish -Recurse -File | Where-Object { $_.Extension -in '.pdb', '.xml' } | Remove-Item -Force
           Compress-Archive -Path publish/* -DestinationPath toolbAX-win-x64.zip -Force
 
       - name: Compose release notes
