@@ -216,7 +216,8 @@ public partial class ShellViewModel : ObservableObject
     // Design-mode default: connects via the seeded fake connector (real wiring passes a
     // CoreDualWriteConnector + the shell's active-environment accessor from App.axaml.cs).
     private object DefaultOperationsContent() =>
-        new DualWriteOpsViewModel(new FakeDualWriteConnector(), () => ActiveEnvironment, new DialogService());
+        new DualWriteOpsViewModel(new FakeDualWriteConnector(), () => ActiveEnvironment, new DialogService(),
+            odata: _odataClient, metadata: _metadataService);
 
     [RelayCommand]
     private void TogglePane() => IsPaneOpen = !IsPaneOpen;
