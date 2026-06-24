@@ -29,8 +29,10 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- App icon: icon.png is the runtime WindowIcon (avares:///Assets/icon.png); toolbax.ico is the exe icon. -->
-    <AvaloniaResource Include="Assets/**" />
+    <!-- App icon: icon.png is the runtime WindowIcon (avares:///Assets/icon.png). toolbax.ico is the
+         exe icon, consumed only by <ApplicationIcon> at build time — exclude it from the embedded
+         resource bundle so it isn't shipped twice. -->
+    <AvaloniaResource Include="Assets/**" Exclude="Assets/*.ico" />
   </ItemGroup>
 
   <ItemGroup>
