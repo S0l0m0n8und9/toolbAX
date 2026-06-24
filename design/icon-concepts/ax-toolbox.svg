@@ -1,0 +1,36 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2C2770"/>
+      <stop offset="1" stop-color="#15123A"/>
+    </linearGradient>
+    <radialGradient id="tileGlow" cx="78" cy="60" r="190" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5142B0" stop-opacity="0.65"/>
+      <stop offset="1" stop-color="#5142B0" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="body" x1="56" y1="120" x2="180" y2="206" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#8170F2"/>
+      <stop offset="1" stop-color="#5847C6"/>
+    </linearGradient>
+    <linearGradient id="lid" x1="78" y1="60" x2="170" y2="118" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#C9BCFF"/>
+      <stop offset="1" stop-color="#9684F4"/>
+    </linearGradient>
+    <linearGradient id="spark" x1="64" y1="118" x2="192" y2="206" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFD24D"/>
+      <stop offset="1" stop-color="#F97316"/>
+    </linearGradient>
+  </defs>
+  <rect x="0" y="0" width="256" height="256" rx="56" fill="url(#tile)"/>
+  <rect x="0" y="0" width="256" height="256" rx="56" fill="url(#tileGlow)"/>
+  <rect x="46" y="118" width="164" height="92" rx="24" fill="url(#body)"/>
+  <rect x="58" y="121" width="140" height="9" rx="4.5" fill="#D7CDFF" opacity="0.42"/>
+  <path d="M66 200 L188 126 L176 106 L54 180 Z" fill="url(#spark)"/>
+  <path d="M190 200 L68 126 L80 106 L202 180 Z" fill="#B8A6FF" opacity="0.35"/>
+  <path d="M74 116 L82 84 Q84 76 92 76 L164 76 Q172 76 174 84 L182 116 Z" fill="url(#lid)"/>
+  <path d="M98 76 Q98 50 128 50 Q158 50 158 76 L142 76 Q142 64 128 64 Q114 64 114 76 Z" fill="url(#lid)"/>
+  <path d="M114 76 Q114 60 128 60 Q142 60 142 76 Z" fill="#15123A"/>
+  <rect x="74" y="113" width="108" height="7" rx="3.5" fill="#15123A" opacity="0.50"/>
+  <circle cx="128" cy="160" r="16" fill="#15123A"/>
+  <circle cx="128" cy="160" r="9" fill="url(#spark)"/>
+</svg>
