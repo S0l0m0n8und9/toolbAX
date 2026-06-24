@@ -124,6 +124,13 @@
               <TextBlock Text="{Binding ExportStatus}" FontSize="12" VerticalAlignment="Center"
                          Foreground="{StaticResource Text3Brush}" TextTrimming="CharacterEllipsis" MaxWidth="280"
                          IsVisible="{Binding ExportStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              <TextBlock Text="{Binding MapLinkUnavailableReason}" FontSize="12" VerticalAlignment="Center"
+                         Foreground="{StaticResource Text3Brush}" TextTrimming="CharacterEllipsis" MaxWidth="260"
+                         IsVisible="{Binding MapLinkUnavailableReason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              <Button Content="Open in Dataverse" Command="{Binding OpenMapLinkCommand}"
+                      ToolTip.Tip="Open this dual-write map's record in the model-driven app" />
+              <Button Content="Copy link" Command="{Binding CopyMapLinkCommand}"
+                      ToolTip.Tip="Copy the map's Dataverse record URL" />
               <Button Content="Export Markdown" Command="{Binding ExportMarkdownCommand}" />
             </StackPanel>
           </Grid>

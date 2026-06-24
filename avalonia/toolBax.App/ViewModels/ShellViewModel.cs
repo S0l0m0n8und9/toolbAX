@@ -39,6 +39,7 @@ public partial class ShellViewModel : ObservableObject
     private readonly IDualWriteCompareService _compareService;
     private readonly IConnectionTester _connectionTester;
     private readonly IDialogService _dialogs;
+    private readonly IUrlLauncher _launcher;
     private object? _operationsContent;
     private object? _profilesContent;
     private object? _metadataContent;
@@ -82,7 +83,8 @@ public partial class ShellViewModel : ObservableObject
         IDualWriteGatewayTester? gatewayTester = null,
         IDualWriteCompareService? compareService = null,
         IConnectionTester? connectionTester = null,
-        IDialogService? dialogs = null)
+        IDialogService? dialogs = null,
+        IUrlLauncher? launcher = null)
     {
         _operationsContentFactory = operationsContentFactory ?? DefaultOperationsContent;
         _profileStore = profileStore ?? new FakeProfileStore();
@@ -101,6 +103,7 @@ public partial class ShellViewModel : ObservableObject
         _connectionTester = connectionTester ?? new FakeConnectionTester();
         // Real Fluent confirm dialog for mutating actions (POST Builder send); tests pass a stub.
         _dialogs = dialogs ?? new DialogService();
+        _launcher = launcher ?? new FakeUrlLauncher();
 
         Tools = new[]
         {
@@ -159,7 +162,7 @@ public partial class ShellViewModel : ObservableObject
         "metadata" => _metadataContent ??= new MetadataViewModel(_metadataService),
         "post" => _postContent ??= new PostBuilderViewModel(_odataClient, _clipboard, _metadataService, _dialogs),
         "query" => _queryContent ??= new QueryBuilderViewModel(_metadataService, _odataClient, _clipboard, _fileSave),
-        "mapbrowser" => _mapBrowserContent ??= new DualWriteMapViewModel(_mapReader, _fileSave, _odataClient, _metadataService),
+        "mapbrowser" => _mapBrowserContent ??= new DualWriteMapViewModel(_mapReader, _fileSave, _odataClient, _metadataService, () => ActiveEnvironment, _clipboard, _launcher),
         "compare" => _compareContent ??= new DualWriteCompareViewModel(_profileStore, _compareService),
         _ => new PlaceholderScreenViewModel(tool.Title),
     };

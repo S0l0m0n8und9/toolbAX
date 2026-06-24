@@ -85,7 +85,8 @@ public partial class App : Application
                 fileSave: new StorageFileSaveService(window),
                 gatewayTester: gatewayTester,
                 compareService: compareService,
-                connectionTester: connectionTester);
+                connectionTester: connectionTester,
+                launcher: new WindowUrlLauncher(window));
             window.DataContext = shell;
             desktop.MainWindow = window;
         }

@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using FoToolbox.Core.DualWrite;
 using ToolBax.App.Services;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
@@ -26,6 +27,9 @@ public partial class DualWriteMapViewModel : ObservableObject
     private readonly IFileSaveService _fileSave;
     private readonly IODataClient _odata;
     private readonly IMetadataService _metadata;
+    private readonly Func<EnvProfile?> _activeEnv;
+    private readonly IClipboardService _clipboard;
+    private readonly IUrlLauncher _launcher;
     private IReadOnlyList<string> _foEntityNames = Array.Empty<string>();
     private bool _loaded;
     private bool _suppressReload;          // guards the initial selection setup from triggering reloads
@@ -57,7 +61,12 @@ public partial class DualWriteMapViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelection))]
     [NotifyPropertyChangedFor(nameof(ShowSelectPrompt))]
+    [NotifyPropertyChangedFor(nameof(MapRecordUrl))]
+    [NotifyPropertyChangedFor(nameof(HasMapLink))]
+    [NotifyPropertyChangedFor(nameof(MapLinkUnavailableReason))]
     [NotifyCanExecuteChangedFor(nameof(ExportMarkdownCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenMapLinkCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CopyMapLinkCommand))]
     private DwMapRecord? _detailMap;
 
     /// <summary>Outcome of the last Markdown export (empty until one is attempted).</summary>
@@ -83,12 +92,16 @@ public partial class DualWriteMapViewModel : ObservableObject
     private string _loadError = string.Empty;
 
     public DualWriteMapViewModel(IDualWriteMapReader reader, IFileSaveService? fileSave = null,
-        IODataClient? odata = null, IMetadataService? metadata = null)
+        IODataClient? odata = null, IMetadataService? metadata = null,
+        Func<EnvProfile?>? activeEnv = null, IClipboardService? clipboard = null, IUrlLauncher? launcher = null)
     {
         _reader = reader;
         _fileSave = fileSave ?? new FakeFileSaveService();
         _odata = odata ?? new FakeODataClient();
         _metadata = metadata ?? new FakeMetadataService();
+        _activeEnv = activeEnv ?? (() => null);
+        _clipboard = clipboard ?? new FakeClipboardService();
+        _launcher = launcher ?? new FakeUrlLauncher();
     }
 
     public IEnumerable<DwMapRecord> Filtered =>
@@ -167,6 +180,39 @@ public partial class DualWriteMapViewModel : ObservableObject
         var fileName = DualWriteMapMarkdownExporter.SuggestedFileName(map);
         var path = await _fileSave.SaveTextAsync(fileName, markdown, ct);
         ExportStatus = path is null ? "Export cancelled." : $"Exported to {path}";
+    }
+
+    /// <summary>
+    /// Deterministic deep link to the inspected map's <c>msdyn_dualwriteentitymap</c> record in the
+    /// model-driven app, or null when it can't be built (no Dataverse URL on the active environment, or
+    /// no/invalid map id).
+    /// </summary>
+    public string? MapRecordUrl =>
+        DualWriteMapLink.BuildMapRecordUrl(_activeEnv()?.DataverseUrl, DetailMap?.Id);
+
+    /// <summary>True when the inspected map has an openable/copyable Dataverse record link.</summary>
+    public bool HasMapLink => MapRecordUrl is not null;
+
+    /// <summary>When a map is selected but no link can be built, explains which input is missing.</summary>
+    public string MapLinkUnavailableReason =>
+        DetailMap is null || HasMapLink
+            ? string.Empty
+            : string.IsNullOrWhiteSpace(_activeEnv()?.DataverseUrl)
+                ? "No Dataverse URL is configured for this environment."
+                : "This map has no Dataverse record id.";
+
+    // Opens the inspected map's Dataverse record in the browser — the native dual-write map config page.
+    [RelayCommand(CanExecute = nameof(HasMapLink))]
+    private async Task OpenMapLink() => await _launcher.OpenAsync(MapRecordUrl);
+
+    // Copies the record link so it's visible/shareable for troubleshooting.
+    [RelayCommand(CanExecute = nameof(HasMapLink))]
+    private async Task CopyMapLink()
+    {
+        if (MapRecordUrl is { } url)
+        {
+            await _clipboard.SetTextAsync(url);
+        }
     }
 
     private async Task LoadSolutionsAsync(CancellationToken ct)
