@@ -291,7 +291,13 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         try
         {
             // Resolve the F&O OData set that exposes IsDebugMode from the environment's live metadata.
-            await _metadata.LoadEntitiesAsync(ct).ConfigureAwait(true);
+            // Only fetch $metadata if it isn't cached yet — the set name is stable within a session, and
+            // a re-fetch of that large XML document would add a needless round-trip before the toggle.
+            if (_metadata.GetEntities().Count == 0)
+            {
+                await _metadata.LoadEntitiesAsync(ct).ConfigureAwait(true);
+            }
+
             var set = _metadata.GetEntities()
                 .Select(e => e.Name)
                 .FirstOrDefault(n => n.Contains(DualWriteDebugMode.EntityLogicalName, StringComparison.OrdinalIgnoreCase));
@@ -310,7 +316,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             var failures = new List<string>();
             foreach (var pid in projectIds)
             {
-                var getPath = $"data/{set}?$filter=ProjectId eq '{Uri.EscapeDataString(pid)}'";
+                // OData string-literal escaping doubles single quotes (not %27); GUID ids are URL-safe.
+                var getPath = $"data/{set}?$filter=ProjectId eq '{pid.Replace("'", "''")}'";
                 var get = await _odata.SendAsync("GET", getPath, null, getHeaders, ct).ConfigureAwait(true);
                 if (!get.IsSuccess)
                 {
