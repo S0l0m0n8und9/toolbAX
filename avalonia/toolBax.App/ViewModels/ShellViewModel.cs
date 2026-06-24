@@ -153,8 +153,7 @@ public partial class ShellViewModel : ObservableObject
 
     private object ResolveContent(NavTool tool) => tool.Id switch
     {
-        // TODO: design-mode FakePluginCatalog — swap for the live IPluginCatalog once available.
-        "home" => _homeContent ??= new PluginsHomeViewModel(new FakePluginCatalog(), ActiveEnvironment?.Name, OpenToolById),
+        "home" => _homeContent ??= new PluginsHomeViewModel(new BuiltInToolCatalog(), ActiveEnvironment?.Name, OpenToolById),
         "ops" => _operationsContent ??= _operationsContentFactory(),
         "profiles" => _profilesContent ??= CreateProfilesContent(),
         "metadata" => _metadataContent ??= new MetadataViewModel(_metadataService),

@@ -69,22 +69,27 @@ public sealed class DualWriteSignInCapture
             return false;
         }
 
-        if (url.IndexOf(DualWriteAuthConstants.GatewayHostMarker, StringComparison.OrdinalIgnoreCase) < 0)
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
         {
             return false;
         }
 
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+        // Anchor the match so the delegated token can only be pinned to an https host whose HOST LABEL
+        // carries the gateway marker — not any URL that merely contains the marker in its path/query
+        // (e.g. https://attacker.example/projectmanagementservice/DualWriteManagement). Require https so
+        // the bearer is never pinned to a cleartext host.
+        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+            uri.Host.IndexOf(DualWriteAuthConstants.GatewayHostMarker, StringComparison.OrdinalIgnoreCase) < 0)
         {
             return false;
         }
 
         var host = $"{uri.Scheme}://{uri.Host}";
 
-        // Only the host serving the DualWriteManagement API is the environment's real regional
-        // gateway. The first bare projectmanagementservice host may be a global/routing endpoint
-        // that returns an empty environment list, so keep it only as a fallback.
-        if (url.IndexOf(DualWriteAuthConstants.GatewayApiMarker, StringComparison.OrdinalIgnoreCase) >= 0)
+        // Only the host serving the DualWriteManagement API (marker in the request PATH) is the
+        // environment's real regional gateway. The first bare projectmanagementservice host may be a
+        // global/routing endpoint that returns an empty environment list, so keep it only as a fallback.
+        if (uri.AbsolutePath.IndexOf(DualWriteAuthConstants.GatewayApiMarker, StringComparison.OrdinalIgnoreCase) >= 0)
         {
             GatewayBaseUrl = host;
             return true;
