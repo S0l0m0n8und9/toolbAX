@@ -45,7 +45,15 @@ jobs:
           if-no-files-found: ignore
 
       - name: Vulnerable packages
-        run: dotnet list .\FoToolbox.sln package --vulnerable --include-transitive
+        shell: pwsh
+        run: |
+          # `dotnet list package --vulnerable` exits 0 even when it finds advisories, so parse the
+          # output and fail the build when any project reports a vulnerable package.
+          $out = dotnet list .\FoToolbox.sln package --vulnerable --include-transitive 2>&1 | Out-String
+          Write-Host $out
+          if ($out -match 'has the following vulnerable packages') {
+            throw "Vulnerable NuGet packages detected (see the list above)."
+          }
 
   ui-tests:
     runs-on: windows-latest
@@ -143,6 +151,18 @@ jobs:
 
       - name: Build
         run: dotnet build ./avalonia/toolBax.slnx -c Release --no-restore
+
+      # The shipped artifact is the Avalonia app, so its dependency graph is the one that matters most.
+      # `dotnet list package --vulnerable` exits 0 even on a hit, so parse and fail explicitly.
+      - name: Vulnerable packages (shipping graph)
+        shell: bash
+        run: |
+          out=$(dotnet list ./avalonia/toolBax.slnx package --vulnerable --include-transitive 2>&1)
+          echo "$out"
+          if echo "$out" | grep -q 'has the following vulnerable packages'; then
+            echo "::error::Vulnerable NuGet packages detected in the shipping graph (see the list above)."
+            exit 1
+          fi
 
       - name: Run Avalonia headless tests (no display server)
         run: dotnet test ./avalonia/toolBax.App.Tests/toolBax.App.Tests.csproj -c Release --no-build --blame-hang --blame-hang-timeout 90s --blame-hang-dump-type mini --results-directory ${{ github.workspace }}/AvaloniaTestResults

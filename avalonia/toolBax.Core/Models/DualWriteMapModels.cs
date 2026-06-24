@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 
 namespace ToolBax.Core.Models;
 
@@ -47,9 +48,9 @@ public sealed record DwMapRecord(
 
     public bool HasState => !string.IsNullOrWhiteSpace(State);
 
-    public string ModifiedOnLabel => ModifiedOn?.ToString("yyyy-MM-dd HH:mm 'UTC'") ?? string.Empty;
+    public string ModifiedOnLabel => ModifiedOn?.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? string.Empty;
 
-    public string CreatedOnLabel => CreatedOn?.ToString("yyyy-MM-dd HH:mm 'UTC'") ?? string.Empty;
+    public string CreatedOnLabel => CreatedOn?.ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture) ?? string.Empty;
 }
 
 /// <summary>A top-level scalar property of <c>msdyn_mapping</c> (Summary tab), e.g. <c>legs.count</c>.</summary>

@@ -62,6 +62,20 @@ public class AuthenticatedHttpHandlerTests
     }
 
     [Fact]
+    public async Task Does_not_add_the_token_for_a_request_to_a_foreign_origin()
+    {
+        var inner = new CapturingHandler();
+        var handler = new AuthenticatedHttpHandler(new FakeAuthService(_ => "tok"), () => Env());
+        var http = Client(handler, inner);
+
+        // A server-supplied @odata.nextLink to another host (followed by CatalogService) must not carry
+        // the env-scoped bearer off-origin.
+        await http.GetAsync("https://evil.example.com/data/$metadata", TestContext.Current.CancellationToken);
+
+        Assert.Null(inner.LastRequest!.Headers.Authorization);
+    }
+
+    [Fact]
     public async Task Does_not_overwrite_an_existing_authorization_header()
     {
         var inner = new CapturingHandler();

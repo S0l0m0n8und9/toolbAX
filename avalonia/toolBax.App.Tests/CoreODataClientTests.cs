@@ -136,6 +136,19 @@ public class CoreODataClientTests
     }
 
     [Fact]
+    public async Task A_same_host_paging_link_downgraded_to_http_is_refused()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK, "{}");
+        var client = new CoreODataClient(new FakeAuthService(), () => Env(), new HttpClient(handler));
+
+        // Same host but plaintext http (env is https): the bearer must not be sent over cleartext.
+        var result = await client.SendAsync("GET", "http://contoso.operations.dynamics.com/data/X", null, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Null(handler.LastRequest);
+    }
+
+    [Fact]
     public async Task No_active_environment_returns_a_clear_non_success_response()
     {
         var client = new CoreODataClient(new FakeAuthService(), () => null, new HttpClient(new StubHandler(HttpStatusCode.OK, "")));

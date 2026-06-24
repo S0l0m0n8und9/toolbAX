@@ -81,5 +81,17 @@ public sealed class EntityCatalogLoader
             LastError = ex.Message;
             return false;
         }
+        finally
+        {
+            // Each call disposes the linked CTS it created (a superseded one is disposed when its own
+            // awaited fetch unwinds), so no CancellationTokenSource registration is leaked per selection.
+            // Clear the field only if it still points at us, so a newer in-flight fetch isn't disturbed.
+            if (ReferenceEquals(_fieldFetch, cts))
+            {
+                _fieldFetch = null;
+            }
+
+            cts.Dispose();
+        }
     }
 }

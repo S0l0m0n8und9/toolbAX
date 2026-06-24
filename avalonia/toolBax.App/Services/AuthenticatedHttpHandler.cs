@@ -3,6 +3,7 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
+using FoToolbox.Core.Net;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 
@@ -12,7 +13,9 @@ namespace ToolBax.App.Services;
 /// A <see cref="DelegatingHandler"/> that stamps an F&amp;O bearer token (for whichever environment is
 /// active at request time) onto outgoing requests. Lets FoToolbox.Core's <c>CatalogService</c> — which
 /// takes a plain <see cref="HttpClient"/> — reuse the same <see cref="IAuthService"/> auth as the rest
-/// of the app. A request that already carries an Authorization header is left untouched.
+/// of the app. A request that already carries an Authorization header is left untouched, and the token
+/// is only attached when the request targets the active environment's origin — so a server-supplied
+/// cross-origin @odata.nextLink (followed by CatalogService) can never carry the bearer off-host.
 /// </summary>
 public sealed class AuthenticatedHttpHandler : DelegatingHandler
 {
@@ -28,7 +31,9 @@ public sealed class AuthenticatedHttpHandler : DelegatingHandler
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
     {
         var env = _activeEnv();
-        if (env is not null && request.Headers.Authorization is null)
+        if (env is not null
+            && request.Headers.Authorization is null
+            && RequestOriginGuard.IsSameOrigin(env.Url, request.RequestUri))
         {
             var token = await _auth.AcquireFoTokenAsync(env, ct).ConfigureAwait(false);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);

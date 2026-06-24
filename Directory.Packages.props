@@ -6,6 +6,9 @@
   <ItemGroup>
     <!-- Core -->
     <PackageVersion Include="Microsoft.Data.Sqlite" Version="10.0.8" />
+    <!-- The SQLite native bundle Microsoft.Data.Sqlite pulls in: 2.1.11 and earlier bundle a vulnerable
+         SQLite (GHSA-2m69-gcr7-jv3q, high). Pin the 3.x line, which bundles a patched SQLite. -->
+    <PackageVersion Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.3" />
     <PackageVersion Include="Microsoft.Identity.Client" Version="4.62.0" />
     <PackageVersion Include="System.Security.Cryptography.ProtectedData" Version="10.0.8" />
     <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.8" />
