@@ -92,7 +92,7 @@ public class ShellViewModelTests
     {
         var shell = new ShellViewModel();
         Assert.Equal("home", shell.CurrentTool.Id);
-        Assert.Equal(8, shell.Tools.Count);
+        Assert.Equal(9, shell.Tools.Count); // home, query, ops, mapbrowser, compare, metadata, virtualtables, post, profiles
     }
 
     [Fact]

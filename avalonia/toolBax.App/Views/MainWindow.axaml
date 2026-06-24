@@ -90,6 +90,9 @@
               <DataTemplate DataType="vm:MetadataViewModel">
                 <views:MetadataView />
               </DataTemplate>
+              <DataTemplate DataType="vm:VirtualTablesViewModel">
+                <views:VirtualTablesView />
+              </DataTemplate>
               <DataTemplate DataType="vm:PostBuilderViewModel">
                 <views:PostBuilderView />
               </DataTemplate>

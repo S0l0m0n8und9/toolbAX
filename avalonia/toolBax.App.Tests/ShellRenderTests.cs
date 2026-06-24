@@ -38,7 +38,7 @@ public class ShellRenderTests
             var navRail = window.GetVisualDescendants()
                 .OfType<ListBox>()
                 .First(lb => lb.Name == "NavRail");
-            Assert.Equal(8, navRail.ItemCount);
+            Assert.Equal(9, navRail.ItemCount); // + Virtual Tables (#23)
         }
         finally
         {

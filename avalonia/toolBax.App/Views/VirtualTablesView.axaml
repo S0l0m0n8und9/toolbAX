@@ -1,0 +1,65 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:ToolBax.App.ViewModels"
+             xmlns:models="using:ToolBax.Core.Models"
+             x:Class="ToolBax.App.Views.VirtualTablesView"
+             x:DataType="vm:VirtualTablesViewModel">
+
+  <DockPanel Margin="20">
+
+    <!-- Header -->
+    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,12">
+      <StackPanel Grid.Column="0" Spacing="3">
+        <TextBlock Text="Virtual tables (CE → F&amp;O)" FontSize="20" FontWeight="SemiBold"
+                   Foreground="{StaticResource Text0Brush}" />
+        <TextBlock FontSize="12" Foreground="{StaticResource Text2Brush}"
+                   Text="Finance &amp; Operations–backed virtual tables in this Dataverse environment. Read-only — generate and configure virtual tables in the maker portal." />
+      </StackPanel>
+      <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+        <Button Content="Open in Dataverse" Command="{Binding OpenInDataverseCommand}"
+                ToolTip.Tip="Open the selected virtual table's list view in the model-driven app" />
+        <Button Content="Refresh" Command="{Binding RefreshCommand}" />
+      </StackPanel>
+    </Grid>
+
+    <!-- Search + counts -->
+    <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,10">
+      <TextBox Grid.Column="0" Width="280" HorizontalAlignment="Left"
+               Text="{Binding Search, Mode=TwoWay}" PlaceholderText="Search virtual tables…" />
+      <TextBlock Grid.Column="1" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource Text3Brush}"
+                 IsVisible="{Binding HasOtherVirtual}"
+                 Text="{Binding OtherVirtualCount, StringFormat='{}+{0} non-F&amp;O virtual table(s) not shown'}" />
+    </Grid>
+
+    <!-- Error banner -->
+    <Border DockPanel.Dock="Top" Background="{StaticResource ErrBgBrush}" CornerRadius="6" Padding="12,8"
+            Margin="0,0,0,10" IsVisible="{Binding HasLoadError}">
+      <TextBlock Text="{Binding LoadError}" Foreground="{StaticResource ErrBrush}" TextWrapping="Wrap" FontSize="12.5" />
+    </Border>
+
+    <!-- Empty state -->
+    <TextBlock DockPanel.Dock="Top" IsVisible="{Binding ShowEmptyState}"
+               Text="No finance &amp; operations virtual tables found in this environment."
+               Foreground="{StaticResource Text3Brush}" FontSize="13" Margin="0,8,0,0" />
+
+    <!-- No search matches (tables loaded, but the filter hides them all) -->
+    <TextBlock DockPanel.Dock="Top" IsVisible="{Binding NoSearchMatches}"
+               Text="No tables match your search."
+               Foreground="{StaticResource Text3Brush}" FontSize="13" Margin="0,8,0,0" />
+
+    <!-- Table list -->
+    <DataGrid x:Name="TablesGrid" ItemsSource="{Binding Filtered}"
+              SelectedItem="{Binding SelectedTable, Mode=TwoWay}"
+              IsReadOnly="True" CanUserResizeColumns="True" GridLinesVisibility="Horizontal"
+              IsVisible="{Binding HasTables}">
+      <DataGrid.Columns>
+        <DataGridTextColumn Header="Display name" Binding="{Binding Title}" Width="2*" />
+        <DataGridTextColumn Header="Logical name" Binding="{Binding LogicalName}" Width="2*" />
+        <DataGridTextColumn Header="External (F&amp;O) name" Binding="{Binding ExternalNameLabel}" Width="2*" />
+        <DataGridTextColumn Header="Source" Binding="{Binding SourceLabel}" Width="1.4*" />
+        <DataGridTextColumn Header="State" Binding="{Binding ManagedLabel}" Width="*" />
+      </DataGrid.Columns>
+    </DataGrid>
+
+  </DockPanel>
+</UserControl>
