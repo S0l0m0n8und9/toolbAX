@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#241B57"/>
+      <stop offset="1" stop-color="#0E1230"/>
+    </linearGradient>
+    <linearGradient id="aGrad" x1="64" y1="208" x2="192" y2="48" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#5B6BFF"/>
+      <stop offset="1" stop-color="#7C8BFF"/>
+    </linearGradient>
+    <linearGradient id="xGrad" x1="176" y1="48" x2="120" y2="206" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#22D3EE"/>
+      <stop offset="1" stop-color="#3DA9FF"/>
+    </linearGradient>
+    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.16"/>
+      <stop offset="0.5" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+
+  <rect x="0" y="0" width="256" height="256" rx="56" fill="url(#tile)"/>
+  <rect x="0" y="0" width="256" height="256" rx="56" fill="url(#sheen)"/>
+
+  <!-- A: chevron with apex at top center -->
+  <polygon points="62,206 96,206 145,48 111,48" fill="url(#aGrad)"/>
+  <polygon points="160,206 194,206 145,48 111,48" fill="url(#aGrad)"/>
+  <rect x="92" y="138" width="72" height="28" fill="url(#aGrad)"/>
+
+  <!-- X: bold counter-diagonal slashing through the A's right leg -->
+  <polygon points="120,48 152,48 214,206 182,206" fill="url(#xGrad)"/>
+
+  <!-- kerf: blade-glint notch at the crossing -->
+  <polygon points="164,106 186,138 168,168 146,136" fill="#0A0D24"/>
+</svg>

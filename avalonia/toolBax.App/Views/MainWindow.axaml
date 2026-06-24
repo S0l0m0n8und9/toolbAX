@@ -6,6 +6,7 @@
         x:Class="ToolBax.App.Views.MainWindow"
         x:DataType="vm:ShellViewModel"
         Title="toolBax"
+        Icon="/Assets/icon.png"
         Width="1280" Height="800"
         Background="{StaticResource AppBackgroundBrush}">
 

@@ -11,6 +11,8 @@
     <Nullable>enable</Nullable>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <RootNamespace>ToolBax.App</RootNamespace>
+    <!-- Windows Explorer / taskbar pinned-exe icon (the in-app window icon is Assets/icon.png). -->
+    <ApplicationIcon>Assets/toolbax.ico</ApplicationIcon>
     <!-- The dual-write portal sign-in embeds WebView2 (via Avalonia's NativeControlHost), which is
          Windows-only. Enable it on Windows builds so the capture adapter compiles + links; Linux/CI
          builds the cross-platform flavour (fake sign-in) so the app stays net10.0 and the headless tests
@@ -24,6 +26,11 @@
 
   <ItemGroup Condition="'$(EnableWebView2)' == 'true'">
     <PackageReference Include="Microsoft.Web.WebView2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- App icon: icon.png is the runtime WindowIcon (avares:///Assets/icon.png); toolbax.ico is the exe icon. -->
+    <AvaloniaResource Include="Assets/**" />
   </ItemGroup>
 
   <ItemGroup>
