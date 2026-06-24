@@ -18,9 +18,10 @@ public class ODataClientTests
     {
         var handler = new SequenceHandler(new[]
         {
+            // The nextLink stays on the same origin as the initial request (as a real server returns).
             new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent("{\"@odata.context\":\"ctx\",\"@odata.count\":2,\"value\":[{\"Id\":1}],\"@odata.nextLink\":\"https://next\"}", Encoding.UTF8, "application/json")
+                Content = new StringContent("{\"@odata.context\":\"ctx\",\"@odata.count\":2,\"value\":[{\"Id\":1}],\"@odata.nextLink\":\"https://host/data/Entity?$skiptoken=2\"}", Encoding.UTF8, "application/json")
             },
             new HttpResponseMessage(HttpStatusCode.OK)
             {
@@ -31,7 +32,7 @@ public class ODataClientTests
         var odata = new HttpODataClient(client);
 
         var pages = new List<ODataPage>();
-        await foreach (var page in odata.StreamAsync(new QueryRequest("https://first"), CancellationToken.None))
+        await foreach (var page in odata.StreamAsync(new QueryRequest("https://host/data/Entity"), CancellationToken.None))
         {
             pages.Add(page);
         }
@@ -43,6 +44,49 @@ public class ODataClientTests
         Assert.Equal("ctx", pages[0].ODataContext);
         Assert.NotNull(pages[0].ResponseHeaders);
         Assert.True(pages[0].ResponseHeaders!.ContainsKey("Content-Type"));
+    }
+
+    [Fact]
+    public async Task Refuses_To_Follow_A_NextLink_On_A_Different_Origin()
+    {
+        var handler = new SequenceHandler(new[]
+        {
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"value\":[{\"Id\":1}],\"@odata.nextLink\":\"https://evil.example.com/steal\"}", Encoding.UTF8, "application/json")
+            }
+        });
+        var odata = new HttpODataClient(new HttpClient(handler));
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await foreach (var _ in odata.StreamAsync(new QueryRequest("https://host/data/Entity"), CancellationToken.None))
+            {
+            }
+        });
+    }
+
+    [Fact]
+    public async Task Refuses_A_Cross_Origin_NextLink_When_The_Initial_Url_Is_Relative()
+    {
+        // A relative request URL + HttpClient.BaseAddress: the origin must come from BaseAddress so the
+        // guard isn't silently bypassed (the request URL alone isn't absolute).
+        var handler = new SequenceHandler(new[]
+        {
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"value\":[{\"Id\":1}],\"@odata.nextLink\":\"https://evil.example.com/steal\"}", Encoding.UTF8, "application/json")
+            }
+        });
+        var client = new HttpClient(handler) { BaseAddress = new Uri("https://host") };
+        var odata = new HttpODataClient(client);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await foreach (var _ in odata.StreamAsync(new QueryRequest("data/Entity"), CancellationToken.None))
+            {
+            }
+        });
     }
 
     [Trait("Category", "Auth")]

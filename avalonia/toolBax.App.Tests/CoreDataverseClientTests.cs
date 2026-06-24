@@ -78,6 +78,19 @@ public class CoreDataverseClientTests
     }
 
     [Fact]
+    public async Task A_nextLink_on_a_foreign_host_is_refused()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK, "{}");
+        var client = new CoreDataverseClient(new FakeAuthService(dataverseToken: _ => "dv-tok"), () => Env(), new HttpClient(handler));
+
+        // A Dataverse nextLink pointing at a different origin must not receive the env-scoped bearer.
+        var result = await client.GetAsync("https://evil.example.com/api/data/v9.2/x", TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Null(handler.LastRequest); // no request was sent, so the token never left
+    }
+
+    [Fact]
     public async Task No_active_environment_returns_a_clear_non_success_response()
     {
         var client = new CoreDataverseClient(new FakeAuthService(), () => null, new HttpClient(new StubHandler(HttpStatusCode.OK, "")));

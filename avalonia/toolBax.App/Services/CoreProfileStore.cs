@@ -131,6 +131,23 @@ public sealed class CoreProfileStore : IProfileStore
         // env id can't inherit a stale SecretRef/CertThumbprint.
         foreach (var sp in RunBlocking(() => _profiles.GetServicePrincipalsAsync(id, CancellationToken.None)))
         {
+            // Delete the DPAPI-encrypted secret blob first — SecretVault has no FK cascade to
+            // ServicePrincipals, so dropping only the SP row would orphan the credential on disk forever.
+            // A vault I/O failure must not strand the profile, so log it and still remove the SP row
+            // (the blob is at most a leftover a future vault scrub can collect).
+            if (!string.IsNullOrEmpty(sp.SecretRef))
+            {
+                try
+                {
+                    RunBlocking(() => _profiles.DeleteSecretAsync(sp.SecretRef, CancellationToken.None));
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Trace.TraceWarning(
+                        $"Failed to delete secret blob '{sp.SecretRef}' while deleting profile '{id}'; removing the service principal anyway. {ex}");
+                }
+            }
+
             RunBlocking(() => _profiles.DeleteServicePrincipalAsync(sp.Id));
         }
 

@@ -65,6 +65,15 @@ jobs:
           Get-ChildItem publish -Recurse -File | Where-Object { $_.Extension -in '.pdb', '.xml' } | Remove-Item -Force
           Compress-Archive -Path publish/* -DestinationPath toolbAX-win-x64.zip -Force
 
+      - name: Compute SHA-256 checksum
+        shell: pwsh
+        run: |
+          # The release is unsigned, so a published checksum is the only way a user can verify the
+          # download wasn't tampered with or corrupted in transit.
+          $hash = (Get-FileHash toolbAX-win-x64.zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  toolbAX-win-x64.zip" | Out-File -Encoding ascii toolbAX-win-x64.zip.sha256
+          Write-Host "SHA-256: $hash"
+
       - name: Compose release notes
         shell: pwsh
         run: |
@@ -77,14 +86,18 @@ jobs:
 
           > ⚠️ **Unsigned.** Windows SmartScreen will show "Windows protected your PC" — click **More info** → **Run anyway**. A signed release path is on the roadmap.
 
+          **Verify your download** (recommended while the release is unsigned): the `toolbAX-win-x64.zip.sha256` asset holds the expected SHA-256. Compare it with `Get-FileHash toolbAX-win-x64.zip -Algorithm SHA256`.
+
           See the auto-generated change log below for what's new.
           '@ | Out-File -Encoding utf8 release-notes.md
 
       - name: Publish release with portable zip
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
           tag_name: ${{ github.event.inputs.tag || github.ref_name }}
-          files: toolbAX-win-x64.zip
+          files: |
+            toolbAX-win-x64.zip
+            toolbAX-win-x64.zip.sha256
           generate_release_notes: true
           body_path: release-notes.md
           prerelease: ${{ startsWith(github.event.inputs.tag || github.ref_name, 'v0.') || contains(github.event.inputs.tag || github.ref_name, '-') }}

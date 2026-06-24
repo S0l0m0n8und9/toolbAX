@@ -280,6 +280,15 @@ public partial class ShellViewModel : ObservableObject
     // Home (just a subtitle) and Profiles (owns the switcher + its event subscriptions) are preserved.
     private void InvalidateToolContent()
     {
+        // Dispose any discarded tool VM that owns unmanaged/IDisposable state (e.g. the Operations VM's
+        // live gateway HttpClient) before dropping it — GC alone won't close those sockets promptly.
+        (_operationsContent as IDisposable)?.Dispose();
+        (_metadataContent as IDisposable)?.Dispose();
+        (_postContent as IDisposable)?.Dispose();
+        (_queryContent as IDisposable)?.Dispose();
+        (_mapBrowserContent as IDisposable)?.Dispose();
+        (_compareContent as IDisposable)?.Dispose();
+
         _operationsContent = null;
         _metadataContent = null;
         _postContent = null;

@@ -143,7 +143,9 @@ public sealed class ODataMetadataProvider
             {
                 var propName = prop.Attribute("Name")?.Value;
                 var type = prop.Attribute("Type")?.Value ?? "Edm.String";
-                var nullable = prop.Attribute("Nullable")?.Value != "false";
+                // Case-insensitive to match the streaming ODataMetadataIndexParser and tolerate
+                // non-conformant metadata that emits Nullable="False"/"FALSE".
+                var nullable = !string.Equals(prop.Attribute("Nullable")?.Value, "false", StringComparison.OrdinalIgnoreCase);
                 var maxLength = TrimOrNull(prop.Attribute("MaxLength")?.Value)
                     ?? TryReadAnnotationValue(prop, edm, termAliases, ValidationMaxLengthTerm, "MaxLength")
                     ?? TryReadAnnotationValue(prop, edm, termAliases, CoreMaxLengthTerm, "MaxLength");

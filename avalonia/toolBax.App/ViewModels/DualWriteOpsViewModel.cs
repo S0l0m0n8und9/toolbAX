@@ -24,7 +24,7 @@ public sealed record OpsAction(string Label, DualWriteActionType Type, bool Dang
 /// <c>GetStatusAsync</c> until terminal → refresh. Actions are gateway-validated (no client-side state
 /// eligibility); the screen gates only on a connection + a selection.
 /// </summary>
-public partial class DualWriteOpsViewModel : ObservableObject
+public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 {
     private readonly IDualWriteConnector _connector;
     private readonly Func<EnvProfile?> _activeEnv;
@@ -273,4 +273,8 @@ public partial class DualWriteOpsViewModel : ObservableObject
 
         _session = null;
     }
+
+    // The shell discards this VM (without finalization) when the active environment changes; dispose the
+    // live gateway session so its owned HttpClient / connection pool isn't leaked for the app's lifetime.
+    public void Dispose() => DisposeSession();
 }

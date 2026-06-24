@@ -5,6 +5,7 @@ using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 using FoToolbox.Core.Auth;
+using FoToolbox.Core.Net;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 
@@ -50,6 +51,18 @@ public sealed class CoreDataverseClient : IDataverseClient, IDisposable
                 "Configure a Dataverse URL on the CE/Dataverse tab for this environment.", (int)sw.ElapsedMilliseconds);
         }
 
+        var uri = BuildUri(env.DataverseUrl, pathOrUrl);
+
+        // A server-driven @odata.nextLink is used verbatim, but only if it stays on the Dataverse
+        // environment's origin (scheme + host + port) — otherwise the env-scoped Dataverse bearer would
+        // be sent to a foreign origin. Refuse before acquiring a token.
+        if (pathOrUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            && !RequestOriginGuard.IsSameOrigin(env.DataverseUrl, uri))
+        {
+            return new ODataResponse(0, "Refused",
+                "The paging link points to a different origin than the Dataverse environment.", (int)sw.ElapsedMilliseconds);
+        }
+
         string token;
         try
         {
@@ -62,7 +75,7 @@ public sealed class CoreDataverseClient : IDataverseClient, IDisposable
 
         try
         {
-            using var request = new HttpRequestMessage(HttpMethod.Get, BuildUri(env.DataverseUrl, pathOrUrl));
+            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             // Ask Dataverse to inline formatted (display) values for option-set / lookup columns

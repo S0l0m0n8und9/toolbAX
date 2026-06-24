@@ -13,6 +13,9 @@
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Data.Sqlite" />
+    <!-- Force the patched 3.x SQLite native bundle over the vulnerable 2.1.11 (GHSA-2m69-gcr7-jv3q)
+         that Microsoft.Data.Sqlite would otherwise pull in transitively. -->
+    <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" />
     <PackageReference Include="Microsoft.Identity.Client" />
     <PackageReference Include="System.Security.Cryptography.ProtectedData" />
   </ItemGroup>
