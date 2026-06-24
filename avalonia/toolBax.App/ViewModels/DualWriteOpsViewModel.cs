@@ -31,6 +31,10 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     private readonly IDialogService _dialogs;
     private readonly TimeSpan _pollInterval;
     private readonly TimeSpan _actionTimeout;
+    // Debug mode is a finance-and-operations OData write (DualWriteProjectConfiguration.IsDebugMode),
+    // separate from the gateway lifecycle actions — hence the F&O OData client + $metadata resolver.
+    private readonly IODataClient _odata;
+    private readonly IMetadataService _metadata;
     private DualWriteSession? _session;
 
     public ObservableCollection<MapRowViewModel> Maps { get; } = new();
@@ -57,11 +61,15 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(LoadCommand))]
     [NotifyCanExecuteChangedFor(nameof(RunActionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(EnableDebugForSelectedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DisableDebugForSelectedCommand))]
     private bool _isBusy;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsConnected))]
     [NotifyCanExecuteChangedFor(nameof(RunActionCommand))]
+    [NotifyCanExecuteChangedFor(nameof(EnableDebugForSelectedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DisableDebugForSelectedCommand))]
     private string? _connectionName;
 
     [ObservableProperty]
@@ -69,6 +77,10 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     private string? _loadError;
+
+    /// <summary>Outcome of the last debug-mode toggle (empty until one is attempted).</summary>
+    [ObservableProperty]
+    private string _debugStatus = string.Empty;
 
     public bool IsConnected => ConnectionName is not null;
 
@@ -81,7 +93,9 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         Func<EnvProfile?> activeEnv,
         IDialogService dialogs,
         TimeSpan? pollInterval = null,
-        TimeSpan? actionTimeout = null)
+        TimeSpan? actionTimeout = null,
+        IODataClient? odata = null,
+        IMetadataService? metadata = null)
     {
         _connector = connector;
         _activeEnv = activeEnv;
@@ -89,6 +103,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         _pollInterval = pollInterval ?? TimeSpan.FromMilliseconds(600);
         // Safety net: never poll a stuck request forever (a hung gateway worker would otherwise lock the UI).
         _actionTimeout = actionTimeout ?? TimeSpan.FromSeconds(120);
+        _odata = odata ?? new FakeODataClient();
+        _metadata = metadata ?? new FakeMetadataService();
         Maps.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasMaps));
     }
 
@@ -222,6 +238,125 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         }
     }
 
+    private bool CanToggleDebug() => !IsBusy && _session is not null && SelectedCount > 0;
+
+    // Enable dual-write debug mode for the selected map(s); scoped to the selection, never all maps.
+    [RelayCommand(CanExecute = nameof(CanToggleDebug))]
+    private Task EnableDebugForSelected(CancellationToken ct) => SetDebugForSelectedAsync(true, ct);
+
+    // Disable dual-write debug mode for the selected map(s).
+    [RelayCommand(CanExecute = nameof(CanToggleDebug))]
+    private Task DisableDebugForSelected(CancellationToken ct) => SetDebugForSelectedAsync(false, ct);
+
+    // Toggles IsDebugMode on the F&O DualWriteProjectConfiguration entity for each selected map's
+    // project. Debug mode is an F&O-side, project-level flag (verbose dual-write logging to the
+    // DualWriteErrorLog table) — so this targets F&O OData, not the gateway. The OData set name is
+    // resolved from live $metadata (it varies per environment); every step degrades to a clear,
+    // non-sensitive message rather than throwing, and no token is ever surfaced.
+    private async Task SetDebugForSelectedAsync(bool enabled, CancellationToken ct)
+    {
+        if (_session is null)
+        {
+            DebugStatus = "Connect to the gateway first.";
+            return;
+        }
+
+        var targets = Maps.Where(m => m.IsSelected).Select(m => m.Map).ToList();
+        if (targets.Count == 0)
+        {
+            DebugStatus = "Select a map first.";
+            return;
+        }
+
+        var env = _activeEnv();
+        if (env is null || string.IsNullOrWhiteSpace(env.Url))
+        {
+            DebugStatus = "No finance & operations URL is configured for this environment.";
+            return;
+        }
+
+        var projectIds = targets
+            .Select(m => m.ProjectId)
+            .Where(p => !string.IsNullOrWhiteSpace(p))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        if (projectIds.Count == 0)
+        {
+            DebugStatus = "The selected map(s) have no project id, so debug mode can't be targeted.";
+            return;
+        }
+
+        IsBusy = true;
+        DebugStatus = enabled ? "Enabling debug mode…" : "Disabling debug mode…";
+        try
+        {
+            // Resolve the F&O OData set that exposes IsDebugMode from the environment's live metadata.
+            await _metadata.LoadEntitiesAsync(ct).ConfigureAwait(true);
+            var set = _metadata.GetEntities()
+                .Select(e => e.Name)
+                .FirstOrDefault(n => n.Contains(DualWriteDebugMode.EntityLogicalName, StringComparison.OrdinalIgnoreCase));
+            if (set is null)
+            {
+                DebugStatus = $"This environment's OData metadata exposes no '{DualWriteDebugMode.EntityLogicalName}' entity, so debug mode can't be toggled from here.";
+                return;
+            }
+
+            var body = DualWriteDebugMode.BuildPatchBody(enabled);
+            // Full metadata so each record carries an @odata.id we can PATCH directly.
+            var getHeaders = new Dictionary<string, string> { ["Accept"] = "application/json;odata.metadata=full" };
+            var patchHeaders = new Dictionary<string, string> { ["If-Match"] = "*" };
+
+            var ok = 0;
+            var failures = new List<string>();
+            foreach (var pid in projectIds)
+            {
+                var getPath = $"data/{set}?$filter=ProjectId eq '{Uri.EscapeDataString(pid)}'";
+                var get = await _odata.SendAsync("GET", getPath, null, getHeaders, ct).ConfigureAwait(true);
+                if (!get.IsSuccess)
+                {
+                    failures.Add($"{pid}: query failed ({get.StatusLine})");
+                    continue;
+                }
+
+                var record = DualWriteDebugMode.ReadFirstRecord(get.Body);
+                if (record is null)
+                {
+                    failures.Add($"{pid}: no project-config record found");
+                    continue;
+                }
+
+                var patch = await _odata.SendAsync("PATCH", record.ODataId, body, patchHeaders, ct).ConfigureAwait(true);
+                if (patch.IsSuccess)
+                {
+                    ok++;
+                }
+                else
+                {
+                    failures.Add($"{pid}: {patch.StatusLine}");
+                }
+            }
+
+            var verb = enabled ? "enabled" : "disabled";
+            DebugStatus = failures.Count == 0
+                ? $"Debug mode {verb} for {ok} project(s)."
+                : ok == 0
+                    ? $"Debug mode not {verb}: {string.Join("; ", failures)}"
+                    : $"Debug mode {verb} for {ok} project(s); {failures.Count} failed: {string.Join("; ", failures)}";
+        }
+        catch (OperationCanceledException)
+        {
+            DebugStatus = "Cancelled.";
+        }
+        catch (Exception ex)
+        {
+            DebugStatus = $"Debug-mode toggle failed: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
     // Rebuilds the rows, re-subscribing to selection changes and restoring prior selection by id.
     private void PopulateMaps(IReadOnlyList<DualWriteMap> maps, ISet<string>? keepSelectedIds)
     {
@@ -244,7 +379,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         }
 
         OnPropertyChanged(nameof(SelectedCount));
-        RunActionCommand.NotifyCanExecuteChanged();
+        NotifySelectionCommands();
     }
 
     private void OnRowChanged(object? sender, PropertyChangedEventArgs e)
@@ -252,8 +387,15 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         if (e.PropertyName == nameof(MapRowViewModel.IsSelected))
         {
             OnPropertyChanged(nameof(SelectedCount));
-            RunActionCommand.NotifyCanExecuteChanged();
+            NotifySelectionCommands();
         }
+    }
+
+    private void NotifySelectionCommands()
+    {
+        RunActionCommand.NotifyCanExecuteChanged();
+        EnableDebugForSelectedCommand.NotifyCanExecuteChanged();
+        DisableDebugForSelectedCommand.NotifyCanExecuteChanged();
     }
 
     private void ResetDisconnected(string status)

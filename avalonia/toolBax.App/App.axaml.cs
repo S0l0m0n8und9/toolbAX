@@ -71,7 +71,7 @@ public partial class App : Application
                 ? (IConnectionTester)new CoreConnectionTester(authService)
                 : new FakeConnectionTester();
             shell = new ShellViewModel(
-                operationsContentFactory: () => new DualWriteOpsViewModel(dwConnector, activeEnv, new DialogService()),
+                operationsContentFactory: () => new DualWriteOpsViewModel(dwConnector, activeEnv, new DialogService(), odata: odataClient, metadata: metadataService),
                 profileStore: profileStore,
                 secretStore: secretStore,
                 // Real loopback-MSAL interactive sign-in (system browser, no WebView2); cross-platform,

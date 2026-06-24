@@ -56,6 +56,15 @@
       <Button Content="Initial sync" Command="{Binding RunActionCommand}" CommandParameter="{Binding InitialAction}" />
       <TextBlock VerticalAlignment="Center" Margin="8,0,0,0" Foreground="{StaticResource Text2Brush}"
                  Text="{Binding SelectedCount, StringFormat='{}{0} selected'}" />
+      <Border Width="1" Background="{StaticResource StrokeBrush}" Margin="6,2,6,2" />
+      <Button Content="Enable debug" Command="{Binding EnableDebugForSelectedCommand}"
+              ToolTip.Tip="Turn on dual-write debug logging (IsDebugMode) for the selected map's F&amp;O project. Verbose failures are written to the DualWriteErrorLog table." />
+      <Button Content="Disable debug" Command="{Binding DisableDebugForSelectedCommand}"
+              ToolTip.Tip="Turn off dual-write debug logging for the selected map's F&amp;O project." />
+      <TextBlock VerticalAlignment="Center" Margin="6,0,0,0" Foreground="{StaticResource Text3Brush}"
+                 TextTrimming="CharacterEllipsis" MaxWidth="360"
+                 Text="{Binding DebugStatus}"
+                 IsVisible="{Binding DebugStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
     </StackPanel>
 
     <!-- Maps grid -->

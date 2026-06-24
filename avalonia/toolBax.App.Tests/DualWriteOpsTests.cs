@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using FoToolbox.Core.DualWrite;
 using ToolBax.App.Services;
@@ -190,5 +192,81 @@ public class DualWriteOpsTests
 
         Assert.Contains("completed", vm.Status, StringComparison.OrdinalIgnoreCase);
         Assert.False(vm.IsBusy);
+    }
+
+    // --- #53: debug-mode toggle ---
+
+    private sealed class ScriptedODataClient : IODataClient
+    {
+        private readonly string _getBody;
+        public List<(string Method, string Path, string? Body)> Calls { get; } = new();
+        public ScriptedODataClient(string getBody) => _getBody = getBody;
+
+        public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
+            => SendAsync(method, path, body, null, ct);
+
+        public Task<ODataResponse> SendAsync(string method, string path, string? body,
+            IReadOnlyDictionary<string, string>? headers, CancellationToken ct = default)
+        {
+            Calls.Add((method, path, body));
+            var resp = method == "GET"
+                ? new ODataResponse(200, "OK", _getBody, 1)
+                : new ODataResponse(204, "No Content", string.Empty, 1);
+            return Task.FromResult(resp);
+        }
+    }
+
+    private sealed class FixedMetadata : IMetadataService
+    {
+        private readonly IReadOnlyList<EntitySet> _entities;
+        public FixedMetadata(params string[] names) =>
+            _entities = names.Select(n => new EntitySet(n, "DualWrite", 5, "Id", false, string.Empty)).ToList();
+        public IReadOnlyList<EntitySet> GetEntities() => _entities;
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) => Task.FromResult(false);
+    }
+
+    private static DualWriteOpsViewModel MakeDebugVm(IODataClient odata, IMetadataService metadata) =>
+        new(new FakeDualWriteConnector(), Env, new FakeDialogs(false),
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5),
+            odata: odata, metadata: metadata);
+
+    [Fact]
+    public void Debug_toggle_is_disabled_until_connected_with_a_selection()
+    {
+        var vm = MakeDebugVm(new ScriptedODataClient("{}"), new FixedMetadata("DualWriteProjectConfigurations"));
+
+        Assert.False(vm.EnableDebugForSelectedCommand.CanExecute(null));
+        Assert.False(vm.DisableDebugForSelectedCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Enabling_debug_patches_IsDebugMode_on_the_selected_maps_project_config()
+    {
+        const string record = "{\"value\":[{\"@odata.id\":\"https://contoso.operations.dynamics.com/data/DualWriteProjectConfigurations(1)\",\"IsDebugMode\":\"No\"}]}";
+        var odata = new ScriptedODataClient(record);
+        var vm = MakeDebugVm(odata, new FixedMetadata("DualWriteProjectConfigurations"));
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+
+        await vm.EnableDebugForSelectedCommand.ExecuteAsync(null);
+
+        var patch = odata.Calls.Single(c => c.Method == "PATCH");
+        Assert.Equal("https://contoso.operations.dynamics.com/data/DualWriteProjectConfigurations(1)", patch.Path);
+        Assert.Equal(DualWriteDebugMode.BuildPatchBody(true), patch.Body);
+        Assert.Contains("enabled", vm.DebugStatus, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Debug_toggle_explains_when_the_config_entity_is_absent_from_metadata()
+    {
+        var vm = MakeDebugVm(new ScriptedODataClient("{}"), new FixedMetadata("SomeOtherEntity"));
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.First().IsSelected = true;
+
+        await vm.EnableDebugForSelectedCommand.ExecuteAsync(null);
+
+        Assert.Contains("DualWriteProjectConfiguration", vm.DebugStatus);
     }
 }
