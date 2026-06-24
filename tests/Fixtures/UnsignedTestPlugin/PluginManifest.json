@@ -1,7 +1,0 @@
-{
-  "id": "test.unsigned",
-  "name": "Unsigned Test Plugin",
-  "version": "0.1.0",
-  "minSdk": "0.2.0",
-  "capabilities": [ "OData.Read" ]
-}

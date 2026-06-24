@@ -1,8 +1,0 @@
-{
-  "id": "fo.dualwriteoperations",
-  "name": "Dual-write Operations",
-  "version": "0.1.0",
-  "minSdk": "0.3.0",
-  "icon": "DualWrite",
-  "capabilities": [ "DualWrite.Operate" ]
-}

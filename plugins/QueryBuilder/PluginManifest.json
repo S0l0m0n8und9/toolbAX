@@ -1,8 +1,0 @@
-{
-  "id": "fo.querybuilder",
-  "name": "Query Builder",
-  "version": "0.1.0",
-  "minSdk": "0.2.0",
-  "capabilities": [ "OData.Read" ],
-  "icon": "Query"
-}
