@@ -528,4 +528,70 @@ public class DualWriteMapViewModelTests
         Assert.False(vm.HasLoadError);
         Assert.False(vm.HasMaps);
     }
+
+    // ---- #22: dual-write map direct link ----
+
+    private static DwMapRecord MapWithId(string id) => new(
+        Id: id, SolutionId: "sol", Name: "name", DisplayName: "Display", Version: "1.0",
+        State: "", Status: "", Owner: "",
+        CreatedOn: null, ModifiedOn: null,
+        SummaryRows: Array.Empty<DwMapSummaryRow>(), Legs: Array.Empty<DwMapLeg>(),
+        Fields: Array.Empty<DwMapField>(), ValueTransforms: Array.Empty<DwMapValueTransform>(),
+        Properties: Array.Empty<DwMapProperty>(), RawMapping: null, RawProperties: null);
+
+    private static EnvProfile EnvWithDataverse(string? dataverseUrl) =>
+        new("env1", "Env", "contoso.operations.dynamics.com", "tenant", "USMF", "Tier 1",
+            EnvStatus.Connected, DataverseUrl: dataverseUrl);
+
+    [Fact]
+    public async Task Selecting_a_map_builds_an_openable_and_copyable_dataverse_link()
+    {
+        var launcher = new FakeUrlLauncher();
+        var clipboard = new FakeClipboardService();
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(),
+            activeEnv: () => EnvWithDataverse("https://contoso.crm.dynamics.com"),
+            clipboard: clipboard, launcher: launcher);
+
+        vm.SelectedMap = MapWithId("11111111-1111-1111-1111-111111111111");
+
+        Assert.True(vm.HasMapLink);
+        var url = vm.MapRecordUrl;
+        Assert.NotNull(url);
+        Assert.Contains("msdyn_dualwriteentitymap", url!);
+        Assert.Empty(vm.MapLinkUnavailableReason);
+
+        await vm.OpenMapLinkCommand.ExecuteAsync(null);
+        Assert.Equal(url, launcher.LastUrl);
+
+        await vm.CopyMapLinkCommand.ExecuteAsync(null);
+        Assert.Equal(url, clipboard.LastText);
+    }
+
+    [Fact]
+    public void No_dataverse_url_disables_the_link_with_an_explanation()
+    {
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(),
+            activeEnv: () => EnvWithDataverse(null));
+
+        vm.SelectedMap = MapWithId("11111111-1111-1111-1111-111111111111");
+
+        Assert.False(vm.HasMapLink);
+        Assert.Null(vm.MapRecordUrl);
+        Assert.False(vm.OpenMapLinkCommand.CanExecute(null));
+        Assert.Contains("Dataverse URL", vm.MapLinkUnavailableReason);
+    }
+
+    [Fact]
+    public void An_invalid_map_id_disables_the_link_with_a_record_id_explanation()
+    {
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(),
+            activeEnv: () => EnvWithDataverse("https://contoso.crm.dynamics.com"));
+
+        vm.SelectedMap = MapWithId("not-a-guid");
+
+        Assert.False(vm.HasMapLink);
+        Assert.Null(vm.MapRecordUrl);
+        Assert.False(vm.OpenMapLinkCommand.CanExecute(null));
+        Assert.Contains("record id", vm.MapLinkUnavailableReason);
+    }
 }
