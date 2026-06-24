@@ -30,9 +30,9 @@ jobs:
       - name: Build
         run: dotnet build .\FoToolbox.sln -c Release --no-restore
 
-      # Unit tests only — UI tests run in the isolated `ui-tests` job so a flaky
-      # offscreen render never masks the unit-test signal. The full solution is still
-      # built above, so a UI-project compile break still fails this job.
+      # FoToolbox.sln is now just the shared Core library + its xUnit tests (the deprecated WPF host,
+      # SDK, plugins, and the UI/E2E test projects were removed). The Avalonia app is covered by the
+      # avalonia-tests job below.
       - name: Test
         run: dotnet test .\tests\FoToolbox.Tests\FoToolbox.Tests.csproj -c Release --no-build --collect:"XPlat Code Coverage" --blame-hang --blame-hang-timeout 150s --blame-hang-dump-type mini --results-directory ${{ github.workspace }}\TestResults
 
@@ -55,80 +55,8 @@ jobs:
             throw "Vulnerable NuGet packages detected (see the list above)."
           }
 
-  ui-tests:
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          global-json-file: global.json
-          cache: true
-          cache-dependency-path: |
-            **/*.csproj
-            Directory.Build.props
-            Directory.Packages.props
-
-      - name: Restore
-        run: dotnet restore .\FoToolbox.sln
-
-      - name: Build UI tests
-        run: dotnet build .\tests\FoToolbox.UiTests\FoToolbox.UiTests.csproj -c Release --no-restore
-
-      - name: Run UI tests
-        run: dotnet test .\tests\FoToolbox.UiTests\FoToolbox.UiTests.csproj -c Release --no-build --blame-hang --blame-hang-timeout 150s --blame-hang-dump-type mini --results-directory ${{ github.workspace }}\UiTestResults
-
-      - name: Upload UI test results
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: ui-test-results
-          path: ${{ github.workspace }}\UiTestResults
-          if-no-files-found: ignore
-
-  e2e-tests:
-    runs-on: windows-latest
-    continue-on-error: true   # advisory until the GUI E2E suite is proven stable
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          global-json-file: global.json
-          cache: true
-          cache-dependency-path: |
-            **/*.csproj
-            Directory.Build.props
-            Directory.Packages.props
-
-      - name: Restore
-        run: dotnet restore .\FoToolbox.sln
-
-      - name: Build
-        run: dotnet build .\FoToolbox.sln -c Release --no-restore
-
-      - name: Run E2E tests
-        run: dotnet test .\tests\FoToolbox.E2eTests\FoToolbox.E2eTests.csproj -c Release --no-build --blame-hang --blame-hang-timeout 180s --blame-hang-dump-type mini --results-directory ${{ github.workspace }}\E2eResults
-
-      - name: Upload E2E results + screenshots
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: e2e-results
-          path: |
-            ${{ github.workspace }}\E2eResults
-            ${{ github.workspace }}\tests\FoToolbox.E2eTests\bin\Release\net10.0-windows\e2e-screenshots
-          if-no-files-found: ignore
-
-  # Alternate UI host spike (#35): the toolBax Avalonia app + its headless UI tests. Runs on
-  # ubuntu-latest with NO display server — the reason Avalonia was chosen over WPF/WinUI. No xvfb,
-  # no virtual desktop; if this stays green on a bare Linux runner the framework choice is paying off.
+  # The shipped product: the toolBax Avalonia app + its headless UI tests. Runs on ubuntu-latest with
+  # NO display server (the reason Avalonia was chosen over WPF/WinUI) — no xvfb, no virtual desktop.
   avalonia-tests:
     runs-on: ubuntu-latest
 
