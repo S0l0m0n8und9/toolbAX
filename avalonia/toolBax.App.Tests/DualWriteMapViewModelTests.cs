@@ -580,4 +580,18 @@ public class DualWriteMapViewModelTests
         Assert.False(vm.OpenMapLinkCommand.CanExecute(null));
         Assert.Contains("Dataverse URL", vm.MapLinkUnavailableReason);
     }
+
+    [Fact]
+    public void An_invalid_map_id_disables_the_link_with_a_record_id_explanation()
+    {
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(),
+            activeEnv: () => EnvWithDataverse("https://contoso.crm.dynamics.com"));
+
+        vm.SelectedMap = MapWithId("not-a-guid");
+
+        Assert.False(vm.HasMapLink);
+        Assert.Null(vm.MapRecordUrl);
+        Assert.False(vm.OpenMapLinkCommand.CanExecute(null));
+        Assert.Contains("record id", vm.MapLinkUnavailableReason);
+    }
 }

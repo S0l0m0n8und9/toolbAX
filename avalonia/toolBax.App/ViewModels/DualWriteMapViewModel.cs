@@ -194,12 +194,23 @@ public partial class DualWriteMapViewModel : ObservableObject
     public bool HasMapLink => MapRecordUrl is not null;
 
     /// <summary>When a map is selected but no link can be built, explains which input is missing.</summary>
-    public string MapLinkUnavailableReason =>
-        DetailMap is null || HasMapLink
-            ? string.Empty
-            : string.IsNullOrWhiteSpace(_activeEnv()?.DataverseUrl)
+    public string MapLinkUnavailableReason
+    {
+        get
+        {
+            if (DetailMap is null || HasMapLink)
+            {
+                return string.Empty;
+            }
+
+            // The build fails for exactly one of two reasons. Key off the map id (the unambiguous
+            // signal): a valid record id means the Dataverse URL is the culprit — including the case
+            // where it's present but host-less (e.g. "/api/data/v9.2"), which normalizes to empty.
+            return Guid.TryParse(DetailMap.Id, out _)
                 ? "No Dataverse URL is configured for this environment."
                 : "This map has no Dataverse record id.";
+        }
+    }
 
     // Opens the inspected map's Dataverse record in the browser — the native dual-write map config page.
     [RelayCommand(CanExecute = nameof(HasMapLink))]
