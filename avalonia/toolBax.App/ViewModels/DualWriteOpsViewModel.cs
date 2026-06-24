@@ -120,9 +120,6 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     private void Log(string text, LogKind kind = LogKind.Info, string? note = null) =>
         GatewayLog.Add(new GatewayLogEntry(text, note, kind));
 
-    [RelayCommand]
-    private void ClearGatewayLog() => GatewayLog.Clear();
-
     private bool CanLoad() => !IsBusy;
 
     /// <summary>Connects to the gateway for the active environment and loads its maps.</summary>
@@ -140,6 +137,9 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         IsBusy = true;
         LoadError = null;
         Status = "Connecting…";
+        // Scope the log to this attempt: a retry after a failure starts clean rather than interleaving
+        // entries from earlier connects, which is the whole point of the log (isolate the current attempt).
+        GatewayLog.Clear();
         Log($"Connecting to {env.Name} ({env.Url})…");
         try
         {

@@ -296,15 +296,19 @@ public class DualWriteOpsTests
     }
 
     [Fact]
-    public async Task ClearGatewayLog_empties_the_log()
+    public async Task Reconnecting_resets_the_log_to_only_the_current_attempt()
     {
-        var vm = MakeVm(new FakeDualWriteConnector());
+        // A failed first attempt should not interleave with a later one — the log isolates the latest connect.
+        var vm = MakeVm(FakeDualWriteConnector.ThatFails("first attempt failed"));
         await vm.LoadCommand.ExecuteAsync(null);
-        Assert.True(vm.HasGatewayLog);
+        Assert.Contains(vm.GatewayLog, e => e.Text.Contains("first attempt failed"));
 
-        vm.ClearGatewayLogCommand.Execute(null);
+        // Re-point at a working connector and reconnect (the VM connects fresh each Load).
+        var vm2 = MakeVm(new FakeDualWriteConnector());
+        await vm2.LoadCommand.ExecuteAsync(null);
+        await vm2.LoadCommand.ExecuteAsync(null); // second connect on the same VM
 
-        Assert.Empty(vm.GatewayLog);
-        Assert.False(vm.HasGatewayLog);
+        // Exactly one "Connecting…" line — the prior attempt's entries were cleared, not appended to.
+        Assert.Equal(1, vm2.GatewayLog.Count(e => e.Text.StartsWith("Connecting")));
     }
 }

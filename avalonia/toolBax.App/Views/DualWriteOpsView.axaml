@@ -87,15 +87,10 @@
 
     <!-- Gateway log: the discovered host, resolved cid, and each request's outcome — so a
          "no connection / cid" failure is diagnosable in-app without a network trace. -->
-    <Expander Grid.Row="5" Margin="0,12,0,0" IsVisible="{Binding HasGatewayLog}" IsExpanded="True">
-      <Expander.Header>
-        <Grid ColumnDefinitions="*,Auto">
-          <TextBlock Grid.Column="0" Text="Gateway log" VerticalAlignment="Center"
-                     FontWeight="SemiBold" Foreground="{StaticResource Text1Brush}" />
-          <Button Grid.Column="1" Content="Clear" Command="{Binding ClearGatewayLogCommand}"
-                  Padding="8,2" FontSize="11" />
-        </Grid>
-      </Expander.Header>
+    <!-- The log is scoped per connect (cleared at the start of Load), so no manual clear is needed;
+         collapse the Expander to declutter. -->
+    <Expander Grid.Row="5" Margin="0,12,0,0" IsVisible="{Binding HasGatewayLog}" IsExpanded="True"
+              Header="Gateway log">
       <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
         <ItemsControl ItemsSource="{Binding GatewayLog}">
           <ItemsControl.ItemTemplate>
