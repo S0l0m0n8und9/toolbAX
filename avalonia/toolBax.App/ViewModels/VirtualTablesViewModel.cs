@@ -32,6 +32,7 @@ public partial class VirtualTablesViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(Filtered))]
+    [NotifyPropertyChangedFor(nameof(NoSearchMatches))]
     private string _search = string.Empty;
 
     [ObservableProperty]
@@ -66,6 +67,7 @@ public partial class VirtualTablesViewModel : ObservableObject
         {
             OnPropertyChanged(nameof(HasTables));
             OnPropertyChanged(nameof(ShowEmptyState));
+            OnPropertyChanged(nameof(NoSearchMatches));
         };
     }
 
@@ -73,6 +75,9 @@ public partial class VirtualTablesViewModel : ObservableObject
     public bool HasLoadError => !string.IsNullOrEmpty(LoadError);
     public bool HasSelection => SelectedTable is not null;
     public bool ShowEmptyState => _loaded && !IsLoading && !HasLoadError && Tables.Count == 0;
+
+    /// <summary>True when tables are loaded but the current search hides all of them (vs none loaded at all).</summary>
+    public bool NoSearchMatches => HasTables && !string.IsNullOrWhiteSpace(Search) && !Filtered.Any();
 
     public IEnumerable<VirtualTableInfo> Filtered =>
         string.IsNullOrWhiteSpace(Search)

@@ -89,4 +89,17 @@ public class VirtualTablesViewModelTests
 
         Assert.Single(vm.Filtered);
     }
+
+    [Fact]
+    public async Task A_search_matching_nothing_shows_the_no_matches_hint()
+    {
+        var vm = new VirtualTablesViewModel(new FakeVirtualTableReader());
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        vm.Search = "zzz-no-such-table";
+
+        Assert.Empty(vm.Filtered);
+        Assert.True(vm.NoSearchMatches);
+        Assert.False(vm.ShowEmptyState);
+    }
 }

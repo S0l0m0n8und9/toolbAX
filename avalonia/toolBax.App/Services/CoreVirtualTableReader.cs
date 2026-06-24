@@ -20,7 +20,7 @@ public sealed class CoreVirtualTableReader : IVirtualTableReader
     public async Task<VirtualTableLoadResult> GetVirtualTablesAsync(CancellationToken ct = default)
     {
         var path = $"EntityDefinitions?$select={VirtualTableMetadataParser.SelectColumns}";
-        var response = await _dataverse.GetAsync(path, ct).ConfigureAwait(true);
+        var response = await _dataverse.GetAsync(path, ct).ConfigureAwait(false);
         if (!response.IsSuccess)
         {
             return VirtualTableLoadResult.Fail($"Couldn't load table metadata ({response.StatusLine}).");

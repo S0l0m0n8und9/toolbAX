@@ -42,6 +42,11 @@
                Text="No finance &amp; operations virtual tables found in this environment."
                Foreground="{StaticResource Text3Brush}" FontSize="13" Margin="0,8,0,0" />
 
+    <!-- No search matches (tables loaded, but the filter hides them all) -->
+    <TextBlock DockPanel.Dock="Top" IsVisible="{Binding NoSearchMatches}"
+               Text="No tables match your search."
+               Foreground="{StaticResource Text3Brush}" FontSize="13" Margin="0,8,0,0" />
+
     <!-- Table list -->
     <DataGrid x:Name="TablesGrid" ItemsSource="{Binding Filtered}"
               SelectedItem="{Binding SelectedTable, Mode=TwoWay}"
