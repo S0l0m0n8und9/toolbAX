@@ -56,13 +56,9 @@
                     <StackPanel Grid.Column="1" Spacing="1" Margin="11,0,0,0" VerticalAlignment="Center">
                       <TextBlock Text="{Binding Name}" FontSize="14.5" FontWeight="SemiBold"
                                  Foreground="{StaticResource Text0Brush}" TextTrimming="CharacterEllipsis" />
-                      <TextBlock Text="{Binding VersionLine}" FontSize="11"
+                      <TextBlock Text="{Binding Category}" FontSize="11"
                                  FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text3Brush}" />
                     </StackPanel>
-                    <TextBlock Grid.Column="2" Text="✓" FontSize="14" IsVisible="{Binding Signed}"
-                               Foreground="{StaticResource OkBrush}" ToolTip.Tip="Signed plugin" />
-                    <TextBlock Grid.Column="2" Text="⚠" FontSize="14" IsVisible="{Binding !Signed}"
-                               Foreground="{StaticResource WarnBrush}" ToolTip.Tip="Unsigned — sandboxed" />
                   </Grid>
                   <TextBlock Text="{Binding Description}" FontSize="12.5" TextWrapping="Wrap"
                              Foreground="{StaticResource Text2Brush}" />
@@ -70,17 +66,15 @@
 
                 <Border Grid.Row="1" BorderBrush="{StaticResource DividerBrush}" BorderThickness="0,1,0,0"
                         Padding="16,10">
-                  <Grid ColumnDefinitions="Auto,Auto,*,Auto,Auto">
+                  <Grid ColumnDefinitions="Auto,Auto,*,Auto">
                     <Border Grid.Column="0" Background="{StaticResource Layer3Brush}" CornerRadius="3" Padding="6,1">
                       <TextBlock Text="{Binding ShortcutLabel}" FontSize="11" Foreground="{StaticResource Text2Brush}" />
                     </Border>
-                    <Border Grid.Column="1" Margin="8,0,0,0" IsVisible="{Binding Live}"
+                    <Border Grid.Column="1" Margin="8,0,0,0" IsVisible="{Binding OperatesLive}"
                             Background="{StaticResource WarnBgBrush}" CornerRadius="999" Padding="8,1">
                       <TextBlock Text="operates live" FontSize="11" Foreground="{StaticResource WarnBrush}" />
                     </Border>
-                    <TextBlock Grid.Column="3" Text="built-in" FontSize="11" IsVisible="{Binding Builtin}"
-                               Foreground="{StaticResource Text3Brush}" VerticalAlignment="Center" Margin="0,0,8,0" />
-                    <TextBlock Grid.Column="4" Text="→" FontSize="14" Foreground="{StaticResource Text3Brush}"
+                    <TextBlock Grid.Column="3" Text="→" FontSize="14" Foreground="{StaticResource Text3Brush}"
                                VerticalAlignment="Center" />
                   </Grid>
                 </Border>

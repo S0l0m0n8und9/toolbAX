@@ -215,6 +215,30 @@ public class DualWriteSignInCaptureTests
 
     [Trait("Category", "DualWrite")]
     [Fact]
+    public void Capture_IgnoresMarkersInThePathOfAForeignHost()
+    {
+        var capture = new DualWriteSignInCapture(Clock);
+
+        // Both markers appear, but only in the path of an attacker host — the gateway (and the token it
+        // would carry) must NOT be pinned to it.
+        Assert.False(capture.ObserveUrl(
+            "https://attacker.example/projectmanagementservice/DualWriteManagement/1.0/Version"));
+        Assert.Null(capture.GatewayBaseUrl);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void Capture_RejectsANonHttpsGatewayUrl()
+    {
+        var capture = new DualWriteSignInCapture(Clock);
+
+        Assert.False(capture.ObserveUrl(
+            "http://projectmanagementservice.weu.gateway.prod.island.powerapps.com/api/DualWriteManagement/1.0/Version"));
+        Assert.Null(capture.GatewayBaseUrl);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
     public void Capture_IgnoresUnrelatedUrls_AndSecondToken()
     {
         var capture = new DualWriteSignInCapture(Clock);

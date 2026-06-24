@@ -8,7 +8,7 @@ namespace ToolBax.App.Tests;
 public class PluginsHomeViewModelTests
 {
     private static PluginsHomeViewModel MakeVm(string? env = "USMF Dev") =>
-        new(new FakePluginCatalog(), env, openTool: null);
+        new(new BuiltInToolCatalog(), env, openTool: null);
 
     [Fact]
     public void Lists_plugins_with_the_environment_subtitle()
@@ -35,7 +35,7 @@ public class PluginsHomeViewModelTests
     public void Open_plugin_invokes_the_open_callback_with_the_id()
     {
         string? opened = null;
-        var vm = new PluginsHomeViewModel(new FakePluginCatalog(), null, id => opened = id);
+        var vm = new PluginsHomeViewModel(new BuiltInToolCatalog(), null, id => opened = id);
 
         vm.OpenPluginCommand.Execute("query");
 
