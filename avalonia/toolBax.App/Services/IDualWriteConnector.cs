@@ -7,9 +7,11 @@ namespace ToolBax.App.Services;
 
 /// <summary>
 /// A live dual-write gateway connection: the connected <see cref="IDualWriteGateway"/> plus the resolved
-/// connection id/name for the environment. <see cref="Cid"/> is passed to the gateway's map/action calls.
+/// connection id/name for the environment, and the (auto-discovered) gateway host it's bound to.
+/// <see cref="Cid"/> is passed to the gateway's map/action calls; <see cref="GatewayBaseUrl"/> is surfaced
+/// in the in-app gateway log so a wrong/region host is visible.
 /// </summary>
-public sealed record DualWriteSession(IDualWriteGateway Gateway, string Cid, string Cname);
+public sealed record DualWriteSession(IDualWriteGateway Gateway, string Cid, string Cname, string GatewayBaseUrl = "");
 
 /// <summary>
 /// Establishes a dual-write gateway session for an environment: acquires the delegated token, builds the

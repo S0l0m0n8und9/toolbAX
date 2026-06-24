@@ -1,10 +1,11 @@
 <UserControl xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:vm="using:ToolBax.App.ViewModels"
+             xmlns:conv="using:ToolBax.App.Converters"
              x:Class="ToolBax.App.Views.DualWriteOpsView"
              x:DataType="vm:DualWriteOpsViewModel">
 
-  <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="20,16">
+  <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="20,16">
 
     <!-- Title + connect -->
     <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
@@ -83,5 +84,30 @@
         <DataGridTextColumn Header="State" Binding="{Binding State}" Width="*" IsReadOnly="True" />
       </DataGrid.Columns>
     </DataGrid>
+
+    <!-- Gateway log: the discovered host, resolved cid, and each request's outcome — so a
+         "no connection / cid" failure is diagnosable in-app without a network trace. -->
+    <!-- The log is scoped per connect (cleared at the start of Load), so no manual clear is needed;
+         collapse the Expander to declutter. -->
+    <Expander Grid.Row="5" Margin="0,12,0,0" IsVisible="{Binding HasGatewayLog}" IsExpanded="True"
+              Header="Gateway log">
+      <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
+        <ItemsControl ItemsSource="{Binding GatewayLog}">
+          <ItemsControl.ItemTemplate>
+            <DataTemplate x:DataType="vm:GatewayLogEntry">
+              <StackPanel Orientation="Horizontal" Spacing="8" Margin="0,1">
+                <TextBlock Text="{Binding Text}" TextWrapping="Wrap"
+                           FontFamily="Cascadia Code,Consolas,monospace" FontSize="11.5"
+                           Foreground="{Binding Kind, Converter={x:Static conv:LogKindToBrushConverter.Instance}}" />
+                <TextBlock Text="{Binding Note}" TextWrapping="Wrap"
+                           FontFamily="Cascadia Code,Consolas,monospace" FontSize="11.5"
+                           Foreground="{StaticResource Text3Brush}"
+                           IsVisible="{Binding Note, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+              </StackPanel>
+            </DataTemplate>
+          </ItemsControl.ItemTemplate>
+        </ItemsControl>
+      </ScrollViewer>
+    </Expander>
   </Grid>
 </UserControl>

@@ -39,6 +39,10 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 
     public ObservableCollection<MapRowViewModel> Maps { get; } = new();
 
+    /// <summary>In-app gateway request/response log — surfaces the discovered gateway host, the resolved
+    /// connection (cid), and each operation's outcome so a connection/cid failure is self-diagnosable.</summary>
+    public ObservableCollection<GatewayLogEntry> GatewayLog { get; } = new();
+
     public IReadOnlyList<OpsAction> Actions { get; } = new[]
     {
         new OpsAction("Start", DualWriteActionType.Start, Danger: false, Caveat: null),
@@ -106,7 +110,15 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         _odata = odata ?? new FakeODataClient();
         _metadata = metadata ?? new FakeMetadataService();
         Maps.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasMaps));
+        GatewayLog.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasGatewayLog));
     }
+
+    public bool HasGatewayLog => GatewayLog.Count > 0;
+
+    // Appends one line to the in-app gateway log. Only ever called from VM operations that resume on the
+    // UI thread (each awaits without ConfigureAwait(false)), so the ObservableCollection is touched on it.
+    private void Log(string text, LogKind kind = LogKind.Info, string? note = null) =>
+        GatewayLog.Add(new GatewayLogEntry(text, note, kind));
 
     private bool CanLoad() => !IsBusy;
 
@@ -125,25 +137,37 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         IsBusy = true;
         LoadError = null;
         Status = "Connecting…";
+        // Scope the log to this attempt: a retry after a failure starts clean rather than interleaving
+        // entries from earlier connects, which is the whole point of the log (isolate the current attempt).
+        GatewayLog.Clear();
+        Log($"Connecting to {env.Name} ({env.Url})…");
         try
         {
             var session = await _connector.ConnectAsync(env, ct);
             DisposeSession();
             _session = session;
             ConnectionName = session.Cname;
+            if (!string.IsNullOrWhiteSpace(session.GatewayBaseUrl))
+            {
+                Log($"Gateway host: {session.GatewayBaseUrl}");
+            }
+            Log($"Connected: {session.Cname} (cid {session.Cid}).", LogKind.Ok);
 
             var maps = await session.Gateway.GetMapsAsync(session.Cid, ct);
             PopulateMaps(maps, keepSelectedIds: null);
             Status = Maps.Count == 0 ? "No maps on this connection." : $"{Maps.Count} map(s).";
+            Log($"Loaded {Maps.Count} map(s).", Maps.Count == 0 ? LogKind.Warn : LogKind.Ok);
         }
         catch (OperationCanceledException)
         {
             ResetDisconnected("Cancelled.");
+            Log("Cancelled.", LogKind.Warn);
         }
         catch (Exception ex)
         {
             LoadError = ex.Message;
             ResetDisconnected("Connection failed.");
+            Log(ex.Message, LogKind.Err);
         }
         finally
         {
@@ -185,6 +209,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 
         IsBusy = true;
         Status = $"{action.Label}…";
+        Log($"{action.Label}: {targets.Count} map(s) (cid {session.Cid})…");
         try
         {
             var maps = targets.Select(t => t.Map).ToList();
@@ -206,9 +231,17 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
                 }
             }
 
-            Status = final is { IsSuccess: true }
-                ? $"{action.Label} completed."
-                : $"{action.Label} failed: {final?.Message ?? final?.State ?? "unknown"}.";
+            if (final is { IsSuccess: true })
+            {
+                Status = $"{action.Label} completed.";
+                Log($"{action.Label} completed.", LogKind.Ok);
+            }
+            else
+            {
+                var why = final?.Message ?? final?.State ?? "unknown";
+                Status = $"{action.Label} failed: {why}.";
+                Log($"{action.Label} failed: {why}.", LogKind.Err);
+            }
 
             // Refresh the maps to pick up their new states, preserving the user's selection. A refresh
             // failure must NOT overwrite the action result above (the action still happened), so it's
@@ -222,15 +255,18 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             catch (Exception)
             {
                 Status += " (map list could not refresh)";
+                Log("Map list could not refresh.", LogKind.Warn);
             }
         }
         catch (OperationCanceledException)
         {
             Status = ct.IsCancellationRequested ? "Cancelled." : $"{action.Label} timed out.";
+            Log(Status, LogKind.Warn);
         }
         catch (Exception ex)
         {
             Status = $"{action.Label} failed: {ex.Message}";
+            Log(Status, LogKind.Err);
         }
         finally
         {

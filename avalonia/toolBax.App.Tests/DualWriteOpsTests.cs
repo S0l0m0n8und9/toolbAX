@@ -269,4 +269,46 @@ public class DualWriteOpsTests
 
         Assert.Contains("DualWriteProjectConfiguration", vm.DebugStatus);
     }
+
+    // --- gateway log (self-diagnosis: which host, which cid, what happened) ---
+
+    [Fact]
+    public async Task Successful_load_logs_the_gateway_host_the_cid_and_the_map_count()
+    {
+        var vm = MakeVm(new FakeDualWriteConnector());
+
+        await vm.LoadCommand.ExecuteAsync(null);
+
+        Assert.True(vm.HasGatewayLog);
+        Assert.Contains(vm.GatewayLog, e => e.Text.Contains("fake-gateway.dual-write.example"));
+        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Ok && e.Text.Contains("fake-cid"));
+        Assert.Contains(vm.GatewayLog, e => e.Text.Contains("Loaded") && e.Text.Contains("map"));
+    }
+
+    [Fact]
+    public async Task A_connect_failure_is_logged_as_an_error_line()
+    {
+        var vm = MakeVm(FakeDualWriteConnector.ThatFails("no connection (cid) for this environment"));
+
+        await vm.LoadCommand.ExecuteAsync(null);
+
+        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Err && e.Text.Contains("no connection"));
+    }
+
+    [Fact]
+    public async Task Reconnecting_resets_the_log_to_only_the_current_attempt()
+    {
+        // A failed first attempt should not interleave with a later one — the log isolates the latest connect.
+        var vm = MakeVm(FakeDualWriteConnector.ThatFails("first attempt failed"));
+        await vm.LoadCommand.ExecuteAsync(null);
+        Assert.Contains(vm.GatewayLog, e => e.Text.Contains("first attempt failed"));
+
+        // Re-point at a working connector and reconnect (the VM connects fresh each Load).
+        var vm2 = MakeVm(new FakeDualWriteConnector());
+        await vm2.LoadCommand.ExecuteAsync(null);
+        await vm2.LoadCommand.ExecuteAsync(null); // second connect on the same VM
+
+        // Exactly one "Connecting…" line — the prior attempt's entries were cleared, not appended to.
+        Assert.Equal(1, vm2.GatewayLog.Count(e => e.Text.StartsWith("Connecting")));
+    }
 }
