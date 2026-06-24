@@ -40,6 +40,7 @@ public partial class ShellViewModel : ObservableObject
     private readonly IConnectionTester _connectionTester;
     private readonly IDialogService _dialogs;
     private readonly IUrlLauncher _launcher;
+    private readonly IVirtualTableReader _virtualTableReader;
     private object? _operationsContent;
     private object? _profilesContent;
     private object? _metadataContent;
@@ -47,6 +48,7 @@ public partial class ShellViewModel : ObservableObject
     private object? _queryContent;
     private object? _mapBrowserContent;
     private object? _compareContent;
+    private object? _virtualTablesContent;
     private object? _homeContent;
 
     [ObservableProperty]
@@ -84,7 +86,8 @@ public partial class ShellViewModel : ObservableObject
         IDualWriteCompareService? compareService = null,
         IConnectionTester? connectionTester = null,
         IDialogService? dialogs = null,
-        IUrlLauncher? launcher = null)
+        IUrlLauncher? launcher = null,
+        IVirtualTableReader? virtualTableReader = null)
     {
         _operationsContentFactory = operationsContentFactory ?? DefaultOperationsContent;
         _profileStore = profileStore ?? new FakeProfileStore();
@@ -104,6 +107,7 @@ public partial class ShellViewModel : ObservableObject
         // Real Fluent confirm dialog for mutating actions (POST Builder send); tests pass a stub.
         _dialogs = dialogs ?? new DialogService();
         _launcher = launcher ?? new FakeUrlLauncher();
+        _virtualTableReader = virtualTableReader ?? new FakeVirtualTableReader();
 
         Tools = new[]
         {
@@ -113,6 +117,7 @@ public partial class ShellViewModel : ObservableObject
             new NavTool("mapbrowser", "Dual-Write Map Browser", 'D'),
             new NavTool("compare", "Dual-Write Compare", 'C'),
             new NavTool("metadata", "Metadata Browser", 'M'),
+            new NavTool("virtualtables", "Virtual Tables", 'V'),
             new NavTool("post", "POST Builder", 'P'),
             new NavTool("profiles", "Profiles", 'E'),
         };
@@ -160,6 +165,7 @@ public partial class ShellViewModel : ObservableObject
         "ops" => _operationsContent ??= _operationsContentFactory(),
         "profiles" => _profilesContent ??= CreateProfilesContent(),
         "metadata" => _metadataContent ??= new MetadataViewModel(_metadataService),
+        "virtualtables" => _virtualTablesContent ??= new VirtualTablesViewModel(_virtualTableReader, () => ActiveEnvironment, _launcher),
         "post" => _postContent ??= new PostBuilderViewModel(_odataClient, _clipboard, _metadataService, _dialogs),
         "query" => _queryContent ??= new QueryBuilderViewModel(_metadataService, _odataClient, _clipboard, _fileSave),
         "mapbrowser" => _mapBrowserContent ??= new DualWriteMapViewModel(_mapReader, _fileSave, _odataClient, _metadataService, () => ActiveEnvironment, _clipboard, _launcher),
@@ -291,6 +297,7 @@ public partial class ShellViewModel : ObservableObject
         (_queryContent as IDisposable)?.Dispose();
         (_mapBrowserContent as IDisposable)?.Dispose();
         (_compareContent as IDisposable)?.Dispose();
+        (_virtualTablesContent as IDisposable)?.Dispose();
 
         _operationsContent = null;
         _metadataContent = null;
@@ -298,6 +305,7 @@ public partial class ShellViewModel : ObservableObject
         _queryContent = null;
         _mapBrowserContent = null;
         _compareContent = null;
+        _virtualTablesContent = null;
         CurrentContent = ResolveContent(CurrentTool);
     }
 }
