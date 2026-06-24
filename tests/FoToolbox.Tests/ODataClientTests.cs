@@ -66,6 +66,29 @@ public class ODataClientTests
         });
     }
 
+    [Fact]
+    public async Task Refuses_A_Cross_Origin_NextLink_When_The_Initial_Url_Is_Relative()
+    {
+        // A relative request URL + HttpClient.BaseAddress: the origin must come from BaseAddress so the
+        // guard isn't silently bypassed (the request URL alone isn't absolute).
+        var handler = new SequenceHandler(new[]
+        {
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"value\":[{\"Id\":1}],\"@odata.nextLink\":\"https://evil.example.com/steal\"}", Encoding.UTF8, "application/json")
+            }
+        });
+        var client = new HttpClient(handler) { BaseAddress = new Uri("https://host") };
+        var odata = new HttpODataClient(client);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await foreach (var _ in odata.StreamAsync(new QueryRequest("data/Entity"), CancellationToken.None))
+            {
+            }
+        });
+    }
+
     [Trait("Category", "Auth")]
     [Fact]
     public async Task StreamAsync_Unauthorized_Returns_Clear_Reauth_Message()

@@ -27,9 +27,11 @@ public sealed class HttpODataClient : IODataClient
     public async IAsyncEnumerable<ODataPage> StreamAsync(QueryRequest request, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         var next = request.Url;
-        // The initial request URL defines the trusted origin; a server-supplied @odata.nextLink must
-        // stay on it, so the (possibly auth-bearing) HttpClient never follows a page off-origin.
-        var origin = Uri.TryCreate(request.Url, UriKind.Absolute, out var seed) ? seed : null;
+        // The initial request defines the trusted origin: its absolute URL, or the HttpClient's
+        // BaseAddress when the request URL is relative. A server-supplied @odata.nextLink must stay on
+        // that origin, so the (possibly auth-bearing) HttpClient never follows a page off-origin. If no
+        // origin can be determined, any absolute nextLink is refused (fail closed).
+        var origin = Uri.TryCreate(request.Url, UriKind.Absolute, out var seed) ? seed : _httpClient.BaseAddress;
         while (!string.IsNullOrWhiteSpace(next))
         {
             using var msg = new HttpRequestMessage(HttpMethod.Get, next);
@@ -111,9 +113,8 @@ public sealed class HttpODataClient : IODataClient
                 next = nlElement.ValueKind == JsonValueKind.String ? nlElement.GetString() : null;
 
                 if (!string.IsNullOrWhiteSpace(next)
-                    && origin is not null
                     && Uri.TryCreate(next, UriKind.Absolute, out var nextUri)
-                    && !RequestOriginGuard.IsSameOrigin(origin, nextUri))
+                    && (origin is null || !RequestOriginGuard.IsSameOrigin(origin, nextUri)))
                 {
                     throw new InvalidOperationException(
                         "Refusing to follow an @odata.nextLink that points to a different origin than the request.");
