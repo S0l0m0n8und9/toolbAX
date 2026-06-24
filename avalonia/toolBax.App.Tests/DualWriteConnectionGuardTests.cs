@@ -24,11 +24,18 @@ public class DualWriteConnectionGuardTests
     private sealed class StubGateway : IDualWriteGateway, IDisposable
     {
         private readonly DualWriteEnvironment _env;
+        private readonly Exception? _throwOnGetEnv;
         public bool Disposed { get; private set; }
-        public StubGateway(string cid, string cname = "Contoso") => _env = new DualWriteEnvironment(cid, cname, "id");
+        public StubGateway(string cid, string cname = "Contoso", Exception? throwOnGetEnv = null)
+        {
+            _env = new DualWriteEnvironment(cid, cname, "id");
+            _throwOnGetEnv = throwOnGetEnv;
+        }
 
         public Task<DualWriteEnvironment> GetEnvironmentAsync(string foIdentifier, CancellationToken cancellationToken = default)
-            => Task.FromResult(_env);
+            => _throwOnGetEnv is not null
+                ? Task.FromException<DualWriteEnvironment>(_throwOnGetEnv)
+                : Task.FromResult(_env);
         public void Dispose() => Disposed = true;
 
         public Task<IReadOnlyList<DualWriteMap>> GetMapsAsync(string cid, CancellationToken cancellationToken = default) => throw new NotSupportedException();
@@ -70,6 +77,18 @@ public class DualWriteConnectionGuardTests
         Assert.Contains("pgw.operations.dynamics.com", ex.Message);
         Assert.DoesNotContain("cid is required", ex.Message, StringComparison.OrdinalIgnoreCase);
         Assert.True(gateway.Disposed); // the orphaned gateway's HttpClient is disposed on the failure path
+    }
+
+    [Fact]
+    public async Task ConnectAsync_disposes_the_gateway_when_the_environment_lookup_throws()
+    {
+        var gateway = new StubGateway("real-cid", throwOnGetEnv: new TimeoutException("network boom"));
+        var connector = new CoreDualWriteConnector(new FakeDualWriteSignIn(), new StubFactory(gateway));
+
+        await Assert.ThrowsAsync<TimeoutException>(
+            () => connector.ConnectAsync(Env(), TestContext.Current.CancellationToken));
+
+        Assert.True(gateway.Disposed); // no HttpClient leak on the GetEnvironmentAsync failure path
     }
 
     [Fact]
