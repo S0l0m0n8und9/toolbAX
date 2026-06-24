@@ -44,7 +44,35 @@ public sealed class CoreDualWriteConnector : IDualWriteConnector
             AccessTokenExpiryUtc = result.Token.ExpiresUtc,
         };
         var gateway = _factory.Create(settings);
-        var linkage = await gateway.GetEnvironmentAsync(env.Url, ct).ConfigureAwait(false);
-        return new DualWriteSession(gateway, linkage.Cid, linkage.Cname);
+
+        // The gateway owns an HttpClient, so dispose it unless we hand it to a valid session. This covers
+        // both the empty-cid case and any exception from GetEnvironmentAsync (HTTP/network/cancel) — so a
+        // retry after a transient failure doesn't leak a client each attempt.
+        var handedOff = false;
+        try
+        {
+            var linkage = await gateway.GetEnvironmentAsync(env.Url, ct).ConfigureAwait(false);
+
+            // The gateway returns an empty cid (no exception) when this F&O environment isn't in a
+            // dual-write connection set the resolved gateway knows about. Surface that here with an
+            // actionable message rather than returning a session whose blank cid throws a cryptic
+            // "cid is required" on the next call.
+            if (!DualWriteConnectionGuard.IsLinked(linkage))
+            {
+                throw new InvalidOperationException(
+                    DualWriteConnectionGuard.NoConnectionMessage(env.Url, result.GatewayBaseUrl));
+            }
+
+            var session = new DualWriteSession(gateway, linkage.Cid, linkage.Cname);
+            handedOff = true;
+            return session;
+        }
+        finally
+        {
+            if (!handedOff)
+            {
+                (gateway as IDisposable)?.Dispose();
+            }
+        }
     }
 }

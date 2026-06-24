@@ -46,7 +46,24 @@ public sealed class CoreDualWriteGatewayTester : IDualWriteGatewayTester
                 AccessTokenExpiryUtc = result.Token.ExpiresUtc,
             };
             var gateway = _factory.Create(settings);
-            var linkage = await gateway.GetEnvironmentAsync(env.Url, ct).ConfigureAwait(false);
+            DualWriteEnvironment linkage;
+            try
+            {
+                linkage = await gateway.GetEnvironmentAsync(env.Url, ct).ConfigureAwait(false);
+            }
+            finally
+            {
+                // The tester only checks the linkage; it never keeps the gateway, so dispose its HttpClient.
+                (gateway as IDisposable)?.Dispose();
+            }
+
+            // An empty cid means the gateway found no connection for this environment — report that as a
+            // failure instead of a misleading "Linked: (unnamed) (cid )." success.
+            if (!DualWriteConnectionGuard.IsLinked(linkage))
+            {
+                return new DwGatewayTestResult(false,
+                    DualWriteConnectionGuard.NoConnectionMessage(env.Url, result.GatewayBaseUrl));
+            }
 
             var name = string.IsNullOrWhiteSpace(linkage.Cname) ? "(unnamed)" : linkage.Cname;
             return new DwGatewayTestResult(true, $"Linked: {name} (cid {linkage.Cid}). Gateway: {result.GatewayBaseUrl}.");
