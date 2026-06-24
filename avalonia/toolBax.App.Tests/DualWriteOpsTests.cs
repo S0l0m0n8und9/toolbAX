@@ -269,4 +269,42 @@ public class DualWriteOpsTests
 
         Assert.Contains("DualWriteProjectConfiguration", vm.DebugStatus);
     }
+
+    // --- gateway log (self-diagnosis: which host, which cid, what happened) ---
+
+    [Fact]
+    public async Task Successful_load_logs_the_gateway_host_the_cid_and_the_map_count()
+    {
+        var vm = MakeVm(new FakeDualWriteConnector());
+
+        await vm.LoadCommand.ExecuteAsync(null);
+
+        Assert.True(vm.HasGatewayLog);
+        Assert.Contains(vm.GatewayLog, e => e.Text.Contains("fake-gateway.dual-write.example"));
+        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Ok && e.Text.Contains("fake-cid"));
+        Assert.Contains(vm.GatewayLog, e => e.Text.Contains("Loaded") && e.Text.Contains("map"));
+    }
+
+    [Fact]
+    public async Task A_connect_failure_is_logged_as_an_error_line()
+    {
+        var vm = MakeVm(FakeDualWriteConnector.ThatFails("no connection (cid) for this environment"));
+
+        await vm.LoadCommand.ExecuteAsync(null);
+
+        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Err && e.Text.Contains("no connection"));
+    }
+
+    [Fact]
+    public async Task ClearGatewayLog_empties_the_log()
+    {
+        var vm = MakeVm(new FakeDualWriteConnector());
+        await vm.LoadCommand.ExecuteAsync(null);
+        Assert.True(vm.HasGatewayLog);
+
+        vm.ClearGatewayLogCommand.Execute(null);
+
+        Assert.Empty(vm.GatewayLog);
+        Assert.False(vm.HasGatewayLog);
+    }
 }

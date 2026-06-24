@@ -63,7 +63,7 @@ public sealed class CoreDualWriteConnector : IDualWriteConnector
                     DualWriteConnectionGuard.NoConnectionMessage(env.Url, result.GatewayBaseUrl));
             }
 
-            var session = new DualWriteSession(gateway, linkage.Cid, linkage.Cname);
+            var session = new DualWriteSession(gateway, linkage.Cid, linkage.Cname, result.GatewayBaseUrl);
             handedOff = true;
             return session;
         }
