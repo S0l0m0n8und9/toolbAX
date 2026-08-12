@@ -319,6 +319,36 @@ public class AuthServiceTests
             configuredTenant));
     }
 
+    [Trait("Category", "TenantValidation")]
+    [Theory]
+    [InlineData("11111111111111111111111111111111")]          // "N" — dashless
+    [InlineData("{11111111-1111-1111-1111-111111111111}")]    // "B" — braced
+    [InlineData("(11111111-1111-1111-1111-111111111111)")]    // "P" — parenthesised
+    [InlineData("11111111-1111-1111-1111-111111111111")]      // "D" — canonical
+    [InlineData("11111111-1111-1111-1111-111111111111 ")]     // stray trailing space (Guid.Parse trims)
+    [InlineData("AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")]      // upper-case hex (already tolerated; pinned)
+    public void TenantValidation_SameTenantInAnyGuidSpelling_IsNotAMismatch(string configuredTenant)
+    {
+        // A `tid` claim is always the canonical dashed form. Every spelling above parses to the SAME
+        // GUID, so comparing strings reported the tenant as a cross-tenant misroute against itself —
+        // the identical "fails after a successful sign-in" failure, one layer narrower than the
+        // domain-form case. Value comparison is what makes these equivalent.
+        var canonicalTid = Guid.Parse(configuredTenant).ToString("D");
+
+        AuthService.ValidateTokenTenant(BuildJwtWithTid(canonicalTid), configuredTenant);
+    }
+
+    [Trait("Category", "TenantValidation")]
+    [Fact]
+    public void TenantValidation_GuidTenant_AgainstANonGuidTid_StaysStrict()
+    {
+        // AAD always issues a GUID tid, so this shape is not real — but a tenant we know precisely
+        // versus a claim we cannot interpret must not be waved through on the value-comparison path.
+        Assert.Throws<TenantMismatchException>(() => AuthService.ValidateTokenTenant(
+            BuildJwtWithTid("not-a-guid"),
+            "11111111-1111-1111-1111-111111111111"));
+    }
+
     private static string BuildJwtWithTid(string tid)
     {
         var header = Base64UrlEncode(Encoding.UTF8.GetBytes("""{"alg":"none","typ":"JWT"}"""));

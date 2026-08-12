@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
@@ -56,6 +57,33 @@ public class ProfilesViewRenderTests
             var activeBadges = list.GetVisualDescendants().OfType<TextBlock>()
                 .Where(t => t.Text == "active" && t.IsEffectivelyVisible).ToList();
             Assert.Single(activeBadges);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void Sign_out_tooltip_states_its_real_tenant_wide_scope()
+    {
+        // #168 low: the tooltip promised per-profile scope while the action deletes the MSAL cache blob
+        // for clientId|tenantId — signing out every profile on the shared app registration. It sat right
+        // next to the status message that now says so, contradicting it. Pin the wording so the button's
+        // promise and ProfilesViewModel.SignOut's status cannot drift apart again.
+        var view = new ProfilesView { DataContext = new ProfilesViewModel(new FakeProfileStore()) };
+        var window = new Window { Content = view, Width = 1000, Height = 700 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            var signOut = view.GetVisualDescendants().OfType<Button>()
+                .Single(b => b.Content as string == "Sign out");
+            var tip = ToolTip.GetTip(signOut) as string;
+
+            Assert.NotNull(tip);
+            Assert.Contains("every profile", tip, StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("for this profile", tip, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {

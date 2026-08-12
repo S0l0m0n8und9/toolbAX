@@ -90,7 +90,7 @@ public sealed class AuthService
         // (https://login.microsoftonline.com/{tenant}), so the STS already resolved and enforced it at
         // token issuance — a token issued by that authority cannot belong to a different directory.
         // A GUID-shaped tenant is the only case we can compare claim-to-claim, and it stays strict.
-        if (!Guid.TryParse(expectedTenantId, out _))
+        if (!Guid.TryParse(expectedTenantId, out var expectedTenant))
         {
             return;
         }
@@ -100,7 +100,19 @@ public sealed class AuthService
             return;
         }
 
-        if (!string.Equals(tokenTenantId, expectedTenantId, StringComparison.OrdinalIgnoreCase))
+        // Compare parsed GUID VALUES, not their spellings. Guid.TryParse accepts the dashless ("N"),
+        // braced ("B") and parenthesised ("P") forms, but a `tid` claim is always the canonical dashed
+        // ("D") form — so a tenant typed in any other valid spelling passed the GUID gate above and was
+        // then reported as a cross-tenant misroute against its own directory. Same false "wrong tenant"
+        // after a successful sign-in as the domain-form case, one layer narrower.
+        var mismatch = Guid.TryParse(tokenTenantId, out var tokenTenant)
+            ? tokenTenant != expectedTenant
+            // A `tid` that is not GUID-shaped cannot be value-compared. AAD always issues one, so this
+            // is not a real shape; keep the original strict string comparison rather than tolerating an
+            // uninterpretable claim against a tenant we do know precisely.
+            : !string.Equals(tokenTenantId, expectedTenantId, StringComparison.OrdinalIgnoreCase);
+
+        if (mismatch)
         {
             throw new TenantMismatchException(expectedTenantId, tokenTenantId);
         }
