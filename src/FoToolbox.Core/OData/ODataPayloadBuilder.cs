@@ -18,6 +18,38 @@ public static class ODataPayloadBuilder
         WriteIndented = true
     };
 
+    // Every value below is parsed with InvariantCulture, so the hazard isn't culture-specific formatting —
+    // it's culture-*ambiguous* input silently reading as a different number. .NET accepts group separators
+    // without validating their position, so NumberStyles.Number turns the "1,5" a comma-decimal-locale user
+    // typed for one-and-a-half into 15, raises no issue, and reports the F&O write as a success. There is no
+    // safe guess available here (the builder cannot know the user's locale, and guessing would make the same
+    // keystrokes mean different values for different users), so separators are rejected by construction.
+    private const NumberStyles DecimalStyles =
+        NumberStyles.AllowLeadingSign | NumberStyles.AllowDecimalPoint |
+        NumberStyles.AllowLeadingWhite | NumberStyles.AllowTrailingWhite;
+
+    // As DecimalStyles plus the exponent floating-point literals need ("1e3"); notably NOT AllowThousands.
+    private const NumberStyles FloatStyles = NumberStyles.Float;
+
+    // ISO 8601 only. The "K" specifier matches an empty string, "Z", or "+/-HH:mm", so each format covers
+    // both the offset-bearing and offset-less spelling. A free DateTimeOffset.TryParse instead accepts
+    // locale short-dates: "11/08/2026" is a *valid* InvariantCulture parse (8 November), so an NZ user who
+    // meant 11 August saw no error — just a different date on the record.
+    private static readonly string[] DateTimeOffsetFormats =
+    {
+        "yyyy-MM-ddK",
+        "yyyy-MM-dd'T'HH:mmK",
+        "yyyy-MM-dd'T'HH:mm:ssK",
+        "yyyy-MM-dd'T'HH:mm:ss.FFFFFFFK",
+    };
+
+    // AssumeUniversal: an input without an offset is UTC, never the host's local time — otherwise the same
+    // keystrokes write a different instant from every machine, which is not something the user can see or
+    // control from the payload builder. AdjustToUniversal: canonicalise to UTC so what is sent is what was
+    // parsed, independent of the machine that parsed it.
+    private const DateTimeStyles DateTimeOffsetStyles =
+        DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal;
+
     public static ODataPayloadBuildResult BuildPayloadJson(
         ODataEntity entity,
         IEnumerable<ODataFieldValue> fieldValues,
@@ -135,7 +167,18 @@ public static class ODataPayloadBuilder
                 issue = "Expected a boolean (true/false).";
                 return false;
 
+            // Its own case rather than folded into Edm.Int32: validated as an int, "40000" passed here and
+            // was rejected by the service instead — a much worse place to find out about the range.
             case "Edm.Int16":
+                if (short.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i16))
+                {
+                    node = i16;
+                    issue = string.Empty;
+                    return true;
+                }
+                issue = "Expected a 16-bit integer (-32768 to 32767).";
+                return false;
+
             case "Edm.Int32":
                 if (int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var i))
                 {
@@ -157,33 +200,33 @@ public static class ODataPayloadBuilder
                 return false;
 
             case "Edm.Decimal":
-                if (decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out var d))
+                if (decimal.TryParse(value, DecimalStyles, CultureInfo.InvariantCulture, out var d))
                 {
                     node = d;
                     issue = string.Empty;
                     return true;
                 }
-                issue = "Expected a decimal number.";
+                issue = "Expected a decimal number (no thousands separators; '.' as the decimal point).";
                 return false;
 
             case "Edm.Double":
-                if (double.TryParse(value, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var dbl))
+                if (double.TryParse(value, FloatStyles, CultureInfo.InvariantCulture, out var dbl))
                 {
                     node = dbl;
                     issue = string.Empty;
                     return true;
                 }
-                issue = "Expected a double.";
+                issue = "Expected a double (no thousands separators; '.' as the decimal point).";
                 return false;
 
             case "Edm.Single":
-                if (float.TryParse(value, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.InvariantCulture, out var f))
+                if (float.TryParse(value, FloatStyles, CultureInfo.InvariantCulture, out var f))
                 {
                     node = f;
                     issue = string.Empty;
                     return true;
                 }
-                issue = "Expected a float.";
+                issue = "Expected a float (no thousands separators; '.' as the decimal point).";
                 return false;
 
             case "Edm.Guid":
@@ -196,8 +239,12 @@ public static class ODataPayloadBuilder
                 issue = "Expected a GUID.";
                 return false;
 
+            // Exact, not DateOnly.TryParse: even under InvariantCulture that is a *free* parse which read
+            // "11/08/2026" as 8 November and "1,5" as 5 January of the current year. Latent while this
+            // branch was unreachable from the app; live the moment Edm.Date started reaching it, so the
+            // parse is pinned to the one format the issue message promises.
             case "Edm.Date":
-                if (DateOnly.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+                if (DateOnly.TryParseExact(value, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
                 {
                     node = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
                     issue = string.Empty;
@@ -207,13 +254,13 @@ public static class ODataPayloadBuilder
                 return false;
 
             case "Edm.DateTimeOffset":
-                if (DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.RoundtripKind, out var dto))
+                if (DateTimeOffset.TryParseExact(value, DateTimeOffsetFormats, CultureInfo.InvariantCulture, DateTimeOffsetStyles, out var dto))
                 {
                     node = dto.ToString("O", CultureInfo.InvariantCulture);
                     issue = string.Empty;
                     return true;
                 }
-                issue = "Expected a DateTimeOffset (ISO 8601).";
+                issue = "Expected ISO 8601 (e.g. 2026-08-12 or 2026-08-12T14:30:00Z).";
                 return false;
 
             default:
