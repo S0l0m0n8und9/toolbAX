@@ -68,10 +68,29 @@ public sealed class AuthService
     /// Validates that the `tid` claim inside the acquired JWT matches the configured tenant.
     /// Rejects with a <see cref="TenantMismatchException"/> before the token is handed to any caller,
     /// so cross-tenant misroutes never reach an API call.
+    /// <para>
+    /// Only applies to a GUID-shaped configured tenant — see the comment on the GUID check for why the
+    /// domain / meta-tenant forms are enforced by the authority instead.
+    /// </para>
     /// </summary>
     public static void ValidateTokenTenant(string token, string expectedTenantId)
     {
         if (string.IsNullOrWhiteSpace(expectedTenantId))
+        {
+            return;
+        }
+
+        // A token's `tid` claim is ALWAYS a tenant GUID, but the configured tenant is often not: the
+        // domain form ("contoso.onmicrosoft.com") and the meta-tenants ("common", "organizations") are
+        // all valid here. Comparing those to a GUID can never match, so sign-in succeeded and then this
+        // check rejected it with a non-retryable TenantMismatchException telling the user to fix a
+        // tenant that isn't wrong.
+        //
+        // Skip the equality check for a non-GUID tenant: the MSAL authority is built FROM that tenant
+        // (https://login.microsoftonline.com/{tenant}), so the STS already resolved and enforced it at
+        // token issuance — a token issued by that authority cannot belong to a different directory.
+        // A GUID-shaped tenant is the only case we can compare claim-to-claim, and it stays strict.
+        if (!Guid.TryParse(expectedTenantId, out _))
         {
             return;
         }

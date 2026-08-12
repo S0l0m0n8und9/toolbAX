@@ -144,6 +144,26 @@ public class CoreDataverseClientTests
     }
 
     [Fact]
+    public async Task A_scheme_less_dataverse_url_still_composes_a_valid_web_api_url()
+    {
+        // #168 low: "org.crm.dynamics.com" is the Profiles placeholder's own format, but it used to throw
+        // UriFormatException here (surfaced as a bare "Request failed") while the F&O client quietly
+        // repaired the same input — so the identically-typed URL worked for one tool and not the other.
+        var handler = new StubHandler(HttpStatusCode.OK, "{\"value\":[]}");
+        var client = new CoreDataverseClient(
+            new FakeAuthService(dataverseToken: _ => "dv-tok"),
+            () => Env(dataverseUrl: "contoso.crm.dynamics.com"),
+            new HttpClient(handler));
+
+        var result = await client.GetAsync("msdyn_dualwriteentitymaps", TestContext.Current.CancellationToken);
+
+        Assert.Equal(200, result.StatusCode);
+        Assert.Equal(
+            "https://contoso.crm.dynamics.com/api/data/v9.2/msdyn_dualwriteentitymaps",
+            handler.LastRequest!.RequestUri!.ToString());
+    }
+
+    [Fact]
     public async Task Dispose_disposes_the_internally_created_HttpClient()
     {
         var client = new CoreDataverseClient(new FakeAuthService(dataverseToken: _ => "tok"), () => Env());

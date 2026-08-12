@@ -107,6 +107,16 @@ public sealed class CoreDataverseClient : IDataverseClient, IDisposable
         }
 
         var apiBase = ResourceUrlNormalizer.BuildDataverseApiBaseUrl(dataverseUrl);
+
+        // Same scheme repair CoreODataClient.BuildUri already does for env.Url: a scheme-less Dataverse
+        // URL ("org.crm.dynamics.com") would otherwise throw UriFormatException here, so the F&O tools
+        // worked and the Dataverse ones didn't for identically-typed input. The normalizer now defaults
+        // the scheme too; keeping the repair local means this can't regress on that alone.
+        if (!apiBase.StartsWith("http", StringComparison.OrdinalIgnoreCase))
+        {
+            apiBase = $"https://{apiBase}";
+        }
+
         return new Uri($"{apiBase}/{pathOrUrl.TrimStart('/')}");
     }
 

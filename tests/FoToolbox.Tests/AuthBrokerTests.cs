@@ -66,12 +66,14 @@ public class AuthBrokerTests
         return $"{header}.{payload}.sig";
     }
 
-    private static async Task<SecretVaultService> NewVaultAsync()
+    private static async Task<SecretVaultService> NewVaultAsync() => (await NewVaultWithConnectionAsync()).Vault;
+
+    private static async Task<(SecretVaultService Vault, string ConnectionString)> NewVaultWithConnectionAsync()
     {
         var db = Path.GetTempFileName();
         var store = new ProfileStore(db);
         await store.EnsureCreatedAsync();
-        return new SecretVaultService(store.ConnectionString);
+        return (new SecretVaultService(store.ConnectionString), store.ConnectionString);
     }
 
     private sealed class FakeInteractiveProvider : IInteractiveTokenProvider
@@ -152,15 +154,36 @@ public class AuthBrokerTests
     public async Task Interactive_Mode_Rejects_Cross_Tenant_Token()
     {
         var fake = new FakeInteractiveProvider();
-        // Token contains tid "other-tenant" but request expects "tenant-1"
-        fake.Token = CreateJwt(DateTimeOffset.UtcNow.AddHours(1), "other-tenant");
+        // Token's tid is a different tenant than the one configured. Both must be GUID-shaped for the
+        // claim-to-claim check to apply at all — a domain-form tenant is enforced by the authority
+        // instead (see AuthService.ValidateTokenTenant), which is what the #168 tolerance fix relies on.
+        fake.Token = CreateJwt(DateTimeOffset.UtcNow.AddHours(1), "22222222-2222-2222-2222-222222222222");
 
         var vault = await NewVaultAsync();
         var broker = new AuthBroker(vault, interactiveProvider: fake);
         var sp = new ServicePrincipal("sp1", "env1", "public-client-id", AuthMode.Interactive, null, null, AuthTarget.Fo);
-        var request = new AuthTokenRequest("https://contoso.operations.dynamics.com", "tenant-1", sp);
+        var request = new AuthTokenRequest(
+            "https://contoso.operations.dynamics.com", "11111111-1111-1111-1111-111111111111", sp);
 
         await Assert.ThrowsAsync<TenantMismatchException>(() => broker.AcquireTokenAsync(request));
+    }
+
+    [Fact]
+    [Trait("Category", "Auth")]
+    public async Task Interactive_Mode_Accepts_A_Domain_Form_Tenant_After_Successful_SignIn()
+    {
+        // #168 low: the interactive arm validated the same way, so a profile whose tenant is the domain
+        // form signed in successfully and was then rejected with a non-retryable tenant error.
+        var fake = new FakeInteractiveProvider();
+        var freshToken = CreateJwt(DateTimeOffset.UtcNow.AddHours(1), "11111111-1111-1111-1111-111111111111");
+        fake.Token = freshToken;
+
+        var vault = await NewVaultAsync();
+        var broker = new AuthBroker(vault, interactiveProvider: fake);
+        var sp = new ServicePrincipal("sp1", "env1", "public-client-id", AuthMode.Interactive, null, null, AuthTarget.Fo);
+        var request = new AuthTokenRequest("https://contoso.operations.dynamics.com", "contoso.onmicrosoft.com", sp);
+
+        Assert.Equal(freshToken, await broker.AcquireTokenAsync(request));
     }
 
     [Fact]
@@ -247,6 +270,49 @@ public class AuthBrokerTests
         {
             var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => broker.AcquireTokenAsync(request));
             Assert.Contains("FOTB_CLIENT_SECRET", ex.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("FOTB_CLIENT_SECRET", null);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // #168 low: an undecryptable vault blob must not bypass the documented env-var fallback
+    // -----------------------------------------------------------------------
+
+    [Fact]
+    [Trait("Category", "Auth")]
+    public async Task Undecryptable_Vault_Blob_Reaches_The_EnvVar_Fallback_And_Its_Actionable_Message()
+    {
+        var (vault, connectionString) = await NewVaultWithConnectionAsync();
+        var secretRef = await vault.StoreSecretAsync("ClientSecret", new ClientSecretPayload { Value = "s3cret" });
+
+        // Simulate profile.db restored onto another machine/user: the CurrentUser-scoped DPAPI blob can
+        // no longer be unprotected.
+        await using (var conn = new Microsoft.Data.Sqlite.SqliteConnection(connectionString))
+        {
+            await conn.OpenAsync();
+            await using var cmd = conn.CreateCommand();
+            cmd.CommandText = "UPDATE SecretVault SET Blob = $blob WHERE Id = $id";
+            cmd.Parameters.Add("$blob", Microsoft.Data.Sqlite.SqliteType.Blob).Value = new byte[] { 9, 9, 9, 9, 9, 9, 9, 9 };
+            cmd.Parameters.AddWithValue("$id", secretRef);
+            Assert.Equal(1, await cmd.ExecuteNonQueryAsync());
+        }
+
+        var broker = new AuthBroker(vault);
+        var sp = new ServicePrincipal("sp1", "env1", "client-id", AuthMode.ClientSecret, secretRef, null, AuthTarget.Fo);
+        var request = new AuthTokenRequest("https://contoso.operations.dynamics.com", "tenant-1", sp);
+
+        Environment.SetEnvironmentVariable("FOTB_CLIENT_SECRET", null);
+        try
+        {
+            // The CryptographicException used to escape resolution ahead of the fallback, get retried
+            // three times, and surface as "Key not valid for use in specified state.". Now the resolver
+            // reaches the env-var branch and reports what the user can actually do about it.
+            var ex = await Assert.ThrowsAsync<InvalidOperationException>(() => broker.AcquireTokenAsync(request));
+            Assert.Contains("FOTB_CLIENT_SECRET", ex.Message, StringComparison.Ordinal);
+            Assert.DoesNotContain("Key not valid", ex.Message, StringComparison.OrdinalIgnoreCase);
         }
         finally
         {
