@@ -1164,4 +1164,35 @@ public class PostBuilderViewModelTests
             return Task.FromResult(new ODataResponse(204, "No Content", string.Empty, 1));
         }
     }
+
+    // --- Failing clipboard (#163) ---
+    // A contended clipboard throws (COMException on Windows) and the generated AsyncRelayCommand rethrows
+    // the faulted task on the dispatcher, killing the app; a failed copy must end as a status line.
+
+    private sealed class ThrowingClipboard : IClipboardService
+    {
+        public Task SetTextAsync(string text) => throw new InvalidOperationException("clipboard is busy");
+    }
+
+    [Fact]
+    public async Task Copy_url_survives_a_failing_clipboard()
+    {
+        var vm = new PostBuilderViewModel(new FakeODataClient(), new ThrowingClipboard()) { Path = "/data/E" };
+
+        await vm.CopyUrlCommand.ExecuteAsync(null); // awaiting proves the command task completed, not faulted
+
+        Assert.Contains("clipboard", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("clipboard is busy", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task Copy_payload_survives_a_failing_clipboard()
+    {
+        var vm = new PostBuilderViewModel(new FakeODataClient(), new ThrowingClipboard()) { Path = "/data/E" };
+
+        await vm.CopyPayloadCommand.ExecuteAsync(null);
+
+        Assert.Contains("clipboard", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("clipboard is busy", vm.StatusText);
+    }
 }

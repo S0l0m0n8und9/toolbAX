@@ -74,7 +74,11 @@ public partial class DualWriteMapViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(CopyMapLinkCommand))]
     private DwMapRecord? _detailMap;
 
-    /// <summary>Outcome of the last Markdown export (empty until one is attempted).</summary>
+    /// <summary>
+    /// Outcome of the last export / copy-link / open-link attempt on the inspected map — the line the view
+    /// renders beside those three buttons. Empty until one is attempted, and cleared when the selection
+    /// changes so a stale message can't be read as belonging to a different map.
+    /// </summary>
     [ObservableProperty]
     private string _exportStatus = string.Empty;
 
@@ -144,9 +148,21 @@ public partial class DualWriteMapViewModel : ObservableObject
             return;
         }
 
-        await LoadSolutionsAsync(ct);
-        await LoadFoEntityNamesAsync(ct);
-        await LoadMapsAsync(ct);
+        try
+        {
+            await LoadSolutionsAsync(ct);
+            await LoadFoEntityNamesAsync(ct);
+            await LoadMapsAsync(ct);
+        }
+        catch (OperationCanceledException)
+        {
+            // The view fires InitializeCommand on every Loaded and AsyncRelayCommand cancels the previous
+            // token, so navigate-away-and-back cancels an in-flight load: a NORMAL outcome, not an error.
+        }
+        catch (Exception ex)
+        {
+            LoadError = $"Couldn't load the dual-write catalogue: {ex.Message}";
+        }
     }
 
     private async Task LoadFoEntityNamesAsync(CancellationToken ct)
@@ -183,8 +199,19 @@ public partial class DualWriteMapViewModel : ObservableObject
 
         var markdown = DualWriteMapMarkdownExporter.Export(map);
         var fileName = DualWriteMapMarkdownExporter.SuggestedFileName(map);
-        var path = await _fileSave.SaveTextAsync(fileName, markdown, ct);
-        ExportStatus = path is null ? "Export cancelled." : $"Exported to {path}";
+        try
+        {
+            var path = await _fileSave.SaveTextAsync(fileName, markdown, ct);
+            ExportStatus = path is null ? "Export cancelled." : $"Exported to {path}";
+        }
+        catch (OperationCanceledException)
+        {
+            ExportStatus = "Export cancelled.";
+        }
+        catch (Exception ex)
+        {
+            ExportStatus = $"Export failed: {ex.Message}";
+        }
     }
 
     /// <summary>
@@ -219,15 +246,35 @@ public partial class DualWriteMapViewModel : ObservableObject
 
     // Opens the inspected map's Dataverse record in the browser — the native dual-write map config page.
     [RelayCommand(CanExecute = nameof(HasMapLink))]
-    private async Task OpenMapLink() => await _launcher.OpenAsync(MapRecordUrl);
+    private async Task OpenMapLink()
+    {
+        try
+        {
+            await _launcher.OpenAsync(MapRecordUrl);
+        }
+        catch (Exception ex)
+        {
+            ExportStatus = $"Couldn't open the link: {ex.Message}";
+        }
+    }
 
     // Copies the record link so it's visible/shareable for troubleshooting.
     [RelayCommand(CanExecute = nameof(HasMapLink))]
     private async Task CopyMapLink()
     {
-        if (MapRecordUrl is { } url)
+        if (MapRecordUrl is not { } url)
+        {
+            return;
+        }
+
+        try
         {
             await _clipboard.SetTextAsync(url);
+            ExportStatus = "Record link copied to the clipboard.";
+        }
+        catch (Exception ex)
+        {
+            ExportStatus = $"Couldn't copy to the clipboard: {ex.Message}";
         }
     }
 
@@ -301,6 +348,12 @@ public partial class DualWriteMapViewModel : ObservableObject
         catch (OperationCanceledException)
         {
             // A cancelled reload leaves the current list + selection intact.
+        }
+        catch (Exception ex)
+        {
+            // Also the shared body behind ReloadMaps: a reader that throws (rather than returning a failure
+            // result) must banner, not fault the command task — that lands on the dispatcher and kills the app.
+            LoadError = $"Couldn't load dual-write maps: {ex.Message}";
         }
         finally
         {

@@ -72,6 +72,51 @@ public class ShellRenderTests
     }
 
     [AvaloniaFact]
+    public void Degraded_mode_renders_a_persistent_banner()
+    {
+        var shell = new ShellViewModel(degraded: new DegradedMode("profile store unavailable: database is locked"));
+        var window = new MainWindow { DataContext = shell };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            var banner = window.GetVisualDescendants()
+                .OfType<Border>()
+                .FirstOrDefault(b => b.Name == "DegradedBanner");
+            Assert.NotNull(banner);
+            Assert.True(banner!.IsVisible);
+
+            var text = banner.GetVisualDescendants().OfType<TextBlock>().First().Text;
+            Assert.Contains("Offline sample data", text);
+            Assert.Contains("Nothing on screen is live", text);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void A_healthy_shell_renders_no_degraded_banner()
+    {
+        var window = new MainWindow { DataContext = new ShellViewModel() };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            var banner = window.GetVisualDescendants()
+                .OfType<Border>()
+                .FirstOrDefault(b => b.Name == "DegradedBanner");
+            Assert.NotNull(banner);            // present in the tree…
+            Assert.False(banner!.IsVisible);   // …but collapsed when nothing is degraded
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
     public void Design_tokens_resolve_from_application_resources()
     {
         var found = Application.Current!.Resources.TryGetResource(

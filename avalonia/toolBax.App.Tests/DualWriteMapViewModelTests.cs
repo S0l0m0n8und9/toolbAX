@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -866,5 +867,105 @@ public class DualWriteMapViewModelTests
         Assert.Null(vm.MapRecordUrl);
         Assert.False(vm.OpenMapLinkCommand.CanExecute(null));
         Assert.Contains("record id", vm.MapLinkUnavailableReason);
+    }
+
+    // --- Commands must not fault the dispatcher (#163) ---
+    // Every command below is an AsyncRelayCommand: a faulted task is rethrown on the dispatcher, which
+    // kills the app. Each has to end as a status/error line instead.
+
+    // Throws rather than returning a failure result — the reader seam's other failure mode.
+    private sealed class ThrowingReader : IDualWriteMapReader
+    {
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            throw new InvalidOperationException("Dataverse said no");
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) =>
+            throw new InvalidOperationException("Dataverse said no");
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) =>
+            Task.FromResult(DwCountResult.Ok(0));
+    }
+
+    private sealed class ThrowingClipboard : IClipboardService
+    {
+        public Task SetTextAsync(string text) => throw new InvalidOperationException("clipboard is busy");
+    }
+
+    private sealed class ThrowingFileSave : IFileSaveService
+    {
+        public Task<string?> SaveTextAsync(string suggestedFileName, string content, CancellationToken ct = default) =>
+            throw new IOException("the file is in use");
+    }
+
+    // Gates the SOLUTIONS load (Initialize's first await, the one with no OCE handling of its own —
+    // LoadMapsAsync already catches cancellation) and honours the token, so a cancelled run really throws.
+    private sealed class GatedSolutionReader : IDualWriteMapReader
+    {
+        public List<TaskCompletionSource> Gates { get; } = new();
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            Task.FromResult(DwMapLoadResult.Ok(Array.Empty<DwMapRecord>()));
+        public async Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default)
+        {
+            var gate = new TaskCompletionSource();
+            Gates.Add(gate);
+            await gate.Task.WaitAsync(ct);
+            return NoSolutions;
+        }
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) => Task.FromResult(DwCountResult.Ok(0));
+    }
+
+    [Fact]
+    public async Task Re_entering_initialize_cancels_the_first_run_without_faulting()
+    {
+        // The view fires InitializeCommand on every Loaded, and AsyncRelayCommand cancels the previous
+        // token when re-entered — so navigate-away-and-back must complete the first run, not fault it.
+        var reader = new GatedSolutionReader();
+        var vm = MakeVm(reader);
+
+        var first = vm.InitializeCommand.ExecuteAsync(null);
+        var second = vm.InitializeCommand.ExecuteAsync(null); // cancels the first command's token
+        foreach (var gate in reader.Gates.ToList())
+        {
+            gate.TrySetResult();
+        }
+
+        await first;  // must complete, not throw OperationCanceledException
+        await second;
+    }
+
+    [Fact]
+    public async Task Initialize_reports_a_reader_failure_instead_of_faulting()
+    {
+        var vm = MakeVm(new ThrowingReader());
+
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        Assert.True(vm.HasLoadError);
+        Assert.Contains("Dataverse said no", vm.LoadError);
+    }
+
+    [Fact]
+    public async Task Export_markdown_survives_a_locked_file()
+    {
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(), new ThrowingFileSave());
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        await vm.ExportMarkdownCommand.ExecuteAsync(null);
+
+        Assert.Contains("Export failed", vm.ExportStatus);
+        Assert.Contains("the file is in use", vm.ExportStatus);
+    }
+
+    [Fact]
+    public async Task Copy_map_link_survives_a_failing_clipboard()
+    {
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(),
+            activeEnv: () => EnvWithDataverse("https://contoso.crm.dynamics.com"),
+            clipboard: new ThrowingClipboard());
+        vm.SelectedMap = MapWithId("11111111-1111-1111-1111-111111111111");
+
+        await vm.CopyMapLinkCommand.ExecuteAsync(null);
+
+        Assert.Contains("clipboard", vm.ExportStatus, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("clipboard is busy", vm.ExportStatus);
     }
 }

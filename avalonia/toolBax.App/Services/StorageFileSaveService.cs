@@ -44,9 +44,11 @@ public sealed class StorageFileSaveService : IFileSaveService
             return null;
         }
 
+        // Cancellation MUST be observed before OpenWriteAsync: that call truncates the target, so checking
+        // afterwards would leave the user's existing file emptied by an export that never wrote a byte.
+        ct.ThrowIfCancellationRequested();
         await using var stream = await file.OpenWriteAsync();
         await using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-        ct.ThrowIfCancellationRequested();
         await writer.WriteAsync(content.AsMemory(), ct);
         return file.Path.IsAbsoluteUri ? file.Path.LocalPath : file.Name;
     }

@@ -13,6 +13,12 @@ using ToolBax.Core.Services;
 namespace ToolBax.App.ViewModels;
 
 /// <summary>
+/// Why the app is running on the offline fake stack (#164) — design mode on a non-Windows platform, or a
+/// profile-store failure. Non-null means NOTHING on screen came from a real environment.
+/// </summary>
+public sealed record DegradedMode(string Reason);
+
+/// <summary>
 /// Root shell view model (control-map §0): owns the tool list that drives the nav rail + content
 /// host, the active environment, busy state, and the Ctrl+K command palette. Tool screens plug into
 /// <see cref="CurrentTool"/> as they are built; for now the content host shows the tool title.
@@ -71,6 +77,27 @@ public partial class ShellViewModel : ObservableObject
     [ObservableProperty]
     private bool _isCommandPaletteOpen;
 
+    /// <summary>
+    /// Last last-resort failure message (see <c>App.InstallLastResortExceptionHandlers</c>), shown in the
+    /// status strip; empty when none. Deliberately non-modal: the action failed, the app is still usable.
+    /// </summary>
+    [ObservableProperty]
+    private string _backgroundError = string.Empty;
+
+    /// <summary>Why the app is on the offline fake stack, or null when everything is real (#164).</summary>
+    public DegradedMode? Degraded { get; }
+
+    /// <summary>True when nothing on screen came from a real environment.</summary>
+    public bool IsDegraded => Degraded is not null;
+
+    /// <summary>Banner copy for the persistent degraded-mode strip; empty when not degraded.</summary>
+    public string DegradedBannerText => Degraded is null
+        ? string.Empty
+        : $"Offline sample data — {Degraded.Reason}. Nothing on screen is live.";
+
+    /// <summary>Surfaces a last-resort background failure in the status strip.</summary>
+    public void ReportBackgroundFailure(string message) => BackgroundError = message;
+
     public ShellViewModel(
         Func<object>? operationsContentFactory = null,
         IProfileStore? profileStore = null,
@@ -87,8 +114,10 @@ public partial class ShellViewModel : ObservableObject
         IConnectionTester? connectionTester = null,
         IDialogService? dialogs = null,
         IUrlLauncher? launcher = null,
-        IVirtualTableReader? virtualTableReader = null)
+        IVirtualTableReader? virtualTableReader = null,
+        DegradedMode? degraded = null)
     {
+        Degraded = degraded;
         _operationsContentFactory = operationsContentFactory ?? DefaultOperationsContent;
         _profileStore = profileStore ?? new FakeProfileStore();
         // TODO: design-mode fakes — swap the interactive broker (WebView2) for the real Windows
@@ -271,19 +300,22 @@ public partial class ShellViewModel : ObservableObject
         }
 
         var previous = ActiveEnvironment;
-        ActiveEnvironment = target;
-        _profileStore.ActiveId = target.Id;
 
-        if (previous is null || previous.Id == target.Id)
-        {
-            return; // first selection, or re-selecting the current one — nothing to refresh.
-        }
-
-        // Best-effort: this also runs from the fire-and-forget ActiveChanged handler, so a dialog failure
-        // (e.g. the window closing mid-prompt) must surface as a trace warning, not an unobserved exception.
-        // The environment switch above is already committed; only the optional tool refresh is at risk.
+        // Best-effort for the ENTIRE switch: this also runs from the fire-and-forget ActiveChanged handler,
+        // so any failure along the way — persisting the active id to a locked store as much as a dialog
+        // dying with the window mid-prompt — must surface as a trace warning, not an unobserved exception
+        // the dispatcher later rethrows. The in-memory switch is committed before anything can fail, so a
+        // store/dialog failure still leaves the app pointing at the environment the user picked.
         try
         {
+            ActiveEnvironment = target;
+            _profileStore.ActiveId = target.Id;
+
+            if (previous is null || previous.Id == target.Id)
+            {
+                return; // first selection, or re-selecting the current one — nothing to refresh.
+            }
+
             var refresh = await _dialogs.ConfirmAsync(new ConfirmRequest(
                 Title: "Active environment changed",
                 Message: $"Switched to '{target.Name}'. Refresh open tools so they use this environment? Unsaved input in those tools will be discarded.",
@@ -299,7 +331,7 @@ public partial class ShellViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.TraceWarning($"Tool-refresh prompt failed after switching to '{target.Name}': {ex}");
+            System.Diagnostics.Trace.TraceWarning($"Switching to '{target.Name}' did not complete cleanly: {ex}");
         }
     }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -1361,5 +1362,76 @@ public class QueryBuilderViewModelTests
         Assert.Null(cond.Field);   // nothing to default to…
         cond.Value = "foo";
         Assert.Equal(string.Empty, vm.BuilderFilter); // …so the condition contributes no filter
+    }
+
+    // --- Failing clipboard / file-save seams (#163) ---
+    // A contended clipboard throws (COMException on Windows) and a locked file throws IOException. Left
+    // unhandled, the generated AsyncRelayCommand rethrows the faulted task on the dispatcher, which takes
+    // the whole app down; every one of these has to end as a status line instead.
+
+    private sealed class ThrowingClipboard : IClipboardService
+    {
+        public Task SetTextAsync(string text) => throw new InvalidOperationException("clipboard is busy");
+    }
+
+    private sealed class ThrowingFileSave : IFileSaveService
+    {
+        private readonly Exception _ex;
+        public ThrowingFileSave(Exception ex) => _ex = ex;
+        public Task<string?> SaveTextAsync(string suggestedFileName, string content, CancellationToken ct = default) =>
+            throw _ex;
+    }
+
+    [Fact]
+    public async Task Copy_url_survives_a_failing_clipboard()
+    {
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient(), new ThrowingClipboard());
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        await vm.CopyUrlCommand.ExecuteAsync(null); // awaiting proves the command task completed, not faulted
+
+        Assert.Contains("clipboard", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("clipboard is busy", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task Export_csv_to_the_clipboard_survives_a_failing_clipboard()
+    {
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient(), new ThrowingClipboard());
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        await vm.RunCommand.ExecuteAsync(null);
+
+        await vm.ExportCsvCommand.ExecuteAsync(null);
+
+        Assert.Contains("clipboard", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("clipboard is busy", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task Export_csv_to_file_survives_a_locked_file()
+    {
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient(),
+            fileSave: new ThrowingFileSave(new IOException("the file is in use")));
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        await vm.RunCommand.ExecuteAsync(null);
+
+        await vm.ExportCsvFileCommand.ExecuteAsync(null);
+
+        Assert.Contains("Export failed", vm.StatusText);
+        Assert.Contains("the file is in use", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task Export_csv_to_file_reports_a_cancelled_save()
+    {
+        // A picker that throws OCE (rather than returning null) is still a cancellation, not a failure.
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient(),
+            fileSave: new ThrowingFileSave(new OperationCanceledException()));
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        await vm.RunCommand.ExecuteAsync(null);
+
+        await vm.ExportCsvFileCommand.ExecuteAsync(null);
+
+        Assert.Equal("Export cancelled.", vm.StatusText);
     }
 }
