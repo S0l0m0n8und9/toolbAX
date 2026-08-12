@@ -212,13 +212,24 @@ public partial class PostBuilderViewModel : ObservableObject
         }
 
         var fetched = await _loader.EnsureFieldsAsync(entity.Name, ct);
-        LoadError = _loader.LastError;
         if (SelectedEntity != entity)
         {
-            return; // the user moved on; that selection's own load owns the grid now
+            // The user moved on; that selection's own load (ReloadGrid/EnsureFieldsAsync) owns the grid
+            // AND the LoadError banner now — this fetch's outcome, success or failure, belongs to
+            // `entity`, not to whatever is selected now. Returning here BEFORE touching LoadError is what
+            // stops a slow fetch for an entity the user has already left from clobbering the current
+            // selection's (possibly healthy) state once it finally resolves (PR #196 review).
+            return;
         }
 
-        if (fetched || _loader.LastError is not null)
+        // _loader.LastError is shared, "most recent fetch" state: EntityCatalogLoader.EnsureFieldsAsync
+        // returns early WITHOUT touching it when the entity's fields are already cached, so a cache hit
+        // here could otherwise leave LoadError holding an unrelated, earlier entity's failure. Re-derive
+        // per-entity truth from whether THIS entity's fields actually ended up available, rather than
+        // trusting the shared field blindly (PR #196 review).
+        LoadError = _metadata.GetFields(entity.Name) is null ? _loader.LastError : null;
+
+        if (fetched || LoadError is not null)
         {
             LoadFields();     // clears the block's cause when the fields arrived
             RebuildPayload(); // …or re-states the block with the failure attached
@@ -379,6 +390,12 @@ public partial class PostBuilderViewModel : ObservableObject
     // weren't cached) so the "hasn't loaded" block clears once they arrive.
     private void ReloadGrid()
     {
+        // A fresh selection starts with a clean slate for the load-error banner — whatever this reload
+        // finds (a cache hit needing no fetch, or the fetch EnsureFieldsAsync is about to run) owns
+        // LoadError from here. Without this, switching away from an entity whose fields failed to load
+        // left that entity's error banner showing over a DIFFERENT, healthy (already-cached) entity that
+        // never triggers a fetch at all (PR #196 review).
+        LoadError = null;
         LoadFields();
         RebuildPayload();
         if (Fields.Count == 0)
@@ -654,6 +671,14 @@ public partial class PostBuilderViewModel : ObservableObject
 
         IsBusy = true;
         StatusText = "Sending…";
+        // Clear the PREVIOUS send's outcome up front — a cancellation never gets a real response to
+        // overwrite these with, so without this reset its "Send cancelled." status was left sitting over
+        // an unrelated earlier send's badge/body/headers, misreadable as this send's own result
+        // (PR #196 review).
+        SendSucceeded = false;
+        StatusBadge = string.Empty;
+        ResponseBody = string.Empty;
+        ResponseHeaders = string.Empty;
         try
         {
             var body = string.Equals(Method, "DELETE", StringComparison.OrdinalIgnoreCase) ? null : RequestBody;

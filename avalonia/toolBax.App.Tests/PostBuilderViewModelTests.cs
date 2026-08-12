@@ -832,6 +832,113 @@ public class PostBuilderViewModelTests
         Assert.Contains("field fetch failed", vm.LoadError);
     }
 
+    // --- LoadError ownership is per-entity, not "last fetch ever" (PR #196 review) ---
+
+    // Two entities: A's field fetch always fails; B's fields are pre-cached (no fetch needed at all). The
+    // loader's own EnsureFieldsAsync returns early WITHOUT touching LastError on a cache hit, so B's
+    // selection can't be trusted to inherit anything from _loader.LastError.
+    private sealed class MixedFieldMetadata : IMetadataService
+    {
+        private static readonly IReadOnlyList<EntitySet> Sets =
+            new[]
+            {
+                new EntitySet("A", "SYS", 1, "Id", false, "system"),
+                new EntitySet("B", "SYS", 1, "Id", false, "system"),
+            };
+
+        private static readonly IReadOnlyList<EntityField> BFields = new[]
+        {
+            new EntityField("Id", "String", false, IsKey: true, Length: 10),
+        };
+
+        public IReadOnlyList<EntitySet> GetEntities() => Sets;
+        public IReadOnlyList<EntityField>? GetFields(string entityName) =>
+            entityName == "B" ? BFields : null; // A never caches; B always does
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) =>
+            entityName == "A"
+                ? throw new InvalidOperationException("A's field fetch failed")
+                : Task.FromResult(true);
+    }
+
+    [Fact]
+    public async Task Switching_from_a_failed_entity_to_a_cached_one_clears_the_stale_load_error()
+    {
+        // Red-check: before the fix, LoadError was written straight from the loader's SHARED LastError,
+        // which EntityCatalogLoader.EnsureFieldsAsync leaves untouched on a cache hit — so B's (perfectly
+        // healthy) selection inherited A's stale failure forever, because a cached entity never even
+        // triggers a new fetch to overwrite it.
+        var vm = new PostBuilderViewModel(new FakeODataClient(), metadata: new MixedFieldMetadata())
+        {
+            Method = "PATCH",
+        };
+        vm.UseFieldGrid = true; // auto-selects "A" (first entity), whose field fetch fails
+        await vm.EnsureFieldsCommand.ExecuteAsync(null); // deterministic re-run of the already-failed fetch
+
+        Assert.NotNull(vm.LoadError);
+        Assert.Contains("A's field fetch failed", vm.LoadError);
+
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "B"); // switch to the healthy, cached entity
+
+        Assert.Null(vm.LoadError);
+    }
+
+    // As MixedFieldMetadata, but A's fetch is held open by a gate so a selection change can land while it
+    // is still in flight.
+    private sealed class GatedFieldMetadata : IMetadataService
+    {
+        public readonly TaskCompletionSource Gate = new();
+
+        private static readonly IReadOnlyList<EntitySet> Sets =
+            new[]
+            {
+                new EntitySet("A", "SYS", 1, "Id", false, "system"),
+                new EntitySet("B", "SYS", 1, "Id", false, "system"),
+            };
+
+        private static readonly IReadOnlyList<EntityField> BFields = new[]
+        {
+            new EntityField("Id", "String", false, IsKey: true, Length: 10),
+        };
+
+        public IReadOnlyList<EntitySet> GetEntities() => Sets;
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => entityName == "B" ? BFields : null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+        public async Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default)
+        {
+            if (entityName != "A")
+            {
+                return true;
+            }
+
+            await Gate.Task; // held open until the test lets it resolve, after the selection has moved on
+            throw new InvalidOperationException("A's field fetch failed");
+        }
+    }
+
+    [Fact]
+    public async Task An_inflight_fetch_that_resolves_after_the_selection_moved_on_is_discarded()
+    {
+        // Red-check for the race half of the same bug: a fetch belonging to A must not attribute its
+        // outcome (here, a failure) to whatever entity is selected by the time it finally resolves.
+        var metadata = new GatedFieldMetadata();
+        var vm = new PostBuilderViewModel(new FakeODataClient(), metadata: metadata) { Method = "PATCH" };
+
+        vm.UseFieldGrid = true; // auto-selects "A", which starts A's (gated) field fetch via ReloadGrid
+        var aFetch = vm.EnsureFieldsCommand.ExecutionTask;
+        Assert.NotNull(aFetch);
+
+        // The user moves on to B (already cached — no new fetch) before A's fetch resolves.
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "B");
+        Assert.Null(vm.LoadError);
+
+        metadata.Gate.SetResult(); // let A's (now-stale) fetch fail
+        await aFetch!;
+
+        Assert.Null(vm.LoadError); // A's late failure must not overwrite B's (healthy) state
+    }
+
     [Fact]
     public async Task Initialize_loads_the_catalogue_so_grid_mode_becomes_usable()
     {
@@ -1370,5 +1477,53 @@ public class PostBuilderViewModelTests
         Assert.Equal("Request failed.", vm.StatusText);
         Assert.False(vm.SendSucceeded);
         Assert.Contains("socket timeout", vm.ResponseBody);
+    }
+
+    // Succeeds on the first call (to seed a "previous send" outcome on screen), then gates every
+    // subsequent call open until released — so a SECOND send can be cancelled mid-flight.
+    private sealed class SucceedThenGateClient : IODataClient
+    {
+        public readonly TaskCompletionSource Gate = new();
+        private int _calls;
+
+        public async Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
+        {
+            if (Interlocked.Increment(ref _calls) == 1)
+            {
+                return new ODataResponse(201, "Created", "{\"CustomerAccount\":\"US-1\"}", 5,
+                    new Dictionary<string, string> { ["ETag"] = "W/\"1\"" });
+            }
+
+            await Gate.Task;
+            ct.ThrowIfCancellationRequested();
+            return new ODataResponse(204, "No Content", string.Empty, 5);
+        }
+    }
+
+    [Fact]
+    public async Task Cancelling_a_send_clears_the_previous_sends_response_display()
+    {
+        // Red-check: before the fix, the cancel branch set StatusText but left StatusBadge/ResponseBody/
+        // ResponseHeaders exactly as the PREVIOUS (successful) send had left them — misreadable as this
+        // cancelled send's own outcome.
+        var client = new SucceedThenGateClient();
+        var vm = new PostBuilderViewModel(client) { Method = "POST" };
+
+        await vm.SendCommand.ExecuteAsync(null); // first send succeeds, leaving a badge + body on screen
+        Assert.True(vm.SendSucceeded);
+        Assert.Contains("201", vm.StatusBadge);
+        Assert.Contains("CustomerAccount", vm.ResponseBody);
+        Assert.True(vm.HasResponseHeaders);
+
+        var send = vm.SendCommand.ExecuteAsync(null); // second send — cancelled mid-flight
+        vm.SendCancelCommand.Execute(null);
+        client.Gate.SetResult();
+        await send;
+
+        Assert.Equal("Send cancelled.", vm.StatusText);
+        Assert.False(vm.SendSucceeded);
+        Assert.Equal(string.Empty, vm.StatusBadge);
+        Assert.Equal(string.Empty, vm.ResponseBody);
+        Assert.Equal(string.Empty, vm.ResponseHeaders);
     }
 }

@@ -75,6 +75,7 @@ public class PostBuilderViewRenderTests
             Assert.DoesNotContain(view.GetVisualDescendants().OfType<TextBlock>(),
                 t => t.Text == "catalogue endpoint unreachable");
 
+            // Raw mode: no picker, no issue panel — the banner is the only signal.
             vm.LoadError = "catalogue endpoint unreachable"; // e.g. an Initialize failure
             Dispatcher.UIThread.RunJobs();
 
@@ -83,9 +84,18 @@ public class PostBuilderViewRenderTests
             Assert.NotNull(banner);
             Assert.True(banner!.IsVisible); // raw mode (UseFieldGrid is false here) — not hidden
 
-            vm.UseFieldGrid = true; // switching modes must not hide it either
+            // Entering grid mode selects an entity, whose own (fresh) load re-derives LoadError — see the
+            // per-entity ownership tests in PostBuilderViewModelTests for that. What THIS test proves is
+            // the binding itself: the banner isn't gated on UseFieldGrid either way, so re-asserting the
+            // same error after the switch must render identically to the raw-mode case above.
+            vm.UseFieldGrid = true;
+            vm.LoadError = "catalogue endpoint unreachable";
             Dispatcher.UIThread.RunJobs();
-            Assert.True(banner.IsVisible);
+
+            banner = view.GetVisualDescendants().OfType<TextBlock>()
+                .FirstOrDefault(t => t.Text == "catalogue endpoint unreachable");
+            Assert.NotNull(banner);
+            Assert.True(banner!.IsVisible);
         }
         finally
         {
