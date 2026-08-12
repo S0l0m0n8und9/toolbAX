@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -220,6 +222,84 @@ public class DualWriteCompareViewModelTests
     public void Verdict_labels_are_friendly(DualWriteComparisonVerdict verdict, string expected) =>
         Assert.Equal(expected, CompareVerdict.Label(verdict));
 
+    // ── Result scale + the empty result (#168 lows): an empty grid with no chips and no count was
+    // indistinguishable from "every map is identical", i.e. it read as parity. ────────────────────────
+
+    [Fact]
+    public async Task An_empty_compare_result_is_reported_as_empty_rather_than_as_parity()
+    {
+        var vm = MakeVm(new StubCompareService());
+
+        await vm.CompareCommand.ExecuteAsync(null);
+
+        Assert.True(vm.HasResult);              // it completed: this is not the error state
+        Assert.Null(vm.Error);
+        Assert.Empty(vm.DiffRows);
+        Assert.Empty(vm.Summary);               // no verdict occurred, so there are no chips to read
+        Assert.Equal(0, vm.ComparedCount);
+        Assert.Equal("0 maps compared", vm.ComparedSummary);
+        Assert.True(vm.ShowEmptyResult);
+        Assert.False(vm.ShowDiffGrid);          // the bare grid is exactly what looked like "all in sync"
+    }
+
+    [Fact]
+    public async Task A_non_empty_result_counts_its_rows_and_shows_the_grid()
+    {
+        var vm = MakeVm();
+
+        await vm.CompareCommand.ExecuteAsync(null);
+
+        Assert.NotEmpty(vm.DiffRows);
+        Assert.Equal(vm.DiffRows.Count, vm.ComparedCount);
+        Assert.Equal($"{vm.DiffRows.Count} maps compared", vm.ComparedSummary);
+        Assert.True(vm.ShowDiffGrid);
+        Assert.False(vm.ShowEmptyResult);
+    }
+
+    [Fact]
+    public async Task A_single_compared_map_reads_in_the_singular()
+    {
+        var vm = MakeVm(new StubCompareService(
+            new DualWriteMapComparisonRow("Customers V3", true, true, "1.0.0.12", "1.0.0.12",
+                "Running", "Running", DualWriteComparisonVerdict.Identical)));
+
+        await vm.CompareCommand.ExecuteAsync(null);
+
+        Assert.Equal("1 map compared", vm.ComparedSummary);
+        Assert.True(vm.ShowDiffGrid);
+        Assert.False(vm.ShowEmptyResult);
+    }
+
+    [Fact]
+    public async Task A_failed_compare_is_not_reported_as_an_empty_result()
+    {
+        // The error banner owns the failure case; an empty-result message on top of it would be noise.
+        var vm = MakeVm(new ThrowingCompareService());
+
+        await vm.CompareCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, vm.ComparedCount);
+        Assert.False(vm.ShowEmptyResult);
+        Assert.False(vm.ShowDiffGrid);
+    }
+
+    [Fact]
+    public async Task Core_compare_service_connects_the_two_environments_one_at_a_time()
+    {
+        // Connecting can open a MODAL browser sign-in, so the two connects must NOT overlap: two modal
+        // windows stack on the same owner, closing either re-enables the main window while the other is
+        // still up, and a manually-closed window's best-effort capture can be attributed to the wrong
+        // environment. The recorder yields inside ConnectAsync, so an overlapping caller (the previous
+        // Task.WhenAll form) is caught deterministically rather than by timing.
+        var connector = new SequenceRecordingConnector();
+        var service = new CoreDualWriteCompareService(connector);
+
+        await service.CompareAsync(EnvNamed("src"), EnvNamed("tgt"), CancellationToken.None);
+
+        Assert.Equal(new[] { "start:src", "finish:src", "start:tgt", "finish:tgt" }, connector.Log);
+        Assert.Equal(1, connector.MaxConcurrent);
+    }
+
     [Fact]
     public async Task Core_compare_service_connects_both_environments_and_diffs()
     {
@@ -234,11 +314,70 @@ public class DualWriteCompareViewModelTests
         Assert.All(rows, r => Assert.Equal(DualWriteComparisonVerdict.Identical, r.Verdict));
     }
 
+    private static EnvProfile EnvNamed(string id) =>
+        new(id, id, $"https://{id}.operations.dynamics.com", "contoso.onmicrosoft.com", "USMF", "Tier 2",
+            EnvStatus.Connected);
+
     private sealed class ThrowingCompareService : IDualWriteCompareService
     {
         public Task<System.Collections.Generic.IReadOnlyList<DualWriteMapComparisonRow>> CompareAsync(
             EnvProfile source, EnvProfile target, CancellationToken ct = default)
             => Task.FromException<System.Collections.Generic.IReadOnlyList<DualWriteMapComparisonRow>>(
                 new System.InvalidOperationException("gateway unreachable"));
+    }
+
+    /// <summary>Returns exactly the rows it was given — no rows at all for the empty-result case.</summary>
+    private sealed class StubCompareService : IDualWriteCompareService
+    {
+        private readonly IReadOnlyList<DualWriteMapComparisonRow> _rows;
+
+        public StubCompareService(params DualWriteMapComparisonRow[] rows) => _rows = rows;
+
+        public Task<IReadOnlyList<DualWriteMapComparisonRow>> CompareAsync(
+            EnvProfile source, EnvProfile target, CancellationToken ct = default) => Task.FromResult(_rows);
+    }
+
+    /// <summary>
+    /// Records each connect's start and finish (and the peak number in flight), yielding in between so any
+    /// overlap is observed deterministically: the second connect of a parallel caller starts at the first
+    /// yield. Hands back a session over the shared in-memory gateway so the compare can complete.
+    /// </summary>
+    private sealed class SequenceRecordingConnector : IDualWriteConnector
+    {
+        private readonly List<string> _log = new();
+        private int _inFlight;
+
+        public IReadOnlyList<string> Log
+        {
+            get { lock (_log) { return _log.ToList(); } }
+        }
+
+        public int MaxConcurrent { get; private set; }
+
+        public async Task<DualWriteSession> ConnectAsync(EnvProfile env, CancellationToken ct = default)
+        {
+            lock (_log)
+            {
+                _log.Add($"start:{env.Id}");
+                MaxConcurrent = Math.Max(MaxConcurrent, ++_inFlight);
+            }
+
+            // Each yield is an opportunity for another connect to begin — which is what the browser sign-in
+            // inside a real connect gives the caller in abundance.
+            for (var i = 0; i < 3; i++)
+            {
+                await Task.Yield();
+            }
+
+            lock (_log)
+            {
+                _inFlight--;
+                _log.Add($"finish:{env.Id}");
+            }
+
+            return new DualWriteSession(
+                new FakeCoreDualWriteGateway(FakeDualWriteConnector.SeedMaps()),
+                "fake-cid", "Contoso", env.Id, "https://fake-gateway.dual-write.example");
+        }
     }
 }

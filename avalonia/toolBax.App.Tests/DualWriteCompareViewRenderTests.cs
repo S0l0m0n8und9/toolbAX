@@ -67,6 +67,66 @@ public class DualWriteCompareViewRenderTests
     }
 
     /// <summary>
+    /// #168: a compare that returned nothing rendered as an empty grid with no chips and no count — the
+    /// same picture as "every map is identical". The result has to say which it is.
+    /// </summary>
+    [AvaloniaFact]
+    public void An_empty_result_shows_a_zero_count_and_an_explicit_empty_state()
+    {
+        var vm = new DualWriteCompareViewModel(new FakeProfileStore(), new EmptyCompareService());
+        var view = new DualWriteCompareView { DataContext = vm };
+        var window = new Window { Content = view, Width = 1200, Height = 720 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            vm.CompareCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+
+            var count = Named<TextBlock>(view, "ComparedCountText");
+            Assert.True(count.IsVisible);
+            Assert.Equal("0 maps compared", count.Text);
+
+            var prompt = Named<Border>(view, "EmptyResultPrompt");
+            Assert.True(prompt.IsVisible);
+            Assert.Contains("No comparable maps were returned",
+                Assert.IsType<TextBlock>(prompt.Child).Text ?? string.Empty, StringComparison.Ordinal);
+
+            // No bare grid behind the message — its headers alone are what read as "all in sync".
+            var grid = view.GetVisualDescendants().OfType<DataGrid>().FirstOrDefault(g => g.Name == "DiffGrid");
+            Assert.True(grid is null || !grid.IsVisible, "an empty result must not render the diff grid");
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void A_non_empty_result_shows_a_count_matching_the_rows_and_no_empty_state()
+    {
+        var vm = new DualWriteCompareViewModel(new FakeProfileStore(), new FakeDualWriteCompareService());
+        var view = new DualWriteCompareView { DataContext = vm };
+        var window = new Window { Content = view, Width = 1200, Height = 720 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            vm.CompareCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.NotEmpty(vm.DiffRows);
+            Assert.Equal($"{vm.DiffRows.Count} maps compared", Named<TextBlock>(view, "ComparedCountText").Text);
+            Assert.False(Named<Border>(view, "EmptyResultPrompt").IsVisible);
+            Assert.True(view.GetVisualDescendants().OfType<DataGrid>().First(g => g.Name == "DiffGrid").IsVisible);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    /// <summary>
     /// The Diff column and the summary chips bind the raw verdict through these converters, so a verdict
     /// member with no mapping renders as the bare enum name in the grey fallback brush. #160 added
     /// <see cref="DualWriteComparisonVerdict.Ambiguous"/>; this covers every member, including future ones.
@@ -138,11 +198,23 @@ public class DualWriteCompareViewRenderTests
         return ((DualWriteMapComparisonRow)row.DataContext!, host);
     }
 
+    /// <summary>The single named control of that type in the view (x:Name'd in the .axaml).</summary>
+    private static T Named<T>(DualWriteCompareView view, string name) where T : Control =>
+        view.GetVisualDescendants().OfType<T>().First(c => c.Name == name);
+
     private static object Brush(DualWriteComparisonVerdict verdict) =>
         VerdictToBrushConverter.Instance.Convert(verdict, typeof(IBrush), null, CultureInfo.InvariantCulture);
 
     private static Color Colour(DualWriteComparisonVerdict verdict) =>
         Assert.IsAssignableFrom<ISolidColorBrush>(Brush(verdict)).Color;
+
+    /// <summary>Both gateways answered, neither with a usable map — a result, but nothing compared.</summary>
+    private sealed class EmptyCompareService : IDualWriteCompareService
+    {
+        public Task<IReadOnlyList<DualWriteMapComparisonRow>> CompareAsync(
+            EnvProfile source, EnvProfile target, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<DualWriteMapComparisonRow>>(Array.Empty<DualWriteMapComparisonRow>());
+    }
 
     /// <summary>
     /// Rows from the real <see cref="DualWriteMapComparer"/>, so the note the view renders is the note Core

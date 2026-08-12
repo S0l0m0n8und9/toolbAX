@@ -55,28 +55,35 @@
       </Grid>
     </StackPanel>
 
-    <!-- Summary chips -->
-    <ItemsControl Grid.Row="1" ItemsSource="{Binding Summary}" IsVisible="{Binding HasResult}" Margin="0,14,0,12">
-      <ItemsControl.ItemsPanel>
-        <ItemsPanelTemplate>
-          <WrapPanel />
-        </ItemsPanelTemplate>
-      </ItemsControl.ItemsPanel>
-      <ItemsControl.ItemTemplate>
-        <DataTemplate x:DataType="vm:DiffBucket">
-          <Border Background="{StaticResource Layer3Brush}" CornerRadius="999" Padding="10,3" Margin="0,0,8,0">
-            <StackPanel Orientation="Horizontal" Spacing="6">
-              <Ellipse Width="7" Height="7" VerticalAlignment="Center"
-                       Fill="{Binding Verdict, Converter={x:Static conv:VerdictToBrushConverter.Instance}}" />
-              <TextBlock Text="{Binding Label}" FontSize="11.5"
-                         Foreground="{Binding Verdict, Converter={x:Static conv:VerdictToBrushConverter.Instance}}" />
-            </StackPanel>
-          </Border>
-        </DataTemplate>
-      </ItemsControl.ItemTemplate>
-    </ItemsControl>
+    <!-- Result scale + summary chips -->
+    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" IsVisible="{Binding HasResult}"
+                Margin="0,14,0,12">
+      <!-- The compared count is what separates "nothing came back" from "nothing differs": chips exist only
+           for verdicts that actually occurred, so an empty result would otherwise render as a blank row. -->
+      <TextBlock x:Name="ComparedCountText" Text="{Binding ComparedSummary}" FontSize="11.5"
+                 VerticalAlignment="Center" Foreground="{StaticResource Text2Brush}" />
+      <ItemsControl ItemsSource="{Binding Summary}" VerticalAlignment="Center">
+        <ItemsControl.ItemsPanel>
+          <ItemsPanelTemplate>
+            <WrapPanel />
+          </ItemsPanelTemplate>
+        </ItemsControl.ItemsPanel>
+        <ItemsControl.ItemTemplate>
+          <DataTemplate x:DataType="vm:DiffBucket">
+            <Border Background="{StaticResource Layer3Brush}" CornerRadius="999" Padding="10,3" Margin="0,0,8,0">
+              <StackPanel Orientation="Horizontal" Spacing="6">
+                <Ellipse Width="7" Height="7" VerticalAlignment="Center"
+                         Fill="{Binding Verdict, Converter={x:Static conv:VerdictToBrushConverter.Instance}}" />
+                <TextBlock Text="{Binding Label}" FontSize="11.5"
+                           Foreground="{Binding Verdict, Converter={x:Static conv:VerdictToBrushConverter.Instance}}" />
+              </StackPanel>
+            </Border>
+          </DataTemplate>
+        </ItemsControl.ItemTemplate>
+      </ItemsControl>
+    </StackPanel>
 
-    <!-- Body: error, same-env prompt, or the diff grid -->
+    <!-- Body: error, same-env prompt, empty result, or the diff grid -->
     <Grid Grid.Row="2">
       <Border IsVisible="{Binding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
               VerticalAlignment="Top" Margin="0,12"
@@ -92,8 +99,18 @@
                    TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}" />
       </Border>
 
+      <!-- A compare that returned nothing. Says so outright: an empty grid under a chip-less summary row
+           was indistinguishable from "every map is identical", i.e. it read as parity. -->
+      <Border x:Name="EmptyResultPrompt" IsVisible="{Binding ShowEmptyResult}"
+              VerticalAlignment="Top" Margin="0,12"
+              Background="{StaticResource WarnBgBrush}" BorderBrush="{StaticResource WarnBrush}"
+              BorderThickness="1" CornerRadius="8" Padding="12,8">
+        <TextBlock Text="No comparable maps were returned from either environment — check the connections."
+                   TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}" />
+      </Border>
+
       <DataGrid x:Name="DiffGrid" ItemsSource="{Binding DiffRows}" IsReadOnly="True"
-                IsVisible="{Binding HasResult}" AutoGenerateColumns="False"
+                IsVisible="{Binding ShowDiffGrid}" AutoGenerateColumns="False"
                 GridLinesVisibility="Horizontal" Background="{StaticResource Layer1Brush}">
         <DataGrid.Columns>
           <DataGridTextColumn Header="Map" Binding="{Binding MapName}" Width="2*" />

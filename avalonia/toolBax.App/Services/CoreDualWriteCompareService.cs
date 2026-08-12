@@ -21,11 +21,16 @@ public sealed class CoreDualWriteCompareService : IDualWriteCompareService
 
     public async Task<IReadOnlyList<DualWriteMapComparisonRow>> CompareAsync(EnvProfile source, EnvProfile target, CancellationToken ct = default)
     {
-        // The two environments are independent gateway round-trips — connect + load them in parallel.
-        var leftTask = ConnectAndLoadAsync(source, ct);
-        var rightTask = ConnectAndLoadAsync(target, ct);
-        await Task.WhenAll(leftTask, rightTask).ConfigureAwait(false);
-        return DualWriteMapComparer.Compare(await leftTask.ConfigureAwait(false), await rightTask.ConfigureAwait(false));
+        // SEQUENTIALLY, source fully connected + loaded before target starts: connecting opens a MODAL
+        // browser sign-in window (the Data Integrator portal), and only one of those can be up at a time.
+        // Run in parallel, two modal windows stack on the same owner — closing one re-enables the main
+        // window while the other is still modal, and a manually-closed window's best-effort token capture
+        // can be attributed to the wrong environment. One sign-in at a time, each named after the
+        // environment it belongs to (see DualWriteSignInTitle). The extra wall-clock cost is a round-trip
+        // the user spends signing in anyway.
+        var left = await ConnectAndLoadAsync(source, ct).ConfigureAwait(false);
+        var right = await ConnectAndLoadAsync(target, ct).ConfigureAwait(false);
+        return DualWriteMapComparer.Compare(left, right);
     }
 
     private async Task<IReadOnlyList<DualWriteMap>> ConnectAndLoadAsync(EnvProfile env, CancellationToken ct)
