@@ -81,4 +81,10 @@ public sealed class FakeMetadataService : IMetadataService
 
     public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) =>
         Task.FromResult(Fields.ContainsKey(entityName));
+
+    // Nothing is cached off-box, so a forced refresh is the same no-op over the seeded data.
+    public Task LoadEntitiesAsync(bool forceRefresh, CancellationToken ct = default) => LoadEntitiesAsync(ct);
+
+    public Task<bool> LoadFieldsAsync(string entityName, bool forceRefresh, CancellationToken ct = default) =>
+        LoadFieldsAsync(entityName, ct);
 }

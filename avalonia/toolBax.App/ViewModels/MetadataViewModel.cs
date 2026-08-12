@@ -46,6 +46,11 @@ public partial class MetadataViewModel : ObservableObject
     [ObservableProperty]
     private string? _loadError;
 
+    // True while a forced refresh is in flight; keeps the Refresh button from re-entering.
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
+    private bool _isBusy;
+
     public MetadataViewModel(IMetadataService metadata)
     {
         _metadata = metadata;
@@ -79,6 +84,59 @@ public partial class MetadataViewModel : ObservableObject
 
         await LoadSelectedFieldsAsync(ct);
     }
+
+    // Re-reads the entity list and the selected entity's properties straight from the environment,
+    // bypassing the cached copies. The escape hatch for metadata that changed since it was cached (a
+    // deployed entity, or a profile repointed at another environment) — Initialize alone would keep
+    // serving the cache.
+    [RelayCommand(CanExecute = nameof(CanRefresh))]
+    private async Task Refresh(CancellationToken ct)
+    {
+        IsBusy = true;
+        try
+        {
+            await _metadata.LoadEntitiesAsync(forceRefresh: true, ct);
+            LoadError = null;
+
+            var loaded = _metadata.GetEntities();
+            if (loaded.Count > 0)
+            {
+                var previous = Selected?.Name;
+                Entities.Clear();
+                foreach (var e in loaded)
+                {
+                    Entities.Add(e);
+                }
+
+                Selected = Entities.FirstOrDefault(e => e.Name == previous) ?? Entities.FirstOrDefault();
+                OnPropertyChanged(nameof(Filtered));
+            }
+
+            // Refetch the selection's properties too, so the grid isn't left showing the cached ones.
+            if (Selected is { } entity)
+            {
+                await _metadata.LoadFieldsAsync(entity.Name, forceRefresh: true, ct);
+                if (Selected == entity)
+                {
+                    LoadFields();
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // A cancelled refresh leaves the previously loaded list and fields in place.
+        }
+        catch (Exception ex)
+        {
+            LoadError = ex.Message;
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+    }
+
+    private bool CanRefresh() => !IsBusy;
 
     // Fetches the selected entity's fields if they aren't cached yet, then refreshes the grid.
     [RelayCommand]

@@ -34,32 +34,79 @@ public sealed class CoreMetadataService : IMetadataService
     private volatile IReadOnlyDictionary<string, IReadOnlyList<string>> _enums =
         new Dictionary<string, IReadOnlyList<string>>();
 
+    // The environment the caches above belong to. This service is an app-lifetime singleton, so without
+    // that dimension a profile switch keeps serving the previous environment's entities/fields forever
+    // (callers treat a cache hit as "already loaded" and never refetch).
+    private string? _cacheEnvId;
+    private readonly object _envSync = new();
+
     public CoreMetadataService(ICatalogService catalog, Func<EnvProfile?> activeEnv)
     {
         _catalog = catalog;
         _activeEnv = activeEnv;
     }
 
-    public IReadOnlyList<EntitySet> GetEntities() => _entities;
-
-    public IReadOnlyList<EntityField>? GetFields(string entityName) =>
-        _fields.TryGetValue(entityName, out var fields) ? fields : null;
-
-    public IReadOnlyList<string>? GetNavigations(string entityName) =>
-        _navigations.TryGetValue(entityName, out var navs) ? navs : null;
-
-    public IReadOnlyList<string>? GetEnumMembers(string enumType) =>
-        _enums.TryGetValue(enumType, out var members) ? members : null;
-
-    public async Task LoadEntitiesAsync(CancellationToken ct = default)
+    public IReadOnlyList<EntitySet> GetEntities()
     {
+        ResetIfEnvChanged();
+        return _entities;
+    }
+
+    public IReadOnlyList<EntityField>? GetFields(string entityName)
+    {
+        ResetIfEnvChanged();
+        return _fields.TryGetValue(entityName, out var fields) ? fields : null;
+    }
+
+    public IReadOnlyList<string>? GetNavigations(string entityName)
+    {
+        ResetIfEnvChanged();
+        return _navigations.TryGetValue(entityName, out var navs) ? navs : null;
+    }
+
+    public IReadOnlyList<string>? GetEnumMembers(string enumType)
+    {
+        ResetIfEnvChanged();
+        return _enums.TryGetValue(enumType, out var members) ? members : null;
+    }
+
+    // Empties every cache when the active environment changes, so the next read misses and the next load
+    // refetches. Cheap enough to sit on the synchronous getters: it compares one string per call.
+    private void ResetIfEnvChanged()
+    {
+        var envId = _activeEnv()?.Id;
+        if (string.Equals(envId, _cacheEnvId, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        lock (_envSync)
+        {
+            if (string.Equals(envId, _cacheEnvId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
+            _fields.Clear();
+            _navigations.Clear();
+            _entities = Array.Empty<EntitySet>();
+            _enums = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+            _cacheEnvId = envId;
+        }
+    }
+
+    public Task LoadEntitiesAsync(CancellationToken ct = default) => LoadEntitiesAsync(false, ct);
+
+    public async Task LoadEntitiesAsync(bool forceRefresh, CancellationToken ct = default)
+    {
+        ResetIfEnvChanged();
         var env = ResolveEnv();
         if (env is null)
         {
             return;
         }
 
-        var index = await _catalog.GetODataEntityIndexAsync(env, CatalogRefreshMode.UseCacheIfFresh, ct).ConfigureAwait(false);
+        var index = await _catalog.GetODataEntityIndexAsync(env, RefreshMode(forceRefresh), ct).ConfigureAwait(false);
         _entities = index.Entities
             .OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
             .Select(e => new EntitySet(e.Name, Module: string.Empty, FieldCount: e.PropertyCount, Pk: string.Empty, CompanyAware: false, Tag: "odata"))
@@ -78,15 +125,19 @@ public sealed class CoreMetadataService : IMetadataService
     private static string LocalName(string typeName) =>
         string.IsNullOrEmpty(typeName) ? typeName : typeName[(typeName.LastIndexOf('.') + 1)..];
 
-    public async Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default)
+    public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) =>
+        LoadFieldsAsync(entityName, false, ct);
+
+    public async Task<bool> LoadFieldsAsync(string entityName, bool forceRefresh, CancellationToken ct = default)
     {
+        ResetIfEnvChanged();
         var env = ResolveEnv();
         if (env is null)
         {
             return false;
         }
 
-        var entity = await _catalog.GetODataEntityDetailsAsync(env, entityName, CatalogRefreshMode.UseCacheIfFresh, ct).ConfigureAwait(false);
+        var entity = await _catalog.GetODataEntityDetailsAsync(env, entityName, RefreshMode(forceRefresh), ct).ConfigureAwait(false);
         if (entity is null)
         {
             return false;
@@ -101,6 +152,11 @@ public sealed class CoreMetadataService : IMetadataService
             .ToList();
         return true;
     }
+
+    // A forced refresh bypasses both the max-age check and the stored copy, so the Metadata Browser's
+    // Refresh really goes back to the environment.
+    private static CatalogRefreshMode RefreshMode(bool forceRefresh) =>
+        forceRefresh ? CatalogRefreshMode.ForceRefresh : CatalogRefreshMode.UseCacheIfFresh;
 
     private FoEnvironment? ResolveEnv()
     {

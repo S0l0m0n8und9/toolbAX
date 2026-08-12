@@ -66,6 +66,83 @@ public class MetadataViewModelTests
         Assert.Empty(vm.Entities);
     }
 
+    // Records the forceRefresh flag of every load, so Refresh can be shown to bypass the caches rather
+    // than just re-reading them.
+    private sealed class RecordingMetadata : IMetadataService
+    {
+        private static readonly EntitySet[] All =
+        {
+            new("Alpha", "M", 1, "k", false, "odata"),
+            new("Beta", "M", 1, "k", false, "odata"),
+        };
+        private static readonly EntityField[] Props = { new("Id", "String", false, IsKey: true, Length: 10) };
+
+        public List<bool> EntityLoads { get; } = new();
+        public List<(string Entity, bool Force)> FieldLoads { get; } = new();
+
+        public IReadOnlyList<EntitySet> GetEntities() => All;
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => Props;
+
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => LoadEntitiesAsync(false, ct);
+
+        public Task LoadEntitiesAsync(bool forceRefresh, CancellationToken ct = default)
+        {
+            EntityLoads.Add(forceRefresh);
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) =>
+            LoadFieldsAsync(entityName, false, ct);
+
+        public Task<bool> LoadFieldsAsync(string entityName, bool forceRefresh, CancellationToken ct = default)
+        {
+            FieldLoads.Add((entityName, forceRefresh));
+            return Task.FromResult(true);
+        }
+    }
+
+    [Fact]
+    public async Task Refresh_forces_a_reload_of_the_entity_list_and_the_selected_fields()
+    {
+        var metadata = new RecordingMetadata();
+        var vm = new MetadataViewModel(metadata);
+        vm.Selected = vm.Entities.Single(e => e.Name == "Beta");
+
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Contains(true, metadata.EntityLoads);
+        Assert.Contains(metadata.FieldLoads, l => l.Entity == "Beta" && l.Force);
+        Assert.Equal("Beta", vm.Selected?.Name);   // the selection survives the reload
+        Assert.Null(vm.LoadError);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task Refresh_reloads_through_the_service_and_clears_busy()
+    {
+        var vm = MakeVm();
+        vm.Selected = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.False(vm.IsBusy);
+        Assert.True(vm.RefreshCommand.CanExecute(null));   // re-runnable once it finishes
+        Assert.Equal("CustomersV3", vm.Selected?.Name);
+        Assert.True(vm.IsCached);
+        Assert.NotEmpty(vm.Fields);
+    }
+
+    [Fact]
+    public async Task Refresh_surfaces_a_failure_as_LoadError_and_clears_busy()
+    {
+        var vm = new MetadataViewModel(new ThrowingMetadata());
+
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Contains("unreachable", vm.LoadError);
+        Assert.False(vm.IsBusy);
+    }
+
     [Fact]
     public void Cached_entity_populates_fields()
     {
