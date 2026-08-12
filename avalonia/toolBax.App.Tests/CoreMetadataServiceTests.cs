@@ -40,6 +40,7 @@ public class CoreMetadataServiceTests
             {
                 new ODataProperty("dataAreaId", "Edm.String", Nullable: false, IsKey: true, MaxLength: "4"),
                 new ODataProperty("VendorAccount", "Edm.String", Nullable: false, IsKey: true, MaxLength: "20"),
+                new ODataProperty("Tags", "Collection(Edm.String)", Nullable: true),
             }, Array.Empty<ODataNavigationProperty>()),
         },
         Enums: Array.Empty<ODataEnumType>(),
@@ -143,6 +144,23 @@ public class CoreMetadataServiceTests
         // was widened to Edm.DateTimeOffset and sent as a full timestamp.
         Assert.Equal("Date", fields.Single(f => f.Name == "BirthDate").Type);
         Assert.Equal("DateTime", fields.Single(f => f.Name == "CreatedDateTime").Type);
+    }
+
+    [Fact]
+    public async Task LoadFieldsAsync_maps_a_collection_type_to_a_plain_Collection_label()
+    {
+        var svc = Make();
+
+        var loaded = await svc.LoadFieldsAsync("VendorsV2", TestContext.Current.CancellationToken);
+
+        Assert.True(loaded);
+        var tags = svc.GetFields("VendorsV2")!.Single(f => f.Name == "Tags");
+        // "Collection(Edm.String)" isn't in the Edm.* namespace, so the enum branch used to take it and
+        // collapse it on the last dot: Type="Enum", EnumType="String)" — displayed as Enum<String)> with an
+        // enum value editor offered for it.
+        Assert.Equal("Collection", tags.Type);
+        Assert.Null(tags.EnumType);
+        Assert.Equal("Collection", tags.TypeDisplay);
     }
 
     [Fact]

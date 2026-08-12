@@ -1046,4 +1046,215 @@ public class QueryBuilderViewModelTests
 
         Assert.Equal("OrganizationName eq 'A' and CustomerGroupId eq 'B'", vm.BuilderFilter);
     }
+
+    // --- Literal syntax per field type (#161) ---
+    //
+    // The old numeric test matched "Decimal|Int|Int32|Int64|Real" — "Int"/"Real" are WPF-era names the real
+    // metadata mapper never emits — so every DateTime/Date/Boolean/Guid/Double/Int16 value was single-quoted
+    // and F&O answered 400 ("incompatible types Edm.DateTimeOffset and Edm.String").
+
+    [Theory]
+    // Field, operator, typed value, expected rendering — all on WorkerV2, whose seeded fields cover the
+    // non-string types the mapper produces.
+    [InlineData("BirthDate", "eq", "2026-01-01", "BirthDate eq 2026-01-01")]
+    [InlineData("EmploymentStartDateTime", "ge", "2026-01-01T00:00:00Z", "EmploymentStartDateTime ge 2026-01-01T00:00:00Z")]
+    [InlineData("IsContractor", "eq", "true", "IsContractor eq true")]
+    [InlineData("WorkerRecId", "eq", "6b1e1f77-9a1e-4c8e-9a4f-2f3d8a0c1b55", "WorkerRecId eq 6b1e1f77-9a1e-4c8e-9a4f-2f3d8a0c1b55")]
+    [InlineData("PartyNumber", "gt", "100", "PartyNumber gt 100")]
+    public void Builder_emits_bare_literals_for_non_string_types(string field, string op, string value, string expected)
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "WorkerV2");
+
+        var cond = AddCondition(vm);
+        cond.Field = field;
+        cond.Operator = Op(op);
+        cond.Value = value;
+
+        Assert.Equal(expected, vm.BuilderFilter);
+        Assert.DoesNotContain("'", vm.BuilderFilter); // no quotes anywhere — not even around part of it
+    }
+
+    [Theory]
+    [InlineData("true", "IsContractor eq true")]
+    [InlineData("True", "IsContractor eq true")]   // OData wants the lowercase form
+    [InlineData("FALSE", "IsContractor eq false")]
+    [InlineData("yes", "IsContractor eq yes")]     // not a boolean word → through as typed, server rejects it
+    public void Builder_normalises_boolean_words_and_passes_anything_else_through(string value, string expected)
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "WorkerV2");
+
+        var cond = AddCondition(vm);
+        cond.Field = "IsContractor";
+        cond.Operator = Op("eq");
+        cond.Value = value;
+
+        Assert.Equal(expected, vm.BuilderFilter);
+    }
+
+    [Fact]
+    public void Builder_still_quotes_strings_and_enum_members()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.CrossCompany = true; // keep the company clause out of the way
+
+        var text = AddCondition(vm);
+        text.Field = "OrganizationName"; text.Operator = Op("eq"); text.Value = "O'Brien";
+        Assert.Equal("OrganizationName eq 'O''Brien'", vm.BuilderFilter); // embedded quote still doubled
+
+        var enumCond = AddCondition(vm);
+        enumCond.Field = "IsOneTime"; enumCond.Operator = Op("eq"); enumCond.Value = "Yes";
+        Assert.Equal("OrganizationName eq 'O''Brien' and IsOneTime eq 'Yes'", vm.BuilderFilter);
+    }
+
+    [Fact]
+    public void Function_operators_are_hidden_for_a_date_time_field_and_a_selected_one_is_reset()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "WorkerV2");
+        var cond = AddCondition(vm);
+
+        cond.Field = "Name"; // string → function ops offered
+        Assert.Contains(cond.Operators, o => o.Op == "contains");
+        cond.Operator = Op("contains");
+
+        cond.Field = "EmploymentStartDateTime"; // DateTime → hidden, and the selected one falls back
+        Assert.False(cond.SupportsFunctions);
+        Assert.DoesNotContain(cond.Operators, o => o.IsFunction);
+        Assert.False(cond.Operator.IsFunction);
+    }
+
+    [Theory]
+    [InlineData("BirthDate")]
+    [InlineData("IsContractor")]
+    [InlineData("WorkerRecId")]
+    [InlineData("PartyNumber")]
+    public void Function_operators_are_offered_only_for_string_fields(string field)
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "WorkerV2");
+
+        var cond = AddCondition(vm);
+        cond.Field = field;
+
+        Assert.DoesNotContain(cond.Operators, o => o.IsFunction);
+    }
+
+    // --- Company scoping against index-shaped metadata (#161) ---
+
+    // Mirrors the real CoreMetadataService projection: entities come from the OData entity INDEX, which
+    // carries no field data, so EntitySet.CompanyAware is hardcoded false there. Only the per-entity field
+    // load reveals a dataAreaId — so that, not the flag, is what company scoping has to be gated on.
+    private sealed class IndexShapedMetadata : IMetadataService
+    {
+        private static readonly EntitySet[] Sets =
+        {
+            new("CustomersV3", string.Empty, 2, string.Empty, CompanyAware: false, "odata"),
+            new("SystemUsers", string.Empty, 2, string.Empty, CompanyAware: false, "odata"),
+        };
+
+        private static readonly Dictionary<string, IReadOnlyList<EntityField>> Fields = new()
+        {
+            ["CustomersV3"] = new EntityField[]
+            {
+                new("dataAreaId", "String", false, IsKey: true, Length: 4),
+                new("CustomerAccount", "String", false, IsKey: true, Length: 20),
+            },
+            ["SystemUsers"] = new EntityField[]
+            {
+                new("UserId", "String", false, IsKey: true, Length: 20),
+                new("Email", "String", true, Length: 80),
+            },
+        };
+
+        public IReadOnlyList<EntitySet> GetEntities() => Sets;
+        public IReadOnlyList<EntityField>? GetFields(string entityName) =>
+            Fields.TryGetValue(entityName, out var fields) ? fields : null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) =>
+            Task.FromResult(Fields.ContainsKey(entityName));
+    }
+
+    [Fact]
+    public void Company_scoping_is_gated_on_the_loaded_dataAreaId_field_not_the_entity_index()
+    {
+        var vm = new QueryBuilderViewModel(new IndexShapedMetadata(), new FakeODataClient());
+
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3"); // index says CompanyAware=false…
+        Assert.True(vm.IsCompanyAware);                                      // …but its fields carry dataAreaId
+        vm.CrossCompany = false;
+        vm.Company = "usmf";
+
+        Assert.Equal("dataAreaId eq 'usmf'", vm.EffectiveFilter);
+        Assert.Contains("$filter=dataAreaId eq 'usmf'", vm.QueryUrl);
+    }
+
+    [Fact]
+    public void Cross_company_defaults_to_the_entitys_real_company_awareness()
+    {
+        var vm = new QueryBuilderViewModel(new IndexShapedMetadata(), new FakeODataClient());
+
+        // Company-aware → query across companies until the user opts into a single one (which is what
+        // injects the dataAreaId clause); a global entity has nothing to scope.
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        Assert.True(vm.CrossCompany);
+
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "SystemUsers");
+        Assert.False(vm.CrossCompany);
+    }
+
+    [Fact]
+    public void Company_scoping_is_skipped_for_a_loaded_entity_without_a_dataAreaId_field()
+    {
+        var vm = new QueryBuilderViewModel(new IndexShapedMetadata(), new FakeODataClient());
+
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "SystemUsers"); // global entity
+        Assert.False(vm.IsCompanyAware);
+        Assert.False(vm.CrossCompany); // nothing to scope, so no cross-company default either
+        vm.Company = "usmf";
+
+        Assert.Equal(string.Empty, vm.EffectiveFilter);
+        Assert.DoesNotContain("dataAreaId", vm.QueryUrl);
+    }
+
+    // As DeferredMetadata, but the entity that arrives is company-aware: nothing is served until a load
+    // runs, then one entity whose FIELDS carry dataAreaId while its index flag stays false (production's
+    // shape). Company-awareness therefore can't be known at selection time — only when the fields land.
+    private sealed class DeferredCompanyMetadata : IMetadataService
+    {
+        private bool _loaded;
+        private static readonly EntitySet[] Late =
+            { new("CustomersV3", string.Empty, 2, string.Empty, CompanyAware: false, "odata") };
+        private static readonly EntityField[] LateFields =
+        {
+            new("dataAreaId", "String", false, IsKey: true, Length: 4),
+            new("CustomerAccount", "String", false, IsKey: true, Length: 20),
+        };
+
+        public IReadOnlyList<EntitySet> GetEntities() => _loaded ? Late : Array.Empty<EntitySet>();
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => _loaded ? LateFields : null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default) { _loaded = true; return Task.CompletedTask; }
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default)
+        { _loaded = true; return Task.FromResult(true); }
+    }
+
+    [Fact]
+    public async Task Company_awareness_lands_with_the_fields_and_notifies_the_badge()
+    {
+        var vm = new QueryBuilderViewModel(new DeferredCompanyMetadata(), new FakeODataClient());
+        Assert.False(vm.IsCompanyAware); // no fields yet → don't claim awareness
+
+        var raised = new List<string>();
+        vm.PropertyChanged += (_, e) => { if (e.PropertyName is not null) raised.Add(e.PropertyName); };
+
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        Assert.True(vm.IsCompanyAware);
+        Assert.Contains(nameof(QueryBuilderViewModel.IsCompanyAware), raised); // the badge binds to this
+
+        vm.CrossCompany = false;
+        Assert.Equal("dataAreaId eq 'usmf'", vm.EffectiveFilter);
+    }
 }

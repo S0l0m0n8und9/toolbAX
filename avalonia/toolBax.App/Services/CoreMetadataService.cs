@@ -234,6 +234,15 @@ public sealed class CoreMetadataService : IMetadataService
             return ("String", null);
         }
 
+        // Collection(...) properties aren't a scalar type and have no enum members. The local-name
+        // collapse below would mangle "Collection(Edm.String)" into an unbalanced Enum<String)> and offer
+        // an enum editor, so label them plainly instead — nothing in the app edits a collection value
+        // (POST Builder's ResolveEditor falls through to a text box, and the payload mapper to Edm.String).
+        if (edmType.StartsWith("Collection(", StringComparison.Ordinal))
+        {
+            return ("Collection", null);
+        }
+
         // Anything outside the Edm.* namespace is an enum/complex type in F&O metadata; surface the
         // local name as the enum type so the grid shows "Enum<NoYes>".
         if (!edmType.StartsWith("Edm.", StringComparison.Ordinal))
