@@ -29,6 +29,7 @@ public partial class PostBuilderViewModel : ObservableObject
     private readonly IODataClient _client;
     private readonly IClipboardService _clipboard;
     private readonly IMetadataService _metadata;
+    private readonly EntityCatalogLoader _loader;
     private readonly IDialogService _dialogs;
 
     // True only while RefreshEntityFilter is rebuilding FilteredEntities, so the transient selection
@@ -141,10 +142,76 @@ public partial class PostBuilderViewModel : ObservableObject
         _client = client;
         _clipboard = clipboard ?? new FakeClipboardService();
         _metadata = metadata ?? new FakeMetadataService();
+        _loader = new EntityCatalogLoader(_metadata);
         _dialogs = dialogs ?? new AutoConfirmDialogs();
+        // The fake seeds its catalogue synchronously; the real service starts empty and fills in via
+        // Initialize (triggered by the view on load) — so this snapshot is a starting point, not the load.
         Entities = new ObservableCollection<EntitySet>(_metadata.GetEntities());
         RefreshEntityFilter();
         // No entity is auto-selected: grid mode is opt-in, so construction leaves the raw body/path intact.
+    }
+
+    // Fetches the entity catalogue from the active environment's live $metadata (and the grid's fields when
+    // it's in use). The view calls this on load, so opening the POST Builder first in a session gets a
+    // populated entity picker instead of one that stays empty all session. Re-running it on every Loaded is
+    // cheap — the list is only rebuilt when it actually changed — and it refreshes the catalogue after an
+    // environment switch, since the metadata cache is environment-scoped. A no-op over the fake's seeded data.
+    [RelayCommand]
+    private async Task Initialize(CancellationToken ct)
+    {
+        var loaded = await _loader.LoadEntitiesAsync(Entities.Select(e => e.Name).ToList(), ct);
+        if (loaded is not null)
+        {
+            var previous = SelectedEntity?.Name;
+            Entities.Clear();
+            foreach (var e in loaded)
+            {
+                Entities.Add(e);
+            }
+
+            RefreshEntityFilter();
+            // Keep the selection across the rebuild by name (the instances are new). Grid mode always needs
+            // an entity — mirroring OnUseFieldGridChanged's default — so it falls back to the first when the
+            // previous one isn't in this environment; raw mode keeps "nothing selected" so the user's own
+            // path and body stand.
+            SelectedEntity = Entities.FirstOrDefault(e => e.Name == previous)
+                ?? (UseFieldGrid ? FilteredEntities.FirstOrDefault() ?? Entities.FirstOrDefault() : null);
+        }
+
+        await EnsureFieldsAsync(ct);
+        if (UseFieldGrid && SelectedEntity is null)
+        {
+            // Grid mode with nothing to select (the catalogue is empty, or the load failed): state that
+            // rather than leaving the raw body sendable against a path the grid isn't driving.
+            RebuildPayload();
+        }
+    }
+
+    // Fetches the selected entity's fields if they aren't cached yet, then rebuilds the grid + payload.
+    [RelayCommand]
+    private Task EnsureFields(CancellationToken ct) => EnsureFieldsAsync(ct);
+
+    // Deliberately rebuilds via LoadFields/RebuildPayload rather than ReloadGrid: a fetch that yields no
+    // fields must settle on the "hasn't loaded" block, not re-enter the fetch and loop.
+    private async Task EnsureFieldsAsync(CancellationToken ct)
+    {
+        var entity = SelectedEntity;
+        if (!UseFieldGrid || entity is null || Fields.Count > 0)
+        {
+            return;
+        }
+
+        var fetched = await _loader.EnsureFieldsAsync(entity.Name, ct);
+        if (SelectedEntity != entity)
+        {
+            return; // the user moved on; that selection's own load owns the grid now
+        }
+
+        if (fetched || _loader.LastError is not null)
+        {
+            LoadFields();     // clears the block's cause when the fields arrived
+            RebuildPayload(); // …or re-states the block with the failure attached
+        }
     }
 
     /// <summary>Number of grid fields currently included in the payload.</summary>
@@ -246,6 +313,10 @@ public partial class PostBuilderViewModel : ObservableObject
     {
         if (!value)
         {
+            // Back to raw mode: the editor owns the body again, so drop the grid's validation state instead
+            // of leaving a stale issue panel over a body the user now controls.
+            PayloadIssues = string.Empty;
+            PayloadIssueCount = 0;
             return;
         }
 
@@ -254,11 +325,14 @@ public partial class PostBuilderViewModel : ObservableObject
             // Defaulting the selection triggers OnSelectedEntityChanged, which (grid mode is now on)
             // already loads the fields + builds the payload — so don't do it a second time here.
             SelectedEntity = FilteredEntities.FirstOrDefault() ?? Entities.FirstOrDefault();
+            if (SelectedEntity is null)
+            {
+                RebuildPayload(); // nothing to select yet — block rather than leaving the raw body sendable
+            }
         }
         else
         {
-            LoadFields();
-            RebuildPayload();
+            ReloadGrid();
         }
     }
 
@@ -276,8 +350,21 @@ public partial class PostBuilderViewModel : ObservableObject
 
         if (UseFieldGrid)
         {
-            LoadFields();
-            RebuildPayload();
+            ReloadGrid();
+        }
+    }
+
+    // Shows what's cached for the selected entity, then fetches its fields when the grid came up empty (they
+    // weren't cached) so the "hasn't loaded" block clears once they arrive.
+    private void ReloadGrid()
+    {
+        LoadFields();
+        RebuildPayload();
+        if (Fields.Count == 0)
+        {
+            // Read off the grid rather than asking the metadata service a second time, so selecting an
+            // already-cached entity doesn't pay for an extra lookup.
+            EnsureFieldsCommand.Execute(null);
         }
     }
 
@@ -395,18 +482,28 @@ public partial class PostBuilderViewModel : ObservableObject
     // POST enforces mandatory fields; PATCH/DELETE relax that (partial updates / key-only).
     private void RebuildPayload()
     {
-        if (SelectedEntity is null)
+        if (!UseFieldGrid)
         {
+            return; // raw mode: the user owns the body, and CanSend doesn't gate on payload issues
+        }
+
+        // The grid can only build a body from loaded field metadata. Until that's there — no entity picked,
+        // or the entity's fields aren't cached — block rather than return: leaving the PREVIOUS entity's body
+        // behind an empty issue list kept Send enabled, so a CustomersV3 payload could be POSTed to
+        // /data/VendorsV2. Worse for a keyed write: with no fields there's no key predicate, BasePath falls
+        // back to the collection URL and the keyed-write guard below never runs, so the confirm dialog would
+        // promise a targeted DELETE for a request carrying no record identity at all. See issue #155.
+        var selected = SelectedEntity;
+        var fields = selected is null ? null : _metadata.GetFields(selected.Name);
+        if (selected is null || fields is null || Fields.Count == 0)
+        {
+            BlockPayload(selected is null
+                ? "No entity is selected — pick one to build the payload."
+                : $"Field metadata for {selected.Name} hasn't loaded — the payload can't be built yet.");
             return;
         }
 
-        var fields = _metadata.GetFields(SelectedEntity.Name);
-        if (fields is null)
-        {
-            return;
-        }
-
-        var entity = PostPayloadMapper.ToEntity(SelectedEntity.Name, fields);
+        var entity = PostPayloadMapper.ToEntity(selected.Name, fields);
         // For PATCH/DELETE the key fields identify the record in the URL predicate, so they're excluded
         // from the body (sending key fields in a PATCH body is redundant and some services reject it).
         var keyedMethod = IsKeyedMethod(Method);
@@ -446,6 +543,18 @@ public partial class PostBuilderViewModel : ObservableObject
             RequestBody = result.Ok ? result.Json! : string.Empty;
             PayloadIssues = string.Join(Environment.NewLine, issues);
         }
+    }
+
+    // Grid mode with no usable field metadata: clear the body and raise a single blocking issue (which
+    // disables Send via CanSend), naming the load failure as the cause when there was one. Raises the target
+    // URL alongside the observable writes — without fields there's no key predicate, so the target changed too.
+    private void BlockPayload(string issue)
+    {
+        var cause = _loader.LastError;
+        PayloadIssueCount = 1;
+        PayloadIssues = cause is null ? issue : $"{issue} ({cause})";
+        RequestBody = string.Empty;
+        OnPropertyChanged(nameof(RequestUrl));
     }
 
     // In grid mode an invalid payload must not be sent (the body is blank and the issues are shown);
