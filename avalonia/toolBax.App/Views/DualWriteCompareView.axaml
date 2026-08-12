@@ -88,8 +88,8 @@
       <Border IsVisible="{Binding ShowSamePrompt}" VerticalAlignment="Top" Margin="0,12"
               Background="{StaticResource InfoBgBrush}" BorderBrush="{StaticResource InfoBrush}"
               BorderThickness="1" CornerRadius="8" Padding="12,8">
-        <TextBlock Text="Pick two different environments to compare."
-                   Foreground="{StaticResource Text1Brush}" />
+        <TextBlock Text="Source and target point at the same F&amp;O environment — pick two different environments to compare."
+                   TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}" />
       </Border>
 
       <DataGrid x:Name="DiffGrid" ItemsSource="{Binding DiffRows}" IsReadOnly="True"

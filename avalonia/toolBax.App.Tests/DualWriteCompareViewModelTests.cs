@@ -39,6 +39,97 @@ public class DualWriteCompareViewModelTests
         Assert.False(vm.CompareCommand.CanExecute(null));
     }
 
+    // ── Picker freshness (#153): the shell caches this VM and EnvProfile is an immutable record the
+    // Profiles screen replaces on save, so the pickers are re-read on every activation. ──────────────
+
+    [Fact]
+    public void RefreshEnvironments_rebinds_a_selection_to_the_edited_profile_record()
+    {
+        var store = new FakeProfileStore();
+        var vm = new DualWriteCompareViewModel(store, new FakeDualWriteCompareService());
+        var original = vm.SelectedSource!;
+
+        // A profile edit replaces the record (same Id, corrected URL) — e.g. fixing a typo'd F&O host.
+        store.Save(original with { Url = "contoso-dev-corrected.operations.dynamics.com" });
+        vm.RefreshEnvironmentsCommand.Execute(null);
+
+        Assert.Equal(original.Id, vm.SelectedSource!.Id);
+        Assert.Equal("contoso-dev-corrected.operations.dynamics.com", vm.SelectedSource!.Url);
+        Assert.NotSame(original, vm.SelectedSource);
+        Assert.Contains(vm.Environments, e => ReferenceEquals(e, vm.SelectedSource));
+    }
+
+    [Fact]
+    public void RefreshEnvironments_falls_back_when_the_selected_profile_was_deleted()
+    {
+        var store = new FakeProfileStore();
+        var vm = new DualWriteCompareViewModel(store, new FakeDualWriteCompareService());
+        var deleted = vm.SelectedSource!;
+
+        store.Delete(deleted.Id);
+        vm.RefreshEnvironmentsCommand.Execute(null);
+
+        Assert.DoesNotContain(vm.Environments, e => e.Id == deleted.Id);
+        Assert.NotNull(vm.SelectedSource);
+        Assert.Equal(store.GetAll()[0].Id, vm.SelectedSource!.Id);   // fell back to the default first pick
+    }
+
+    [Fact]
+    public void RefreshEnvironments_picks_up_a_profile_added_after_construction()
+    {
+        var store = new FakeProfileStore();
+        var vm = new DualWriteCompareViewModel(store, new FakeDualWriteCompareService());
+        var added = new EnvProfile("new-env", "New Env", "contoso-new.operations.dynamics.com",
+            "contoso.onmicrosoft.com", "USMF", "Tier 2", EnvStatus.Connected);
+
+        store.Save(added);
+        Assert.DoesNotContain(vm.Environments, e => e.Id == added.Id);   // construction was only a snapshot
+
+        vm.RefreshEnvironmentsCommand.Execute(null);
+
+        Assert.Contains(vm.Environments, e => e.Id == added.Id);
+    }
+
+    // ── Same-environment guard (#153): identity is the gateway host, not the record reference. ────────
+
+    [Fact]
+    public void Two_profiles_for_one_fo_environment_cannot_be_compared()
+    {
+        // The normal case this guards: an interactive profile and an SPN profile for the SAME environment.
+        // Distinct records (so the old ReferenceEquals guard passed), one URL with a scheme + trailing
+        // slash + upper case, the other bare — both must normalize to the same host.
+        var store = new FakeProfileStore(new[]
+        {
+            new EnvProfile("pgw-interactive", "PGW (interactive)", "HTTPS://PGW.operations.dynamics.com/",
+                "pgw.onmicrosoft.com", "PGW", "Tier 1", EnvStatus.Connected),
+            new EnvProfile("pgw-spn", "PGW (SPN)", "pgw.operations.dynamics.com",
+                "pgw.onmicrosoft.com", "PGW", "Tier 1", EnvStatus.Connected),
+        });
+        var vm = new DualWriteCompareViewModel(store, new FakeDualWriteCompareService());
+
+        Assert.NotSame(vm.SelectedSource, vm.SelectedTarget);
+        Assert.False(vm.CanCompare);
+        Assert.True(vm.ShowSamePrompt);
+        Assert.False(vm.CompareCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void Profiles_for_different_fo_hosts_can_be_compared()
+    {
+        var store = new FakeProfileStore(new[]
+        {
+            new EnvProfile("dev", "Dev", "https://contoso-dev.operations.dynamics.com",
+                "contoso.onmicrosoft.com", "USMF", "Tier 1", EnvStatus.Connected),
+            new EnvProfile("uat", "UAT", "contoso-uat.operations.dynamics.com",
+                "contoso.onmicrosoft.com", "USMF", "Tier 2", EnvStatus.Connected),
+        });
+        var vm = new DualWriteCompareViewModel(store, new FakeDualWriteCompareService());
+
+        Assert.True(vm.CanCompare);
+        Assert.False(vm.ShowSamePrompt);
+        Assert.True(vm.CompareCommand.CanExecute(null));
+    }
+
     [Fact]
     public async Task Compare_produces_diff_rows_and_a_verdict_summary()
     {

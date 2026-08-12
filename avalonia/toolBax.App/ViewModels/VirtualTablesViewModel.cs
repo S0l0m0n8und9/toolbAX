@@ -26,7 +26,14 @@ public partial class VirtualTablesViewModel : ObservableObject
     private readonly IVirtualTableReader _reader;
     private readonly Func<EnvProfile?> _activeEnv;
     private readonly IUrlLauncher _launcher;
+    // Whether any load has completed (drives the empty state, and separates "never loaded" from
+    // "loaded while no environment was active" — both have a null environment stamp).
     private bool _loaded;
+    // The environment the listed tables were loaded from. The shell can switch the active environment under
+    // this cached VM (the "Refresh open tools?" prompt is declinable) while SelectedTableUrl resolves the
+    // ACTIVE environment at click time — so a stale list would deep-link "Open in Dataverse" into a
+    // different environment than the one whose tables are on screen. Re-stamped by each successful load.
+    private string? _loadedEnvId;
 
     public ObservableCollection<VirtualTableInfo> Tables { get; } = new();
 
@@ -55,6 +62,13 @@ public partial class VirtualTablesViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasOtherVirtual))]
     private int _otherVirtualCount;
+
+    /// <summary>
+    /// Name of the environment the listed tables were loaded from, so the header states which environment
+    /// the grid (and therefore the "Open in Dataverse" link) belongs to. Empty when nothing is listed.
+    /// </summary>
+    [ObservableProperty]
+    private string _loadedEnvName = string.Empty;
 
     public bool HasOtherVirtual => OtherVirtualCount > 0;
 
@@ -92,20 +106,38 @@ public partial class VirtualTablesViewModel : ObservableObject
 
     public bool HasSelectionLink => SelectedTableUrl is not null;
 
+    // Loads on first activation AND after an environment switch — deliberately not a one-shot. The shell
+    // keeps this VM alive across a declined "Refresh open tools?" prompt, so re-activating under a different
+    // environment must reload; otherwise the grid keeps environment A's tables while the deep link (which
+    // resolves the ACTIVE environment) points into environment B.
     [RelayCommand]
     private async Task Initialize(CancellationToken ct)
     {
-        if (!_loaded)
+        if (!_loaded || EnvChangedSinceLoad())
         {
             await ReloadAsync(ct);
         }
     }
+
+    // True when the active environment moved on since the listed tables were loaded.
+    private bool EnvChangedSinceLoad() =>
+        !string.Equals(_activeEnv()?.Id, _loadedEnvId, StringComparison.Ordinal);
 
     [RelayCommand]
     private Task Refresh(CancellationToken ct) => ReloadAsync(ct);
 
     private async Task ReloadAsync(CancellationToken ct)
     {
+        // Captured BEFORE the read (same pattern as DualWriteMapViewModel.LoadMapsAsync): the reader resolves
+        // the active environment internally at call time, so a switch landing mid-load must not stamp
+        // environment B onto the tables that were actually read from environment A — that would make the next
+        // activation a no-op and leave the grid permanently mismatched with the deep link. Capturing first
+        // errs the safe way: a mid-load switch leaves stamp = A while active = B, so the next Initialize
+        // reloads. The residual window is the microseconds between this line and the reader resolving the
+        // environment, which is as atomic as this seam allows without plumbing it through the reader API.
+        var env = _activeEnv();
+        var envId = env?.Id;
+        var envName = env?.Name ?? string.Empty;
         IsLoading = true;
         LoadError = string.Empty;
         try
@@ -116,6 +148,9 @@ public partial class VirtualTablesViewModel : ObservableObject
             {
                 Tables.Clear();
                 OtherVirtualCount = 0;
+                // Nothing is listed, so there's no environment to label. The id stamp is left alone: a
+                // failure under a new environment should still reload on the next activation.
+                LoadedEnvName = string.Empty;
                 LoadError = result.Error ?? "Failed to load virtual tables.";
                 return;
             }
@@ -132,6 +167,10 @@ public partial class VirtualTablesViewModel : ObservableObject
                 Tables.Add(table);
             }
 
+            // Stamp what these tables belong to — the environment captured before the read, not whatever is
+            // active now.
+            _loadedEnvId = envId;
+            LoadedEnvName = envName;
             OnPropertyChanged(nameof(Filtered));
         }
         catch (OperationCanceledException)

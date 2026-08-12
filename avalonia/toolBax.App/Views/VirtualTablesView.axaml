@@ -16,6 +16,12 @@
                    Text="Finance &amp; Operations–backed virtual tables in this Dataverse environment. Read-only — generate and configure virtual tables in the maker portal." />
       </StackPanel>
       <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="8" VerticalAlignment="Top">
+        <!-- Which environment the listed tables (and the "Open in Dataverse" link) belong to — the shell can
+             switch the active environment while this screen stays open. -->
+        <TextBlock x:Name="LoadedEnvLabel" VerticalAlignment="Center" FontSize="12"
+                   Foreground="{StaticResource Text3Brush}"
+                   IsVisible="{Binding LoadedEnvName, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                   Text="{Binding LoadedEnvName, StringFormat='{}Loaded from {0}'}" />
         <Button Content="Open in Dataverse" Command="{Binding OpenInDataverseCommand}"
                 ToolTip.Tip="Open the selected virtual table's list view in the model-driven app" />
         <Button Content="Refresh" Command="{Binding RefreshCommand}" />
