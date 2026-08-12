@@ -83,9 +83,11 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         }
 
         var count = DualWriteMapParser.ParseCount(response.Body);
+        // A count that hit the platform ceiling is flagged, not reported as a total — Dataverse caps
+        // @odata.count at 5,000 for a standard table, so "5,000" may really be any number ≥ 5,000.
         return count is null
             ? DwCountResult.Fail($"Dataverse returned no count for '{entitySet}'.")
-            : DwCountResult.Ok(count.Value);
+            : DwCountResult.Ok(count.Count, count.IsCappedAt(DualWriteMapParser.DataverseStandardCountCap));
     }
 
     public async Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default)

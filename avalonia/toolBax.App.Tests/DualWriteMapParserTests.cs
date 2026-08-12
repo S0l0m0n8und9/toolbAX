@@ -189,7 +189,7 @@ public class DualWriteMapParserTests
     [InlineData("{\"@odata.count\":42,\"value\":[]}", 42L)]
     [InlineData("{\"@odata.count\":\"7\",\"value\":[]}", 7L)]
     public void ParseCount_reads_the_odata_count(string json, long expected) =>
-        Assert.Equal(expected, DualWriteMapParser.ParseCount(json));
+        Assert.Equal(expected, DualWriteMapParser.ParseCount(json)!.Count);
 
     [Theory]
     [InlineData("{\"value\":[]}")]
@@ -197,6 +197,75 @@ public class DualWriteMapParserTests
     [InlineData(null)]
     public void ParseCount_is_null_when_absent_or_unparseable(string? json) =>
         Assert.Null(DualWriteMapParser.ParseCount(json));
+
+    // --- #159: the Dataverse 5,000-row count cap has to be visible, not silently reported as a total ---
+
+    [Fact]
+    public void CountAnnotations_names_the_documented_dataverse_cap_annotations()
+    {
+        // These are the two annotation names the Web API docs say to request via Prefer alongside
+        // $count=true; CoreDataverseClient sends this list verbatim.
+        Assert.Equal(
+            "Microsoft.Dynamics.CRM.totalrecordcount,Microsoft.Dynamics.CRM.totalrecordcountlimitexceeded",
+            DualWriteMapParser.CountAnnotations);
+        Assert.Equal(5000, DualWriteMapParser.DataverseStandardCountCap);
+    }
+
+    [Fact]
+    public void ParseCount_flags_a_capped_count_from_the_cap_annotation()
+    {
+        // What a 42,000-row table actually returns: the count is the 5,000 ceiling, and only the
+        // annotation says so.
+        const string json = """
+        {"@odata.count":5000,"@Microsoft.Dynamics.CRM.totalrecordcount":5000,
+         "@Microsoft.Dynamics.CRM.totalrecordcountlimitexceeded":true,"value":[]}
+        """;
+
+        var count = DualWriteMapParser.ParseCount(json);
+
+        Assert.Equal(5000, count!.Count);
+        Assert.True(count.CapExceeded);
+        Assert.True(count.IsCappedAt(DualWriteMapParser.DataverseStandardCountCap));
+    }
+
+    [Fact]
+    public void ParseCount_trusts_a_negative_cap_annotation_at_exactly_the_cap()
+    {
+        // A table with exactly 5,000 rows: same number, annotation says the limit was NOT exceeded, so
+        // this is a real total and the count-cap heuristic must not second-guess it.
+        const string json = """
+        {"@odata.count":5000,"@Microsoft.Dynamics.CRM.totalrecordcount":5000,
+         "@Microsoft.Dynamics.CRM.totalrecordcountlimitexceeded":false,"value":[]}
+        """;
+
+        var count = DualWriteMapParser.ParseCount(json);
+
+        Assert.False(count!.CapExceeded);
+        Assert.False(count.IsCappedAt(DualWriteMapParser.DataverseStandardCountCap));
+    }
+
+    [Fact]
+    public void ParseCount_reads_a_string_cap_annotation()
+    {
+        var count = DualWriteMapParser.ParseCount(
+            "{\"@odata.count\":5000,\"@Microsoft.Dynamics.CRM.totalrecordcountlimitexceeded\":\"true\",\"value\":[]}");
+
+        Assert.True(count!.CapExceeded);
+    }
+
+    [Fact]
+    public void ParseCount_leaves_the_cap_unknown_when_the_annotation_is_absent()
+    {
+        // No annotation (an F&O response, or a Dataverse env that ignored the Prefer header) → tri-state
+        // null, so each side can decide: F&O counts aren't capped, a Dataverse count on the limit is.
+        var onTheLimit = DualWriteMapParser.ParseCount("{\"@odata.count\":5000,\"value\":[]}");
+        Assert.Null(onTheLimit!.CapExceeded);
+        Assert.True(onTheLimit.IsCappedAt(DualWriteMapParser.DataverseStandardCountCap));
+
+        var wellUnder = DualWriteMapParser.ParseCount("{\"@odata.count\":4999,\"value\":[]}");
+        Assert.Null(wellUnder!.CapExceeded);
+        Assert.False(wellUnder.IsCappedAt(DualWriteMapParser.DataverseStandardCountCap));
+    }
 
     [Fact]
     public void ParsePage_with_no_more_pages_has_a_null_next_link()

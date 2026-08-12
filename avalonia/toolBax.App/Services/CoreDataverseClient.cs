@@ -79,8 +79,12 @@ public sealed class CoreDataverseClient : IDataverseClient, IDisposable
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             // Ask Dataverse to inline formatted (display) values for option-set / lookup columns
-            // (statecode, statuscode, ownerid) so the parser can show human-readable text.
-            request.Headers.Add("Prefer", "odata.include-annotations=\"OData.Community.Display.V1.FormattedValue\"");
+            // (statecode, statuscode, ownerid) so the parser can show human-readable text, and the
+            // total-record-count annotations so a $count=true response says whether it hit the 5,000-row
+            // cap instead of silently reporting the ceiling as a total. One header, comma-separated list.
+            request.Headers.Add("Prefer",
+                "odata.include-annotations=\"OData.Community.Display.V1.FormattedValue," +
+                $"{DualWriteMapParser.CountAnnotations}\"");
 
             using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
             var responseBody = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);

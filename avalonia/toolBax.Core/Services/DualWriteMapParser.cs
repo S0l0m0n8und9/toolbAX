@@ -63,8 +63,29 @@ public static class DualWriteMapParser
         return $"/data/{entity}?{query}";
     }
 
-    /// <summary>Extracts the <c>@odata.count</c> from a response body (null if absent/unparseable).</summary>
-    public static long? ParseCount(string? json)
+    /// <summary>
+    /// Dataverse caps <c>@odata.count</c> at 5,000 rows for a standard table, so a count of exactly 5,000
+    /// can mean "5,000" or "42,000" — the cap is invisible in the count alone.
+    /// See https://learn.microsoft.com/power-apps/developer/data-platform/webapi/query/count-rows.
+    /// </summary>
+    public const long DataverseStandardCountCap = 5000;
+
+    /// <summary>
+    /// The Dataverse annotations that make the count cap visible. Requested per the docs above via
+    /// <c>Prefer: odata.include-annotations="…"</c> alongside <c>$count=true</c>, which adds
+    /// <c>@Microsoft.Dynamics.CRM.totalrecordcount</c> and
+    /// <c>@Microsoft.Dynamics.CRM.totalrecordcountlimitexceeded</c> to the response;
+    /// <see cref="ParseCount"/> reads the latter.
+    /// </summary>
+    public const string CountAnnotations =
+        "Microsoft.Dynamics.CRM.totalrecordcount,Microsoft.Dynamics.CRM.totalrecordcountlimitexceeded";
+
+    /// <summary>
+    /// Extracts the <c>@odata.count</c> from a response body, together with what the response said about
+    /// the platform's count cap (see <see cref="CountAnnotations"/>). Null if the count is
+    /// absent/unparseable.
+    /// </summary>
+    public static DwRowCount? ParseCount(string? json)
     {
         if (string.IsNullOrWhiteSpace(json))
         {
@@ -79,12 +100,12 @@ public static class DualWriteMapParser
             {
                 if (count.ValueKind == JsonValueKind.Number && count.TryGetInt64(out var number))
                 {
-                    return number;
+                    return new DwRowCount(number, ParseCapExceeded(document.RootElement));
                 }
 
                 if (count.ValueKind == JsonValueKind.String && long.TryParse(count.GetString(), out var parsed))
                 {
-                    return parsed;
+                    return new DwRowCount(parsed, ParseCapExceeded(document.RootElement));
                 }
             }
         }
@@ -95,6 +116,19 @@ public static class DualWriteMapParser
 
         return null;
     }
+
+    // The cap annotation as a tri-state: true/false when Dataverse returned it, null when it is absent
+    // (the Prefer header wasn't honoured, or this is an F&O response — F&O doesn't cap its counts).
+    private static bool? ParseCapExceeded(JsonElement root) =>
+        root.TryGetProperty("@Microsoft.Dynamics.CRM.totalrecordcountlimitexceeded", out var exceeded)
+            ? exceeded.ValueKind switch
+            {
+                JsonValueKind.True => true,
+                JsonValueKind.False => false,
+                JsonValueKind.String => bool.TryParse(exceeded.GetString(), out var parsed) ? parsed : null,
+                _ => null,
+            }
+            : null;
 
     /// <summary>Component type for a dual-write entity map in <c>solutioncomponents</c>.</summary>
     public const int DualWriteMapComponentType = 500;

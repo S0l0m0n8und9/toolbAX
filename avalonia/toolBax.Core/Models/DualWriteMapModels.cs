@@ -158,12 +158,35 @@ public sealed record DwSolutionPage(IReadOnlyList<DwSolution> Solutions, string?
 /// <summary>One page of solution-component object ids (dual-write maps in a solution) plus paging link.</summary>
 public sealed record DwComponentIdPage(IReadOnlyList<Guid> ObjectIds, string? NextLink);
 
+/// <summary>
+/// A row count read from an OData <c>$count=true</c> response.
+/// </summary>
+/// <param name="Count">The number the platform reported — a total, or a ceiling if it was capped.</param>
+/// <param name="CapExceeded">
+/// What the response said about the platform's count cap: <c>true</c>/<c>false</c> from the Dataverse
+/// <c>Microsoft.Dynamics.CRM.totalrecordcountlimitexceeded</c> annotation, or <c>null</c> when the
+/// response carried no such annotation (an F&amp;O response never does — F&amp;O counts aren't capped).
+/// </param>
+public sealed record DwRowCount(long Count, bool? CapExceeded)
+{
+    /// <summary>
+    /// True when <see cref="Count"/> is a platform ceiling rather than a total. The annotation is
+    /// authoritative when the response carried one; without it, a count sitting exactly on
+    /// <paramref name="cap"/> is read conservatively as "<paramref name="cap"/> or more".
+    /// </summary>
+    public bool IsCappedAt(long cap) => CapExceeded ?? Count == cap;
+}
+
 /// <summary>Outcome of a row-count query: the count, or an error to surface.</summary>
-public sealed record DwCountResult(long? Count, string? Error)
+/// <param name="Capped">
+/// True when <paramref name="Count"/> is the platform's count ceiling, not a total — the real number is
+/// "<paramref name="Count"/> or more". Callers must not treat a capped count as an exact figure.
+/// </param>
+public sealed record DwCountResult(long? Count, string? Error, bool Capped = false)
 {
     public bool IsSuccess => Error is null;
 
-    public static DwCountResult Ok(long count) => new(count, null);
+    public static DwCountResult Ok(long count, bool capped = false) => new(count, null, capped);
 
     public static DwCountResult Fail(string error) => new(null, error);
 }
