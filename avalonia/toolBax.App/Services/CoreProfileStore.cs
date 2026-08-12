@@ -183,11 +183,12 @@ public sealed class CoreProfileStore : IProfileStore
         }
 
         var clientIdChanged = ClientIdChanged(existing, profile.ClientId);
-        if (clientIdChanged)
-        {
-            DeleteSecretBlob(existing!.SecretRef, profile.Id);
-        }
 
+        // Order matters: persist the row (with the credential unbound) BEFORE deleting the blob it used
+        // to point at. Invariant: never delete a blob a still-persisted row points at — deleting first
+        // and then failing the upsert would leave the surviving row's SecretRef aimed at a blob that no
+        // longer exists (HasSecret true, secret unreadable). This way a failed upsert leaves the old row
+        // and its blob intact and consistent, so the save can simply be retried.
         RunBlocking(() => _profiles.UpsertServicePrincipalAsync(new ServicePrincipal(
             existing?.Id ?? $"{profile.Id}:fo",
             profile.Id,
@@ -196,6 +197,11 @@ public sealed class CoreProfileStore : IProfileStore
             clientIdChanged ? null : existing?.SecretRef,
             clientIdChanged ? null : existing?.CertThumbprint,
             AuthTarget.Fo)));
+
+        if (clientIdChanged)
+        {
+            DeleteSecretBlob(existing!.SecretRef, profile.Id);
+        }
     }
 
     // Mirrors SaveFoServicePrincipal for the Dataverse credential (Target=Dataverse).
@@ -218,11 +224,8 @@ public sealed class CoreProfileStore : IProfileStore
         }
 
         var clientIdChanged = ClientIdChanged(existing, profile.DataverseClientId);
-        if (clientIdChanged)
-        {
-            DeleteSecretBlob(existing!.SecretRef, profile.Id);
-        }
 
+        // Upsert before deleting the superseded blob — see SaveFoServicePrincipal for the invariant.
         RunBlocking(() => _profiles.UpsertServicePrincipalAsync(new ServicePrincipal(
             existing?.Id ?? $"{profile.Id}:dataverse",
             profile.Id,
@@ -231,6 +234,11 @@ public sealed class CoreProfileStore : IProfileStore
             clientIdChanged ? null : existing?.SecretRef,
             clientIdChanged ? null : existing?.CertThumbprint,
             AuthTarget.Dataverse)));
+
+        if (clientIdChanged)
+        {
+            DeleteSecretBlob(existing!.SecretRef, profile.Id);
+        }
     }
 
     // A stored credential belongs to the app registration it was issued for — both the client secret and

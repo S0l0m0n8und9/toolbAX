@@ -13,6 +13,9 @@ public sealed class FakeSecretStore : ISecretStore
 {
     private readonly HashSet<string> _keys = new();
 
+    // Routes on the (target, environment id) pair exactly as CoreSecretStore does — the target alone
+    // decides which of an environment's credentials is meant, so an F&O, Dataverse and Data Integrator
+    // secret for the same environment id stay three distinct entries whatever the id looks like.
     private static string Compose(string key, SecretTarget target) => $"{target}:{key}";
 
     public bool HasSecret(string key, SecretTarget target = SecretTarget.Fo) => _keys.Contains(Compose(key, target));

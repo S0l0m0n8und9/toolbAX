@@ -608,7 +608,7 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
-    public void Di_service_account_secret_is_stored_under_a_separate_key()
+    public void Di_service_account_secret_is_stored_under_its_own_target()
     {
         var secrets = new FakeSecretStore();
         var vm = new ProfilesViewModel(new FakeProfileStore(), secrets);
@@ -618,7 +618,9 @@ public class ProfilesViewModelTests
         vm.SaveDiSecretCommand.Execute(null);
 
         Assert.True(vm.HasDiSecret);
-        Assert.True(secrets.HasSecret("uat-eur:di"));
+        // The environment id is passed through unchanged; the target is what separates the DI
+        // service-account secret from the environment's F&O client secret.
+        Assert.True(secrets.HasSecret("uat-eur", SecretTarget.DataIntegrator));
         Assert.False(secrets.HasSecret("uat-eur")); // distinct from the Auth client secret
         Assert.Equal(string.Empty, vm.DiSecretInput);
     }

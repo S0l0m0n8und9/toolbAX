@@ -639,6 +639,58 @@ public sealed class CoreProfileStoreTests : IDisposable
         Assert.Null(sp.CertThumbprint);
     }
 
+    // Makes the next service-principal upsert fail at the database, standing in for any write that can't
+    // land (a locked file, a disk error, a constraint). The store's own code path is untouched — only the
+    // write it attempts is rejected — so this exercises the real failure ordering.
+    private void RejectServicePrincipalUpdates()
+    {
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+CREATE TRIGGER RejectSpUpdate BEFORE UPDATE ON ServicePrincipals
+BEGIN
+  SELECT RAISE(ABORT, 'simulated write failure');
+END;";
+        cmd.ExecuteNonQuery();
+    }
+
+    [Fact]
+    public async Task A_failed_client_id_change_leaves_the_fo_secret_and_its_blob_intact()
+    {
+        // The blob must not be deleted before the row that points at it has been re-written: a failed
+        // upsert would otherwise leave the surviving service principal's SecretRef aimed at a blob that
+        // is already gone — HasSecret reads true while the secret is unreadable, and ClearSecret can't
+        // reach it. Failing whole is the only consistent outcome, so the save can just be retried.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await SeedFoSecretAsync("app-a", "fo-row-1");
+        RejectServicePrincipalUpdates();
+
+        Assert.ThrowsAny<Microsoft.Data.Sqlite.SqliteException>(
+            () => store.Save(store.GetAll().Single() with { ClientId = "app-b" }));
+
+        var sp = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct);
+        Assert.Equal("app-a", sp!.ClientId);     // the row is untouched…
+        Assert.Equal("fo-row-1", sp.SecretRef);
+        Assert.Equal(1, CountVaultRows("fo-row-1")); // …and still points at a blob that exists
+    }
+
+    [Fact]
+    public async Task A_failed_dataverse_client_id_change_leaves_the_secret_and_its_blob_intact()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await SeedDataverseSecretAsync("dv-a", "dv-row-1");
+        RejectServicePrincipalUpdates();
+
+        Assert.ThrowsAny<Microsoft.Data.Sqlite.SqliteException>(
+            () => store.Save(store.GetAll().Single() with { DataverseClientId = "dv-b" }));
+
+        var sp = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Dataverse, ct);
+        Assert.Equal("dv-a", sp!.ClientId);
+        Assert.Equal("dv-row-1", sp.SecretRef);
+        Assert.Equal(1, CountVaultRows("dv-row-1"));
+    }
+
     [Fact]
     public async Task Saving_an_unchanged_client_id_keeps_the_stored_credentials()
     {

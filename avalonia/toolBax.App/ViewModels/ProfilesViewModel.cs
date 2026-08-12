@@ -210,10 +210,6 @@ public partial class ProfilesViewModel : ObservableObject
         }
     }
 
-    // The DI service-account secret has its own key shape (the real store routes it to Settings-backed
-    // vault storage rather than a service principal), composed by the store so both ends agree.
-    private static string DiKey(string id) => CoreSecretStore.DiSecretKey(id);
-
     partial void OnSelectedChanged(EnvProfile? value)
     {
         LoadDrafts(value);
@@ -276,7 +272,7 @@ public partial class ProfilesViewModel : ObservableObject
     public bool HasDataverseSecret => Selected is not null && _secrets.HasSecret(Selected.Id, SecretTarget.Dataverse);
 
     /// <summary>Whether the selected environment has a DI ROPC service-account secret stored.</summary>
-    public bool HasDiSecret => Selected is not null && _secrets.HasSecret(DiKey(Selected.Id));
+    public bool HasDiSecret => Selected is not null && _secrets.HasSecret(Selected.Id, SecretTarget.DataIntegrator);
 
     /// <summary>Raised when the active profile changes, so the shell's switcher can stay in sync.</summary>
     public event Action<string>? ActiveChanged;
@@ -491,7 +487,7 @@ public partial class ProfilesViewModel : ObservableObject
             return;
         }
 
-        var error = TryStoreSecret(DiKey(Selected.Id), DiSecretInput);
+        var error = TryStoreSecret(Selected.Id, DiSecretInput, SecretTarget.DataIntegrator);
         OnPropertyChanged(nameof(HasDiSecret));
         if (error is not null)
         {
@@ -519,7 +515,7 @@ public partial class ProfilesViewModel : ObservableObject
             return;
         }
 
-        _secrets.ClearSecret(DiKey(Selected.Id));
+        _secrets.ClearSecret(Selected.Id, SecretTarget.DataIntegrator);
         OnPropertyChanged(nameof(HasDiSecret));
         DiStatus = "Service-account secret cleared.";
     }
