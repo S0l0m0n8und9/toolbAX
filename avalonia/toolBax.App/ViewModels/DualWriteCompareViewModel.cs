@@ -23,6 +23,9 @@ public static class CompareVerdict
         DualWriteComparisonVerdict.OnlyInRight => "only in target",
         DualWriteComparisonVerdict.VersionMismatch => "version mismatch",
         DualWriteComparisonVerdict.StateMismatch => "state mismatch",
+        // #160: the row could not be paired — two maps in one environment share a name + CE target, a map
+        // has neither, or one gateway omitted the CE target and no unique match exists. No verdict to show.
+        DualWriteComparisonVerdict.Ambiguous => "cannot compare",
         _ => verdict.ToString(),
     };
 }
