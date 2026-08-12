@@ -240,6 +240,17 @@ public partial class QueryBuilderViewModel : ObservableObject
     [ObservableProperty]
     private IReadOnlyList<string> _resultColumns = Array.Empty<string>();
 
+    // Deliberately NOT given the "5,000 means ≥5,000" treatment the dual-write row counts needed
+    // (#159/#177): the Dataverse @odata.count cap cannot reach this screen, which only ever counts F&O.
+    // The Query Builder is constructed with the shell's F&O client (ShellViewModel "query" →
+    // CoreODataClient), so every request goes to {env.Url}/data/… with a token scoped to {env.Url}, and
+    // F&O OData caps server-driven paging at 10,000 rows per page — not $count. Nor does pointing a
+    // profile's F&O Url at a Dataverse org get a Dataverse count in here: the entity list comes only from
+    // {env.Url}/data/$metadata (CatalogService), which 404s on a Dataverse host, so SelectedEntity stays
+    // null and Run returns before it sends anything; the Web API lives under /api/data/v9.x, so
+    // /data/{EntitySet} is not a Dataverse route; $select=* and cross-company are not valid Dataverse
+    // query options; and Load more's absolute nextLink is origin-guarded to env.Url. A non-JSON or error
+    // body leaves ParseMeta returning null, so no capped total can land here.
     /// <summary>Total matching rows from <c>@odata.count</c> (only when $count was requested).</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasTotalCount))]
