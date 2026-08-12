@@ -192,6 +192,86 @@ public class MetadataViewModelTests
         Assert.False(vm.IsBusy);
     }
 
+    // Holds a field fetch open so the in-flight state is observable. The real service is a live $metadata
+    // read against a document that can be tens of MB, which is the whole reason the pane needs an indicator.
+    private sealed class BlockingFieldsMetadata : IMetadataService
+    {
+        private static readonly EntitySet[] All =
+        {
+            new("Alpha", "M", 1, "k", false, "odata"),
+            new("Beta", "M", 1, "k", false, "odata"),
+        };
+        private static readonly EntityField[] Props = { new("Id", "String", false, IsKey: true, Length: 10) };
+        private readonly HashSet<string> _loaded = new();
+
+        /// <summary>Completed by the test to let the pending fetch finish (or fail).</summary>
+        public TaskCompletionSource<bool> Gate { get; } = new();
+
+        public IReadOnlyList<EntitySet> GetEntities() => All;
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => _loaded.Contains(entityName) ? Props : null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+        public async Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default)
+        {
+            await Gate.Task;
+            _loaded.Add(entityName);
+            return true;
+        }
+    }
+
+    [Fact]
+    public async Task Fetching_an_uncached_entitys_fields_shows_a_loading_indicator_until_it_completes()
+    {
+        var metadata = new BlockingFieldsMetadata();
+        var vm = new MetadataViewModel(metadata);
+        Assert.False(vm.IsLoadingFields);
+        Assert.True(vm.ShowNotCachedHint);
+
+        var fetch = vm.LoadSelectedFieldsCommand.ExecuteAsync(null);
+
+        Assert.True(vm.IsLoadingFields);
+        Assert.Equal("Loading Alpha…", vm.FieldsLoadingMessage);
+        // "open it in Query Builder" is wrong advice while the fetch that would populate them is running.
+        Assert.False(vm.ShowNotCachedHint);
+
+        metadata.Gate.SetResult(true);
+        await fetch;
+
+        Assert.False(vm.IsLoadingFields);
+        Assert.True(vm.IsCached);
+        Assert.NotEmpty(vm.Fields);
+        Assert.False(vm.ShowNotCachedHint);
+    }
+
+    [Fact]
+    public async Task A_failed_fields_fetch_clears_the_indicator_and_restores_the_not_cached_hint()
+    {
+        var metadata = new BlockingFieldsMetadata();
+        var vm = new MetadataViewModel(metadata);
+
+        var fetch = vm.LoadSelectedFieldsCommand.ExecuteAsync(null);
+        Assert.True(vm.IsLoadingFields);
+
+        metadata.Gate.SetException(new InvalidOperationException("metadata endpoint unreachable"));
+        await fetch;
+
+        Assert.False(vm.IsLoadingFields);   // never left spinning on a failure
+        Assert.False(vm.IsCached);
+        Assert.True(vm.ShowNotCachedHint);  // now the hint is the right advice
+        Assert.Contains("unreachable", vm.LoadError);
+    }
+
+    [Fact]
+    public async Task A_cached_entity_leaves_no_loading_indicator_behind()
+    {
+        var vm = MakeVm();
+
+        await vm.LoadSelectedFieldsCommand.ExecuteAsync(null);   // CustomersV3 is already cached
+
+        Assert.False(vm.IsLoadingFields);
+        Assert.True(vm.IsCached);
+    }
+
     [Fact]
     public void Cached_entity_populates_fields()
     {

@@ -62,6 +62,44 @@ public class ValueConverterTests
         Assert.Throws<NotSupportedException>(() =>
             FoAuthModeLabelConverter.Instance.ConvertBack("Client secret", typeof(FoAuthMode), null, Culture));
 
+    // ── DiAuthModeLabelConverter ──────────────────────────────────────────────────────────────────────
+
+    [Theory]
+    [InlineData(DiAuthMode.Interactive, "Interactive (MFA)")]
+    [InlineData(DiAuthMode.Ropc, "ROPC (service account)")]
+    public void DiAuthModeLabel_maps_each_mode_to_its_friendly_label(DiAuthMode mode, string expected) =>
+        Assert.Equal(expected, DiAuthModeLabelConverter.Instance.Convert(mode, typeof(string), null, Culture));
+
+    [Fact]
+    public void DiAuthModeLabel_covers_every_mode_with_a_humanised_label()
+    {
+        // Adding a DiAuthMode member without a Label() arm surfaces here (the raw enum name) rather than
+        // in the Profiles DI dropdown.
+        foreach (var mode in Enum.GetValues<DiAuthMode>())
+        {
+            var label = DiAuthModeLabelConverter.Instance.Convert(mode, typeof(string), null, Culture) as string;
+            Assert.False(string.IsNullOrWhiteSpace(label), $"{mode} has no label.");
+            Assert.NotEqual(mode.ToString(), label);
+        }
+    }
+
+    [Fact]
+    public void DiAuthModeLabel_falls_back_to_empty_for_a_non_mode()
+    {
+        // Unlike FoAuthModeLabelConverter (which echoes the value), this one's documented fallback is the
+        // empty string: the DI dropdown binds an object, and a null or foreign value renders as blank
+        // rather than leaking a raw ToString() — and never throws.
+        Assert.Equal(string.Empty, DiAuthModeLabelConverter.Instance.Convert(null, typeof(string), null, Culture));
+        Assert.Equal(string.Empty, DiAuthModeLabelConverter.Instance.Convert("Ropc", typeof(string), null, Culture));
+        Assert.Equal(string.Empty, DiAuthModeLabelConverter.Instance.Convert(1, typeof(string), null, Culture));
+        Assert.Equal(string.Empty, DiAuthModeLabelConverter.Instance.Convert(FoAuthMode.Interactive, typeof(string), null, Culture));
+    }
+
+    [Fact]
+    public void DiAuthModeLabel_is_one_way() =>
+        Assert.Throws<NotSupportedException>(() =>
+            DiAuthModeLabelConverter.Instance.ConvertBack("Interactive (MFA)", typeof(DiAuthMode), null, Culture));
+
     // ── EnvIsActiveConverter (multi-value) ────────────────────────────────────────────────────────────
 
     private static bool IsActive(params object?[] values) =>

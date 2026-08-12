@@ -21,7 +21,7 @@ public static class DualWriteMapMarkdownExporter
         ArgumentNullException.ThrowIfNull(record);
 
         var builder = new StringBuilder();
-        builder.AppendLine($"# {MarkdownEscape(ValueOrPlaceholder(record.DisplayName))}");
+        builder.AppendLine($"# {MarkdownEscape(ValueOrPlaceholder(EffectiveTitle(record)))}");
         builder.AppendLine();
         builder.AppendLine("## Map Details");
         builder.AppendLine();
@@ -48,12 +48,20 @@ public static class DualWriteMapMarkdownExporter
         return builder.ToString();
     }
 
+    /// <summary>
+    /// The one title the export answers to — the record's effective title (display name → logical name →
+    /// id). Single-sourced so the H1 and the file name can never disagree: reading only
+    /// <c>DisplayName</c> for the heading made a map that carries just <c>msdyn_name</c> export as
+    /// "# (not set)" inside a correctly-named file.
+    /// </summary>
+    private static string EffectiveTitle(DwMapRecord record) => record.Title;
+
     /// <summary>A safe ".md" file name derived from the map's display name (falling back to name/id).</summary>
     public static string SuggestedFileName(DwMapRecord record)
     {
         ArgumentNullException.ThrowIfNull(record);
 
-        var basis = record.Title;
+        var basis = EffectiveTitle(record);
         var sanitized = new string(basis.Select(c => InvalidFileNameChars.Contains(c) ? '_' : c).ToArray()).Trim();
         if (string.IsNullOrWhiteSpace(sanitized))
         {

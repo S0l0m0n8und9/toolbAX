@@ -92,6 +92,31 @@ public class DualWriteMapMarkdownExporterTests
     }
 
     [Fact]
+    public void Export_titles_a_display_name_less_map_with_its_logical_name_not_a_placeholder()
+    {
+        // A map carrying only msdyn_name used to export as "# (not set)" inside a file correctly named
+        // after the logical name — the H1 read DisplayName while the file name read the effective title.
+        var record = Record("""{ "value": [ { "msdyn_dualwriteentitymapid": "x", "msdyn_name": "vend_account" } ] }""");
+
+        var md = DualWriteMapMarkdownExporter.Export(record);
+
+        Assert.StartsWith("# vend_account", md);
+        Assert.DoesNotContain("# (not set)", md);
+        // The H1 and the suggested file name now answer to the same title.
+        Assert.Equal("vend_account.md", DualWriteMapMarkdownExporter.SuggestedFileName(record));
+    }
+
+    [Fact]
+    public void Export_falls_back_to_the_map_id_when_it_has_neither_name()
+    {
+        // Last rung of the shared chain: display name → logical name → id. Still never "# (not set)".
+        var md = DualWriteMapMarkdownExporter.Export(Record(
+            """{ "value": [ { "msdyn_dualwriteentitymapid": "abc-123" } ] }"""));
+
+        Assert.StartsWith("# abc-123", md);
+    }
+
+    [Fact]
     public void SuggestedFileName_is_a_sanitized_md_file()
     {
         var name = DualWriteMapMarkdownExporter.SuggestedFileName(Record(

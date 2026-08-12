@@ -102,9 +102,22 @@
         </DataGrid.Columns>
       </DataGrid>
 
+      <!-- Fetch in flight: the properties come from a live $metadata read, so without this the pane shows
+           nothing new for the whole call and an entity click reads as dead air. -->
+      <Border Grid.Row="2" x:Name="FieldsLoadingHint" VerticalAlignment="Top"
+              IsVisible="{Binding IsLoadingFields}"
+              Background="{StaticResource InfoBgBrush}"
+              BorderBrush="{StaticResource InfoBrush}" BorderThickness="1" CornerRadius="8"
+              Padding="12,8">
+        <StackPanel Orientation="Horizontal" Spacing="10">
+          <ProgressBar IsIndeterminate="True" Width="90" Height="4" VerticalAlignment="Center" />
+          <TextBlock Text="{Binding FieldsLoadingMessage}" FontSize="12" Foreground="{StaticResource Text1Brush}" />
+        </StackPanel>
+      </Border>
+
       <!-- Not-cached hint -->
-      <Border Grid.Row="2" VerticalAlignment="Top"
-              IsVisible="{Binding !IsCached}"
+      <Border Grid.Row="2" x:Name="NotCachedHint" VerticalAlignment="Top"
+              IsVisible="{Binding ShowNotCachedHint}"
               Background="{StaticResource InfoBgBrush}"
               BorderBrush="{StaticResource InfoBrush}" BorderThickness="1" CornerRadius="8"
               Padding="12,8">
