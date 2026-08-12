@@ -30,9 +30,10 @@ public static class PostPayloadMapper
         "Double" => "Edm.Double",
         "Single" => "Edm.Single",
         "Guid" => "Edm.Guid",
-        // The Avalonia model collapses Edm.Date and Edm.DateTimeOffset to "DateTime"; treat it as the
-        // wider DateTimeOffset for coercion (ISO 8601 accepted).
         "DateTime" => "Edm.DateTimeOffset",
+        // Date-only fields keep their own EDM type, so the builder coerces them to a bare "yyyy-MM-dd"
+        // instead of widening a date to a timestamp with an invented time-of-day.
+        "Date" => "Edm.Date",
         _ => "Edm.String", // String, Enum, complex/unknown
     };
 

@@ -34,6 +34,7 @@ public class CoreMetadataServiceTests
                 new ODataProperty("CreditLimit", "Edm.Decimal", Nullable: true, Precision: "32"),
                 new ODataProperty("IsOneTime", "Microsoft.Dynamics.DataEntities.NoYes", Nullable: false),
                 new ODataProperty("CreatedDateTime", "Edm.DateTimeOffset", Nullable: false),
+                new ODataProperty("BirthDate", "Edm.Date", Nullable: true),
             }, Array.Empty<ODataNavigationProperty>()),
             new ODataEntity("VendorsV2", new[]
             {
@@ -90,7 +91,7 @@ public class CoreMetadataServiceTests
         var entities = svc.GetEntities();
         Assert.Equal(2, entities.Count);
         var customers = entities.Single(e => e.Name == "CustomersV3");
-        Assert.Equal(6, customers.FieldCount); // 6 properties on the index item
+        Assert.Equal(7, customers.FieldCount); // 7 properties on the index item
     }
 
     [Fact]
@@ -127,6 +128,21 @@ public class CoreMetadataServiceTests
         Assert.Equal("Enum<NoYes>", isOneTime.TypeDisplay);
 
         Assert.Equal("DateTime", fields.Single(f => f.Name == "CreatedDateTime").TypeDisplay);
+    }
+
+    [Fact]
+    public async Task LoadFieldsAsync_keeps_Edm_Date_distinct_from_Edm_DateTimeOffset()
+    {
+        var svc = Make();
+
+        var loaded = await svc.LoadFieldsAsync("CustomersV3", TestContext.Current.CancellationToken);
+
+        Assert.True(loaded);
+        var fields = svc.GetFields("CustomersV3")!;
+        // Collapsing Date into DateTime made the payload builder's date-only branch unreachable: every date
+        // was widened to Edm.DateTimeOffset and sent as a full timestamp.
+        Assert.Equal("Date", fields.Single(f => f.Name == "BirthDate").Type);
+        Assert.Equal("DateTime", fields.Single(f => f.Name == "CreatedDateTime").Type);
     }
 
     [Fact]
