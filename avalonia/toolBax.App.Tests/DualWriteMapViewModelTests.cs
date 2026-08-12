@@ -529,6 +529,36 @@ public class DualWriteMapViewModelTests
         Assert.Equal("Mismatch", vm.CountRows[0].ComparisonLabel); // F&O 999 vs CE 250
     }
 
+    // --- #159: a capped Dataverse count reaches the row as capped, not as a total ---
+
+    // Real maps, but every CE count comes back flagged as the platform's 5,000-row ceiling.
+    private sealed class CappedCeCountReader : IDualWriteMapReader
+    {
+        private readonly FakeDualWriteMapReader _inner = new();
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            _inner.GetMapsAsync(solutionUniqueName, ct);
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => _inner.GetSolutionsAsync(ct);
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) =>
+            Task.FromResult(DwCountResult.Ok(5000, capped: true));
+    }
+
+    [Fact]
+    public async Task A_capped_ce_count_suppresses_the_verdict_instead_of_reporting_a_mismatch()
+    {
+        // F&O reports the real 5,000 rows of a table Dataverse could only count up to its ceiling. Before
+        // the fix this read as "Match" (equal numbers) or "Mismatch" (any other F&O count) — both bogus.
+        var vm = new DualWriteMapViewModel(new CappedCeCountReader(), odata: new CountODataClient(5000));
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        var row = vm.CountRows[0];
+        Assert.True(row.CeCountCapped);
+        Assert.Equal("5,000+", row.CeCountLabel);
+        Assert.Equal("Unknown (CE count capped)", row.ComparisonLabel);
+    }
+
     // --- #152: counts are gated on the environment the displayed maps were loaded from ---
 
     // Real maps + counts, but records every CE count call so "no request was issued" is assertable.

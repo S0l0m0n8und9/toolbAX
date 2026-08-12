@@ -525,6 +525,9 @@ public partial class DualWriteMapViewModel : ObservableObject
         var result = await _reader.GetCeRowCountAsync(row.DestinationSchema, filter, ct);
         if (result.IsSuccess)
         {
+            // Set the cap flag first so the count label/verdict never renders an uncapped-looking total
+            // for a capped count, not even transiently.
+            row.CeCountCapped = result.Capped;
             row.CeCount = result.Count;
             row.CeStatus = string.Empty;
         }
@@ -558,7 +561,8 @@ public partial class DualWriteMapViewModel : ObservableObject
             return;
         }
 
-        row.FoCount = count;
+        // No cap flag on this side: F&O's $count is a true total (the 5,000 ceiling is a Dataverse limit).
+        row.FoCount = count.Count;
         row.FoStatus = string.Empty;
     }
 }

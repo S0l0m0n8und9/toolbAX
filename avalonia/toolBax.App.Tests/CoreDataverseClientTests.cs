@@ -66,6 +66,24 @@ public class CoreDataverseClientTests
     }
 
     [Fact]
+    public async Task Get_requests_the_total_record_count_annotations()
+    {
+        // #159: without these, a $count=true response silently reports the 5,000-row ceiling as a total.
+        var handler = new StubHandler(HttpStatusCode.OK, "{}");
+        var client = new CoreDataverseClient(new FakeAuthService(), () => Env(), new HttpClient(handler));
+
+        await client.GetAsync("accounts?$top=1&$count=true", TestContext.Current.CancellationToken);
+
+        var prefer = string.Join(",", handler.LastRequest!.Headers.GetValues("Prefer"));
+        Assert.Contains("Microsoft.Dynamics.CRM.totalrecordcount", prefer);
+        Assert.Contains("Microsoft.Dynamics.CRM.totalrecordcountlimitexceeded", prefer);
+        // One include-annotations preference carrying a comma-separated list, per the Web API docs — not
+        // two competing Prefer values, the second of which Dataverse would ignore.
+        Assert.Single(handler.LastRequest.Headers.GetValues("Prefer"));
+        Assert.Contains("OData.Community.Display.V1.FormattedValue", prefer);
+    }
+
+    [Fact]
     public async Task An_absolute_nextLink_is_used_verbatim()
     {
         var handler = new StubHandler(HttpStatusCode.OK, "{}");

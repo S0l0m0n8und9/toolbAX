@@ -1,6 +1,7 @@
 using System;
 using CommunityToolkit.Mvvm.ComponentModel;
 using ToolBax.Core.Models;
+using ToolBax.Core.Services;
 
 namespace ToolBax.App.ViewModels;
 
@@ -38,6 +39,15 @@ public partial class MapLegCountRow : ObservableObject
     [NotifyPropertyChangedFor(nameof(ComparisonLabel))]
     private long? _ceCount;
 
+    /// <summary>
+    /// True when <see cref="CeCount"/> is the Dataverse count ceiling rather than a total (the real number
+    /// is that many or more) — see <see cref="DualWriteMapParser.DataverseStandardCountCap"/>.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CeCountLabel))]
+    [NotifyPropertyChangedFor(nameof(ComparisonLabel))]
+    private bool _ceCountCapped;
+
     [ObservableProperty]
     private string _ceStatus = string.Empty;
 
@@ -60,11 +70,42 @@ public partial class MapLegCountRow : ObservableObject
 
     public string FoCountLabel => FoCount?.ToString("N0") ?? "—";
 
-    public string CeCountLabel => CeCount?.ToString("N0") ?? "—";
+    /// <summary>The CE count, suffixed with "+" when it is a capped ceiling rather than a total.</summary>
+    public string CeCountLabel =>
+        CeCount is null ? "—" : CeCount.Value.ToString("N0") + (CeCountCapped ? "+" : string.Empty);
 
-    /// <summary>Match / Mismatch once both sides are counted, otherwise "—".</summary>
+    /// <summary>True when the F&amp;O count was taken with the leg's (converted) source filter applied.</summary>
+    public bool FoFilterApplied => !string.IsNullOrWhiteSpace(FoFilter);
+
+    /// <summary>True when the CE count was taken with the leg's reversed source filter applied.</summary>
+    public bool CeFilterApplied => !string.IsNullOrWhiteSpace(CeFilter);
+
+    /// <summary>
+    /// False when exactly one side was filtered — a forward-only map has a source filter and an empty
+    /// reversed source filter, so the F&amp;O count is a subset while the CE count is the whole table. The
+    /// two numbers are then measuring different populations and must not be reported as (mis)matching.
+    /// </summary>
+    public bool FiltersComparable => FoFilterApplied == CeFilterApplied;
+
+    /// <summary>ToolTip for the F&amp;O count cell: which filter (if any) produced the number.</summary>
+    public string FoFilterTip => DescribeFilter(FoFilter);
+
+    /// <summary>ToolTip for the CE count cell: which filter (if any) produced the number.</summary>
+    public string CeFilterTip => DescribeFilter(CeFilter);
+
+    private static string DescribeFilter(string filter) =>
+        string.IsNullOrWhiteSpace(filter) ? "Counted unfiltered" : $"Counted with filter: {filter}";
+
+    /// <summary>
+    /// The verdict once both sides are counted. Match / Mismatch is only claimed when the two numbers are
+    /// actually comparable: a one-sided filter means they measure different populations, and a capped CE
+    /// count is a floor rather than a total — either way the answer is unknown, not a mismatch.
+    /// </summary>
     public string ComparisonLabel =>
-        FoCount is null || CeCount is null ? "—" : FoCount == CeCount ? "Match" : "Mismatch";
+        FoCount is null || CeCount is null ? "—"
+        : !FiltersComparable ? "Not comparable (filters differ)"
+        : CeCountCapped ? "Unknown (CE count capped)"
+        : FoCount == CeCount ? "Match" : "Mismatch";
 
     // The dual-write source schema is a data-entity name (e.g. "CustCustomerV3Entity"); the OData entity
     // set usually drops the "Entity" suffix. A best-effort default — the user can correct it.

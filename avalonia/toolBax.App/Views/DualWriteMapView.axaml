@@ -238,9 +238,26 @@
                       </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                   </DataGridTemplateColumn>
-                  <DataGridTextColumn Header="F&amp;O rows" Binding="{Binding FoCountLabel}" Width="Auto" />
+                  <!-- Count cells carry the filter that produced them: a leg filtered on one side only
+                       (a forward-only map) counts a subset against a whole table, so the asymmetry has to
+                       be visible next to the numbers, not just in the Compare verdict. -->
+                  <DataGridTemplateColumn Header="F&amp;O rows" Width="Auto">
+                    <DataGridTemplateColumn.CellTemplate>
+                      <DataTemplate x:DataType="vm:MapLegCountRow">
+                        <TextBlock Text="{Binding FoCountLabel}" VerticalAlignment="Center"
+                                   ToolTip.Tip="{Binding FoFilterTip}" />
+                      </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                  </DataGridTemplateColumn>
                   <DataGridTextColumn Header="Destination (CE)" Binding="{Binding DestinationSchema}" Width="2*" />
-                  <DataGridTextColumn Header="CE rows" Binding="{Binding CeCountLabel}" Width="Auto" />
+                  <DataGridTemplateColumn Header="CE rows" Width="Auto">
+                    <DataGridTemplateColumn.CellTemplate>
+                      <DataTemplate x:DataType="vm:MapLegCountRow">
+                        <TextBlock Text="{Binding CeCountLabel}" VerticalAlignment="Center"
+                                   ToolTip.Tip="{Binding CeFilterTip}" />
+                      </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                  </DataGridTemplateColumn>
                   <DataGridTextColumn Header="Compare" Binding="{Binding ComparisonLabel}" Width="Auto" />
                   <DataGridTextColumn Header="F&amp;O status" Binding="{Binding FoStatus}" Width="*" />
                   <DataGridTextColumn Header="CE status" Binding="{Binding CeStatus}" Width="*" />
