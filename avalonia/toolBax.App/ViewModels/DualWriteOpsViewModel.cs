@@ -22,7 +22,8 @@ public sealed record OpsAction(string Label, DualWriteActionType Type, bool Dang
 /// environment (<see cref="IDualWriteConnector"/> over the real FoToolbox.Core gateway), lists its maps,
 /// and runs lifecycle actions: select map(s) → confirm → <c>StartActionAsync</c> → poll
 /// <c>GetStatusAsync</c> until terminal → refresh. Actions are gateway-validated (no client-side state
-/// eligibility); the screen gates only on a connection + a selection.
+/// eligibility); the screen gates only on a connection + a selection + the connection still belonging to
+/// the active environment (see <c>SessionEnvMismatch</c>).
 /// </summary>
 public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 {
@@ -175,8 +176,35 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Message shown (and logged) when the session and the active environment have diverged.</summary>
+    private const string ReconnectRequired = "Connected to a different environment — reconnect required.";
+
+    // True when the live session belongs to an environment other than the one that's now active. The shell
+    // can switch the active environment while this cached VM keeps its session (the "Refresh open tools?"
+    // prompt is declinable), which would otherwise leave the gateway/cid pointing at the old environment
+    // while the header shows the new one — and, for the debug toggle, straddle both in one operation
+    // (project ids from the old session, the PATCH through an _odata that resolves the active env per call).
+    private bool SessionEnvMismatch() =>
+        _session is not null && !string.Equals(_session.EnvId, _activeEnv()?.Id, StringComparison.Ordinal);
+
+    // Hard guard for every use site. Nothing re-raises CanExecuteChanged on an environment switch, so the
+    // CanExecute gating below is a UI courtesy only — this is what actually stops the call. Returns true
+    // (and reports it) when the operation must not proceed; leaves all other state untouched.
+    private bool BlockedByEnvMismatch()
+    {
+        if (!SessionEnvMismatch())
+        {
+            return false;
+        }
+
+        Status = ReconnectRequired;
+        Log($"Environment changed: this session is connected to {ConnectionName}, but the active environment " +
+            $"is now {_activeEnv()?.Name ?? "none"}. Reconnect before running operations.", LogKind.Warn);
+        return true;
+    }
+
     private bool CanRunAction(OpsAction? action) =>
-        action is not null && !IsBusy && _session is not null && SelectedCount > 0;
+        action is not null && !IsBusy && _session is not null && !SessionEnvMismatch() && SelectedCount > 0;
 
     // Opens the confirm dialog; mutates nothing until the user accepts, then submits + polls to terminal.
     [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanRunAction))]
@@ -184,6 +212,12 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     {
         var session = _session;
         if (session is null)
+        {
+            return;
+        }
+
+        // Before the confirm dialog and before any network call: never act on a stale environment.
+        if (BlockedByEnvMismatch())
         {
             return;
         }
@@ -274,7 +308,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         }
     }
 
-    private bool CanToggleDebug() => !IsBusy && _session is not null && SelectedCount > 0;
+    private bool CanToggleDebug() =>
+        !IsBusy && _session is not null && !SessionEnvMismatch() && SelectedCount > 0;
 
     // Enable dual-write debug mode for the selected map(s); scoped to the selection, never all maps.
     [RelayCommand(CanExecute = nameof(CanToggleDebug))]
@@ -294,6 +329,15 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         if (_session is null)
         {
             DebugStatus = "Connect to the gateway first.";
+            return;
+        }
+
+        // The project ids come from the old session's maps while the PATCH would go through _odata, which
+        // resolves the ACTIVE environment per call — so a mismatch here would write env B using env A's
+        // ids. Refuse before reading metadata or issuing a request.
+        if (BlockedByEnvMismatch())
+        {
+            DebugStatus = ReconnectRequired;
             return;
         }
 

@@ -517,6 +517,90 @@ public class DualWriteMapViewModelTests
         Assert.Equal("Mismatch", vm.CountRows[0].ComparisonLabel); // F&O 999 vs CE 250
     }
 
+    // --- #152: counts are gated on the environment the displayed maps were loaded from ---
+
+    // Real maps + counts, but records every CE count call so "no request was issued" is assertable.
+    private sealed class CallCountingReader : IDualWriteMapReader
+    {
+        private readonly FakeDualWriteMapReader _inner = new();
+        public int CeCountCalls { get; private set; }
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            _inner.GetMapsAsync(solutionUniqueName, ct);
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => _inner.GetSolutionsAsync(ct);
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default)
+        {
+            CeCountCalls++;
+            return _inner.GetCeRowCountAsync(entitySet, odataFilter, ct);
+        }
+    }
+
+    private static EnvProfile MapEnv(string id, string name) =>
+        new(id, name, $"https://{name}.operations.dynamics.com", "tenant", "AUMF", "Tier 2", EnvStatus.Connected);
+
+    // Mutable active-environment source: the shell switching environments under this cached VM.
+    private sealed class EnvSwitch
+    {
+        public EnvProfile? Current { get; set; } = MapEnv("env1", "contoso");
+        public EnvProfile? Get() => Current;
+    }
+
+    [Fact]
+    public async Task Counting_after_an_environment_switch_is_refused_until_the_maps_reload()
+    {
+        var reader = new CallCountingReader();
+        var odata = new CountODataClient(250);
+        var env = new EnvSwitch();
+        var vm = new DualWriteMapViewModel(reader, odata: odata, activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        env.Current = MapEnv("env2", "fabrikam");   // the grid still holds env1's maps
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, reader.CeCountCalls);                   // no Dataverse count
+        Assert.Null(odata.LastPath);                            // no F&O count
+        Assert.All(vm.CountRows, r => Assert.Null(r.CeCount));
+        Assert.Contains("reload maps", vm.LoadError, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Reloading_the_maps_under_the_new_environment_re_enables_counting()
+    {
+        var reader = new CallCountingReader();
+        var env = new EnvSwitch();
+        var vm = new DualWriteMapViewModel(reader, odata: new CountODataClient(250), activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+        env.Current = MapEnv("env2", "fabrikam");
+        await vm.CountAllRowsCommand.ExecuteAsync(null);        // refused
+        Assert.Equal(0, reader.CeCountCalls);
+
+        await vm.ReloadMapsCommand.ExecuteAsync(null);          // re-stamps to env2
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        Assert.True(reader.CeCountCalls > 0);
+        Assert.NotEmpty(vm.CountRows);
+        Assert.All(vm.CountRows, r => Assert.NotNull(r.CeCount));
+        Assert.False(vm.HasLoadError);                          // the refusal banner cleared on reload
+    }
+
+    [Fact]
+    public async Task Counting_works_without_any_environment_switch()
+    {
+        var reader = new CallCountingReader();
+        var env = new EnvSwitch();
+        var vm = new DualWriteMapViewModel(reader, odata: new CountODataClient(250), activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        Assert.True(reader.CeCountCalls > 0);
+        Assert.All(vm.CountRows, r => Assert.NotNull(r.CeCount));
+        Assert.False(vm.HasLoadError);
+    }
+
     [Fact]
     public async Task A_successful_but_empty_load_shows_the_empty_state()
     {

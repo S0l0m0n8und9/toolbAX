@@ -21,9 +21,20 @@ public class DualWriteOpsTests
     private static EnvProfile Env() =>
         new("env1", "Contoso", "https://contoso.operations.dynamics.com", "tenant", "AUMF", "Tier 2", EnvStatus.Connected);
 
+    private static EnvProfile OtherEnv() =>
+        new("env2", "Fabrikam", "https://fabrikam.operations.dynamics.com", "tenant", "DEMF", "Tier 2", EnvStatus.Connected);
+
     private static DualWriteOpsViewModel MakeVm(IDualWriteConnector connector, bool confirm = false) =>
         new(connector, Env, new FakeDialogs(confirm),
             pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5));
+
+    /// <summary>A mutable active-environment source: models the shell switching the active environment
+    /// under this cached VM (the user having declined the "Refresh open tools?" prompt).</summary>
+    private sealed class EnvSwitch
+    {
+        public EnvProfile? Current { get; set; } = Env();
+        public EnvProfile? Get() => Current;
+    }
 
     private sealed class FakeDialogs : IDialogService
     {
@@ -194,6 +205,68 @@ public class DualWriteOpsTests
         Assert.False(vm.IsBusy);
     }
 
+    // --- #152: the session is pinned to the environment it was connected for ---
+
+    [Fact]
+    public async Task An_action_is_refused_after_the_active_environment_changes()
+    {
+        var connector = new FakeDualWriteConnector();
+        var dialogs = new FakeDialogs(confirm: true);
+        var env = new EnvSwitch();
+        var vm = new DualWriteOpsViewModel(connector, env.Get, dialogs,
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5));
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+
+        env.Current = OtherEnv();   // shell switched; the cached session still belongs to env1
+
+        Assert.False(vm.RunActionCommand.CanExecute(vm.StopAction));
+        await vm.RunActionCommand.ExecuteAsync(vm.StopAction);   // hard guard, not just CanExecute
+
+        Assert.Equal(0, connector.LastGateway!.StartCount);      // no gateway call at all
+        Assert.Equal(0, dialogs.Calls);                          // refused before the confirm dialog
+        Assert.Equal("Running", vm.Maps.Single(m => m.Name == "Customers V3").State);
+        Assert.Contains("reconnect", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Warn
+            && e.Text.Contains("Contoso") && e.Text.Contains("Fabrikam"));
+    }
+
+    [Fact]
+    public async Task An_action_still_runs_while_the_active_environment_is_unchanged()
+    {
+        var connector = new FakeDualWriteConnector();
+        var env = new EnvSwitch();
+        var vm = new DualWriteOpsViewModel(connector, env.Get, new FakeDialogs(confirm: true),
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5));
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+
+        Assert.True(vm.RunActionCommand.CanExecute(vm.StopAction));
+        await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+
+        Assert.Equal(1, connector.LastGateway!.StartCount);
+        Assert.Equal("Stopped", vm.Maps.Single(m => m.Name == "Customers V3").State);
+        Assert.Contains("completed", vm.Status, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Reconnecting_after_the_switch_restores_the_actions()
+    {
+        var connector = new FakeDualWriteConnector();
+        var env = new EnvSwitch();
+        var vm = new DualWriteOpsViewModel(connector, env.Get, new FakeDialogs(confirm: true),
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5));
+        await vm.LoadCommand.ExecuteAsync(null);
+        env.Current = OtherEnv();
+
+        await vm.LoadCommand.ExecuteAsync(null);   // explicit reconnect (never automatic)
+        vm.Maps.First().IsSelected = true;
+
+        Assert.True(vm.RunActionCommand.CanExecute(vm.StopAction));
+        await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+        Assert.Equal(1, connector.LastGateway!.StartCount);
+    }
+
     // --- #53: debug-mode toggle ---
 
     private sealed class ScriptedODataClient : IODataClient
@@ -268,6 +341,32 @@ public class DualWriteOpsTests
         await vm.EnableDebugForSelectedCommand.ExecuteAsync(null);
 
         Assert.Contains("DualWriteProjectConfiguration", vm.DebugStatus);
+    }
+
+    [Fact]
+    public async Task Debug_toggle_is_refused_after_the_active_environment_changes()
+    {
+        // The project ids come from the old session's maps but _odata resolves the active environment per
+        // call — the one operation would otherwise straddle two environments.
+        const string record = "{\"value\":[{\"@odata.id\":\"https://contoso.operations.dynamics.com/data/DualWriteProjectConfigurations(1)\",\"IsDebugMode\":\"No\"}]}";
+        var odata = new ScriptedODataClient(record);
+        var env = new EnvSwitch();
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), env.Get, new FakeDialogs(false),
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5),
+            odata: odata, metadata: new FixedMetadata("DualWriteProjectConfigurations"));
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+
+        env.Current = OtherEnv();
+
+        Assert.False(vm.EnableDebugForSelectedCommand.CanExecute(null));
+        await vm.EnableDebugForSelectedCommand.ExecuteAsync(null);   // hard guard, not just CanExecute
+
+        Assert.Empty(odata.Calls);                                   // no GET, no PATCH
+        Assert.Contains("reconnect", vm.DebugStatus, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("reconnect", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Warn
+            && e.Text.Contains("Contoso") && e.Text.Contains("Fabrikam"));
     }
 
     // --- gateway log (self-diagnosis: which host, which cid, what happened) ---

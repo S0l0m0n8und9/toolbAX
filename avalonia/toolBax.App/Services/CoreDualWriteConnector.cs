@@ -63,7 +63,9 @@ public sealed class CoreDualWriteConnector : IDualWriteConnector
                     DualWriteConnectionGuard.NoConnectionMessage(env.Url, result.GatewayBaseUrl));
             }
 
-            var session = new DualWriteSession(gateway, linkage.Cid, linkage.Cname, result.GatewayBaseUrl);
+            // Stamped with the environment this connection was made for, so a later active-environment
+            // switch can be detected by the Operations screen instead of acting on the wrong environment.
+            var session = new DualWriteSession(gateway, linkage.Cid, linkage.Cname, env.Id, result.GatewayBaseUrl);
             handedOff = true;
             return session;
         }

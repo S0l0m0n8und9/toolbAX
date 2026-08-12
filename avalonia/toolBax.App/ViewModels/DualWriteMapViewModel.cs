@@ -31,6 +31,11 @@ public partial class DualWriteMapViewModel : ObservableObject
     private readonly IClipboardService _clipboard;
     private readonly IUrlLauncher _launcher;
     private IReadOnlyList<string> _foEntityNames = Array.Empty<string>();
+    // The environment the currently-displayed maps were loaded from. The shell can switch the active
+    // environment under this cached VM (the "Refresh open tools?" prompt is declinable), and the count
+    // clients resolve the ACTIVE environment at call time — so counting after a switch would fill
+    // environment A's maps with environment B's numbers. Re-stamped by each successful load.
+    private string? _loadedEnvId;
     private bool _loaded;
     private bool _suppressReload;          // guards the initial selection setup from triggering reloads
     private int _activeLoads;              // overlapping reloads in flight; the last to finish clears IsLoading
@@ -268,6 +273,9 @@ public partial class DualWriteMapViewModel : ObservableObject
 
                 LoadError = string.Empty;
                 _loaded = true;
+                // Stamp what these maps belong to (a failed load keeps the previous stamp along with the
+                // stale-but-useful catalogue, so counting stays blocked until a load actually succeeds).
+                _loadedEnvId = _activeEnv()?.Id;
                 OnPropertyChanged(nameof(Filtered));
                 OnPropertyChanged(nameof(HasMaps));
 
@@ -408,11 +416,26 @@ public partial class DualWriteMapViewModel : ObservableObject
         }
     }
 
+    /// <summary>Message shown when the active environment moved on since the maps were loaded.</summary>
+    private const string ReloadBeforeCounting = "Environment changed — reload maps before counting.";
+
+    // True when the displayed maps came from a different environment than the one now active.
+    private bool EnvChangedSinceLoad() =>
+        !string.Equals(_activeEnv()?.Id, _loadedEnvId, StringComparison.Ordinal);
+
     // Counts the F&O and Dataverse (CE) rows for each leg (applying the leg's source / reversed-source
     // filters) and compares them. Concurrent-safe via the cancel command.
     [RelayCommand(IncludeCancelCommand = true)]
     private async Task CountAllRows(CancellationToken ct)
     {
+        // Checked once, up front (not per row): the whole run is either for the loaded environment or for
+        // none of it. Bails before any request so no row is filled with another environment's numbers.
+        if (EnvChangedSinceLoad())
+        {
+            LoadError = ReloadBeforeCounting;
+            return;
+        }
+
         // Snapshot before any await: a map change rebuilds CountRows on the UI thread, which would
         // otherwise invalidate a live enumerator mid-iteration.
         var rows = CountRows.ToList();
@@ -442,6 +465,9 @@ public partial class DualWriteMapViewModel : ObservableObject
         }
     }
 
+    // Per-leg counts. Only reachable through CountAllRows, which owns the environment gate — any new
+    // single-leg entry point must call EnvChangedSinceLoad() first, since _reader/_odata resolve the
+    // active environment at call time and would otherwise count a different environment than is displayed.
     private async Task CountCeAsync(MapLegCountRow row, CancellationToken ct)
     {
         row.CeStatus = "Counting…";
