@@ -187,8 +187,10 @@ the Test/Save commands.
 - **DualWriteCompareViewModel** — `Environments`, `Source`, `Target`, `CompareCommand`
   (enabled when Source≠Target), `DiffRows`, bucket `Counts`.
 - **ShellViewModel** — `Environments`, `ActiveEnvironment`, `CurrentTool` (drives the nav +
-  content `ContentControl`), `IsBusy`, `IsCommandPaletteOpen`, `OpenCommandPaletteCommand`,
+  content `ContentControl`), `IsCommandPaletteOpen`, `OpenCommandPaletteCommand`,
   `SetActiveEnvironmentCommand`, `Palette` (sub-VM with `Query`/`FilteredCommands`/`InvokeCommand`).
+  No shell-level busy state or pane toggle — `IsBusy`/`IsPaneOpen`/`TogglePaneCommand` were removed
+  as unreferenced (#168); each tool owns and shows its own busy state.
 
 ## Seed data
 `prototype/data.js` holds realistic seed data — reuse the **shapes** (and values, for fakes):

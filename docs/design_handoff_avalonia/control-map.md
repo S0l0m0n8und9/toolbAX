@@ -25,7 +25,7 @@ their own hit-testing. Window control buttons live on the right.
 ### 0.2 NavigationView — Fluent `SplitView` or `NavigationView`-style pane (Mica, 248px / 52px collapsed)
 | Element | Control | Binding |
 |---|---|---|
-| Hamburger toggle | `Button` (subtle, icon) | toggles `IsPaneOpen` |
+| Hamburger toggle | *(not implemented)* | no pane-collapse in the shipped shell — nav rail is fixed-width; `IsPaneOpen`/`TogglePaneCommand` were removed, unused (#168) |
 | Section headers ("TOOLS"/"SYSTEM") | `TextBlock` eyebrow | static; render as divider when collapsed |
 | Nav items (8) | `ListBox` of nav items, or `RadioButton` group | `SelectedItem` ↔ `Shell.CurrentTool`; Alt+letter accelerators |
 | "live" badge on Operations item | `StatusBadge` (warn) | static flag on the nav model |
@@ -43,10 +43,10 @@ ToolVM→View, not manual visibility toggles.
 - Status dot color ← env.Status (connected→Ok, token-expired→Warn, disconnected→Err).
 
 ### 0.4 Status strip — `Border` (Mica, 26px), `DockPanel`/`Grid` of segments
-Segments (each `Stroke`-divided): active tool label · env (dot + legal + name) · busy
-(`idle`/`working…` with pulsing accent dot) · "conn {ago}" · [right] branch · "SDK 1.2.0 · .NET 10"
-· "update ready" (accent). Bindings: tool label ← `Shell.CurrentTool.Title`; busy ←
-`Shell.IsBusy` (aggregate of any tool's busy state); conn ← `ActiveEnvironment.LastConnected`.
+Segments (each `Stroke`-divided): active tool label · env (dot + legal + name) · "conn {ago}" ·
+[right] branch · "SDK 1.2.0 · .NET 10" · "update ready" (accent). No busy segment: the shell has
+no shell-level busy state — each tool owns and shows its own (`ShellViewModel.IsBusy` was removed,
+unused, #168). Bindings: tool label ← `Shell.CurrentTool.Title`; conn ← `ActiveEnvironment.LastConnected`.
 
 ### 0.5 Command palette — overlay `Panel` + centered `Border` (Layer1, card radius)
 Realize as a `Popup`/`Flyout` or an overlay in an `OverlayLayer` (do **not** spin a second
