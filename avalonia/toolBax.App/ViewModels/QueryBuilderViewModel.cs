@@ -352,10 +352,33 @@ public partial class QueryBuilderViewModel : ObservableObject
         // A fresh entity starts in Builder mode with no raw text (the tree is rebuilt in LoadFields).
         IsRawFilterMode = false;
         Filter = string.Empty;
+        ClearResults();                            // the previous entity's rows don't describe this one
         LoadFields();                              // show what's cached immediately
         OnPropertyChanged(nameof(NotCachedMessage));
         ExportAllCsvCommand.NotifyCanExecuteChanged();
         LoadSelectedFieldsCommand.Execute(null);   // then fetch from $metadata if not cached yet
+    }
+
+    /// <summary>
+    /// Drops everything the last run produced. Results belong to the entity that was queried, so a real
+    /// entity change invalidates them: left in place, "Load more" followed the previous entity's
+    /// <c>@odata.nextLink</c> and appended its rows to a grid the header now labelled the new entity,
+    /// and a "Save CSV" named the old entity's data <c>{newEntity}.csv</c> (#168).
+    /// </summary>
+    private void ClearResults()
+    {
+        ResultRows.Clear();
+        ResultColumns = Array.Empty<string>();
+        NextLink = null;                 // also disables Load more (NotifyCanExecuteChangedFor)
+        TotalCount = null;
+        RowCount = 0;
+        HasRun = false;
+        RunSucceeded = false;
+        StatusBadge = string.Empty;
+        StatusText = "Not run yet.";
+        // Neither ResultRows nor ResultColumns drives CanExecute on its own, so nudge the CSV commands.
+        ExportCsvCommand.NotifyCanExecuteChanged();
+        ExportCsvFileCommand.NotifyCanExecuteChanged();
     }
 
     // The two search boxes only re-filter what's displayed; they never touch the master lists.
@@ -744,6 +767,14 @@ public partial class QueryBuilderViewModel : ObservableObject
             var path = BuildPath(forRequest: true);
             var response = await _client.SendAsync("GET", path, body: null, ct);
 
+            // With nothing selected the request goes out as $select=*, so the columns aren't knowable
+            // before the response: take them from what the server actually returned. Without this the
+            // grid rendered "Results · 3" over rows carrying zero cells, and a CSV of bare CRLFs (#168).
+            if (columns.Count == 0 && response.IsSuccess)
+            {
+                columns = DeriveColumns(response.Body);
+            }
+
             // Clear stale rows before swapping columns so the grid never renders old rows under new
             // headers (the column rebuild keys off ResultColumns changing).
             ResultRows.Clear();
@@ -766,6 +797,14 @@ public partial class QueryBuilderViewModel : ObservableObject
             StatusText = $"{DescribeCount()} · {response.StatusLine}";
             HasRun = true;
         }
+        // An HTTP/socket timeout also arrives as an OperationCanceledException, but with OUR token still
+        // live — only a cancelled token means the user pressed Cancel. A timeout falls through to the
+        // general handler and is reported as the failure it is.
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            RunSucceeded = false;
+            StatusText = "Run cancelled.";
+        }
         catch (Exception ex)
         {
             RunSucceeded = false;
@@ -777,6 +816,52 @@ public partial class QueryBuilderViewModel : ObservableObject
             ExportCsvCommand.NotifyCanExecuteChanged();
             ExportCsvFileCommand.NotifyCanExecuteChanged();
         }
+    }
+
+    // The columns an unselected ($select=*) run renders: the union of the property names across the
+    // returned rows, in first-seen order. A single row is not a reliable schema — OData omits a null
+    // property rather than emitting it — so every row on the page contributes. @odata.* entries are
+    // response annotations, not fields, so they stay out of the grid.
+    private static List<string> DeriveColumns(string body)
+    {
+        var columns = new List<string>();
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return columns;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (!doc.RootElement.TryGetProperty("value", out var value) || value.ValueKind != JsonValueKind.Array)
+            {
+                return columns;
+            }
+
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var item in value.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                foreach (var property in item.EnumerateObject())
+                {
+                    if (!property.Name.StartsWith("@odata.", StringComparison.OrdinalIgnoreCase)
+                        && seen.Add(property.Name))
+                    {
+                        columns.Add(property.Name);
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // A malformed body is reported by ParseRows, which parses the same payload immediately after.
+        }
+
+        return columns;
     }
 
     private bool CanLoadMore() => !IsBusy && HasMore;
@@ -799,6 +884,9 @@ public partial class QueryBuilderViewModel : ObservableObject
             var response = await _client.SendAsync("GET", link, body: null, ct);
             if (response.IsSuccess)
             {
+                // Later pages are projected onto the columns the first page established (whether they
+                // came from $select or were derived from that page's payload), so the grid's headers
+                // stay stable; a property only some pages carry shows the null placeholder elsewhere.
                 foreach (var row in ParseRows(response.Body, ResultColumns))
                 {
                     ResultRows.Add(row);
@@ -814,6 +902,12 @@ public partial class QueryBuilderViewModel : ObservableObject
             StatusBadge = $"{response.StatusCode} {response.ReasonPhrase}";
             RowCount = ResultRows.Count;
             StatusText = $"{DescribeCount()} · {response.StatusLine}";
+        }
+        // Only a cancelled token is the user asking to stop; a timeout arrives the same way and is a
+        // failure (see Run).
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            StatusText = "Load more cancelled.";
         }
         catch (Exception ex)
         {
@@ -872,7 +966,10 @@ public partial class QueryBuilderViewModel : ObservableObject
         }
     }
 
-    private bool CanExportCsv() => ResultRows.Count > 0;
+    // Rows alone aren't enough: a run can land rows with no columns (a $select=* payload whose objects
+    // carry no readable properties), and CSV of nothing but line terminators is worse than a disabled
+    // button. Mirrors CanExportAllCsv, which has always required columns (#168).
+    private bool CanExportCsv() => ResultRows.Count > 0 && ResultColumns.Count > 0;
 
     [RelayCommand(CanExecute = nameof(CanExportCsv))]
     private async Task ExportCsv()
@@ -893,12 +990,16 @@ public partial class QueryBuilderViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanExportCsv))]
     private async Task ExportCsvFile(CancellationToken ct)
     {
+        // Snapshot the entity name, content and count up front — mirroring ExportAllCsv — so the file
+        // describes the rows being written rather than whatever is selected by the time the picker
+        // returns. (The rows themselves can't change mid-save: a real entity change clears them.)
+        var entityName = SelectedEntity?.Name ?? "query";
         var csv = QueryCsv.Build(ResultColumns, ResultRows);
         var rows = ResultRows.Count;
-        var name = $"{SelectedEntity?.Name ?? "query"}.csv";
+        var name = $"{entityName}.csv";
         try
         {
-            var path = await _fileSave.SaveTextAsync(name, csv, ct);
+            var path = await _fileSave.SaveTextAsync(name, csv, SaveFileType.Csv, ct);
             StatusText = path is null ? "Export cancelled." : $"Saved {rows} rows to {path}.";
         }
         catch (OperationCanceledException)
@@ -968,7 +1069,7 @@ public partial class QueryBuilderViewModel : ObservableObject
 
             var csv = QueryCsv.Build(columns, rows);
             var name = $"{entityName}.csv";
-            var saved = await _fileSave.SaveTextAsync(name, csv, ct);
+            var saved = await _fileSave.SaveTextAsync(name, csv, SaveFileType.Csv, ct);
             if (saved is null)
             {
                 StatusText = "Export cancelled.";
@@ -995,6 +1096,29 @@ public partial class QueryBuilderViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Cancels whichever long-running command is in flight — Run, Load more or Export all. Each has its
+    /// own generated cancel command (<c>IncludeCancelCommand</c>); this gives the view one Cancel button
+    /// to bind so it doesn't have to know which is running. A cancel command reports itself executable
+    /// only while its command is running and cancellable, so this is a no-op when idle.
+    /// </summary>
+    /// <remarks>
+    /// The generated cancel commands existed but were bound nowhere, which left every cancellation path
+    /// on this screen unreachable in production — including <see cref="ExportAllCsv"/>'s clean
+    /// "Export cancelled." outcome (#168).
+    /// </remarks>
+    [RelayCommand]
+    private void CancelBusy()
+    {
+        foreach (var cancel in new[] { RunCancelCommand, LoadMoreCancelCommand, ExportAllCsvCancelCommand })
+        {
+            if (cancel.CanExecute(null))
+            {
+                cancel.Execute(null);
+            }
+        }
+    }
+
     // Projects an OData {"value":[ {...} ]} payload onto the selected columns.
     private static IEnumerable<QueryResultRow> ParseRows(string body, IReadOnlyList<string> columns)
     {
@@ -1014,17 +1138,20 @@ public partial class QueryBuilderViewModel : ObservableObject
             var cells = new Dictionary<string, string>(columns.Count);
             foreach (var column in columns)
             {
-                cells[column] = item.TryGetProperty(column, out var cell) ? CellText(cell) : "—";
+                cells[column] = item.TryGetProperty(column, out var cell)
+                    ? CellText(cell)
+                    : QueryCsv.NullPlaceholder;
             }
 
             yield return new QueryResultRow(cells);
         }
     }
 
+    // The em-dash is a grid affordance only — QueryCsv maps it back to an empty field on export.
     private static string CellText(JsonElement cell) => cell.ValueKind switch
     {
-        JsonValueKind.Null => "—",
-        JsonValueKind.String => cell.GetString() ?? "—",
+        JsonValueKind.Null => QueryCsv.NullPlaceholder,
+        JsonValueKind.String => cell.GetString() ?? QueryCsv.NullPlaceholder,
         _ => cell.ToString(),
     };
 }

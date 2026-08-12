@@ -146,6 +146,10 @@
                   ToolTip.Tip="Copy the query URL to the clipboard" />
           <Button Content="Run" Command="{Binding RunCommand}"
                   Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}" />
+          <!-- One Cancel for whichever long-running command is in flight: Run, Load more and Export all
+               all set IsBusy, and CancelBusy forwards to the generated cancel command that is running. -->
+          <Button Content="Cancel" Command="{Binding CancelBusyCommand}" IsVisible="{Binding IsBusy}"
+                  ToolTip.Tip="Cancel the running query or export" />
           <Button Content="Copy CSV" Command="{Binding ExportCsvCommand}"
                   ToolTip.Tip="Copy the loaded rows as CSV to the clipboard" />
           <Button Content="Save CSV…" Command="{Binding ExportCsvFileCommand}"

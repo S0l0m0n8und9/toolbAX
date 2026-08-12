@@ -201,7 +201,7 @@ public partial class DualWriteMapViewModel : ObservableObject
         var fileName = DualWriteMapMarkdownExporter.SuggestedFileName(map);
         try
         {
-            var path = await _fileSave.SaveTextAsync(fileName, markdown, ct);
+            var path = await _fileSave.SaveTextAsync(fileName, markdown, SaveFileType.Markdown, ct);
             ExportStatus = path is null ? "Export cancelled." : $"Exported to {path}";
         }
         catch (OperationCanceledException)

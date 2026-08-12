@@ -17,10 +17,15 @@ public sealed class FakeFileSaveService : IFileSaveService
     public string? LastSuggestedName { get; private set; }
     public string? LastContent { get; private set; }
 
-    public Task<string?> SaveTextAsync(string suggestedFileName, string content, CancellationToken ct = default)
+    /// <summary>The file type the last save asked the picker for — a CSV export must not ask for Markdown.</summary>
+    public SaveFileType? LastFileType { get; private set; }
+
+    public Task<string?> SaveTextAsync(string suggestedFileName, string content, SaveFileType fileType,
+        CancellationToken ct = default)
     {
         LastSuggestedName = suggestedFileName;
         LastContent = content;
+        LastFileType = fileType;
         return Task.FromResult(_resultPath);
     }
 }

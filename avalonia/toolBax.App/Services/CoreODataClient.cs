@@ -54,6 +54,13 @@ public sealed class CoreODataClient : IODataClient, IDisposable
         {
             token = await _auth.AcquireFoTokenAsync(env, ct).ConfigureAwait(false);
         }
+        // Cancelling mid-sign-in is not an authentication failure: reporting "401 Unauthorized" told the
+        // user their credentials had been rejected when in fact they pressed Cancel. Rethrow so the
+        // caller's cancellation path runs — see the note on the send handler below (#168).
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             return new ODataResponse(401, "Unauthorized", ex.Message, (int)sw.ElapsedMilliseconds);
@@ -97,6 +104,16 @@ public sealed class CoreODataClient : IODataClient, IDisposable
             sw.Stop();
             return new ODataResponse((int)response.StatusCode, response.ReasonPhrase ?? string.Empty,
                 responseBody, (int)sw.ElapsedMilliseconds, CollectHeaders(response));
+        }
+        // A cancelled request is not a failed request. Reporting it as one meant the view models' own
+        // `catch (OperationCanceledException)` handlers — the Query Builder's clean "Export cancelled.",
+        // for one — could never run in production, and the user was told the request had failed instead.
+        // An HTTP/socket timeout also surfaces as an OperationCanceledException but with the caller's
+        // token still live, so gate on the token: only that means the caller asked to stop. A timeout
+        // falls through and keeps its non-success response.
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {

@@ -1,4 +1,6 @@
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
@@ -6,6 +8,8 @@ using Avalonia.VisualTree;
 using ToolBax.App.Services;
 using ToolBax.App.ViewModels;
 using ToolBax.App.Views;
+using ToolBax.Core.Models;
+using ToolBax.Core.Services;
 using Xunit;
 
 namespace ToolBax.App.Tests;
@@ -101,6 +105,55 @@ public class QueryBuilderViewRenderTests
             Assert.True(fieldList!.Bounds.Height > 0 && fieldList.Bounds.Height <= window.Height,
                 $"field list height {fieldList.Bounds.Height} must be >0 and within the {window.Height}px viewport.");
             Assert.NotNull(fieldList.GetVisualDescendants().OfType<ScrollViewer>().FirstOrDefault());
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    // Holds a run open so the busy-only Cancel button can be observed while it is in flight.
+    private sealed class GatedODataClient : IODataClient
+    {
+        public readonly TaskCompletionSource Gate = new();
+
+        public async Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
+        {
+            await Gate.Task;
+            ct.ThrowIfCancellationRequested();
+            return new ODataResponse(200, "OK", "{\"value\":[]}", 5);
+        }
+    }
+
+    [AvaloniaFact]
+    public void Cancel_appears_only_while_an_operation_is_running_and_stops_it()
+    {
+        var client = new GatedODataClient();
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+        var view = new QueryBuilderView { DataContext = vm };
+        var window = new Window { Content = view, Width = 1100, Height = 720 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            // The cancel commands were generated but bound nowhere, so no cancellation was reachable (#168).
+            var cancel = view.GetVisualDescendants().OfType<Button>()
+                .Single(b => (b.Content as string) == "Cancel");
+            Assert.False(cancel.IsVisible); // idle: nothing to cancel
+
+            var run = vm.RunCommand.ExecuteAsync(null);
+            Dispatcher.UIThread.RunJobs();
+            Assert.True(cancel.IsVisible);
+            Assert.True(cancel.Command!.CanExecute(null));
+
+            cancel.Command.Execute(null);
+            client.Gate.SetResult();
+            Dispatcher.UIThread.RunJobs();
+            run.GetAwaiter().GetResult();
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal("Run cancelled.", vm.StatusText);
+            Assert.False(cancel.IsVisible);
         }
         finally
         {

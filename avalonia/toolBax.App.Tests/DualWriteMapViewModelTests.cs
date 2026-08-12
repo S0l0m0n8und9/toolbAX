@@ -345,6 +345,7 @@ public class DualWriteMapViewModelTests
         Assert.NotNull(save.LastContent);
         Assert.Contains("# Customers V3 to Accounts", save.LastContent);
         Assert.EndsWith(".md", save.LastSuggestedName);
+        Assert.Equal(SaveFileType.Markdown, save.LastFileType); // the picker offers *.md for this export
         Assert.Equal("Exported to C:/out/map.md", vm.ExportStatus);
     }
 
@@ -891,8 +892,8 @@ public class DualWriteMapViewModelTests
 
     private sealed class ThrowingFileSave : IFileSaveService
     {
-        public Task<string?> SaveTextAsync(string suggestedFileName, string content, CancellationToken ct = default) =>
-            throw new IOException("the file is in use");
+        public Task<string?> SaveTextAsync(string suggestedFileName, string content, SaveFileType fileType,
+            CancellationToken ct = default) => throw new IOException("the file is in use");
     }
 
     // Gates the SOLUTIONS load (Initialize's first await, the one with no OCE handling of its own —
