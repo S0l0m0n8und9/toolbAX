@@ -69,8 +69,13 @@ public sealed class QueryFilterContext
     public QueryFilterContext(IReadOnlyList<EntityField> fields, Func<string, IReadOnlyList<string>> enumMembers)
     {
         _enumMembers = enumMembers;
-        FieldNames = fields.Select(f => f.Name).ToList();
-        _byName = fields.GroupBy(f => f.Name).ToDictionary(g => g.Key, g => g.First());
+        // Collection(...) properties are dropped here — the one seam both the field dropdown and
+        // programmatic condition creation read, so neither can compose a scalar condition on one. A
+        // collection has no scalar comparison at all: OData needs any()/all() lambda syntax, and F&O
+        // rejects "Tags eq 'foo'" outright. Raw mode is untouched, so a lambda can still be hand-written.
+        var scalar = fields.Where(f => IsScalarFilterable(f.Type)).ToList();
+        FieldNames = scalar.Select(f => f.Name).ToList();
+        _byName = scalar.GroupBy(f => f.Name).ToDictionary(g => g.Key, g => g.First());
     }
 
     public IReadOnlyList<string> FieldNames { get; }
@@ -95,11 +100,19 @@ public sealed class QueryFilterContext
         "Guid" => QueryLiteralKind.Guid,
         "DateTime" => QueryLiteralKind.DateTime,
         "Date" => QueryLiteralKind.Date,
-        // String, Enum, Collection and anything unrecognised quote as text. F&O entities don't expose
-        // Edm.Duration/TimeOfDay/Binary, and a wrongly-quoted value is a loud 400 rather than a silently
-        // mis-scoped query.
+        // String, Enum and anything unrecognised (including a field with no metadata at all) quote as
+        // text. F&O entities don't expose Edm.Duration/TimeOfDay/Binary, and a wrongly-quoted value is a
+        // loud 400 rather than a silently mis-scoped query. "Collection" never reaches here from the
+        // builder — those fields are excluded from the context — but it still quotes if it ever does.
         _ => QueryLiteralKind.Quoted,
     };
+
+    /// <summary>
+    /// False for the one mapped type that can't appear in a scalar <c>field op value</c> condition:
+    /// "Collection" (a <c>Collection(...)</c> property, which OData only filters via an any()/all()
+    /// lambda). Fields failing this are kept out of the builder's <see cref="FieldNames"/> entirely.
+    /// </summary>
+    public static bool IsScalarFilterable(string? type) => type != "Collection";
 
     /// <summary>True when the type renders as a bare numeric literal.</summary>
     public static bool IsNumericType(string? type) => LiteralKind(type) == QueryLiteralKind.Number;
