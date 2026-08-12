@@ -50,12 +50,22 @@ public static class ODataPayloadBuilder
     private const DateTimeStyles DateTimeOffsetStyles =
         DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal;
 
+    /// <param name="blankIncludedMeansNull">
+    /// How to read an explicitly-included field whose value is blank. <c>false</c> (the default) omits it —
+    /// the right reading for a POST, where the service applies its own default. <c>true</c> reads it as
+    /// "clear this field": the property is emitted as JSON <c>null</c> when it is nullable, and an issue is
+    /// raised when it isn't. Callers building a PATCH body pass <c>true</c>, because omission and clearing
+    /// are different requests there and the omit-everything reading produced a body of <c>{}</c> — which
+    /// F&amp;O answers 204 to, so a user who emptied a field and saw a green badge believed it was cleared
+    /// when nothing had been written.
+    /// </param>
     public static ODataPayloadBuildResult BuildPayloadJson(
         ODataEntity entity,
         IEnumerable<ODataFieldValue> fieldValues,
         IReadOnlyDictionary<string, IReadOnlyList<string>>? enumMembersByType = null,
         IReadOnlyDictionary<string, string>? defaultValues = null,
-        bool enforceMandatory = true)
+        bool enforceMandatory = true,
+        bool blankIncludedMeansNull = false)
     {
         if (entity is null) throw new ArgumentNullException(nameof(entity));
         if (fieldValues is null) throw new ArgumentNullException(nameof(fieldValues));
@@ -97,8 +107,25 @@ public static class ODataPayloadBuilder
                 if (enforceMandatory && prop.Mandatory)
                 {
                     issues.Add($"Field '{prop.Name}' is mandatory and must have a value.");
+                    continue;
                 }
-                continue; // optional blank omitted
+
+                // Only a field the caller explicitly included can mean "clear me" — a property that isn't in
+                // fieldValues at all was never asked about (it reaches here only via prop.Mandatory), so it
+                // stays omitted rather than being nulled on the caller's behalf.
+                if (!blankIncludedMeansNull || !inputExists || !input!.Include)
+                {
+                    continue; // optional blank omitted
+                }
+
+                if (!prop.Nullable)
+                {
+                    issues.Add($"Field '{prop.Name}' is included but blank — it isn't nullable; enter a value or exclude it.");
+                    continue;
+                }
+
+                obj[prop.Name] = null;
+                continue;
             }
 
             if (string.Equals(trimmed, "null", StringComparison.OrdinalIgnoreCase))

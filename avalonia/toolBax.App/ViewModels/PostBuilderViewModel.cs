@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -290,9 +291,19 @@ public partial class PostBuilderViewModel : ObservableObject
     }
 
     // OData key literals: strings/enums are single-quoted (with '' escaping); numerics/bools/guids are raw.
+    //
+    // The quoted literal is then percent-encoded as a whole, because this predicate is interpolated straight
+    // into the request URL and CoreODataClient.BuildUri hands that string to new Uri(...). Left raw, a key
+    // value carrying URL syntax stopped being data: an ItemNumber of "1000/A" became an extra path segment
+    // (404), "50%" became a broken escape sequence, and worst of all "A#1" started the URI *fragment* — which
+    // silently truncated the request at the '#' AND took "?cross-company=true" with it, so a cross-company
+    // write turned into a single-company one against a key the user never typed, with no error anywhere.
+    // OData accepts percent-encoded key literals, so encoding the delimiting quotes to %27 costs nothing.
+    // Non-string key types stay raw: digits, GUIDs and booleans contain no URL-significant characters, and
+    // encoding them would only make the predicate harder to read.
     private static string FormatKeyValue(string friendlyType, string value) =>
         friendlyType is "String" or "Enum"
-            ? $"'{value.Replace("'", "''")}'"
+            ? Uri.EscapeDataString($"'{value.Replace("'", "''")}'")
             : value;
 
     partial void OnEntitySearchChanged(string value) => RefreshEntityFilter();
@@ -511,9 +522,23 @@ public partial class PostBuilderViewModel : ObservableObject
             .Select(r => new ODataFieldValue(r.Name, r.Include && !(keyedMethod && r.IsKey), r.Value))
             .ToList();
         var enforceMandatory = string.Equals(Method, "POST", StringComparison.OrdinalIgnoreCase);
+        // On a PATCH the Include checkbox carries the omit/clear distinction: unchecked = leave the field
+        // alone, checked-but-blank = clear it (the builder emits an explicit null, which the payload preview
+        // then shows — the visible truth about what will be written). A POST has no such distinction, and a
+        // DELETE sends no body at all (see Send), so both keep the omit-blanks reading.
+        var isPatch = string.Equals(Method, "PATCH", StringComparison.OrdinalIgnoreCase);
 
-        var result = ODataPayloadBuilder.BuildPayloadJson(entity, values, enforceMandatory: enforceMandatory);
+        var result = ODataPayloadBuilder.BuildPayloadJson(entity, values,
+            enforceMandatory: enforceMandatory, blankIncludedMeansNull: isPatch);
         var issues = new List<string>(result.Issues);
+
+        // A PATCH body of "{}" is a request that changes nothing — and F&O answers it 204, so the success
+        // badge went green over a write that never happened. Block it instead. DELETE is exempt: the send
+        // path drops its body entirely, so an empty object there is by design, not a silent no-op.
+        if (isPatch && result.Ok && BodyHasNoProperties(result.Json!))
+        {
+            issues.Add("No fields included — this PATCH would send an empty body and change nothing.");
+        }
 
         // A keyed write must target a specific record. Since the keys are excluded from the body, an
         // incomplete key would otherwise produce a request with the record identity in neither the URL
@@ -544,6 +569,13 @@ public partial class PostBuilderViewModel : ObservableObject
             PayloadIssues = string.Join(Environment.NewLine, issues);
         }
     }
+
+    // True when the built body is an object carrying no properties — "{}" however it happens to be formatted.
+    // Parsed rather than string-compared so a change to the builder's serializer options can't quietly turn
+    // the empty-PATCH guard off, which would fail open (an empty PATCH sendable again). Only ever called on
+    // the builder's own successful output, so the JSON is known-valid.
+    private static bool BodyHasNoProperties(string json) =>
+        JsonNode.Parse(json) is JsonObject obj && obj.Count == 0;
 
     // Grid mode with no usable field metadata: clear the body and raise a single blocking issue (which
     // disables Send via CanSend), naming the load failure as the cause when there was one. Raises the target

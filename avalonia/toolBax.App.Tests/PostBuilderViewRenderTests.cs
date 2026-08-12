@@ -31,4 +31,31 @@ public class PostBuilderViewRenderTests
             window.Close();
         }
     }
+
+    [AvaloniaFact]
+    public void The_include_column_header_explains_what_a_blank_included_field_means_on_patch()
+    {
+        // On a PATCH the checkbox carries the omit/clear distinction (#158), which isn't guessable from a
+        // column called "Incl" — so the tip has to actually reach the rendered header, not just the markup.
+        var vm = new PostBuilderViewModel(new FakeODataClient(), metadata: new FakeMetadataService())
+        {
+            Method = "PATCH",
+            UseFieldGrid = true,
+        };
+        var view = new PostBuilderView { DataContext = vm };
+        var window = new Window { Content = view, Width = 1000, Height = 700 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            var header = view.GetVisualDescendants().OfType<TextBlock>()
+                .First(t => t.Text == "Incl");
+
+            Assert.Contains("clears the field", (string)ToolTip.GetTip(header)!);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
 }
