@@ -9,12 +9,14 @@ namespace FoToolbox.Core.DualWrite;
 /// Field names are reverse-engineered from <c>DWLibary</c>, so reads are deliberately
 /// tolerant: property lookups are case-insensitive, arrays may be bare or wrapped in a
 /// <c>value</c> envelope, and missing fields degrade to empty rather than throwing.
+/// Where a lookup lists several names, the list is a <em>priority order</em> — see
+/// <see cref="TryGetProperty"/>.
 /// </summary>
 public static class DualWriteResponseParser
 {
     public static DualWriteEnvironment ParseEnvironment(string json, string identifier)
     {
-        using var doc = JsonDocument.Parse(json);
+        using var doc = ParseGatewayJson(json);
         var element = FirstItemOrSelf(doc.RootElement);
         var cid = GetString(element, "cid", "connectionId", "id");
         var cname = GetString(element, "cname", "connectionName", "name");
@@ -23,7 +25,7 @@ public static class DualWriteResponseParser
 
     public static IReadOnlyList<DualWriteMap> ParseMaps(string json)
     {
-        using var doc = JsonDocument.Parse(json);
+        using var doc = ParseGatewayJson(json);
         var array = AsArray(doc.RootElement);
         var maps = new List<DualWriteMap>();
         foreach (var item in array)
@@ -41,7 +43,7 @@ public static class DualWriteResponseParser
 
     public static IReadOnlyList<DualWriteFieldMapping> ParseFieldMappings(string json)
     {
-        using var doc = JsonDocument.Parse(json);
+        using var doc = ParseGatewayJson(json);
         var array = AsArray(doc.RootElement);
         var mappings = new List<DualWriteFieldMapping>();
         foreach (var item in array)
@@ -58,10 +60,31 @@ public static class DualWriteResponseParser
         return mappings;
     }
 
+    /// <summary>
+    /// Parses the answer to a submitted action. The gateway is inconsistent here — the same submit can
+    /// come back as <c>{requestId,…}</c>, as a bare quoted id, or as 202 with no body at all (the sibling
+    /// <see cref="DualWriteGatewayClient.SwitchActiveTemplateAsync"/> has always tolerated exactly these).
+    /// All three mean "submitted": an id-less answer yields an empty <see cref="DualWriteActionResponse.RequestId"/>
+    /// (there is simply nothing to poll), never an exception, because throwing here reported a submitted
+    /// action as a failure and skipped the refresh that would have shown it running.
+    /// </summary>
     public static DualWriteActionResponse ParseActionResponse(string json)
     {
-        using var doc = JsonDocument.Parse(json);
+        var trimmed = json?.Trim() ?? string.Empty;
+        if (trimmed.Length == 0)
+        {
+            return new DualWriteActionResponse(string.Empty, null);
+        }
+
+        using var doc = ParseGatewayJson(trimmed);
         var element = doc.RootElement;
+
+        // A bare id: the whole body is the request id (quoted, or unquoted when it's numeric).
+        if (element.ValueKind is JsonValueKind.String or JsonValueKind.Number)
+        {
+            return new DualWriteActionResponse(ScalarText(element).Trim(), null);
+        }
+
         var requestId = GetString(element, "requestId", "requestID", "id");
         var state = GetStringOrNull(element, "state", "status");
         return new DualWriteActionResponse(requestId, state);
@@ -69,7 +92,7 @@ public static class DualWriteResponseParser
 
     public static DualWriteRequestStatus ParseStatus(string json)
     {
-        using var doc = JsonDocument.Parse(json);
+        using var doc = ParseGatewayJson(json);
         var element = doc.RootElement;
         var requestId = GetString(element, "requestId", "requestID", "id");
         var state = GetString(element, "state", "status");
@@ -275,6 +298,58 @@ public static class DualWriteResponseParser
         return null;
     }
 
+    /// <summary>
+    /// Parses a gateway response body, converting the raw <see cref="JsonException"/> a non-JSON 2xx
+    /// produces (a proxy/WAF interstitial, an HTML sign-in page) into a message that names the cause.
+    /// The unwrapped exception read "'&lt;' is an invalid start of a value. LineNumber: 0 …", which
+    /// mentions neither the gateway nor the fact that something answered in place of it.
+    /// </summary>
+    internal static JsonDocument ParseGatewayJson(string? json)
+    {
+        try
+        {
+            return JsonDocument.Parse(json ?? string.Empty);
+        }
+        catch (JsonException ex)
+        {
+            throw new InvalidOperationException(NonJsonMessage(json), ex);
+        }
+    }
+
+    private static string NonJsonMessage(string? body) =>
+        $"The gateway returned a non-JSON response (HTML sign-in or proxy page?) — first line: {FirstLine(body)}";
+
+    /// <summary>The body's first line, trimmed and capped at 120 characters — enough to recognise an HTML
+    /// page or a proxy banner without dumping a whole document (which may carry session detail) into a
+    /// message.</summary>
+    private static string FirstLine(string? body)
+    {
+        var text = (body ?? string.Empty).Trim();
+        if (text.Length == 0)
+        {
+            return "(empty)";
+        }
+
+        var breakAt = text.IndexOfAny(new[] { '\r', '\n' });
+        if (breakAt >= 0)
+        {
+            text = text.Substring(0, breakAt).TrimEnd();
+        }
+
+        const int max = 120;
+        return text.Length <= max ? text : text.Substring(0, max) + "…";
+    }
+
+    private static string ScalarText(JsonElement value) =>
+        value.ValueKind switch
+        {
+            JsonValueKind.String => value.GetString() ?? string.Empty,
+            JsonValueKind.Number => value.GetRawText(),
+            JsonValueKind.True => "true",
+            JsonValueKind.False => "false",
+            _ => string.Empty
+        };
+
     private static string GetString(JsonElement element, params string[] names) =>
         GetStringOrNull(element, names) ?? string.Empty;
 
@@ -285,23 +360,28 @@ public static class DualWriteResponseParser
             return null;
         }
 
-        return value.ValueKind switch
-        {
-            JsonValueKind.String => value.GetString(),
-            JsonValueKind.Number => value.GetRawText(),
-            JsonValueKind.True => "true",
-            JsonValueKind.False => "false",
-            _ => null
-        };
+        // Present but not a scalar (an object/array/null) reads as absent, so callers expecting a nullable
+        // field — state, message — see null rather than an empty string that looks like a real value.
+        return value.ValueKind is JsonValueKind.String or JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False
+            ? ScalarText(value)
+            : null;
     }
 
+    /// <summary>
+    /// Finds the first of <paramref name="names"/> present on the object, case-insensitively.
+    /// <paramref name="names"/> is a <em>priority order</em>: the loops run names-outer, properties-inner,
+    /// so the caller's first choice wins regardless of where the gateway happened to serialize it. Running
+    /// them the other way round made priority an accident of document order — <c>{"id":…,"cid":…}</c>
+    /// returned the environment id as the connection id, which, being non-empty, sailed past the empty-cid
+    /// guard and made every subsequent map query come back empty.
+    /// </summary>
     private static bool TryGetProperty(JsonElement element, out JsonElement value, params string[] names)
     {
         if (element.ValueKind == JsonValueKind.Object)
         {
-            foreach (var property in element.EnumerateObject())
+            foreach (var name in names)
             {
-                foreach (var name in names)
+                foreach (var property in element.EnumerateObject())
                 {
                     if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
                     {

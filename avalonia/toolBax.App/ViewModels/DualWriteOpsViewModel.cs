@@ -159,6 +159,16 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             Status = Maps.Count == 0 ? "No maps on this connection." : $"{Maps.Count} map(s).";
             Log($"Loaded {Maps.Count} map(s).", Maps.Count == 0 ? LogKind.Warn : LogKind.Ok);
         }
+        // An HTTP/socket timeout also arrives as an OperationCanceledException, but with OUR token still
+        // live — so only a cancelled token means the user asked for this. Conflating them told people they
+        // had cancelled a connect that in fact silently timed out, and showed no error banner to correct it.
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            const string timedOut = "Gateway did not respond (timed out).";
+            LoadError = timedOut;
+            ResetDisconnected(timedOut);
+            Log(timedOut, LogKind.Err);
+        }
         catch (OperationCanceledException)
         {
             ResetDisconnected("Cancelled.");
@@ -251,32 +261,19 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             var maps = targets.Select(t => t.Map).ToList();
             var response = await session.Gateway.StartActionAsync(action.Type, maps, session.Cid, ct);
 
-            using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeoutCts.CancelAfter(_actionTimeout);
-            var pollToken = timeoutCts.Token;
-
-            using var timer = new PeriodicTimer(_pollInterval);
-            DualWriteRequestStatus? final = null;
-            while (await timer.WaitForNextTickAsync(pollToken))
+            // Past this line the action IS submitted; everything below only reports on it. So nothing here
+            // may read as "the action failed", and nothing here may skip the refresh — a user shown a
+            // failure over a stale grid is a user who submits the same Initial sync a second time.
+            if (string.IsNullOrWhiteSpace(response.RequestId))
             {
-                var status = await session.Gateway.GetStatusAsync(response.RequestId, pollToken);
-                if (status.IsTerminal)
-                {
-                    final = status;
-                    break;
-                }
-            }
-
-            if (final is { IsSuccess: true })
-            {
-                Status = $"{action.Label} completed.";
-                Log($"{action.Label} completed.", LogKind.Ok);
+                // 202 with no body, or a bare id the gateway didn't label. Submitted, but there is nothing
+                // to poll — and GetStatusAsync with a blank id is an error, so it must not be called.
+                Status = $"{action.Label} submitted — the gateway did not return a request id; refresh to see the result.";
+                Log(Status, LogKind.Warn);
             }
             else
             {
-                var why = final?.Message ?? final?.State ?? "unknown";
-                Status = $"{action.Label} failed: {why}.";
-                Log($"{action.Label} failed: {why}.", LogKind.Err);
+                await PollAndReportAsync(action, session, response.RequestId, ct);
             }
 
             // Refresh the maps to pick up their new states, preserving the user's selection. A refresh
@@ -296,6 +293,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         }
         catch (OperationCanceledException)
         {
+            // Only the submit itself or a user cancel reaches here: the polling timeout is handled inside
+            // PollAndReportAsync so that it still reaches the refresh, and the refresh has its own catch.
             Status = ct.IsCancellationRequested ? "Cancelled." : $"{action.Label} timed out.";
             Log(Status, LogKind.Warn);
         }
@@ -308,6 +307,71 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         {
             IsBusy = false;
         }
+    }
+
+    // Polls a submitted request to a terminal state and reports the outcome. Neither our own polling budget
+    // running out nor the status check itself erroring is a failed action or a lost request: both are
+    // reported as submitted, and the caller still refreshes the map list. Only a genuine user cancel, and a
+    // failure of the submit itself (which happens before this is called), propagate as such.
+    private async Task PollAndReportAsync(OpsAction action, DualWriteSession session, string requestId, CancellationToken ct)
+    {
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(_actionTimeout);
+        var pollToken = timeoutCts.Token;
+
+        DualWriteRequestStatus? final = null;
+        try
+        {
+            using var timer = new PeriodicTimer(_pollInterval);
+            while (await timer.WaitForNextTickAsync(pollToken))
+            {
+                var status = await session.Gateway.GetStatusAsync(requestId, pollToken);
+                if (status.IsTerminal)
+                {
+                    final = status;
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
+        {
+            // The timeout tripped, not the user. A genuine cancel keeps propagating to RunAction.
+            Status = $"{action.Label} submitted — still running after {_actionTimeout.TotalSeconds:0.##}s " +
+                     $"(request {requestId}). The map list will refresh; check states again shortly.";
+            Log(Status, LogKind.Warn);
+            return;
+        }
+        // The status check broke (gateway 500, network blip, a non-JSON body), not the action: the submit
+        // already succeeded. Letting this reach RunAction's outer catch reported "{action} failed" and
+        // skipped the refresh — a failure message over a stale grid, which is how the same Initial sync gets
+        // submitted twice. Warn, not Err: the action is most likely still running. A cancel is excluded from
+        // the filter so it keeps propagating to RunAction.
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Status = $"{action.Label} submitted — status check failed ({Concise(ex)}); refreshing the map list.";
+            Log(Status, LogKind.Warn);
+            return;
+        }
+
+        if (final is { IsSuccess: true })
+        {
+            Status = $"{action.Label} completed.";
+            Log($"{action.Label} completed.", LogKind.Ok);
+        }
+        else
+        {
+            var why = final?.Message ?? final?.State ?? "unknown";
+            Status = $"{action.Label} failed: {why}.";
+            Log($"{action.Label} failed: {why}.", LogKind.Err);
+        }
+    }
+
+    // One line, no trailing stop — a gateway that answers with an HTML error page or a truncated body
+    // surfaces as a multi-line parse message, and this is spliced into a single-line status sentence.
+    private static string Concise(Exception ex)
+    {
+        var first = ex.Message.Split('\n', 2)[0].Trim().TrimEnd('.');
+        return first.Length == 0 ? ex.GetType().Name : first;
     }
 
     private bool CanToggleDebug() =>

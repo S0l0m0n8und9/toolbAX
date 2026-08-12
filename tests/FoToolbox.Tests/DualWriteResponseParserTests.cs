@@ -1,4 +1,6 @@
+using System;
 using System.Linq;
+using System.Text.Json;
 using FoToolbox.Core.DualWrite;
 using Xunit;
 
@@ -140,5 +142,194 @@ public class DualWriteResponseParserTests
 
         var map = Assert.Single(DualWriteResponseParser.ParseMaps(json));
         Assert.Equal(string.Empty, map.CurrentVersion);
+    }
+}
+
+/// <summary>
+/// #166: the shapes a real gateway answers a <em>submitted</em> action with. A 202 with no body and a
+/// bare quoted id are both success — <c>SwitchActiveTemplateAsync</c> already tolerates exactly these —
+/// so neither may throw, and neither may be reported as a failed action.
+/// </summary>
+public class DualWriteActionResponseParsingTests
+{
+    [Trait("Category", "DualWrite")]
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("\r\n")]
+    public void ParseActionResponse_EmptyBody_YieldsAnEmptyRequestId(string body)
+    {
+        // 202 Accepted with no body: submitted, nothing to poll. Previously a JsonException.
+        var response = DualWriteResponseParser.ParseActionResponse(body);
+
+        Assert.Equal(string.Empty, response.RequestId);
+        Assert.Null(response.State);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ParseActionResponse_BareQuotedId_YieldsThatId()
+    {
+        // Previously produced RequestId "" (the object lookup finds nothing on a JSON string), which then
+        // tripped "A request id is required." on the first status poll.
+        var response = DualWriteResponseParser.ParseActionResponse("\"70b1f4c9-req\"");
+
+        Assert.Equal("70b1f4c9-req", response.RequestId);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ParseActionResponse_BareNumericId_YieldsThatId()
+    {
+        Assert.Equal("90210", DualWriteResponseParser.ParseActionResponse("90210").RequestId);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ParseActionResponse_ObjectShape_StillRoundTrips()
+    {
+        var response = DualWriteResponseParser.ParseActionResponse("{\"requestId\":\"req-9\",\"state\":\"1\"}");
+
+        Assert.Equal("req-9", response.RequestId);
+        Assert.Equal("1", response.State);
+    }
+}
+
+/// <summary>
+/// #166: alias lists express priority. Looking up properties in <em>document</em> order made priority an
+/// accident of how the gateway happened to serialize the object — worst case <c>{"id":…,"cid":…}</c>
+/// returned the environment id as the connection id: non-empty, so the empty-cid guard passed, and every
+/// map query then came back empty and indistinguishable from "not linked".
+/// </summary>
+public class DualWriteResponseParserAliasPriorityTests
+{
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ParseEnvironment_PrefersCid_OverAnEarlierIdProperty()
+    {
+        const string json = "{\"id\":\"env-guid-not-a-cid\",\"cid\":\"the-real-cid\",\"cname\":\"contoso-link\"}";
+
+        var env = DualWriteResponseParser.ParseEnvironment(json, "contoso.operations.dynamics.com");
+
+        Assert.Equal("the-real-cid", env.Cid);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ParseEnvironment_PrefersCname_OverAnEarlierNameProperty()
+    {
+        const string json = "{\"name\":\"display-only\",\"cid\":\"c1\",\"cname\":\"contoso-link\"}";
+
+        Assert.Equal("contoso-link", DualWriteResponseParser.ParseEnvironment(json, "id").Cname);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ParseStatus_PrefersState_OverAnEarlierStatusProperty()
+    {
+        // "state" is first in the alias list, so it wins even though "status" is serialized first.
+        const string json = "{\"status\":\"1\",\"state\":\"2\",\"requestId\":\"req-9\"}";
+
+        var status = DualWriteResponseParser.ParseStatus(json);
+
+        Assert.Equal("2", status.State);
+        Assert.True(status.IsTerminal);
+        Assert.True(status.IsSuccess);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ParseStatus_PrefersMessage_OverAnEarlierErrorProperty()
+    {
+        const string json = "{\"details\":\"stack trace\",\"error\":\"E123\",\"message\":\"Map is stopped\",\"state\":\"3\"}";
+
+        Assert.Equal("Map is stopped", DualWriteResponseParser.ParseStatus(json).Message);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ParseMaps_PrefersTheValueEnvelope_OverAnEarlierItemsProperty()
+    {
+        const string json = """
+        {
+          "items": [],
+          "value": [
+            { "leftEntity": { "name": "E", "displayName": "E" }, "rightEntity": { "name": "ce" },
+              "detail": { "tName": "ce - E", "pid": "p", "state": "4", "template": { "id": "t", "author": "A" }, "templates": [] } }
+          ]
+        }
+        """;
+
+        var map = Assert.Single(DualWriteResponseParser.ParseMaps(json));
+        Assert.Equal("ce - E", map.Name);
+    }
+}
+
+/// <summary>
+/// #166: a 2xx that isn't JSON (a proxy/WAF interstitial, an HTML sign-in page) reached the user as raw
+/// parser noise — "'&lt;' is an invalid start of a value. LineNumber: 0 …" — which names neither the
+/// gateway nor the cause.
+/// </summary>
+public class DualWriteResponseParserNonJsonTests
+{
+    private const string HtmlBody = """
+    <!DOCTYPE html>
+    <html><head><title>Sign in</title></head>
+    <body>Your session has expired.</body></html>
+    """;
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ParseMaps_HtmlBody_ExplainsItIsNotJson_AndQuotesTheFirstLine()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => DualWriteResponseParser.ParseMaps(HtmlBody));
+
+        Assert.Contains("non-JSON", ex.Message);
+        Assert.Contains("<!DOCTYPE html>", ex.Message);
+        Assert.DoesNotContain("invalid start of a value", ex.Message);
+        Assert.IsAssignableFrom<JsonException>(ex.InnerException);   // the raw cause is still available
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ParseEnvironment_HtmlBody_ExplainsItIsNotJson()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => DualWriteResponseParser.ParseEnvironment(HtmlBody, "id"));
+        Assert.Contains("non-JSON", ex.Message);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ParseStatus_HtmlBody_ExplainsItIsNotJson()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => DualWriteResponseParser.ParseStatus(HtmlBody));
+        Assert.Contains("non-JSON", ex.Message);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ParseFieldMappings_HtmlBody_ExplainsItIsNotJson()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => DualWriteResponseParser.ParseFieldMappings(HtmlBody));
+        Assert.Contains("non-JSON", ex.Message);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ParseActionResponse_HtmlBody_ExplainsItIsNotJson()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(() => DualWriteResponseParser.ParseActionResponse(HtmlBody));
+        Assert.Contains("non-JSON", ex.Message);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void NonJsonMessage_TruncatesALongFirstLine()
+    {
+        var ex = Assert.Throws<InvalidOperationException>(
+            () => DualWriteResponseParser.ParseMaps("<" + new string('x', 400)));
+
+        Assert.Contains("…", ex.Message);
+        Assert.DoesNotContain(new string('x', 200), ex.Message);
     }
 }

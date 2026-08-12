@@ -189,6 +189,144 @@ public class RefreshingBearerTokenHandlerTests
         Assert.Equal("good", inner.LastAuth!.Parameter);
         Assert.False(persisted);
     }
+
+    // #166: the clock-expiry path above only fires when our own clock says the token is stale. A gateway
+    // that answers 401 for a token we still believe in (revoked, rotated server-side, clock skew) left the
+    // session dead until the user signed in again — so a 401 must force exactly one refresh + replay.
+
+    /// <summary>Answers 401 for the first <c>unauthorizedCount</c> sends, then 200. Records every token seen.</summary>
+    private sealed class UnauthorizedThenOkHandler : HttpMessageHandler
+    {
+        private readonly int _unauthorizedCount;
+        public UnauthorizedThenOkHandler(int unauthorizedCount) => _unauthorizedCount = unauthorizedCount;
+
+        public List<string?> TokensSeen { get; } = new();
+        public int Sends => TokensSeen.Count;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            TokensSeen.Add(request.Headers.Authorization?.Parameter);
+            var status = TokensSeen.Count <= _unauthorizedCount ? HttpStatusCode.Unauthorized : HttpStatusCode.OK;
+            return Task.FromResult(new HttpResponseMessage(status));
+        }
+    }
+
+    /// <summary>Counts refresh calls so a retry loop can't hide behind a successful outcome.</summary>
+    private sealed class CountingTokenEndpointHandler : HttpMessageHandler
+    {
+        public int Calls { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Calls++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent($"{{\"access_token\":\"fresh{Calls}\",\"refresh_token\":\"r{Calls + 1}\",\"expires_in\":3600}}")
+            });
+        }
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task Unauthorized_RefreshesOnce_ReplaysTheRequest_AndSucceeds()
+    {
+        var now = new DateTimeOffset(2026, 5, 29, 0, 0, 0, TimeSpan.Zero);
+        // Deliberately NOT expired: the 401, not the clock, has to be what triggers the refresh.
+        var live = new DualWriteToken("stale-but-unexpired", "r1", now.AddHours(1));
+        var tokenEndpoint = new CountingTokenEndpointHandler();
+        var refresher = new DualWriteRefreshTokenProvider(new HttpClient(tokenEndpoint)) { Clock = () => now };
+        DualWriteToken? persisted = null;
+        var inner = new UnauthorizedThenOkHandler(unauthorizedCount: 1);
+        var handler = new RefreshingBearerTokenHandler(live, refresher, t => { persisted = t; return Task.CompletedTask; }, () => now)
+        {
+            InnerHandler = inner
+        };
+
+        var response = await new HttpMessageInvoker(handler).SendAsync(
+            new HttpRequestMessage(HttpMethod.Post, "https://gw.example/x") { Content = new StringContent("{}") },
+            CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(1, tokenEndpoint.Calls);                                  // exactly one refresh
+        Assert.Equal(new[] { "stale-but-unexpired", "fresh1" }, inner.TokensSeen.ToArray());
+        Assert.Equal("fresh1", persisted!.AccessToken);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task Unauthorized_Twice_SurfacesThe401_WithoutLooping()
+    {
+        var now = new DateTimeOffset(2026, 5, 29, 0, 0, 0, TimeSpan.Zero);
+        var live = new DualWriteToken("old", "r1", now.AddHours(1));
+        var tokenEndpoint = new CountingTokenEndpointHandler();
+        var refresher = new DualWriteRefreshTokenProvider(new HttpClient(tokenEndpoint)) { Clock = () => now };
+        var inner = new UnauthorizedThenOkHandler(unauthorizedCount: int.MaxValue);
+        var handler = new RefreshingBearerTokenHandler(live, refresher, null, () => now)
+        {
+            InnerHandler = inner
+        };
+
+        var response = await new HttpMessageInvoker(handler).SendAsync(
+            new HttpRequestMessage(HttpMethod.Get, "https://gw.example/x"), CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);   // surfaced, not swallowed
+        Assert.Equal(2, inner.Sends);                                      // one retry only
+        Assert.Equal(1, tokenEndpoint.Calls);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task Unauthorized_WithNoRefreshToken_SurfacesImmediately()
+    {
+        var now = new DateTimeOffset(2026, 5, 29, 0, 0, 0, TimeSpan.Zero);
+        var pasted = new DualWriteToken("pasted", null, now.AddHours(1));
+        var tokenEndpoint = new CountingTokenEndpointHandler();
+        var refresher = new DualWriteRefreshTokenProvider(new HttpClient(tokenEndpoint)) { Clock = () => now };
+        var inner = new UnauthorizedThenOkHandler(unauthorizedCount: 1);
+        var handler = new RefreshingBearerTokenHandler(pasted, refresher, null, () => now)
+        {
+            InnerHandler = inner
+        };
+
+        var response = await new HttpMessageInvoker(handler).SendAsync(
+            new HttpRequestMessage(HttpMethod.Get, "https://gw.example/x"), CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(1, inner.Sends);       // nothing to refresh with, so nothing to retry
+        Assert.Equal(0, tokenEndpoint.Calls);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public async Task Unauthorized_WhenTheRefreshItselfFails_SurfacesTheOriginal401()
+    {
+        var now = new DateTimeOffset(2026, 5, 29, 0, 0, 0, TimeSpan.Zero);
+        var live = new DualWriteToken("old", "revoked", now.AddHours(1));
+        var refresher = new DualWriteRefreshTokenProvider(
+            new HttpClient(new FailingTokenEndpointHandler())) { Clock = () => now };
+        var inner = new UnauthorizedThenOkHandler(unauthorizedCount: 1);
+        var handler = new RefreshingBearerTokenHandler(live, refresher, null, () => now)
+        {
+            InnerHandler = inner
+        };
+
+        // A refresh failure must not replace the gateway's own 401 with an auth exception from a retry the
+        // caller never asked for — the gateway client turns the 401 into its usual message.
+        var response = await new HttpMessageInvoker(handler).SendAsync(
+            new HttpRequestMessage(HttpMethod.Get, "https://gw.example/x"), CancellationToken.None);
+
+        Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+        Assert.Equal(1, inner.Sends);
+    }
+
+    private sealed class FailingTokenEndpointHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
+            Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadRequest)
+            {
+                Content = new StringContent("{\"error\":\"invalid_grant\"}")
+            });
+    }
 }
 
 public class DualWriteSignInCaptureTests
