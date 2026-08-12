@@ -43,6 +43,20 @@ public partial class QueryBuilderViewModel : ObservableObject
     // later manual toggle isn't stomped when the same entity's fields are refetched.
     private bool _applyCrossCompanyDefault;
 
+    // Which set of results the screen is currently showing. Bumped by ClearResults (i.e. on every real
+    // entity change), captured by Run / LoadMore before they await, and re-checked after — see
+    // IsStillCurrent. A monotonic stamp rather than a comparison of the entity name, because switching
+    // away and back mid-flight (A→B→A) leaves the name matching while the results have already been
+    // invalidated; only a counter discards that too.
+    private int _resultsGeneration;
+
+    // Non-null exactly when the results on screen have a DERIVED header — one Run built from the payload
+    // because no field was selected ($select=*) — and then it holds the names already in ResultColumns.
+    // Load more consults it to decide whether it may grow the header for a late-appearing property: a
+    // derived header is the server's and must grow, an explicit $select is the user's and must not.
+    // Null also means "nothing to grow" for a failed run or a cleared result set.
+    private HashSet<string>? _derivedColumnNames;
+
     // True while a bulk field operation (Select all / Clear) flips many chips at once, so each chip's
     // PropertyChanged doesn't rebuild the URL per-field (O(n) churn on entities with hundreds of fields);
     // the URL + labels are refreshed once when the bulk op completes.
@@ -352,11 +366,47 @@ public partial class QueryBuilderViewModel : ObservableObject
         // A fresh entity starts in Builder mode with no raw text (the tree is rebuilt in LoadFields).
         IsRawFilterMode = false;
         Filter = string.Empty;
+        ClearResults();                            // the previous entity's rows don't describe this one
         LoadFields();                              // show what's cached immediately
         OnPropertyChanged(nameof(NotCachedMessage));
         ExportAllCsvCommand.NotifyCanExecuteChanged();
         LoadSelectedFieldsCommand.Execute(null);   // then fetch from $metadata if not cached yet
     }
+
+    /// <summary>
+    /// Drops everything the last run produced. Results belong to the entity that was queried, so a real
+    /// entity change invalidates them: left in place, "Load more" followed the previous entity's
+    /// <c>@odata.nextLink</c> and appended its rows to a grid the header now labelled the new entity,
+    /// and a "Save CSV" named the old entity's data <c>{newEntity}.csv</c> (#168).
+    /// </summary>
+    private void ClearResults()
+    {
+        // Invalidate any in-flight Run / LoadMore so its completion is discarded instead of repopulating
+        // the grid the switch just emptied (PR #193 review).
+        _resultsGeneration++;
+        _derivedColumnNames = null; // no header to grow until the next run establishes one
+        ResultRows.Clear();
+        ResultColumns = Array.Empty<string>();
+        NextLink = null;                 // also disables Load more (NotifyCanExecuteChangedFor)
+        TotalCount = null;
+        RowCount = 0;
+        HasRun = false;
+        RunSucceeded = false;
+        StatusBadge = string.Empty;
+        StatusText = "Not run yet.";
+        // Neither ResultRows nor ResultColumns drives CanExecute on its own, so nudge the CSV commands.
+        ExportCsvCommand.NotifyCanExecuteChanged();
+        ExportCsvFileCommand.NotifyCanExecuteChanged();
+    }
+
+    /// <summary>
+    /// True when <paramref name="generation"/> is still the generation of results on screen — i.e. no
+    /// entity change has invalidated them since the caller captured it. Mirrors
+    /// <c>CoreMetadataService.IsStillCurrent</c> and <c>DualWriteMapViewModel.LoadMapsAsync</c>'s
+    /// discard-on-completion guard: an in-flight read is left to finish and its result dropped, rather
+    /// than being cancelled on switch (simpler, and it needs no token plumbing per result field).
+    /// </summary>
+    private bool IsStillCurrent(int generation) => generation == _resultsGeneration;
 
     // The two search boxes only re-filter what's displayed; they never touch the master lists.
     partial void OnEntitySearchChanged(string value) => RefreshEntityFilter();
@@ -598,7 +648,9 @@ public partial class QueryBuilderViewModel : ObservableObject
             }
 
             UpdateQueryUrl();
-            ExportAllCsvCommand.NotifyCanExecuteChanged(); // $select drives CanExportAllCsv
+            // No export command's CanExecute depends on the $select any more: export-all gates on the
+            // entity alone (a bare $select=* is exportable) and the CSV buttons gate on the last run's
+            // ResultColumns, which only a run replaces.
             // The label counters are independent (fields vs navigations); refresh both — a flip is
             // cheap and only one will actually change.
             OnPropertyChanged(nameof(FieldSelectionLabel));
@@ -641,7 +693,6 @@ public partial class QueryBuilderViewModel : ObservableObject
         }
 
         UpdateQueryUrl();
-        ExportAllCsvCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(FieldSelectionLabel));
         OnPropertyChanged(nameof(FieldsTabHeader));
     }
@@ -735,6 +786,8 @@ public partial class QueryBuilderViewModel : ObservableObject
             return;
         }
 
+        // The generation these results will belong to, captured before the await (see IsStillCurrent).
+        var generation = _resultsGeneration;
         IsBusy = true;
         StatusText = "Running…";
         SelectedTabIndex = ResultsTabIndex; // land on Results so rows are visible as they load
@@ -743,6 +796,28 @@ public partial class QueryBuilderViewModel : ObservableObject
             var columns = SelectedColumns().ToList();
             var path = BuildPath(forRequest: true);
             var response = await _client.SendAsync("GET", path, body: null, ct);
+
+            // The user switched entity while this was in flight, so these rows describe an entity the
+            // screen no longer shows. Drop them: the switch already left a clean slate, and writing to it
+            // would label entity A's results as entity B (PR #193 review).
+            if (!IsStillCurrent(generation))
+            {
+                return;
+            }
+
+            // With nothing selected the request goes out as $select=*, so the columns aren't knowable
+            // before the response: take them from what the server actually returned. Without this the
+            // grid rendered "Results · 3" over rows carrying zero cells, and a CSV of bare CRLFs (#168).
+            if (columns.Count == 0 && response.IsSuccess)
+            {
+                // Keep the seen-set: Load more reuses it to grow this derived header as pages arrive.
+                _derivedColumnNames = new HashSet<string>(StringComparer.Ordinal);
+                MergeDerivedColumns(response.Body, columns, _derivedColumnNames);
+            }
+            else
+            {
+                _derivedColumnNames = null; // an explicit $select owns the header; nothing may grow it
+            }
 
             // Clear stale rows before swapping columns so the grid never renders old rows under new
             // headers (the column rebuild keys off ResultColumns changing).
@@ -766,6 +841,14 @@ public partial class QueryBuilderViewModel : ObservableObject
             StatusText = $"{DescribeCount()} · {response.StatusLine}";
             HasRun = true;
         }
+        // An HTTP/socket timeout also arrives as an OperationCanceledException, but with OUR token still
+        // live — only a cancelled token means the user pressed Cancel. A timeout falls through to the
+        // general handler and is reported as the failure it is.
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            RunSucceeded = false;
+            StatusText = "Run cancelled.";
+        }
         catch (Exception ex)
         {
             RunSucceeded = false;
@@ -776,6 +859,56 @@ public partial class QueryBuilderViewModel : ObservableObject
             IsBusy = false;
             ExportCsvCommand.NotifyCanExecuteChanged();
             ExportCsvFileCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    /// <summary>
+    /// Grows <paramref name="columns"/> with every property name in this page's rows that isn't already
+    /// there, in first-seen order — the columns an unselected (<c>$select=*</c>) query renders and
+    /// exports. A single row is not a reliable schema (OData omits a null property rather than emitting
+    /// it), so every row on the page contributes; <c>@odata.*</c> entries are response annotations, not
+    /// fields, so they stay out. Called per page by a paging export, so the final header is the union
+    /// across all of them — the same semantics as <c>FoToolbox.Core.Export.CsvExporter</c>.
+    /// </summary>
+    /// <param name="seen">
+    /// The names already in <paramref name="columns"/>, so a multi-page walk stays O(1) per key. Callers
+    /// must keep it in step with <paramref name="columns"/> (both start empty, or both are carried).
+    /// </param>
+    private static void MergeDerivedColumns(string body, List<string> columns, HashSet<string> seen)
+    {
+        if (string.IsNullOrWhiteSpace(body))
+        {
+            return;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (!doc.RootElement.TryGetProperty("value", out var value) || value.ValueKind != JsonValueKind.Array)
+            {
+                return;
+            }
+
+            foreach (var item in value.EnumerateArray())
+            {
+                if (item.ValueKind != JsonValueKind.Object)
+                {
+                    continue;
+                }
+
+                foreach (var property in item.EnumerateObject())
+                {
+                    if (!property.Name.StartsWith("@odata.", StringComparison.OrdinalIgnoreCase)
+                        && seen.Add(property.Name))
+                    {
+                        columns.Add(property.Name);
+                    }
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // A malformed body is reported by ParseRows, which parses the same payload immediately after.
         }
     }
 
@@ -791,14 +924,44 @@ public partial class QueryBuilderViewModel : ObservableObject
             return;
         }
 
+        // Captured before the await, like Run's (see IsStillCurrent).
+        var generation = _resultsGeneration;
         IsBusy = true;
         StatusText = "Loading more…";
         SelectedTabIndex = ResultsTabIndex; // Load more can be triggered from any tab; show the grid
         try
         {
             var response = await _client.SendAsync("GET", link, body: null, ct);
+
+            // The entity changed while this page was in flight: it belongs to the previous entity's
+            // result set, which no longer exists. Appending it would page entity A into entity B's grid
+            // — exactly what clearing on switch was meant to prevent (PR #193 review).
+            if (!IsStillCurrent(generation))
+            {
+                return;
+            }
+
             if (response.IsSuccess)
             {
+                // A DERIVED ($select=*) header belongs to the server, not the user, so it grows when a
+                // later page carries a property the earlier ones lacked (OData omits a null rather than
+                // emitting it). Fixing the header at page one instead dropped that column from the grid
+                // AND silently omitted it from Copy CSV / Save CSV, even though Export all kept it
+                // (PR #193 review). An explicit $select is left exactly as chosen.
+                if (_derivedColumnNames is not null)
+                {
+                    var grown = ResultColumns.ToList();
+                    MergeDerivedColumns(response.Body, grown, _derivedColumnNames);
+                    if (grown.Count != ResultColumns.Count)
+                    {
+                        // The reassignment is what raises PropertyChanged, which rebuilds the grid's
+                        // columns; mutating a list in place would leave the new column unrendered.
+                        ResultColumns = grown;
+                    }
+                }
+
+                // Rows already in the grid carry no cell for a newly added column. QueryResultRow reports
+                // that absence as null, so it shows the em-dash placeholder and exports as an empty field.
                 foreach (var row in ParseRows(response.Body, ResultColumns))
                 {
                     ResultRows.Add(row);
@@ -814,6 +977,12 @@ public partial class QueryBuilderViewModel : ObservableObject
             StatusBadge = $"{response.StatusCode} {response.ReasonPhrase}";
             RowCount = ResultRows.Count;
             StatusText = $"{DescribeCount()} · {response.StatusLine}";
+        }
+        // Only a cancelled token is the user asking to stop; a timeout arrives the same way and is a
+        // failure (see Run).
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            StatusText = "Load more cancelled.";
         }
         catch (Exception ex)
         {
@@ -872,7 +1041,11 @@ public partial class QueryBuilderViewModel : ObservableObject
         }
     }
 
-    private bool CanExportCsv() => ResultRows.Count > 0;
+    // Rows alone aren't enough: a run can land rows with no columns (a $select=* payload whose objects
+    // carry no readable properties), and CSV of nothing but line terminators is worse than a disabled
+    // button (#168). Export-all enforces the same invariant, but only after its fetch — it derives its
+    // own header, so it can't know before then (see ExportAllCsv).
+    private bool CanExportCsv() => ResultRows.Count > 0 && ResultColumns.Count > 0;
 
     [RelayCommand(CanExecute = nameof(CanExportCsv))]
     private async Task ExportCsv()
@@ -893,12 +1066,16 @@ public partial class QueryBuilderViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(CanExportCsv))]
     private async Task ExportCsvFile(CancellationToken ct)
     {
+        // Snapshot the entity name, content and count up front — mirroring ExportAllCsv — so the file
+        // describes the rows being written rather than whatever is selected by the time the picker
+        // returns. (The rows themselves can't change mid-save: a real entity change clears them.)
+        var entityName = SelectedEntity?.Name ?? "query";
         var csv = QueryCsv.Build(ResultColumns, ResultRows);
         var rows = ResultRows.Count;
-        var name = $"{SelectedEntity?.Name ?? "query"}.csv";
+        var name = $"{entityName}.csv";
         try
         {
-            var path = await _fileSave.SaveTextAsync(name, csv, ct);
+            var path = await _fileSave.SaveTextAsync(name, csv, SaveFileType.Csv, ct);
             StatusText = path is null ? "Export cancelled." : $"Saved {rows} rows to {path}.";
         }
         catch (OperationCanceledException)
@@ -912,8 +1089,10 @@ public partial class QueryBuilderViewModel : ObservableObject
     }
 
     // Export-all can run whenever an entity is selected (it issues its own unbounded query); gated off
-    // IsBusy so it doesn't overlap a Run / Load-more.
-    private bool CanExportAllCsv() => !IsBusy && SelectedEntity is not null && SelectedColumns().Any();
+    // IsBusy so it doesn't overlap a Run / Load-more. Deliberately NOT gated on a $select: with no
+    // fields ticked the query is a valid $select=*, and demanding a selection blocked exporting the very
+    // rows Run had just rendered from a derived header (PR #193 review).
+    private bool CanExportAllCsv() => !IsBusy && SelectedEntity is not null;
 
     // Pages through the ENTIRE result set (following @odata.nextLink) and saves it as one .csv file,
     // independent of the preview's $top/paging. Bounded by MaxExportPages as a runaway guard.
@@ -935,6 +1114,13 @@ public partial class QueryBuilderViewModel : ObservableObject
         try
         {
             var columns = SelectedColumns().ToList();
+            // With no $select the header is whatever the server sends, so grow it page by page as they
+            // stream in: a later page may carry a property an earlier one omitted (OData drops nulls),
+            // and rows parsed before a column appeared simply have no value for it — QueryResultRow
+            // reports that as null, which exports as an empty field. The final header is therefore the
+            // union across every page.
+            var derivingColumns = columns.Count == 0;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
             var rows = new List<QueryResultRow>();
             var path = BuildPath(forRequest: true, unbounded: true);
             var pages = 0;
@@ -947,6 +1133,12 @@ public partial class QueryBuilderViewModel : ObservableObject
                 {
                     StatusText = $"Export failed: {response.StatusLine}";
                     return;
+                }
+
+                if (derivingColumns)
+                {
+                    // Before parsing, so this page's rows carry every column known so far.
+                    MergeDerivedColumns(response.Body, columns, seen);
                 }
 
                 rows.AddRange(ParseRows(response.Body, columns));
@@ -966,9 +1158,17 @@ public partial class QueryBuilderViewModel : ObservableObject
                 path = next;
             }
 
+            // Nothing derivable and nothing selected: the file would be bare line terminators. Same
+            // invariant CanExportCsv enforces for the preview, but only knowable here after the fetch.
+            if (columns.Count == 0)
+            {
+                StatusText = "Nothing to export: the query returned no columns.";
+                return;
+            }
+
             var csv = QueryCsv.Build(columns, rows);
             var name = $"{entityName}.csv";
-            var saved = await _fileSave.SaveTextAsync(name, csv, ct);
+            var saved = await _fileSave.SaveTextAsync(name, csv, SaveFileType.Csv, ct);
             if (saved is null)
             {
                 StatusText = "Export cancelled.";
@@ -995,6 +1195,29 @@ public partial class QueryBuilderViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// Cancels whichever long-running command is in flight — Run, Load more or Export all. Each has its
+    /// own generated cancel command (<c>IncludeCancelCommand</c>); this gives the view one Cancel button
+    /// to bind so it doesn't have to know which is running. A cancel command reports itself executable
+    /// only while its command is running and cancellable, so this is a no-op when idle.
+    /// </summary>
+    /// <remarks>
+    /// The generated cancel commands existed but were bound nowhere, which left every cancellation path
+    /// on this screen unreachable in production — including <see cref="ExportAllCsv"/>'s clean
+    /// "Export cancelled." outcome (#168).
+    /// </remarks>
+    [RelayCommand]
+    private void CancelBusy()
+    {
+        foreach (var cancel in new[] { RunCancelCommand, LoadMoreCancelCommand, ExportAllCsvCancelCommand })
+        {
+            if (cancel.CanExecute(null))
+            {
+                cancel.Execute(null);
+            }
+        }
+    }
+
     // Projects an OData {"value":[ {...} ]} payload onto the selected columns.
     private static IEnumerable<QueryResultRow> ParseRows(string body, IReadOnlyList<string> columns)
     {
@@ -1011,20 +1234,25 @@ public partial class QueryBuilderViewModel : ObservableObject
 
         foreach (var item in value.EnumerateArray())
         {
-            var cells = new Dictionary<string, string>(columns.Count);
+            // A column the payload omits is stored as null — the same shape an explicit JSON null takes,
+            // and what QueryResultRow renders as the em-dash. Nullness stays a property of the cell
+            // rather than of its display text (see QueryResultRow).
+            var cells = new Dictionary<string, string?>(columns.Count);
             foreach (var column in columns)
             {
-                cells[column] = item.TryGetProperty(column, out var cell) ? CellText(cell) : "—";
+                cells[column] = item.TryGetProperty(column, out var cell) ? CellText(cell) : null;
             }
 
             yield return new QueryResultRow(cells);
         }
     }
 
-    private static string CellText(JsonElement cell) => cell.ValueKind switch
+    // The cell's raw text, or null when the field is JSON null. QueryResultRow derives the grid's
+    // em-dash from that null at display time; QueryCsv exports it as an empty field.
+    private static string? CellText(JsonElement cell) => cell.ValueKind switch
     {
-        JsonValueKind.Null => "—",
-        JsonValueKind.String => cell.GetString() ?? "—",
+        JsonValueKind.Null => null,
+        JsonValueKind.String => cell.GetString(),
         _ => cell.ToString(),
     };
 }

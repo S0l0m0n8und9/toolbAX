@@ -15,7 +15,12 @@ public static class QueryCsv
         foreach (var row in rows)
         {
             sb.Append("\r\n"); // RFC 4180 record terminator
-            sb.Append(string.Join(",", columns.Select(c => Escape(row[c]))));
+            // A null or absent cell becomes an empty field. Nullness is read from the row model
+            // (QueryResultRow.Raw), NOT inferred by matching the grid's em-dash placeholder — that
+            // comparison silently blanked a genuine "—" value, which is data (PR #193 review).
+            // Escape then leaves an empty string completely alone: it trips neither the formula guard
+            // (which needs a leading character) nor a quote trigger.
+            sb.Append(string.Join(",", columns.Select(c => Escape(row.Raw(c) ?? string.Empty))));
         }
 
         return sb.ToString();

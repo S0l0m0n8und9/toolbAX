@@ -171,6 +171,80 @@ public class CoreODataClientTests
         Assert.Contains("token denied", result.Body);
     }
 
+    // Mimics an HTTP/socket timeout: HttpClient raises an OperationCanceledException from its own
+    // internal timeout token, while the CALLER's token is still live.
+    private sealed class TimingOutHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+            => throw new TaskCanceledException("The request timed out.", new TimeoutException());
+    }
+
+    // Honours the token the way the real HTTP stack does (HttpClient itself does not pre-check it before
+    // handing off to the handler, so a stub that ignores the token can't model a cancelled request).
+    private sealed class CancelObservingHandler : HttpMessageHandler
+    {
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            ct.ThrowIfCancellationRequested();
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{}") });
+        }
+    }
+
+    [Fact]
+    public async Task A_cancelled_request_surfaces_the_cancellation_instead_of_a_failed_response()
+    {
+        var client = new CoreODataClient(new FakeAuthService(_ => "tok"), () => Env(),
+            new HttpClient(new CancelObservingHandler()));
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+
+        // Swallowing this into (0, "Request failed") made every caller's `catch (OperationCanceledException)`
+        // dead code in production — the Query Builder's "Export cancelled." could never be reached (#168).
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => client.SendAsync("GET", "/data/Foo", null, cts.Token));
+    }
+
+    [Fact]
+    public async Task Cancelling_during_token_acquisition_is_not_reported_as_401_unauthorized()
+    {
+        using var cts = new CancellationTokenSource();
+        await cts.CancelAsync();
+        var auth = new FakeAuthService(_ => throw new OperationCanceledException(cts.Token));
+        var client = new CoreODataClient(auth, () => Env(), new HttpClient(new StubHandler(HttpStatusCode.OK, "")));
+
+        // "401 Unauthorized" told the user their credentials had been rejected when they pressed Cancel.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => client.SendAsync("GET", "/data/Foo", null, cts.Token));
+    }
+
+    [Fact]
+    public async Task A_timeout_is_still_reported_as_a_failed_request_not_a_cancellation()
+    {
+        var client = new CoreODataClient(new FakeAuthService(_ => "tok"), () => Env(),
+            new HttpClient(new TimingOutHandler()));
+
+        // Same exception type, but the caller never asked to stop — so it stays a reportable failure
+        // rather than unwinding into a "cancelled" status the user didn't cause.
+        var result = await client.SendAsync("GET", "/data/Foo", null, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(0, result.StatusCode);
+        Assert.Equal("Request failed", result.ReasonPhrase);
+    }
+
+    [Fact]
+    public async Task A_token_timeout_during_acquisition_is_still_a_401()
+    {
+        // An auth OperationCanceledException with the caller's token live is an auth failure (e.g. the
+        // broker timing out), not a user cancellation — it keeps the 401 mapping.
+        var auth = new FakeAuthService(_ => throw new OperationCanceledException("broker timed out"));
+        var client = new CoreODataClient(auth, () => Env(), new HttpClient(new StubHandler(HttpStatusCode.OK, "")));
+
+        var result = await client.SendAsync("GET", "/data/Foo", null, TestContext.Current.CancellationToken);
+
+        Assert.Equal(401, result.StatusCode);
+    }
+
     [Fact]
     public async Task Dispose_disposes_the_internally_created_HttpClient()
     {
