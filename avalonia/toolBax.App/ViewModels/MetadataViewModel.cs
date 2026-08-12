@@ -98,19 +98,20 @@ public partial class MetadataViewModel : ObservableObject
             await _metadata.LoadEntitiesAsync(forceRefresh: true, ct);
             LoadError = null;
 
+            // Rebuilt unconditionally: an empty result is a legitimate answer (an environment with no
+            // OData metadata, or one the refresh couldn't enumerate), and keeping the previous list would
+            // leave the browser showing another environment's entities with the error already cleared. A
+            // failed refresh throws instead, and is handled below without reaching here.
             var loaded = _metadata.GetEntities();
-            if (loaded.Count > 0)
+            var previous = Selected?.Name;
+            Entities.Clear();
+            foreach (var e in loaded)
             {
-                var previous = Selected?.Name;
-                Entities.Clear();
-                foreach (var e in loaded)
-                {
-                    Entities.Add(e);
-                }
-
-                Selected = Entities.FirstOrDefault(e => e.Name == previous) ?? Entities.FirstOrDefault();
-                OnPropertyChanged(nameof(Filtered));
+                Entities.Add(e);
             }
+
+            Selected = Entities.FirstOrDefault(e => e.Name == previous) ?? Entities.FirstOrDefault();
+            OnPropertyChanged(nameof(Filtered));
 
             // Refetch the selection's properties too, so the grid isn't left showing the cached ones.
             if (Selected is { } entity)

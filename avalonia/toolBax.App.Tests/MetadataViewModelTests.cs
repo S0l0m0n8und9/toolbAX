@@ -132,6 +132,55 @@ public class MetadataViewModelTests
         Assert.NotEmpty(vm.Fields);
     }
 
+    // Serves a catalogue until a forced refresh, after which the environment legitimately has no entities
+    // (a profile repointed at an environment without OData metadata, or a cache emptied by the switch).
+    private sealed class EmptyingMetadata : IMetadataService
+    {
+        private static readonly EntitySet[] Initial = { new("Alpha", "M", 1, "k", false, "odata") };
+        private static readonly EntityField[] Props = { new("Id", "String", false, IsKey: true, Length: 10) };
+        private bool _emptied;
+
+        public IReadOnlyList<EntitySet> GetEntities() => _emptied ? Array.Empty<EntitySet>() : Initial;
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => _emptied ? null : Props;
+
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => LoadEntitiesAsync(false, ct);
+
+        public Task LoadEntitiesAsync(bool forceRefresh, CancellationToken ct = default)
+        {
+            if (forceRefresh)
+            {
+                _emptied = true;
+            }
+
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) =>
+            LoadFieldsAsync(entityName, false, ct);
+
+        public Task<bool> LoadFieldsAsync(string entityName, bool forceRefresh, CancellationToken ct = default) =>
+            Task.FromResult(!_emptied);
+    }
+
+    // A refresh that succeeds but returns nothing has to empty the browser: keeping the previous list
+    // while LoadError is cleared shows another environment's entities as if they were current.
+    [Fact]
+    public async Task Refresh_returning_no_entities_empties_the_list()
+    {
+        var vm = new MetadataViewModel(new EmptyingMetadata());
+        Assert.Single(vm.Entities);   // the pre-refresh catalogue
+
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Empty(vm.Entities);
+        Assert.Empty(vm.Filtered);
+        Assert.Null(vm.Selected);
+        Assert.Empty(vm.Fields);
+        Assert.False(vm.IsCached);
+        Assert.Null(vm.LoadError);   // an empty result is not a failure
+        Assert.False(vm.IsBusy);
+    }
+
     [Fact]
     public async Task Refresh_surfaces_a_failure_as_LoadError_and_clears_busy()
     {

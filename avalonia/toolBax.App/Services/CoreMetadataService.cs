@@ -100,6 +100,9 @@ public sealed class CoreMetadataService : IMetadataService
     public async Task LoadEntitiesAsync(bool forceRefresh, CancellationToken ct = default)
     {
         ResetIfEnvChanged();
+        // The cache generation this fetch belongs to. ResetIfEnvChanged has just stamped _cacheEnvId with
+        // it, and the commit below only lands if it is still current — see IsStillCurrent.
+        var envId = _activeEnv()?.Id;
         var env = ResolveEnv();
         if (env is null)
         {
@@ -107,7 +110,7 @@ public sealed class CoreMetadataService : IMetadataService
         }
 
         var index = await _catalog.GetODataEntityIndexAsync(env, RefreshMode(forceRefresh), ct).ConfigureAwait(false);
-        _entities = index.Entities
+        var entities = index.Entities
             .OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
             .Select(e => new EntitySet(e.Name, Module: string.Empty, FieldCount: e.PropertyCount, Pk: string.Empty, CompanyAware: false, Tag: "odata"))
             .ToList();
@@ -119,7 +122,17 @@ public sealed class CoreMetadataService : IMetadataService
         {
             enums[LocalName(e.Name)] = e.Members;
         }
-        _enums = enums;
+
+        lock (_envSync)
+        {
+            if (!IsStillCurrent(envId))
+            {
+                return;
+            }
+
+            _entities = entities;
+            _enums = enums;
+        }
     }
 
     private static string LocalName(string typeName) =>
@@ -131,6 +144,8 @@ public sealed class CoreMetadataService : IMetadataService
     public async Task<bool> LoadFieldsAsync(string entityName, bool forceRefresh, CancellationToken ct = default)
     {
         ResetIfEnvChanged();
+        // See LoadEntitiesAsync: the generation this fetch is for, checked again before committing.
+        var envId = _activeEnv()?.Id;
         var env = ResolveEnv();
         if (env is null)
         {
@@ -143,15 +158,37 @@ public sealed class CoreMetadataService : IMetadataService
             return false;
         }
 
-        _fields[entityName] = entity.Properties
+        var fields = entity.Properties
             .Select(MapField)
             .ToList();
-        _navigations[entityName] = entity.Navigations
+        var navigations = entity.Navigations
             .Select(n => n.Name)
             .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
             .ToList();
+
+        lock (_envSync)
+        {
+            if (!IsStillCurrent(envId))
+            {
+                // Report "not loaded" for the now-active environment; callers treat false as a miss and
+                // reload, which then fetches against the environment that is actually current.
+                return false;
+            }
+
+            _fields[entityName] = fields;
+            _navigations[entityName] = navigations;
+        }
+
         return true;
     }
+
+    // The cache-generation guard for the Load* methods. A fetch resolves its environment at entry and
+    // awaits; if the active environment switches meanwhile, a getter re-stamps _cacheEnvId and empties the
+    // caches (ResetIfEnvChanged), and the in-flight result no longer belongs to anything. Invariant:
+    // results are only ever committed to the cache generation they were fetched for; otherwise they are
+    // discarded, never relabelled as the new environment's metadata. Callers hold _envSync — the same lock
+    // ResetIfEnvChanged clears under — so the check and the commit can't be split by a switch.
+    private bool IsStillCurrent(string? envId) => string.Equals(envId, _cacheEnvId, StringComparison.Ordinal);
 
     // A forced refresh bypasses both the max-age check and the stored copy, so the Metadata Browser's
     // Refresh really goes back to the environment.

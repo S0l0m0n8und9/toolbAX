@@ -38,11 +38,23 @@ public class CoreMetadataServiceEnvScopeTests
         ETag: null);
 
     // Serves whichever environment it is asked about; the interface's default index/details methods
-    // derive the rest from GetODataMetadataAsync, so no network is touched.
+    // derive the rest from GetODataMetadataAsync, so no network is touched. An optional gate holds the
+    // fetch open so a load can be caught mid-flight.
     private sealed class PerEnvCatalog : ICatalogService
     {
-        public Task<ODataMetadata> GetODataMetadataAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)
-            => Task.FromResult(Seed(env.Id));
+        private readonly Func<Task>? _gate;
+
+        public PerEnvCatalog(Func<Task>? gate = null) => _gate = gate;
+
+        public async Task<ODataMetadata> GetODataMetadataAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)
+        {
+            if (_gate is not null)
+            {
+                await _gate().ConfigureAwait(false);
+            }
+
+            return Seed(env.Id);
+        }
 
         public Task<TableCatalog> GetTablesAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)
             => throw new NotImplementedException();
@@ -112,6 +124,73 @@ public class CoreMetadataServiceEnvScopeTests
         Assert.Contains("envBField", FieldNames(svc));
         Assert.DoesNotContain("envAField", FieldNames(svc));
         Assert.NotNull(svc.GetEnumMembers("envBEnum"));
+    }
+
+    // A gate that reports when the fetch has been entered, then blocks until the test releases it. The
+    // capture of the cache generation happens before the first await, so awaiting Entered means "env A's
+    // load is past that point and pending".
+    private sealed class FetchGate
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Entered => _entered.Task;
+
+        public Func<Task> Hold => () =>
+        {
+            _entered.TrySetResult();
+            return _release.Task;
+        };
+
+        public void Release() => _release.TrySetResult();
+    }
+
+    // A load resolves its environment at entry and then awaits. If the active environment switches while
+    // that fetch is in flight, a getter re-stamps the cache to the new environment — so the late result
+    // must be dropped, not committed into a cache now labelled as the other environment's.
+    [Fact]
+    public async Task An_entity_load_completing_after_a_switch_is_discarded()
+    {
+        var active = Env("envA");
+        var gate = new FetchGate();
+        var svc = new CoreMetadataService(new PerEnvCatalog(gate.Hold), () => active);
+        var ct = TestContext.Current.CancellationToken;
+
+        var load = svc.LoadEntitiesAsync(ct);
+        await gate.Entered;                       // envA's fetch is pending
+
+        active = Env("envB");
+        Assert.Empty(svc.GetEntities());           // the getter re-stamps the cache to envB
+
+        gate.Release();
+        await load;
+
+        // envA's result arrived too late to belong to anything: it must not resurface as envB's.
+        Assert.Empty(svc.GetEntities());
+        Assert.Null(svc.GetEnumMembers("envAEnum"));
+    }
+
+    [Fact]
+    public async Task A_field_load_completing_after_a_switch_is_discarded_and_reports_not_loaded()
+    {
+        var active = Env("envA");
+        var gate = new FetchGate();
+        var svc = new CoreMetadataService(new PerEnvCatalog(gate.Hold), () => active);
+        var ct = TestContext.Current.CancellationToken;
+
+        var load = svc.LoadFieldsAsync(EntityName, ct);
+        await gate.Entered;
+
+        active = Env("envB");
+        Assert.Null(svc.GetFields(EntityName));
+
+        gate.Release();
+
+        // False, not true: the entity is simply not loaded for the now-active environment, so callers
+        // reload rather than trusting a hit that holds envA's properties.
+        Assert.False(await load);
+        Assert.Null(svc.GetFields(EntityName));
+        Assert.Null(svc.GetNavigations(EntityName));
     }
 
     [Fact]
