@@ -18,6 +18,15 @@ public sealed class CoreProfileStoreTests : IDisposable
 {
     private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"toolbax-test-{Guid.NewGuid():N}.db");
 
+    /// <summary>
+    /// Connection string for every connection this fixture opens itself. Pooling is off deliberately —
+    /// see the matching note in <see cref="CoreSecretStoreTests"/>: each database lives for one test
+    /// method, so pooling only parks an open handle on a file <see cref="Dispose"/> is about to delete and
+    /// exposes it to any other class calling the process-global <c>ClearAllPools()</c>. Test determinism
+    /// only; <see cref="ProfileStore"/> builds the product's connection string itself and is untouched.
+    /// </summary>
+    private string ConnectionString => $"Data Source={_dbPath};Pooling=False";
+
     private ProfileService NewService() => new(new ProfileStore(_dbPath));
 
     [Fact]
@@ -440,7 +449,7 @@ public sealed class CoreProfileStoreTests : IDisposable
 
     private void InsertVaultRow(string id)
     {
-        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}");
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "INSERT INTO SecretVault(Id, Kind, Blob) VALUES ($id, 'test', $blob)";
@@ -451,7 +460,7 @@ public sealed class CoreProfileStoreTests : IDisposable
 
     private int CountVaultRows(string id)
     {
-        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}");
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM SecretVault WHERE Id = $id";
@@ -644,7 +653,7 @@ public sealed class CoreProfileStoreTests : IDisposable
     // write it attempts is rejected — so this exercises the real failure ordering.
     private void RejectServicePrincipalUpdates()
     {
-        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}");
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
@@ -658,7 +667,7 @@ END;";
     // The delete-side counterpart of RejectServicePrincipalUpdates, for the drop-the-whole-row path.
     private void RejectServicePrincipalDeletes()
     {
-        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}");
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = @"
@@ -806,15 +815,18 @@ END;";
     {
         try
         {
+            // ProfileStore builds its own (pooled) connection string, so its handles can still be parked
+            // in the process-global pool when we get here.
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (File.Exists(_dbPath))
             {
                 File.Delete(_dbPath);
             }
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Best-effort temp cleanup.
+            // Best-effort temp cleanup: a throw from Dispose is reported as a test failure, so a lingering
+            // handle on the temp file must never turn a green test red.
         }
     }
 }

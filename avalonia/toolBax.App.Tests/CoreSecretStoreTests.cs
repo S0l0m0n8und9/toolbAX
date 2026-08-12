@@ -18,12 +18,33 @@ public sealed class CoreSecretStoreTests : IDisposable
 {
     private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"toolbax-sec-{Guid.NewGuid():N}.db");
 
+    /// <summary>
+    /// Connection string for every connection this fixture opens itself. Pooling is off deliberately:
+    /// each database lives for exactly one test method, so a pooled connection buys nothing and only adds
+    /// shared state — it parks an open handle on a file <see cref="Dispose"/> is about to delete, and
+    /// Microsoft.Data.Sqlite's pool is process-global, so any other test class calling
+    /// <c>ClearAllPools()</c> tears those handles down mid-run.
+    /// <para>
+    /// Flake watch (2026-08-12): a full-suite run saw
+    /// <see cref="Clear_secret_nulls_the_service_principal_ref_and_deletes_the_blob"/> fail once, with the
+    /// assertion detail not captured, and it has not recurred in 252 runs since (120 of the single test in
+    /// a fresh process, 50 of this class alongside <see cref="CoreProfileStoreTests"/>, 50 full-suite, and
+    /// 32 full-suite across 4 concurrent runner processes). <c>ClearSecret</c>'s two-step was reviewed and
+    /// holds no race this test can observe: each step is awaited to completion before the next starts, the
+    /// null-ref upsert commits before the blob delete begins (so the only intermediate state is an
+    /// orphaned blob, never a dangling ref), and the assertions read only the terminal state. So the
+    /// change here is test-determinism hardening, not a fix — the product's own connection string is built
+    /// inside <see cref="ProfileStore"/> and is untouched, so app behaviour cannot change.
+    /// </para>
+    /// </summary>
+    private string ConnectionString => $"Data Source={_dbPath};Pooling=False";
+
     private ProfileService NewService() => new(new ProfileStore(_dbPath));
 
     // The vault construction is DPAPI/Windows-only (CA1416); HasSecret/ClearSecret never touch it,
     // so a null vault is fine for those cross-platform tests. SetSecret is Windows-guarded below.
     private SecretVaultService? NewVault() =>
-        OperatingSystem.IsWindows() ? new SecretVaultService($"Data Source={_dbPath}") : null;
+        OperatingSystem.IsWindows() ? new SecretVaultService(ConnectionString) : null;
 
     private async Task SeedFoSpAsync(string envId, string? secretRef)
     {
@@ -73,7 +94,7 @@ public sealed class CoreSecretStoreTests : IDisposable
 
     private void InsertVaultRow(string id)
     {
-        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}");
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "INSERT INTO SecretVault(Id, Kind, Blob) VALUES ($id, 'test', $blob)";
@@ -84,7 +105,7 @@ public sealed class CoreSecretStoreTests : IDisposable
 
     private int CountVaultRows(string id)
     {
-        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}");
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection(ConnectionString);
         conn.Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "SELECT COUNT(*) FROM SecretVault WHERE Id = $id";
@@ -274,15 +295,19 @@ public sealed class CoreSecretStoreTests : IDisposable
     {
         try
         {
+            // ProfileStore builds its own (pooled) connection string, so its handles can still be parked
+            // in the process-global pool when we get here.
             Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
             if (File.Exists(_dbPath))
             {
                 File.Delete(_dbPath);
             }
         }
-        catch (IOException)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
         {
-            // Best-effort temp cleanup.
+            // Best-effort temp cleanup. xUnit reports a throw from Dispose as a test failure with no
+            // assertion detail, so a lingering handle on the temp file (AV scan, Windows delete-pending)
+            // must never turn a green test red — that signature matches the 2026-08-12 one-off.
         }
     }
 }
