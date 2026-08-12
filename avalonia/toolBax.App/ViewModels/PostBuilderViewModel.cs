@@ -91,6 +91,14 @@ public partial class PostBuilderViewModel : ObservableObject
     [ObservableProperty]
     private bool _isBusy;
 
+    // Surfaces an entity-catalogue/field load failure regardless of mode. Grid mode already names the
+    // load failure as the cause of its own block (see BlockPayload); raw mode had no signal at all for
+    // the same Initialize/EnsureFields failure, since the picker (and its issue panel) is hidden there.
+    // Mirrors Query Builder's LoadError banner; deliberately kept out of the PayloadIssues plumbing so it
+    // doesn't count towards CanSend or the issue-count summary.
+    [ObservableProperty]
+    private string? _loadError;
+
     // --- Field-grid mode ---
 
     /// <summary>When true, the body is built from the field grid (and the raw editor is read-only).</summary>
@@ -161,6 +169,7 @@ public partial class PostBuilderViewModel : ObservableObject
     private async Task Initialize(CancellationToken ct)
     {
         var loaded = await _loader.LoadEntitiesAsync(Entities.Select(e => e.Name).ToList(), ct);
+        LoadError = _loader.LastError;
         if (loaded is not null)
         {
             var previous = SelectedEntity?.Name;
@@ -205,10 +214,22 @@ public partial class PostBuilderViewModel : ObservableObject
         var fetched = await _loader.EnsureFieldsAsync(entity.Name, ct);
         if (SelectedEntity != entity)
         {
-            return; // the user moved on; that selection's own load owns the grid now
+            // The user moved on; that selection's own load (ReloadGrid/EnsureFieldsAsync) owns the grid
+            // AND the LoadError banner now — this fetch's outcome, success or failure, belongs to
+            // `entity`, not to whatever is selected now. Returning here BEFORE touching LoadError is what
+            // stops a slow fetch for an entity the user has already left from clobbering the current
+            // selection's (possibly healthy) state once it finally resolves (PR #196 review).
+            return;
         }
 
-        if (fetched || _loader.LastError is not null)
+        // _loader.LastError is shared, "most recent fetch" state: EntityCatalogLoader.EnsureFieldsAsync
+        // returns early WITHOUT touching it when the entity's fields are already cached, so a cache hit
+        // here could otherwise leave LoadError holding an unrelated, earlier entity's failure. Re-derive
+        // per-entity truth from whether THIS entity's fields actually ended up available, rather than
+        // trusting the shared field blindly (PR #196 review).
+        LoadError = _metadata.GetFields(entity.Name) is null ? _loader.LastError : null;
+
+        if (fetched || LoadError is not null)
         {
             LoadFields();     // clears the block's cause when the fields arrived
             RebuildPayload(); // …or re-states the block with the failure attached
@@ -369,6 +390,12 @@ public partial class PostBuilderViewModel : ObservableObject
     // weren't cached) so the "hasn't loaded" block clears once they arrive.
     private void ReloadGrid()
     {
+        // A fresh selection starts with a clean slate for the load-error banner — whatever this reload
+        // finds (a cache hit needing no fetch, or the fetch EnsureFieldsAsync is about to run) owns
+        // LoadError from here. Without this, switching away from an entity whose fields failed to load
+        // left that entity's error banner showing over a DIFFERENT, healthy (already-cached) entity that
+        // never triggers a fetch at all (PR #196 review).
+        LoadError = null;
         LoadFields();
         RebuildPayload();
         if (Fields.Count == 0)
@@ -547,11 +574,23 @@ public partial class PostBuilderViewModel : ObservableObject
         if (keyedMethod)
         {
             var keyNames = fields.Where(f => f.IsKey).Select(f => f.Name).ToList();
-            var keyIncomplete = keyNames.Any(kn =>
-                string.IsNullOrEmpty(Fields.FirstOrDefault(r => string.Equals(r.Name, kn, StringComparison.Ordinal))?.Value?.Trim()));
-            if (keyNames.Count > 0 && keyIncomplete)
+            if (keyNames.Count == 0)
             {
-                issues.Add($"Enter all key values ({string.Join(", ", keyNames)}) to target the record for {Method}.");
+                // No key fields at all: BuildKeyPredicate can never produce one, so BasePath falls back to
+                // the bare collection URL — a DELETE/PATCH would 405 there, but with nothing flagged the
+                // confirm dialog still claimed "the targeted record will be removed". Block instead of
+                // sending a keyed write with no addressing at all.
+                issues.Add($"{selected.Name} declares no key fields — a {Method} can't target a record. " +
+                    "Use raw mode if you know the service's addressing.");
+            }
+            else
+            {
+                var keyIncomplete = keyNames.Any(kn =>
+                    string.IsNullOrEmpty(Fields.FirstOrDefault(r => string.Equals(r.Name, kn, StringComparison.Ordinal))?.Value?.Trim()));
+                if (keyIncomplete)
+                {
+                    issues.Add($"Enter all key values ({string.Join(", ", keyNames)}) to target the record for {Method}.");
+                }
             }
         }
 
@@ -632,6 +671,14 @@ public partial class PostBuilderViewModel : ObservableObject
 
         IsBusy = true;
         StatusText = "Sending…";
+        // Clear the PREVIOUS send's outcome up front — a cancellation never gets a real response to
+        // overwrite these with, so without this reset its "Send cancelled." status was left sitting over
+        // an unrelated earlier send's badge/body/headers, misreadable as this send's own result
+        // (PR #196 review).
+        SendSucceeded = false;
+        StatusBadge = string.Empty;
+        ResponseBody = string.Empty;
+        ResponseHeaders = string.Empty;
         try
         {
             var body = string.Equals(Method, "DELETE", StringComparison.OrdinalIgnoreCase) ? null : RequestBody;
@@ -641,6 +688,17 @@ public partial class PostBuilderViewModel : ObservableObject
             SendSucceeded = response.IsSuccess;
             ResponseBody = response.Body;
             ResponseHeaders = FormatHeaders(response.Headers);
+        }
+        // A cancelled send is not a failed one. CoreODataClient rethrows genuine cancellation instead of
+        // folding it into a response (so the view models' own cancellation handling can actually run) —
+        // without this clause that arrived as a bare Exception here and got misreported as "Request
+        // failed." Gate on OUR token: an HTTP/socket timeout also surfaces as an OperationCanceledException
+        // but with the caller's token still live — only a cancelled token means the user pressed Cancel; a
+        // timeout falls through to the general handler and is reported as the failure it is (#168).
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            SendSucceeded = false;
+            StatusText = "Send cancelled.";
         }
         catch (Exception ex)
         {
