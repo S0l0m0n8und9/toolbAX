@@ -9,7 +9,9 @@ namespace ToolBax.App.Services;
 
 /// <summary>
 /// In-memory <see cref="IMetadataService"/> seeded from the design prototype (data.js ENTITIES /
-/// FIELDS). Only CustomersV3 has cached fields — the rest exercise the "not cached yet" state.
+/// FIELDS). Only CustomersV3 (company-aware) and WorkerV2 (global) have cached fields — the rest exercise
+/// the "not cached yet" state. A <c>dataAreaId</c> field is seeded only where the entity really is
+/// company-aware, so anything gating on it behaves the same here as against a live environment.
 /// </summary>
 public sealed class FakeMetadataService : IMetadataService
 {
@@ -43,6 +45,20 @@ public sealed class FakeMetadataService : IMetadataService
             new EntityField("ModifiedDateTime", "DateTime", false),
             new EntityField("BlockedForInvoice", "Enum", true, EnumType: "CustVendorBlocked"),
             new EntityField("PrimaryContactEmail", "String", true, Length: 80),
+        },
+        // A genuinely global (not company-aware) entity WITH cached fields: no dataAreaId property, so the
+        // Query Builder's company gate — which reads the loaded fields, not the entity index — correctly
+        // offers no company scoping for it. Also covers the non-string literal types the filter builder has
+        // to render bare (DateTime/Date/Boolean/Guid/Int32).
+        ["WorkerV2"] = new[]
+        {
+            new EntityField("PersonnelNumber", "String", false, IsKey: true, Length: 25),
+            new EntityField("Name", "String", true, Length: 100),
+            new EntityField("BirthDate", "Date", true),
+            new EntityField("EmploymentStartDateTime", "DateTime", true),
+            new EntityField("IsContractor", "Boolean", false),
+            new EntityField("PartyNumber", "Int32", true),
+            new EntityField("WorkerRecId", "Guid", true),
         },
     };
 

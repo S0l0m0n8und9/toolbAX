@@ -126,7 +126,8 @@
         <TextBlock Text="{Binding SelectedEntity.Name}" FontSize="24" FontWeight="SemiBold"
                    FontFamily="{StaticResource MonoFontFamily}" Foreground="{StaticResource Text0Brush}"
                    VerticalAlignment="Center" />
-        <Border IsVisible="{Binding SelectedEntity.CompanyAware}"
+        <!-- Company-awareness comes from the loaded fields (a dataAreaId property), not the entity index. -->
+        <Border IsVisible="{Binding IsCompanyAware}"
                 Background="{StaticResource Layer3Brush}" CornerRadius="999" Padding="8,2"
                 VerticalAlignment="Center">
           <TextBlock Text="company-aware" FontSize="11" Foreground="{StaticResource Text2Brush}" />

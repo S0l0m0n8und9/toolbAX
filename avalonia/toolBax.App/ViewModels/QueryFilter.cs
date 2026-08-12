@@ -32,6 +32,32 @@ public sealed record QueryFilterOperator(string Op, string Symbol, bool IsFuncti
 }
 
 /// <summary>
+/// How a field's value is rendered into an OData <c>$filter</c> literal. The cases mirror the type names
+/// <c>CoreMetadataService.MapType</c> actually emits: single-quoting a date/boolean/GUID/numeric is a
+/// guaranteed 400 from F&amp;O ("incompatible types Edm.DateTimeOffset and Edm.String").
+/// </summary>
+public enum QueryLiteralKind
+{
+    /// <summary>Single-quoted, embedded quotes doubled — Edm.String and F&amp;O enum members.</summary>
+    Quoted,
+
+    /// <summary>Bare numeric literal (blank renders as <c>0</c>).</summary>
+    Number,
+
+    /// <summary>Bare <c>true</c>/<c>false</c>.</summary>
+    Boolean,
+
+    /// <summary>Bare GUID literal — OData v4 dropped the <c>guid'…'</c> prefixed form.</summary>
+    Guid,
+
+    /// <summary>Bare timestamp literal, e.g. <c>2026-01-01T00:00:00Z</c>.</summary>
+    DateTime,
+
+    /// <summary>Bare date literal, e.g. <c>2026-01-01</c>.</summary>
+    Date,
+}
+
+/// <summary>
 /// The field/enum metadata a filter condition needs to populate its field dropdown and pick the right
 /// value editor (enum dropdown / numeric / text). Rebuilt whenever the selected entity's fields load.
 /// </summary>
@@ -43,8 +69,13 @@ public sealed class QueryFilterContext
     public QueryFilterContext(IReadOnlyList<EntityField> fields, Func<string, IReadOnlyList<string>> enumMembers)
     {
         _enumMembers = enumMembers;
-        FieldNames = fields.Select(f => f.Name).ToList();
-        _byName = fields.GroupBy(f => f.Name).ToDictionary(g => g.Key, g => g.First());
+        // Collection(...) properties are dropped here — the one seam both the field dropdown and
+        // programmatic condition creation read, so neither can compose a scalar condition on one. A
+        // collection has no scalar comparison at all: OData needs any()/all() lambda syntax, and F&O
+        // rejects "Tags eq 'foo'" outright. Raw mode is untouched, so a lambda can still be hand-written.
+        var scalar = fields.Where(f => IsScalarFilterable(f.Type)).ToList();
+        FieldNames = scalar.Select(f => f.Name).ToList();
+        _byName = scalar.GroupBy(f => f.Name).ToDictionary(g => g.Key, g => g.First());
     }
 
     public IReadOnlyList<string> FieldNames { get; }
@@ -54,8 +85,42 @@ public sealed class QueryFilterContext
 
     public IReadOnlyList<string> EnumMembers(string enumType) => _enumMembers(enumType);
 
-    public static bool IsNumericType(string? type) =>
-        type is "Decimal" or "Int" or "Int32" or "Int64" or "Real";
+    /// <summary>
+    /// Classifies a field type (as produced by <c>CoreMetadataService.MapType</c>) into the OData literal
+    /// syntax its values need. MapType emits "String"/"Decimal"/"DateTime"/"Date"/"Boolean"/"Guid"/"Enum"/
+    /// "Collection" and passes the remaining Edm primitives through under their own names, so those are
+    /// the names matched here — the WPF-era "Int"/"Real" spellings are never emitted.
+    /// </summary>
+    public static QueryLiteralKind LiteralKind(string? type) => type switch
+    {
+        // Every numeric MapType can produce: "Decimal" plus the Edm primitives it passes through.
+        "Decimal" or "Int16" or "Int32" or "Int64" or "Double" or "Single" or "Byte" or "SByte"
+            => QueryLiteralKind.Number,
+        "Boolean" => QueryLiteralKind.Boolean,
+        "Guid" => QueryLiteralKind.Guid,
+        "DateTime" => QueryLiteralKind.DateTime,
+        "Date" => QueryLiteralKind.Date,
+        // String, Enum and anything unrecognised (including a field with no metadata at all) quote as
+        // text. F&O entities don't expose Edm.Duration/TimeOfDay/Binary, and a wrongly-quoted value is a
+        // loud 400 rather than a silently mis-scoped query. "Collection" never reaches here from the
+        // builder — those fields are excluded from the context — but it still quotes if it ever does.
+        _ => QueryLiteralKind.Quoted,
+    };
+
+    /// <summary>
+    /// False for the one mapped type that can't appear in a scalar <c>field op value</c> condition:
+    /// "Collection" (a <c>Collection(...)</c> property, which OData only filters via an any()/all()
+    /// lambda). Fields failing this are kept out of the builder's <see cref="FieldNames"/> entirely.
+    /// </summary>
+    public static bool IsScalarFilterable(string? type) => type != "Collection";
+
+    /// <summary>True when the type renders as a bare numeric literal.</summary>
+    public static bool IsNumericType(string? type) => LiteralKind(type) == QueryLiteralKind.Number;
+
+    /// <summary>True when the type is a plain string — the only argument type OData's string functions
+    /// (<c>contains</c>/<c>startswith</c>/<c>endswith</c>) accept. An unknown field (no metadata) is
+    /// treated as a string, matching how <see cref="LiteralKind"/> quotes it.</summary>
+    public static bool IsStringType(string? type) => type is null or "String";
 }
 
 /// <summary>Base for the recursive filter tree (a <see cref="QueryFilterGroup"/> or
@@ -89,16 +154,18 @@ public sealed partial class QueryFilterCondition : QueryFilterNode
 
     public IReadOnlyList<string> FieldNames => _context.FieldNames;
 
-    // Function operators (contains/startswith/endswith) are string-only; hide them for numeric/enum
-    // fields so an invalid expression like contains(CreditLimit,10000) can't be composed.
+    // Function operators (contains/startswith/endswith) take string arguments only; hide them for every
+    // other type so an invalid expression like contains(CreditLimit,10000) or
+    // contains(CreatedDateTime,2026-01-01) can't be composed.
     public IReadOnlyList<QueryFilterOperator> Operators =>
-        IsNumeric || IsEnum
-            ? QueryFilterOperator.All.Where(o => !o.IsFunction).ToList()
-            : QueryFilterOperator.All;
+        SupportsFunctions
+            ? QueryFilterOperator.All
+            : QueryFilterOperator.All.Where(o => !o.IsFunction).ToList();
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsEnum))]
     [NotifyPropertyChangedFor(nameof(IsNumeric))]
+    [NotifyPropertyChangedFor(nameof(SupportsFunctions))]
     [NotifyPropertyChangedFor(nameof(EnumMembers))]
     [NotifyPropertyChangedFor(nameof(Operators))]
     private string? _field;
@@ -111,7 +178,11 @@ public sealed partial class QueryFilterCondition : QueryFilterNode
 
     public bool IsEnum => _context.Meta(Field)?.Type == "Enum";
 
+    /// <summary>True when this field's value renders as a bare numeric literal.</summary>
     public bool IsNumeric => QueryFilterContext.IsNumericType(_context.Meta(Field)?.Type);
+
+    /// <summary>True when this field can take OData's string functions (a plain string field).</summary>
+    public bool SupportsFunctions => QueryFilterContext.IsStringType(_context.Meta(Field)?.Type);
 
     public IReadOnlyList<string> EnumMembers
     {
@@ -128,9 +199,9 @@ public sealed partial class QueryFilterCondition : QueryFilterNode
     partial void OnFieldChanged(string? value)
     {
         Value = string.Empty;
-        // If the field switched to numeric/enum while a string-only function operator was selected, fall
-        // back to a comparison operator so the rendered filter stays valid.
-        if ((IsNumeric || IsEnum) && Operator.IsFunction)
+        // If the field switched to a non-string type while a string-only function operator was selected,
+        // fall back to a comparison operator so the rendered filter stays valid.
+        if (!SupportsFunctions && Operator.IsFunction)
         {
             Operator = QueryFilterOperator.All[0]; // eq
         }
@@ -158,17 +229,24 @@ public sealed partial class QueryFilterCondition : QueryFilterNode
             : $"{Field} {Operator.Op} {literal}";
     }
 
-    // Numeric fields emit a bare literal (blank → 0); everything else is a single-quoted string with
-    // embedded quotes doubled per OData escaping.
-    private static string FormatValue(EntityField? meta, string raw)
-    {
-        if (meta is not null && QueryFilterContext.IsNumericType(meta.Type))
+    // Literal syntax per type: numerics, Booleans, GUIDs and date/times emit a bare literal (quoting them
+    // is an "incompatible types" 400 from F&O); strings and enum members are single-quoted with embedded
+    // quotes doubled per OData escaping. Well-formed input renders faithfully; malformed input passes
+    // through so the server rejects it loudly rather than the builder silently rewriting it.
+    private static string FormatValue(EntityField? meta, string raw) =>
+        QueryFilterContext.LiteralKind(meta?.Type) switch
         {
-            return string.IsNullOrWhiteSpace(raw) ? "0" : raw;
-        }
+            QueryLiteralKind.Number => string.IsNullOrWhiteSpace(raw) ? "0" : raw,
+            QueryLiteralKind.Boolean => FormatBoolean(raw),
+            QueryLiteralKind.Guid or QueryLiteralKind.DateTime or QueryLiteralKind.Date => raw,
+            _ => $"'{raw.Replace("'", "''")}'",
+        };
 
-        return $"'{raw.Replace("'", "''")}'";
-    }
+    // OData wants lowercase true/false, so a typed "True"/"TRUE" is normalised. Anything that isn't a
+    // boolean word goes through as typed — the server rejects it, the same way a non-numeric value in a
+    // numeric field behaves.
+    private static string FormatBoolean(string raw) =>
+        bool.TryParse(raw, out var parsed) ? (parsed ? "true" : "false") : raw;
 }
 
 /// <summary>An AND/OR group of child conditions and nested groups.</summary>

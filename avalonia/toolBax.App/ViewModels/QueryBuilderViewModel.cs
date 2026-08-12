@@ -38,6 +38,11 @@ public partial class QueryBuilderViewModel : ObservableObject
     // (which would wipe the field selection + query URL on every keystroke in the entity search box).
     private bool _refreshingEntities;
 
+    // Set when a new entity is selected and cleared once its fields arrive, so the cross-company default
+    // is applied exactly once per selection (company-awareness isn't knowable until the fields load) and a
+    // later manual toggle isn't stomped when the same entity's fields are refetched.
+    private bool _applyCrossCompanyDefault;
+
     // True while a bulk field operation (Select all / Clear) flips many chips at once, so each chip's
     // PropertyChanged doesn't rebuild the URL per-field (O(n) churn on entities with hundreds of fields);
     // the URL + labels are refreshed once when the bulk op completes.
@@ -155,6 +160,20 @@ public partial class QueryBuilderViewModel : ObservableObject
     [ObservableProperty]
     private string _company = "usmf";
 
+    /// <summary>
+    /// True when the selected entity's loaded fields include a <c>dataAreaId</c> property — the signal that
+    /// scoping it to a legal entity is meaningful. Drives the "company-aware" badge and the
+    /// <c>dataAreaId</c> clause in <see cref="EffectiveFilter"/>.
+    /// </summary>
+    /// <remarks>
+    /// Deliberately NOT read from <c>EntitySet.CompanyAware</c>: the real catalogue projects the OData
+    /// entity <em>index</em>, which carries no field data, so that flag is hardcoded false in production
+    /// and every company-scoping path built on it was dead (#161). The fields are already loaded on entity
+    /// selection, so gating on them works against a live environment as well as the seeded fake.
+    /// </remarks>
+    [ObservableProperty]
+    private bool _isCompanyAware;
+
     /// <summary>The builder tree rendered to an OData <c>$filter</c> expression ("" when no conditions).</summary>
     public string BuilderFilter => FilterRoot.Render() ?? string.Empty;
 
@@ -171,7 +190,7 @@ public partial class QueryBuilderViewModel : ObservableObject
         get
         {
             var baseFilter = UsingRawFilter ? Filter.Trim() : BuilderFilter;
-            if (!CrossCompany && SelectedEntity?.CompanyAware == true && !string.IsNullOrWhiteSpace(Company))
+            if (!CrossCompany && IsCompanyAware && !string.IsNullOrWhiteSpace(Company))
             {
                 var clause = $"dataAreaId eq '{Company.Trim().Replace("'", "''")}'";
                 return string.IsNullOrEmpty(baseFilter) ? clause : $"({clause}) and ({baseFilter})";
@@ -313,8 +332,12 @@ public partial class QueryBuilderViewModel : ObservableObject
             return; // a transient null/restore from rebuilding the filtered list — not a real selection change
         }
 
-        // Default cross-company to the entity's company-awareness; the user can still override it.
-        CrossCompany = value?.CompanyAware ?? false;
+        // Company-awareness is only knowable once the entity's fields are loaded (see IsCompanyAware), so
+        // start from "not company-aware" and let LoadFields apply the real cross-company default when they
+        // arrive. The user can still override it afterwards.
+        IsCompanyAware = false;
+        CrossCompany = false;
+        _applyCrossCompanyDefault = true;
         // A fresh entity starts in Builder mode with no raw text (the tree is rebuilt in LoadFields).
         IsRawFilterMode = false;
         Filter = string.Empty;
@@ -401,6 +424,9 @@ public partial class QueryBuilderViewModel : ObservableObject
     partial void OnSkipChanged(string value) => UpdateQueryUrl();
     partial void OnCountChanged(bool value) => UpdateQueryUrl();
     partial void OnCrossCompanyChanged(bool value) => OnFilterTreeChanged();
+    // Company-awareness lands asynchronously (with the entity's fields), so the dependent filter previews
+    // and URL have to be refreshed when it does — the badge is the property itself.
+    partial void OnIsCompanyAwareChanged(bool value) => OnFilterTreeChanged();
     partial void OnIsRawFilterModeChanged(bool value) => OnFilterTreeChanged();
     partial void OnCompanyChanged(string value) => OnFilterTreeChanged();
 
@@ -480,6 +506,18 @@ public partial class QueryBuilderViewModel : ObservableObject
         Fields.Clear();
         var fields = SelectedEntity is null ? null : _metadata.GetFields(SelectedEntity.Name);
         HasFields = fields is not null;
+        // The entity is company-aware iff it actually carries a dataAreaId property (see IsCompanyAware).
+        IsCompanyAware = fields is not null
+            && fields.Any(f => string.Equals(f.Name, "dataAreaId", StringComparison.OrdinalIgnoreCase));
+        // Fields have arrived, so the cross-company default for this selection is now knowable: a
+        // company-aware entity queries across companies by default (the dataAreaId clause is what you opt
+        // into by unticking it), a global entity has nothing to scope.
+        if (_applyCrossCompanyDefault && fields is not null)
+        {
+            _applyCrossCompanyDefault = false;
+            CrossCompany = IsCompanyAware;
+        }
+
         if (fields is not null)
         {
             foreach (var f in fields)
