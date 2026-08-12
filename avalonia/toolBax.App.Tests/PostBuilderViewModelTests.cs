@@ -105,6 +105,70 @@ public class PostBuilderViewModelTests
             Task.FromResult(entityName == "WorkerV2");
     }
 
+    // An entity keyed on a number, with one nullable non-key field. Serves two purposes: proving non-string
+    // key types are left raw in the predicate (digits carry no URL syntax), and giving the POST/clear-field
+    // tests a minimal entity whose only mandatory field is the key — so a blank optional field is the only
+    // thing under test.
+    private sealed class NumericKeyMetadata : IMetadataService
+    {
+        private static readonly IReadOnlyList<EntitySet> Sets =
+            new[] { new EntitySet("Counters", "SYS", 2, "Id", false, "system") };
+
+        private static readonly IReadOnlyList<EntityField> Fields = new[]
+        {
+            new EntityField("Id", "Int32", false, IsKey: true),
+            new EntityField("Label", "String", true, Length: 20),
+        };
+
+        public IReadOnlyList<EntitySet> GetEntities() => Sets;
+        public IReadOnlyList<EntityField>? GetFields(string entityName) =>
+            entityName == "Counters" ? Fields : null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) =>
+            Task.FromResult(entityName == "Counters");
+    }
+
+    // A grid on WorkerV2 (single String key) with the key filled, for the key-literal encoding tests.
+    private static PostBuilderViewModel KeyGrid(string keyValue)
+    {
+        var vm = new PostBuilderViewModel(new FakeODataClient(), metadata: new DateFieldMetadata())
+        {
+            Method = "PATCH",
+            UseFieldGrid = true,
+        };
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "WorkerV2");
+        vm.Fields.Single(f => f.Name == "PersonnelNumber").Value = keyValue;
+        return vm;
+    }
+
+    // A grid on Counters (Int32 key + nullable Label), for the clear-field / empty-body tests.
+    private static PostBuilderViewModel CounterGrid(string method)
+    {
+        var vm = new PostBuilderViewModel(new FakeODataClient(), metadata: new NumericKeyMetadata())
+        {
+            Method = method,
+            UseFieldGrid = true,
+        };
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "Counters");
+        vm.Fields.Single(f => f.Name == "Id").Value = "7";
+        return vm;
+    }
+
+    // Makes a seeded-CustomersV3 PATCH valid under clear-field semantics (#158): its non-nullable non-key
+    // fields are pre-included but blank, which is now an issue ("enter a value or exclude it"), and a PATCH
+    // left with nothing in the body is blocked as a no-op — so drop the blanks and patch one real field.
+    private static void PatchOneField(PostBuilderViewModel vm, string field = "OrganizationName", string value = "Acme")
+    {
+        foreach (var row in vm.Fields.Where(r => !r.IsKey && string.IsNullOrWhiteSpace(r.Value)).ToList())
+        {
+            row.Include = false;
+        }
+
+        var target = vm.Fields.Single(r => r.Name == field);
+        target.Include = true;
+        target.Value = value;
+    }
+
     private sealed class RecordingODataClient : IODataClient
     {
         public string? LastPath { get; private set; }
@@ -215,7 +279,9 @@ public class PostBuilderViewModelTests
         vm.Fields.Single(f => f.Name == "dataAreaId").Value = "USMF";
         vm.Fields.Single(f => f.Name == "CustomerAccount").Value = "US-001";
 
-        Assert.Contains("/data/CustomersV3(dataAreaId='USMF',CustomerAccount='US-001')", vm.RequestUrl);
+        // %27 is the quote delimiting a string key literal — percent-encoded so a value carrying URL syntax
+        // can't reshape the request (issue #157).
+        Assert.Contains("/data/CustomersV3(dataAreaId=%27USMF%27,CustomerAccount=%27US-001%27)", vm.RequestUrl);
     }
 
     [Fact]
@@ -267,11 +333,8 @@ public class PostBuilderViewModelTests
         vm.UseFieldGrid = true;
         vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
         vm.Method = "PATCH";
-        vm.Fields.Single(f => f.Name == "dataAreaId").Value = "USMF";
-        vm.Fields.Single(f => f.Name == "CustomerAccount").Value = "US-1";
-        var org = vm.Fields.Single(f => f.Name == "OrganizationName");
-        org.Include = true;
-        org.Value = "Acme";
+        vm.Fields.Single(f => f.Name == "CustomerAccount").Value = "US-1"; // dataAreaId is seeded
+        PatchOneField(vm);
 
         Assert.Contains("OrganizationName", vm.RequestBody);
         Assert.DoesNotContain("dataAreaId", vm.RequestBody);     // keys live in the URL predicate, not the body
@@ -291,7 +354,7 @@ public class PostBuilderViewModelTests
 
         await vm.SendCommand.ExecuteAsync(null);
 
-        Assert.Equal("/data/CustomersV3(dataAreaId='USMF',CustomerAccount='US-1')", recorder.LastPath);
+        Assert.Equal("/data/CustomersV3(dataAreaId=%27USMF%27,CustomerAccount=%27US-1%27)", recorder.LastPath);
     }
 
     // Returns a response carrying headers (to exercise the response-header surface).
@@ -507,13 +570,12 @@ public class PostBuilderViewModelTests
         vm.Method = "PATCH";
         vm.UseFieldGrid = true;
         vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.Fields.Single(f => f.Name == "CustomerAccount").Value = "US-1";
 
-        var org = vm.Fields.Single(f => f.Name == "OrganizationName");
-        org.Include = true;
-        org.Value = "Acme";
+        PatchOneField(vm);
         Assert.Contains("OrganizationName", vm.RequestBody);
 
-        org.Include = false;
+        vm.Fields.Single(f => f.Name == "OrganizationName").Include = false;
         Assert.DoesNotContain("OrganizationName", vm.RequestBody);
     }
 
@@ -530,11 +592,12 @@ public class PostBuilderViewModelTests
         Assert.True(vm.HasPayloadIssues);
         Assert.Contains("mandatory", vm.PayloadIssues, StringComparison.OrdinalIgnoreCase);
 
-        // PATCH relaxes mandatory enforcement; with the key values supplied (to target the record) the
-        // same selection becomes valid.
+        // PATCH relaxes mandatory enforcement; with the key values supplied (to target the record) and one
+        // real field to write, the same selection becomes valid. The blanks still have to be unchecked —
+        // under PATCH an included blank means "clear this field", which a non-nullable column can't be.
         vm.Method = "PATCH";
-        vm.Fields.Single(f => f.Name == "dataAreaId").Value = "USMF";
         vm.Fields.Single(f => f.Name == "CustomerAccount").Value = "US-1";
+        PatchOneField(vm);
         Assert.False(vm.HasPayloadIssues);
     }
 
@@ -545,10 +608,11 @@ public class PostBuilderViewModelTests
         vm.UseFieldGrid = true;
         vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
         vm.Method = "PATCH";
-        vm.Fields.Single(f => f.Name == "dataAreaId").Value = "USMF"; // CustomerAccount still blank
+        PatchOneField(vm); // a valid body, so the key is the only thing left to be wrong
 
         // The record is identified by neither a complete URL predicate nor the (key-excluded) body,
         // so the keyed write is flagged and Send is disabled until every key value is present.
+        // (dataAreaId is seeded; CustomerAccount is still blank.)
         Assert.True(vm.HasPayloadIssues);
         Assert.Contains("key", vm.PayloadIssues, StringComparison.OrdinalIgnoreCase);
         Assert.False(vm.SendCommand.CanExecute(null));
@@ -596,8 +660,8 @@ public class PostBuilderViewModelTests
         Assert.False(vm.SendCommand.CanExecute(null));  // Send is disabled while the payload is invalid
 
         vm.Method = "PATCH";                            // PATCH relaxes mandatory…
-        vm.Fields.Single(f => f.Name == "dataAreaId").Value = "USMF";       // …and the keys target the record
-        vm.Fields.Single(f => f.Name == "CustomerAccount").Value = "US-1";
+        vm.Fields.Single(f => f.Name == "CustomerAccount").Value = "US-1";  // …and the keys target the record
+        PatchOneField(vm);                              // (dataAreaId is seeded)
 
         Assert.False(vm.HasPayloadIssues);
         Assert.True(vm.SendCommand.CanExecute(null));
@@ -620,11 +684,8 @@ public class PostBuilderViewModelTests
         vm.Method = "PATCH";
         vm.UseFieldGrid = true;
         vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3"); // the only seeded entity with fields
-        vm.Fields.Single(f => f.Name == "dataAreaId").Value = "USMF";
         vm.Fields.Single(f => f.Name == "CustomerAccount").Value = "US-1";
-        var org = vm.Fields.Single(f => f.Name == "OrganizationName");
-        org.Include = true;
-        org.Value = "Acme";
+        PatchOneField(vm);
         Assert.False(vm.HasPayloadIssues);
         Assert.Contains("Acme", vm.RequestBody); // a real CustomersV3 body, which must not go stale
 
@@ -680,10 +741,15 @@ public class PostBuilderViewModelTests
         Assert.Equal(new[] { "Id", "Name" }, vm.Fields.Select(f => f.Name));
 
         vm.Fields.Single(f => f.Name == "Id").Value = "A1";
+        // Id is the key, so it lives in the predicate rather than the body — a PATCH needs one real field in
+        // the body too, or it's the no-op #158 now blocks.
+        var name = vm.Fields.Single(f => f.Name == "Name");
+        name.Include = true;
+        name.Value = "Late";
 
         Assert.False(vm.HasPayloadIssues);
         Assert.True(vm.SendCommand.CanExecute(null));
-        Assert.Equal("PATCH /data/LateEntity(Id='A1')", vm.RequestUrl);
+        Assert.Equal("PATCH /data/LateEntity(Id=%27A1%27)", vm.RequestUrl);
     }
 
     [Fact]
@@ -892,5 +958,210 @@ public class PostBuilderViewModelTests
         Assert.Equal(before + 1, vm.IncludedFieldCount);
         Assert.Contains("CustomersV3", vm.GridSummary);
         Assert.Contains(vm.IncludedFieldCount.ToString(), vm.GridSummary);
+    }
+
+    // --- OData key literals are percent-encoded (issue #157) ---
+
+    // The part of the URL between "PersonnelNumber=" and the closing ")" — i.e. the key literal itself.
+    private static string KeyLiteral(string requestUrl)
+    {
+        const string marker = "PersonnelNumber=";
+        var start = requestUrl.IndexOf(marker, StringComparison.Ordinal) + marker.Length;
+        return requestUrl[start..requestUrl.LastIndexOf(')')];
+    }
+
+    [Theory]
+    [InlineData("1000/A")]  // '/' became an extra path segment → 404 against a URL the user never typed
+    [InlineData("A#1")]     // '#' started the URI *fragment* → request truncated, query string dropped
+    [InlineData("A?1")]     // '?' started the query string
+    [InlineData("50%")]     // '%' opened a broken escape sequence
+    [InlineData("O'Brien")] // the OData '' escape, which has to survive encoding
+    [InlineData("A 1")]     // a space
+    public void Key_values_carrying_url_syntax_are_percent_encoded_in_the_predicate(string keyValue)
+    {
+        var vm = KeyGrid(keyValue);
+        vm.CrossCompany = true;
+
+        var literal = KeyLiteral(vm.RequestUrl);
+
+        // No URL-significant character survives as syntax inside the key literal…
+        Assert.DoesNotContain("#", literal, StringComparison.Ordinal);
+        Assert.DoesNotContain("?", literal, StringComparison.Ordinal);
+        Assert.DoesNotContain("/", literal, StringComparison.Ordinal);
+        Assert.DoesNotContain("'", literal, StringComparison.Ordinal);
+        // …and the query option the '#' case used to swallow whole is still on the request.
+        Assert.EndsWith("?cross-company=true", vm.RequestUrl, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_hash_in_a_key_no_longer_truncates_the_request_at_the_uri_fragment()
+    {
+        var vm = KeyGrid("A#1");
+        vm.CrossCompany = true;
+
+        // The path is interpolated into the request URL and handed to new Uri(...) by
+        // CoreODataClient.BuildUri, so a raw '#' began the fragment: everything after it left the request —
+        // including "?cross-company=true" — and the key that reached F&O was "A", not "A#1". No error was
+        // raised anywhere; a cross-company write silently became a single-company one against a wrong key.
+        var path = vm.RequestUrl["PATCH ".Length..];
+        var uri = new Uri("https://host.example" + path);
+
+        Assert.Equal(string.Empty, uri.Fragment);
+        Assert.Equal("?cross-company=true", uri.Query);
+        Assert.Contains("%23", uri.AbsolutePath, StringComparison.Ordinal); // the '#' is data, not syntax
+    }
+
+    [Fact]
+    public void A_slash_in_a_key_stays_inside_the_key_segment()
+    {
+        var vm = KeyGrid("1000/A");
+
+        var uri = new Uri("https://host.example" + vm.RequestUrl["PATCH ".Length..]);
+
+        // "/data/WorkerV2(...)" and nothing more: raw, "1000/A" added a segment and the request 404'd.
+        Assert.Equal(3, uri.Segments.Length);
+        Assert.EndsWith(")", uri.Segments[^1], StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_plain_key_stays_readable_with_only_the_quotes_encoded()
+    {
+        // Encoding is not allowed to turn an ordinary predicate into noise — %27 delimiters, value verbatim.
+        Assert.Contains("/data/WorkerV2(PersonnelNumber=%27000123%27)", KeyGrid("000123").RequestUrl,
+            StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void A_non_string_key_is_left_raw()
+    {
+        // Digits, GUIDs and booleans carry no URL syntax, and OData wants them unquoted — encoding them
+        // would only make the predicate harder to read.
+        Assert.Contains("/data/Counters(Id=7)", CounterGrid("PATCH").RequestUrl, StringComparison.Ordinal);
+    }
+
+    // --- An empty PATCH is blocked; blank-but-included clears the field (issue #158) ---
+
+    [Fact]
+    public void Patch_with_only_the_keys_filled_is_blocked_as_an_empty_body()
+    {
+        var vm = CounterGrid("PATCH"); // Id (key, excluded from the body); Label nullable → not pre-included
+
+        // Every included field is a key, and keys live in the URL predicate — so the body was "{}", F&O
+        // answered 204 and the badge went green over a request that changed nothing.
+        Assert.Equal("{}", vm.RequestBody);
+        Assert.True(vm.HasPayloadIssues);
+        Assert.Contains("empty body", vm.PayloadIssues, StringComparison.OrdinalIgnoreCase);
+        Assert.False(vm.SendCommand.CanExecute(null));
+
+        // Including a real field unblocks it.
+        var label = vm.Fields.Single(f => f.Name == "Label");
+        label.Include = true;
+        label.Value = "counted";
+
+        Assert.False(vm.HasPayloadIssues);
+        Assert.True(vm.SendCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void A_blank_included_nullable_field_on_patch_clears_it_and_the_preview_shows_the_null()
+    {
+        var vm = CounterGrid("PATCH");
+        var label = vm.Fields.Single(f => f.Name == "Label");
+
+        label.Include = true; // included and blank → clear the field
+
+        Assert.Contains("\"Label\": null", vm.RequestBody, StringComparison.Ordinal);
+        Assert.False(vm.HasPayloadIssues); // the body isn't empty any more, so the no-op guard stands down
+        Assert.True(vm.SendCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void Unchecking_a_field_on_patch_omits_it_rather_than_clearing_it()
+    {
+        var vm = CounterGrid("PATCH");
+        var label = vm.Fields.Single(f => f.Name == "Label");
+        label.Include = true;
+        Assert.Contains("Label", vm.RequestBody, StringComparison.Ordinal);
+
+        label.Include = false; // the other half of the distinction: leave this field alone
+
+        Assert.DoesNotContain("Label", vm.RequestBody, StringComparison.Ordinal);
+        Assert.Contains("empty body", vm.PayloadIssues, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void The_literal_text_null_still_sends_json_null_on_patch()
+    {
+        var vm = CounterGrid("PATCH");
+        var label = vm.Fields.Single(f => f.Name == "Label");
+        label.Include = true;
+        label.Value = "null";
+
+        Assert.Contains("\"Label\": null", vm.RequestBody, StringComparison.Ordinal);
+        Assert.False(vm.HasPayloadIssues);
+    }
+
+    [Fact]
+    public void A_blank_included_non_nullable_field_on_patch_is_flagged_rather_than_dropped()
+    {
+        var vm = MakeGridVm();
+        vm.Method = "PATCH";
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.Fields.Single(f => f.Name == "CustomerAccount").Value = "US-1"; // dataAreaId is seeded
+
+        // CurrencyCode is non-nullable and pre-included; blank, it can be neither written nor cleared, so
+        // the user is told which of the two to do instead of the value being silently dropped.
+        Assert.True(vm.HasPayloadIssues);
+        Assert.Contains("CurrencyCode", vm.PayloadIssues, StringComparison.Ordinal);
+        Assert.Contains("isn't nullable", vm.PayloadIssues, StringComparison.Ordinal);
+        Assert.False(vm.SendCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public void A_blank_included_field_on_post_is_still_omitted()
+    {
+        // POST is unchanged: an absent property lets the service apply its own default, so a blank included
+        // field is an omission there — not a request to write null.
+        var vm = CounterGrid("POST");
+        vm.Fields.Single(f => f.Name == "Label").Include = true;
+
+        Assert.False(vm.HasPayloadIssues);
+        Assert.DoesNotContain("Label", vm.RequestBody, StringComparison.Ordinal);
+        Assert.DoesNotContain("null", vm.RequestBody, StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void Delete_is_exempt_from_both_new_body_rules()
+    {
+        // The send path drops the body for DELETE outright, so there is nothing to clear and no no-op to
+        // block — a keyed DELETE whose grid carries only the key must stay sendable.
+        var vm = CounterGrid("DELETE");
+        vm.Fields.Single(f => f.Name == "Label").Include = true; // included and blank
+
+        Assert.False(vm.HasPayloadIssues);
+        Assert.True(vm.SendCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Delete_sends_no_body_at_all()
+    {
+        // The premise of the DELETE exemption above, asserted rather than assumed.
+        var recorder = new BodyRecordingClient();
+        var vm = new PostBuilderViewModel(recorder) { Method = "DELETE", Path = "/data/E(1)" };
+
+        await vm.SendCommand.ExecuteAsync(null);
+
+        Assert.Null(recorder.LastBody);
+    }
+
+    private sealed class BodyRecordingClient : IODataClient
+    {
+        public string? LastBody { get; private set; }
+        public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
+        {
+            LastBody = body;
+            return Task.FromResult(new ODataResponse(204, "No Content", string.Empty, 1));
+        }
     }
 }

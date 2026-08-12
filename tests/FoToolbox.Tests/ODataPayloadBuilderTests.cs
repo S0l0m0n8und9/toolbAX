@@ -112,6 +112,127 @@ public sealed class ODataPayloadBuilderTests
         Assert.False(root.TryGetProperty("Optional", out _));
     }
 
+    // --- Clear-field semantics: an included-but-blank field on a PATCH means "clear me" (#158) ---
+
+    // Two optional properties differing only in nullability, so one build can exercise both readings of
+    // "included but blank" without mandatory enforcement getting in the way.
+    private static readonly ODataEntity NullabilityEntity = new(
+        "TestEntity",
+        new[]
+        {
+            new ODataProperty("Nullable", "Edm.String", Nullable: true, IsKey: false, IsMandatory: false),
+            new ODataProperty("NotNullable", "Edm.String", Nullable: false, IsKey: false, IsMandatory: false),
+        },
+        Array.Empty<ODataNavigationProperty>());
+
+    private static ODataPayloadBuildResult BuildBlank(string property, bool include, bool blankIncludedMeansNull) =>
+        ODataPayloadBuilder.BuildPayloadJson(
+            NullabilityEntity,
+            new[] { new ODataFieldValue(property, include, Value: "   ") },
+            enforceMandatory: false,
+            blankIncludedMeansNull: blankIncludedMeansNull);
+
+    [Fact]
+    public void A_blank_included_field_is_omitted_unless_clear_semantics_are_requested()
+    {
+        // POST semantics, and the default — the service applies its own default for an absent property, so
+        // omitting a blank is the right reading there and must stay unchanged.
+        var result = BuildBlank("Nullable", include: true, blankIncludedMeansNull: false);
+
+        Assert.True(result.Ok, string.Join("; ", result.Issues));
+        using var doc = JsonDocument.Parse(result.Json!);
+        Assert.False(doc.RootElement.TryGetProperty("Nullable", out _));
+    }
+
+    [Fact]
+    public void A_blank_included_nullable_field_is_cleared_with_an_explicit_null()
+    {
+        // The whole point of #158: this used to be dropped, so a PATCH that emptied the only included field
+        // sent "{}", F&O answered 204, and the green badge told the user a field had been cleared that
+        // nothing had touched. The null is now in the body — and therefore in the payload preview.
+        var result = BuildBlank("Nullable", include: true, blankIncludedMeansNull: true);
+
+        Assert.True(result.Ok, string.Join("; ", result.Issues));
+        using var doc = JsonDocument.Parse(result.Json!);
+        Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("Nullable").ValueKind);
+    }
+
+    [Fact]
+    public void A_blank_included_non_nullable_field_is_an_issue_rather_than_a_silent_omission()
+    {
+        var result = BuildBlank("NotNullable", include: true, blankIncludedMeansNull: true);
+
+        Assert.False(result.Ok);
+        Assert.Contains(result.Issues, i => i.Contains("isn't nullable", StringComparison.Ordinal));
+        Assert.Contains(result.Issues, i => i.Contains("NotNullable", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void An_unincluded_blank_field_stays_omitted_under_clear_semantics()
+    {
+        // Unchecked is the "leave this field alone" half of the distinction — it must not become a null.
+        var result = BuildBlank("Nullable", include: false, blankIncludedMeansNull: true);
+
+        Assert.True(result.Ok, string.Join("; ", result.Issues));
+        using var doc = JsonDocument.Parse(result.Json!);
+        Assert.Empty(doc.RootElement.EnumerateObject());
+    }
+
+    [Fact]
+    public void A_property_the_caller_never_mentioned_is_not_nulled_under_clear_semantics()
+    {
+        // A mandatory property reaches the loop with include=true even when it has no ODataFieldValue at all
+        // (prop.Mandatory stands in for the checkbox). Nulling that would be the builder inventing a clear
+        // for a field the caller never asked about.
+        var entity = new ODataEntity(
+            "TestEntity",
+            new[] { new ODataProperty("Key", "Edm.String", Nullable: true, IsKey: true, IsMandatory: true) },
+            Array.Empty<ODataNavigationProperty>());
+
+        var result = ODataPayloadBuilder.BuildPayloadJson(entity, Array.Empty<ODataFieldValue>(),
+            enforceMandatory: false, blankIncludedMeansNull: true);
+
+        Assert.True(result.Ok, string.Join("; ", result.Issues));
+        using var doc = JsonDocument.Parse(result.Json!);
+        Assert.False(doc.RootElement.TryGetProperty("Key", out _));
+    }
+
+    [Fact]
+    public void The_literal_text_null_still_maps_to_json_null_under_both_readings()
+    {
+        foreach (var clearSemantics in new[] { false, true })
+        {
+            var result = ODataPayloadBuilder.BuildPayloadJson(
+                NullabilityEntity,
+                new[] { new ODataFieldValue("Nullable", Include: true, Value: "null") },
+                enforceMandatory: false,
+                blankIncludedMeansNull: clearSemantics);
+
+            Assert.True(result.Ok, string.Join("; ", result.Issues));
+            using var doc = JsonDocument.Parse(result.Json!);
+            Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("Nullable").ValueKind);
+        }
+    }
+
+    [Fact]
+    public void A_mandatory_blank_is_still_reported_as_mandatory_not_as_a_clear()
+    {
+        // Mandatory enforcement runs first, so a POST-style build gets the message that names the real
+        // problem instead of the nullability advice.
+        var entity = new ODataEntity(
+            "TestEntity",
+            new[] { new ODataProperty("Name", "Edm.String", Nullable: false, IsKey: false, IsMandatory: true) },
+            Array.Empty<ODataNavigationProperty>());
+
+        var result = ODataPayloadBuilder.BuildPayloadJson(entity,
+            new[] { new ODataFieldValue("Name", Include: true, Value: string.Empty) },
+            enforceMandatory: true, blankIncludedMeansNull: true);
+
+        Assert.False(result.Ok);
+        Assert.Single(result.Issues);
+        Assert.Contains("mandatory", result.Issues[0], StringComparison.OrdinalIgnoreCase);
+    }
+
     // --- Culture-ambiguous input is rejected rather than silently reinterpreted (#156) ---
 
     [Fact]

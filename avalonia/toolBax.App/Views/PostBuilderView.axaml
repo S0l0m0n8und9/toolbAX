@@ -96,7 +96,14 @@
                     AutoGenerateColumns="False" GridLinesVisibility="Horizontal"
                     Background="{StaticResource Layer1Brush}">
             <DataGrid.Columns>
-              <DataGridCheckBoxColumn Header="Incl" Binding="{Binding Include}" Width="48" />
+              <!-- Header carries the omit/clear distinction the checkbox means on a PATCH: the tip lives on a
+                   TextBlock header (DataGridColumn isn't a Control, so ToolTip.Tip can't attach to it). -->
+              <DataGridCheckBoxColumn Binding="{Binding Include}" Width="48">
+                <DataGridCheckBoxColumn.Header>
+                  <TextBlock Text="Incl"
+                             ToolTip.Tip="On PATCH: included + blank clears the field (sends null); unchecked leaves it alone." />
+                </DataGridCheckBoxColumn.Header>
+              </DataGridCheckBoxColumn>
               <DataGridTextColumn Header="Field" Binding="{Binding Name}" IsReadOnly="True" Width="*" />
               <DataGridTextColumn Header="Type" Binding="{Binding Type}" IsReadOnly="True" Width="Auto" />
               <DataGridCheckBoxColumn Header="Req" Binding="{Binding Mandatory}" IsReadOnly="True" Width="44" />
