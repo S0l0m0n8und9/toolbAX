@@ -4,45 +4,5 @@
         ".\\build.ps1": true,
         "wix": true
     },
-    "ralphCodex.modelTiering": {
-        "simple": {
-            "provider": "claude",
-            "model": "claude-haiku-4-5",
-            "reasoningEffort": "medium"
-        },
-        "medium": {
-            "model": "claude-sonnet-4-6",
-            "provider": "claude",
-            "reasoningEffort": "medium"
-        },
-        "complex": {
-            "model": "claude-opus-4-7",
-            "provider": "claude",
-            "reasoningEffort": "high"
-        },
-        "enabled": true
-    },
-    "ralphCodex.cliProvider": "claude",
-    "ralphCodex.model": "claude-sonnet-4-6",
-    "ralphCodex.copilotFoundry": {
-        "baseUrlOverride": "https://me-me3mef6a-eastus2.cognitiveservices.azure.com/openai/deployments/gpt-5.4",
-        "model": "gpt-5.4",
-        "azure": {
-            "resourceName": ""
-        },
-        "commandPath": "copilot"
-    },
-    "ralphCodex.autonomyMode": "autonomous",
-    "ralphCodex.taskReadinessGate": "off",
-    "ralphCodex.planningPass": {
-        "enabled": false
-    },
-    "ralphCodex.verifierModes": [
-        "validationCommand",
-        "gitDiff",
-        "taskState"
-    ],
-    "ralphCodex.promptBudgetProfile": "claude",
-    "ralphCodex.reasoningEffort": "medium",
     "claudeCode.useTerminal": true
 }
