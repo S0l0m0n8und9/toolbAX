@@ -162,8 +162,8 @@ public sealed class CoreProfileStore : IProfileStore
     // Persists the F&O credential. Interactive is delegated (no app-only secret), so its (public) client
     // id lives in Settings and no service-principal row is kept — an SP only models the app-only
     // ClientSecret/Certificate modes (and carries the secret ref). For app-only modes the SP is
-    // upserted (preserving the SecretRef for the SAME app registration) and the Settings client-id copy
-    // is cleared.
+    // upserted (preserving the SecretRef/CertThumbprint only for the SAME app registration — see
+    // ClientIdChanged) and the Settings client-id copy is cleared.
     private void SaveFoServicePrincipal(EnvProfile profile)
     {
         var existing = RunBlocking(() => _profiles.GetServicePrincipalAsync(profile.Id, AuthTarget.Fo, CancellationToken.None));
@@ -194,7 +194,7 @@ public sealed class CoreProfileStore : IProfileStore
             profile.ClientId!,
             ToCoreAuthMode(profile.AuthMode),
             clientIdChanged ? null : existing?.SecretRef,
-            existing?.CertThumbprint,
+            clientIdChanged ? null : existing?.CertThumbprint,
             AuthTarget.Fo)));
     }
 
@@ -229,15 +229,17 @@ public sealed class CoreProfileStore : IProfileStore
             profile.DataverseClientId!,
             ToCoreAuthMode(profile.DataverseAuthMode),
             clientIdChanged ? null : existing?.SecretRef,
-            existing?.CertThumbprint,
+            clientIdChanged ? null : existing?.CertThumbprint,
             AuthTarget.Dataverse)));
     }
 
-    // A stored secret belongs to the app registration it was issued for. When the client id changes, the
-    // secret is no longer valid for it, so it must be unbound (SecretRef null) and its blob deleted —
-    // carrying it over silently re-points app A's secret at app B, which surfaces as an AAD
-    // invalid_client rather than "no secret stored", and sends the user hunting an unrelated auth fault.
-    // Dropping it makes HasSecret read false so the UI asks for the new registration's secret.
+    // A stored credential belongs to the app registration it was issued for — both the client secret and
+    // the certificate thumbprint. When the client id changes neither is valid any more, so both are
+    // unbound (and the secret's blob deleted); carrying them over silently re-points app A's credential at
+    // app B, which surfaces as an AAD invalid_client rather than "no credential stored" and sends the user
+    // hunting an unrelated auth fault. Dropping them makes HasSecret read false so the UI asks for the new
+    // registration's credential. (The thumbprint needs no cleanup: it points at the machine certificate
+    // store, not the vault.)
     private static bool ClientIdChanged(ServicePrincipal? existing, string? clientId) =>
         existing is not null && !string.Equals(existing.ClientId, clientId, StringComparison.Ordinal);
 

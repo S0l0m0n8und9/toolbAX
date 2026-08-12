@@ -471,6 +471,18 @@ public sealed class CoreProfileStoreTests : IDisposable
         InsertVaultRow(secretRef);
     }
 
+    // Attaches a certificate thumbprint to an existing service principal. Unlike a secret this has no
+    // vault blob to seed — the thumbprint points at the machine certificate store, so only the SP row's
+    // pointer exists to be carried over (or unbound).
+    private async Task AttachCertThumbprintAsync(string envId, AuthTarget target, string thumbprint)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var svc = NewService();
+        var sp = await svc.GetServicePrincipalAsync(envId, target, ct);
+        Assert.NotNull(sp);
+        await svc.UpsertServicePrincipalAsync(sp! with { CertThumbprint = thumbprint }, ct);
+    }
+
     // An app-only (ClientSecret) F&O profile with a stored secret, returned as a freshly loaded store.
     private async Task<CoreProfileStore> SeedFoSecretAsync(string clientId, string secretRef)
     {
@@ -583,11 +595,57 @@ public sealed class CoreProfileStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Saving_an_unchanged_client_id_keeps_the_stored_secret()
+    public async Task Changing_the_fo_client_id_also_unbinds_the_certificate_thumbprint()
     {
-        // The regression guard for the two unbind tests above: an ordinary edit (a rename) must leave
-        // both credentials exactly where they were. Both are seeded by one Save, since each Save
-        // rewrites the F&O *and* Dataverse credential from the profile it's given.
+        // A certificate is bound to its app registration exactly like a secret: carrying the thumbprint
+        // across a client-id change presents the wrong certificate to AAD.
+        var ct = TestContext.Current.CancellationToken;
+        var seeded = await CoreProfileStore.CreateAsync(NewService(), ct);
+        seeded.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected)
+        {
+            ClientId = "app-a",
+            AuthMode = FoAuthMode.Certificate,
+        });
+        await AttachCertThumbprintAsync("env1", AuthTarget.Fo, "AA11BB22CC33");
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+
+        store.Save(store.GetAll().Single() with { ClientId = "app-b" });
+
+        var sp = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct);
+        Assert.NotNull(sp);
+        Assert.Equal("app-b", sp!.ClientId);
+        Assert.Null(sp.CertThumbprint);
+    }
+
+    [Fact]
+    public async Task Changing_the_dataverse_client_id_also_unbinds_the_certificate_thumbprint()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var seeded = await CoreProfileStore.CreateAsync(NewService(), ct);
+        seeded.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected)
+        {
+            DataverseUrl = "https://ce.example",
+            DataverseClientId = "dv-a",
+            DataverseAuthMode = FoAuthMode.Certificate,
+        });
+        await AttachCertThumbprintAsync("env1", AuthTarget.Dataverse, "DD44EE55FF66");
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+
+        store.Save(store.GetAll().Single() with { DataverseClientId = "dv-b" });
+
+        var sp = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Dataverse, ct);
+        Assert.NotNull(sp);
+        Assert.Equal("dv-b", sp!.ClientId);
+        Assert.Null(sp.CertThumbprint);
+    }
+
+    [Fact]
+    public async Task Saving_an_unchanged_client_id_keeps_the_stored_credentials()
+    {
+        // The regression guard for the four unbind tests above: an ordinary edit (a rename) must leave
+        // every credential — secret ref, vault blob and certificate thumbprint — exactly where it was.
+        // All are seeded by one Save, since each Save rewrites the F&O *and* Dataverse credential from
+        // the profile it's given.
         var ct = TestContext.Current.CancellationToken;
         var seeded = await CoreProfileStore.CreateAsync(NewService(), ct);
         seeded.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected)
@@ -600,15 +658,19 @@ public sealed class CoreProfileStoreTests : IDisposable
         });
         await AttachSecretAsync("env1", AuthTarget.Fo, "fo-row-1");
         await AttachSecretAsync("env1", AuthTarget.Dataverse, "dv-row-1");
+        await AttachCertThumbprintAsync("env1", AuthTarget.Fo, "AA11BB22CC33");
+        await AttachCertThumbprintAsync("env1", AuthTarget.Dataverse, "DD44EE55FF66");
         var store = await CoreProfileStore.CreateAsync(NewService(), ct);
 
         store.Save(store.GetAll().Single() with { Name = "Renamed" });
 
         var foSp = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct);
         Assert.Equal("fo-row-1", foSp!.SecretRef);
+        Assert.Equal("AA11BB22CC33", foSp.CertThumbprint);
         Assert.Equal(1, CountVaultRows("fo-row-1"));
         var dvSp = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Dataverse, ct);
         Assert.Equal("dv-row-1", dvSp!.SecretRef);
+        Assert.Equal("DD44EE55FF66", dvSp.CertThumbprint);
         Assert.Equal(1, CountVaultRows("dv-row-1"));
     }
 
