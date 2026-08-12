@@ -35,6 +35,54 @@ public class PostBuilderViewModelTests
             _inner.LoadFieldsAsync(entityName, ct);
     }
 
+    // Mimics the real (environment-scoped) service: nothing is cached until the Load* calls run, and the
+    // catalogue it publishes can be swapped to stand in for an environment switch. The pre-seeded
+    // FakeMetadataService can express neither — its entities and CustomersV3 fields are always there.
+    private sealed class DeferredMetadata : IMetadataService
+    {
+        private static readonly EntityField[] Schema =
+        {
+            new("Id", "String", false, IsKey: true, Length: 10),
+            new("Name", "String", true, Length: 50),
+        };
+
+        private readonly HashSet<string> _fieldsLoaded = new(StringComparer.Ordinal);
+        private string[] _catalogue;
+        private string[] _published = Array.Empty<string>();
+
+        public DeferredMetadata(params string[] catalogue) => _catalogue = catalogue;
+
+        /// <summary>How many field fetches the VM asked for (i.e. went through EntityCatalogLoader).</summary>
+        public int FieldLoads { get; private set; }
+
+        /// <summary>Swaps what the NEXT LoadEntitiesAsync publishes (an environment switch).</summary>
+        public void SwitchCatalogue(params string[] catalogue) => _catalogue = catalogue;
+
+        public IReadOnlyList<EntitySet> GetEntities() =>
+            _published.Select(n => new EntitySet(n, "M", 2, "Id", false, "odata")).ToList();
+
+        public IReadOnlyList<EntityField>? GetFields(string entityName) =>
+            _fieldsLoaded.Contains(entityName) ? Schema : null;
+
+        public Task LoadEntitiesAsync(CancellationToken ct = default)
+        {
+            _published = _catalogue;
+            return Task.CompletedTask;
+        }
+
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default)
+        {
+            FieldLoads++;
+            var known = _published.Contains(entityName);
+            if (known)
+            {
+                _fieldsLoaded.Add(entityName);
+            }
+
+            return Task.FromResult(known);
+        }
+    }
+
     private sealed class RecordingODataClient : IODataClient
     {
         public string? LastPath { get; private set; }
@@ -497,6 +545,110 @@ public class PostBuilderViewModelTests
         var vm = MakeVm(); // raw mode (no field grid)
 
         Assert.True(vm.SendCommand.CanExecute(null));
+    }
+
+    // --- Field metadata that hasn't loaded (issue #155) ---
+
+    [Fact]
+    public void Switching_to_an_entity_without_loaded_fields_clears_the_body_and_blocks_send()
+    {
+        var vm = MakeGridVm();
+        vm.Method = "PATCH";
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3"); // the only seeded entity with fields
+        vm.Fields.Single(f => f.Name == "dataAreaId").Value = "USMF";
+        vm.Fields.Single(f => f.Name == "CustomerAccount").Value = "US-1";
+        var org = vm.Fields.Single(f => f.Name == "OrganizationName");
+        org.Include = true;
+        org.Value = "Acme";
+        Assert.False(vm.HasPayloadIssues);
+        Assert.Contains("Acme", vm.RequestBody); // a real CustomersV3 body, which must not go stale
+
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "VendorsV2"); // no cached fields
+
+        Assert.Empty(vm.Fields);
+        Assert.Equal(string.Empty, vm.RequestBody);     // the CustomersV3 body must not survive the switch…
+        Assert.True(vm.HasPayloadIssues);               // …the reason is stated…
+        Assert.Equal(1, vm.PayloadIssueCount);
+        Assert.Contains("VendorsV2", vm.PayloadIssues);
+        Assert.False(vm.SendCommand.CanExecute(null));  // …so a CustomersV3 payload can't POST to /data/VendorsV2
+    }
+
+    [Fact]
+    public void Delete_is_blocked_while_the_selected_entitys_field_metadata_has_not_loaded()
+    {
+        var vm = MakeGridVm();
+        vm.Method = "PATCH";
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.Fields.Single(f => f.Name == "dataAreaId").Value = "USMF";
+        vm.Fields.Single(f => f.Name == "CustomerAccount").Value = "US-1";
+
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "VendorsV2"); // no cached fields
+        vm.Method = "DELETE";
+
+        // With no fields there are no key values, so the target falls back to the collection URL and the
+        // keyed-write guard (which needs the key names) never runs. CanSend is the only thing between the
+        // confirm dialog's "targeted delete" wording and a DELETE against the whole collection.
+        Assert.Equal("DELETE /data/VendorsV2", vm.RequestUrl);
+        Assert.True(vm.HasPayloadIssues);
+        Assert.False(vm.SendCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Initialize_loads_the_catalogue_so_grid_mode_becomes_usable()
+    {
+        var meta = new DeferredMetadata("LateEntity");
+        var vm = new PostBuilderViewModel(new FakeODataClient(), metadata: meta) { Method = "PATCH" };
+        // Nothing is cached at construction, so the ctor snapshot alone leaves the picker empty all session.
+        Assert.Empty(vm.Entities);
+
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        Assert.Equal(new[] { "LateEntity" }, vm.Entities.Select(e => e.Name));
+        Assert.Equal(new[] { "LateEntity" }, vm.FilteredEntities.Select(e => e.Name));
+        Assert.Null(vm.SelectedEntity); // grid mode stays opt-in: the raw path/body are untouched
+
+        vm.UseFieldGrid = true; // auto-selects the loaded entity, whose fields arrive via the loader
+
+        Assert.Equal("LateEntity", vm.SelectedEntity!.Name);
+        Assert.Equal(1, meta.FieldLoads); // fetched, not pre-seeded
+        Assert.Equal(new[] { "Id", "Name" }, vm.Fields.Select(f => f.Name));
+
+        vm.Fields.Single(f => f.Name == "Id").Value = "A1";
+
+        Assert.False(vm.HasPayloadIssues);
+        Assert.True(vm.SendCommand.CanExecute(null));
+        Assert.Equal("PATCH /data/LateEntity(Id='A1')", vm.RequestUrl);
+    }
+
+    [Fact]
+    public async Task Re_initializing_refreshes_the_catalogue_and_keeps_the_selection_by_name()
+    {
+        var meta = new DeferredMetadata("Alpha", "Beta");
+        var vm = new PostBuilderViewModel(new FakeODataClient(), metadata: meta) { Method = "PATCH" };
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "Beta");
+        Assert.NotEmpty(vm.Fields);
+
+        // An environment switch republishes a different catalogue; Initialize runs on every Loaded, so the
+        // list refreshes — and Beta stays selected because it exists in the new environment too.
+        meta.SwitchCatalogue("Beta", "Gamma");
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        Assert.Equal(new[] { "Beta", "Gamma" }, vm.Entities.Select(e => e.Name));
+        Assert.Equal("Beta", vm.SelectedEntity!.Name);
+        Assert.NotEmpty(vm.Fields);
+
+        // …and when the selection is gone from the new environment, grid mode falls back to the first entity
+        // (it can't sit on an entity the environment doesn't have) and loads its fields.
+        meta.SwitchCatalogue("Gamma", "Delta");
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        Assert.Equal("Gamma", vm.SelectedEntity!.Name);
+        Assert.Equal(new[] { "Id", "Name" }, vm.Fields.Select(f => f.Name));
+        Assert.Equal("/data/Gamma", vm.Path);
     }
 
     [Fact]
