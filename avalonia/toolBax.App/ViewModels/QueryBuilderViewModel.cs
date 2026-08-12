@@ -471,8 +471,17 @@ public partial class QueryBuilderViewModel : ObservableObject
             return;
         }
 
-        await _clipboard.SetTextAsync(QueryUrl);
-        StatusText = "Query URL copied to the clipboard.";
+        // A contended clipboard throws (COMException on Windows), and an AsyncRelayCommand rethrows a
+        // faulted command task on the dispatcher — which kills the app. A failed copy is a status line.
+        try
+        {
+            await _clipboard.SetTextAsync(QueryUrl);
+            StatusText = "Query URL copied to the clipboard.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Couldn't copy to the clipboard: {ex.Message}";
+        }
     }
 
     // Fetches the selected entity's fields if they aren't cached yet, then rebuilds the field chips.
@@ -858,8 +867,15 @@ public partial class QueryBuilderViewModel : ObservableObject
     private async Task ExportCsv()
     {
         var csv = QueryCsv.Build(ResultColumns, ResultRows);
-        await _clipboard.SetTextAsync(csv);
-        StatusText = $"Copied {ResultRows.Count} rows as CSV to the clipboard.";
+        try
+        {
+            await _clipboard.SetTextAsync(csv);
+            StatusText = $"Copied {ResultRows.Count} rows as CSV to the clipboard.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Couldn't copy to the clipboard: {ex.Message}";
+        }
     }
 
     // Saves the currently-loaded rows to a .csv file the user picks.
@@ -869,8 +885,19 @@ public partial class QueryBuilderViewModel : ObservableObject
         var csv = QueryCsv.Build(ResultColumns, ResultRows);
         var rows = ResultRows.Count;
         var name = $"{SelectedEntity?.Name ?? "query"}.csv";
-        var path = await _fileSave.SaveTextAsync(name, csv, ct);
-        StatusText = path is null ? "Export cancelled." : $"Saved {rows} rows to {path}.";
+        try
+        {
+            var path = await _fileSave.SaveTextAsync(name, csv, ct);
+            StatusText = path is null ? "Export cancelled." : $"Saved {rows} rows to {path}.";
+        }
+        catch (OperationCanceledException)
+        {
+            StatusText = "Export cancelled.";
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Export failed: {ex.Message}";
+        }
     }
 
     // Export-all can run whenever an entity is selected (it issues its own unbounded query); gated off

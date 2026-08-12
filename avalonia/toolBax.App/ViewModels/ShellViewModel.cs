@@ -13,6 +13,12 @@ using ToolBax.Core.Services;
 namespace ToolBax.App.ViewModels;
 
 /// <summary>
+/// Why the app is running on the offline fake stack (#164) — design mode on a non-Windows platform, or a
+/// profile-store failure. Non-null means NOTHING on screen came from a real environment.
+/// </summary>
+public sealed record DegradedMode(string Reason);
+
+/// <summary>
 /// Root shell view model (control-map §0): owns the tool list that drives the nav rail + content
 /// host, the active environment, busy state, and the Ctrl+K command palette. Tool screens plug into
 /// <see cref="CurrentTool"/> as they are built; for now the content host shows the tool title.
@@ -71,6 +77,27 @@ public partial class ShellViewModel : ObservableObject
     [ObservableProperty]
     private bool _isCommandPaletteOpen;
 
+    /// <summary>
+    /// Last last-resort failure message (see <c>App.InstallLastResortExceptionHandlers</c>), shown in the
+    /// status strip; empty when none. Deliberately non-modal: the action failed, the app is still usable.
+    /// </summary>
+    [ObservableProperty]
+    private string _backgroundError = string.Empty;
+
+    /// <summary>Why the app is on the offline fake stack, or null when everything is real (#164).</summary>
+    public DegradedMode? Degraded { get; }
+
+    /// <summary>True when nothing on screen came from a real environment.</summary>
+    public bool IsDegraded => Degraded is not null;
+
+    /// <summary>Banner copy for the persistent degraded-mode strip; empty when not degraded.</summary>
+    public string DegradedBannerText => Degraded is null
+        ? string.Empty
+        : $"Offline sample data — {Degraded.Reason}. Nothing on screen is live.";
+
+    /// <summary>Surfaces a last-resort background failure in the status strip.</summary>
+    public void ReportBackgroundFailure(string message) => BackgroundError = message;
+
     public ShellViewModel(
         Func<object>? operationsContentFactory = null,
         IProfileStore? profileStore = null,
@@ -87,8 +114,10 @@ public partial class ShellViewModel : ObservableObject
         IConnectionTester? connectionTester = null,
         IDialogService? dialogs = null,
         IUrlLauncher? launcher = null,
-        IVirtualTableReader? virtualTableReader = null)
+        IVirtualTableReader? virtualTableReader = null,
+        DegradedMode? degraded = null)
     {
+        Degraded = degraded;
         _operationsContentFactory = operationsContentFactory ?? DefaultOperationsContent;
         _profileStore = profileStore ?? new FakeProfileStore();
         // TODO: design-mode fakes — swap the interactive broker (WebView2) for the real Windows
@@ -260,9 +289,10 @@ public partial class ShellViewModel : ObservableObject
     // The single funnel for a deliberate active-environment switch (header switcher OR Profiles' "Set
     // active"). Profile rename/delete update ActiveEnvironment directly and intentionally bypass this —
     // they aren't switches, so they must not raise this prompt (rename must not discard open tool state
-    // at all; deletion refreshes unconditionally — see the ProfileDeleted handler). The active
-    // environment always changes; refreshing the open tools (which discards their unsaved input) is
-    // gated behind a confirm prompt.
+    // at all; deletion refreshes unconditionally — see the ProfileDeleted handler). The switch is
+    // all-or-nothing: it moves the shell AND persists the choice, or it moves neither and reports why.
+    // Only once it has committed is refreshing the open tools (which discards their unsaved input)
+    // offered, gated behind a confirm prompt.
     private async Task ApplyActiveEnvironmentSwitchAsync(EnvProfile? target)
     {
         if (target is null)
@@ -271,17 +301,36 @@ public partial class ShellViewModel : ObservableObject
         }
 
         var previous = ActiveEnvironment;
+
+        // Persisting the active id is part of the switch, not a side effect of it: either the shell and the
+        // store both move to the target or neither does. A store that rejects the write (a locked
+        // profile.db) previously left the header on the new environment, the tools on the old one and
+        // nothing persisted — a half-switched shell that lies about where it is pointing, with only a trace
+        // line to show for it. Roll the in-memory switch back and say so instead.
         ActiveEnvironment = target;
-        _profileStore.ActiveId = target.Id;
+        try
+        {
+            _profileStore.ActiveId = target.Id;
+        }
+        catch (Exception ex)
+        {
+            ActiveEnvironment = previous;
+            ReportBackgroundFailure(
+                $"Couldn't switch environment — the profile store rejected the write: {ex.Message}");
+            System.Diagnostics.Trace.TraceWarning(
+                $"Switching to '{target.Name}' was rolled back: the profile store rejected the active-id write: {ex}");
+            return; // no prompt, no invalidate — the switch did not happen.
+        }
 
         if (previous is null || previous.Id == target.Id)
         {
             return; // first selection, or re-selecting the current one — nothing to refresh.
         }
 
-        // Best-effort: this also runs from the fire-and-forget ActiveChanged handler, so a dialog failure
-        // (e.g. the window closing mid-prompt) must surface as a trace warning, not an unobserved exception.
-        // The environment switch above is already committed; only the optional tool refresh is at risk.
+        // Best-effort from here on: this also runs from the fire-and-forget ActiveChanged handler, so a
+        // dialog dying with the window mid-prompt must surface as a trace warning, not an unobserved
+        // exception the dispatcher later rethrows. The switch itself is already committed at both levels,
+        // so losing the prompt only costs the tool refresh.
         try
         {
             var refresh = await _dialogs.ConfirmAsync(new ConfirmRequest(
@@ -299,7 +348,8 @@ public partial class ShellViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.TraceWarning($"Tool-refresh prompt failed after switching to '{target.Name}': {ex}");
+            System.Diagnostics.Trace.TraceWarning(
+                $"Switched to '{target.Name}', but the refresh prompt did not complete cleanly: {ex}");
         }
     }
 

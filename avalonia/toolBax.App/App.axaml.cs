@@ -1,9 +1,11 @@
 using System;
 using System.Diagnostics;
 using System.Net.Http;
+using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using FoToolbox.Core.Catalog;
 using FoToolbox.Core.Profiles;
 using ToolBax.App.Services;
@@ -27,7 +29,7 @@ public partial class App : Application
             // seams stay design-mode fakes pending live wiring. Building the stores synchronously here
             // is safe — it runs once at startup before the dispatcher loop begins.
             var window = new MainWindow();
-            var (profileStore, secretStore, authService, odataFactory, metadataFactory, mapReaderFactory, virtualTableReaderFactory) = BuildServices();
+            var (profileStore, secretStore, authService, odataFactory, metadataFactory, mapReaderFactory, virtualTableReaderFactory, degraded) = BuildServices();
 
             // The OData client + metadata service resolve a token / $metadata for whichever environment
             // is active *at call time*, so they read the shell's ActiveEnvironment through a closure. The
@@ -88,12 +90,86 @@ public partial class App : Application
                 compareService: compareService,
                 connectionTester: connectionTester,
                 launcher: new WindowUrlLauncher(window),
-                virtualTableReader: virtualTableReader);
+                virtualTableReader: virtualTableReader,
+                degraded: degraded);
             window.DataContext = shell;
             desktop.MainWindow = window;
+
+            // The safety net below is deliberately scoped to the real desktop host: headless tests install it
+            // themselves so a test's throwing job can't be swallowed by the app-wide handler.
+            ShellViewModel shellForReports = shell;   // non-nullable local: the lambda's nullable flow state resets
+            // The handle is intentionally not stored — the net lives for the process lifetime.
+            _ = InstallLastResortExceptionHandlers(message =>
+                Dispatcher.UIThread.Post(() => shellForReports.ReportBackgroundFailure(message)));
         }
 
         base.OnFrameworkInitializationCompleted();
+    }
+
+    /// <summary>
+    /// Installs the last-resort exception net (#163) and returns a handle that removes it again.
+    /// CommunityToolkit's AsyncRelayCommand rethrows a faulted command task on the dispatcher (it does not
+    /// flow exceptions to the task scheduler), and an unobserved Task exception is rethrown on the finalizer
+    /// thread — either one kills the process and takes every tool's unsaved state with it. This is a net for
+    /// a path that missed its own try/catch, NOT a substitute for one: it traces the failure, hands
+    /// <paramref name="report"/> a one-line message for the shell's status strip, and never terminates for a
+    /// recoverable exception. <paramref name="report"/> may be invoked from any thread — marshalling to the
+    /// UI thread is the caller's job.
+    /// </summary>
+    public static IDisposable InstallLastResortExceptionHandlers(Action<string> report)
+    {
+        void OnDispatcherUnhandledException(object? sender, DispatcherUnhandledExceptionEventArgs e)
+        {
+            // Keep the app alive FIRST — everything after this line is best-effort reporting.
+            e.Handled = true;
+            Report(report, e.Exception, "A background action failed");
+        }
+
+        void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
+        {
+            // Observe FIRST, so the finalizer thread can't rethrow while we're reporting.
+            e.SetObserved();
+            Report(report, e.Exception.GetBaseException(), "A background task failed");
+        }
+
+        Dispatcher.UIThread.UnhandledException += OnDispatcherUnhandledException;
+        TaskScheduler.UnobservedTaskException += OnUnobservedTaskException;
+
+        return new Unsubscriber(() =>
+        {
+            Dispatcher.UIThread.UnhandledException -= OnDispatcherUnhandledException;
+            TaskScheduler.UnobservedTaskException -= OnUnobservedTaskException;
+        });
+    }
+
+    // Traces the full exception, then hands the sink a one-liner. A failing sink must never recurse or
+    // throw out of a last-resort handler, so its own failure is traced and swallowed.
+    private static void Report(Action<string> report, Exception ex, string headline)
+    {
+        Trace.TraceError($"{headline}: {ex}");
+        try
+        {
+            report($"{headline}: {ex.Message}");
+        }
+        catch (Exception reportFailure)
+        {
+            Trace.TraceError($"Reporting a background failure itself failed: {reportFailure}");
+        }
+    }
+
+    // Removes exactly the handlers that were added, once — a second Dispose is a no-op.
+    private sealed class Unsubscriber : IDisposable
+    {
+        private Action? _remove;
+
+        public Unsubscriber(Action remove) => _remove = remove;
+
+        public void Dispose()
+        {
+            var remove = _remove;
+            _remove = null;
+            remove?.Invoke();
+        }
     }
 
     // Profile + secret + auth services share ONE ProfileService (and, on Windows, one SecretVault) so
@@ -102,11 +178,14 @@ public partial class App : Application
     // The OData + metadata factories take the shell's active-environment accessor (only known after the
     // shell is built) and pair real authed services with the real auth path, or fake sample services
     // with the degraded one — so an offline/non-Windows run still demos without firing real HTTP.
+    // Whenever that degradation happens the returned Degraded descriptor says why, so the shell can shout
+    // about it (#164) instead of letting fabricated rows/writes pass for a live environment.
     private static (IProfileStore Profiles, ISecretStore Secrets, IAuthService Auth,
         Func<Func<EnvProfile?>, IODataClient> ODataFactory,
         Func<Func<EnvProfile?>, IMetadataService> MetadataFactory,
         Func<Func<EnvProfile?>, IDualWriteMapReader> MapReaderFactory,
-        Func<Func<EnvProfile?>, IVirtualTableReader> VirtualTableReaderFactory) BuildServices()
+        Func<Func<EnvProfile?>, IVirtualTableReader> VirtualTableReaderFactory,
+        DegradedMode? Degraded) BuildServices()
     {
         try
         {
@@ -123,19 +202,22 @@ public partial class App : Application
                     activeEnv => new CoreODataClient(auth, activeEnv),
                     activeEnv => CreateMetadataService(store, auth, activeEnv),
                     activeEnv => new CoreDualWriteMapReader(new CoreDataverseClient(auth, activeEnv)),
-                    activeEnv => new CoreVirtualTableReader(new CoreDataverseClient(auth, activeEnv)));
+                    activeEnv => new CoreVirtualTableReader(new CoreDataverseClient(auth, activeEnv)),
+                    null);
             }
 
             return (profileStore, new FakeSecretStore(), new FakeAuthService(),
                 _ => new FakeODataClient(), _ => new FakeMetadataService(), _ => new FakeDualWriteMapReader(),
-                _ => new FakeVirtualTableReader());
+                _ => new FakeVirtualTableReader(),
+                new DegradedMode("design mode — non-Windows platform"));
         }
         catch (Exception ex)
         {
             Trace.TraceError($"Profile store unavailable; starting with empty in-memory stores. {ex}");
             return (new FakeProfileStore(Array.Empty<EnvProfile>()), new FakeSecretStore(),
                 new FakeAuthService(), _ => new FakeODataClient(), _ => new FakeMetadataService(),
-                _ => new FakeDualWriteMapReader(), _ => new FakeVirtualTableReader());
+                _ => new FakeDualWriteMapReader(), _ => new FakeVirtualTableReader(),
+                new DegradedMode($"profile store unavailable: {ex.Message}"));
         }
     }
 

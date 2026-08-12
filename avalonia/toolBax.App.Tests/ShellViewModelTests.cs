@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -478,6 +479,79 @@ public class ShellViewModelTests
         Assert.Empty(shell.Environments);
         Assert.Null(shell.ActiveEnvironment);
         Assert.IsType<PluginsHomeViewModel>(shell.CurrentContent); // still routes the default tool
+    }
+
+    // A store that can read but not persist the active id (e.g. a locked profile.db).
+    private sealed class UnwritableActiveIdStore : IProfileStore
+    {
+        private readonly IReadOnlyList<EnvProfile> _profiles = FakeProfileStore.Seed();
+        public IReadOnlyList<EnvProfile> GetAll() => _profiles;
+        public void Save(EnvProfile profile) { }
+        public void Delete(string id) { }
+        public string? ActiveId
+        {
+            get => _profiles[0].Id;
+            set => throw new IOException("profile.db is locked");
+        }
+    }
+
+    [Fact]
+    public async Task A_profile_store_that_cannot_persist_the_active_id_rolls_the_switch_back()
+    {
+        // The switch is all-or-nothing. A store that rejects the write used to leave the header on the new
+        // environment with the tools and the persisted default still on the old one: the shell then lied
+        // about where it was pointing, and the only evidence was a trace line. It must roll back and say so.
+        // This is also the method behind the fire-and-forget ActiveChanged handler, where a fault becomes an
+        // unobserved exception the dispatcher later rethrows — i.e. a dead app (#163).
+        var dialogs = new RecordingDialogs(answer: true); // would rebuild the tools if it were ever asked
+        var shell = new ShellViewModel(profileStore: new UnwritableActiveIdStore(), dialogs: dialogs);
+        var previous = shell.ActiveEnvironment!;
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var before = shell.CurrentContent;
+        var other = shell.Environments.First(e => e.Id != previous.Id);
+
+        shell.SetActiveEnvironmentCommand.Execute(other);
+        await shell.SetActiveEnvironmentCommand.ExecutionTask!; // must complete, not fault
+
+        Assert.Equal(previous.Id, shell.ActiveEnvironment!.Id);      // rolled back: the switch didn't happen
+        Assert.Contains("Couldn't switch environment", shell.BackgroundError);
+        Assert.Contains("profile.db is locked", shell.BackgroundError); // …with the store's own reason
+        Assert.Equal(0, dialogs.Calls);             // nothing switched, so nothing to offer refreshing for
+        Assert.Same(before, shell.CurrentContent);  // …and the open tool keeps the environment it has
+    }
+
+    // --- Degraded mode + background-failure surface (#163/#164) ---
+
+    [Fact]
+    public void Degraded_mode_surfaces_the_reason_in_the_banner_text()
+    {
+        const string reason = "profile store unavailable: database is locked";
+        var shell = new ShellViewModel(degraded: new DegradedMode(reason));
+
+        Assert.True(shell.IsDegraded);
+        Assert.Contains("Offline sample data", shell.DegradedBannerText);
+        Assert.Contains(reason, shell.DegradedBannerText);
+        Assert.Contains("Nothing on screen is live", shell.DegradedBannerText);
+    }
+
+    [Fact]
+    public void A_healthy_shell_is_not_degraded()
+    {
+        var shell = new ShellViewModel();
+
+        Assert.False(shell.IsDegraded);
+        Assert.Equal(string.Empty, shell.DegradedBannerText);
+    }
+
+    [Fact]
+    public void Reporting_a_background_failure_surfaces_it_in_the_status_strip()
+    {
+        var shell = new ShellViewModel();
+        Assert.Equal(string.Empty, shell.BackgroundError);
+
+        shell.ReportBackgroundFailure("A background action failed: clipboard is busy");
+
+        Assert.Equal("A background action failed: clipboard is busy", shell.BackgroundError);
     }
 
     [Fact]

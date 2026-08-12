@@ -664,8 +664,23 @@ public partial class PostBuilderViewModel : ObservableObject
                 .Select(h => $"{h.Key}: {h.Value}"));
 
     [RelayCommand]
-    private Task CopyUrl() => _clipboard.SetTextAsync(EffectivePath());
+    private Task CopyUrl() => CopyToClipboardAsync(EffectivePath(), "Request URL copied to the clipboard.");
 
     [RelayCommand]
-    private Task CopyPayload() => _clipboard.SetTextAsync(RequestBody);
+    private Task CopyPayload() => CopyToClipboardAsync(RequestBody, "Payload copied to the clipboard.");
+
+    // A contended clipboard throws (COMException on Windows) and an AsyncRelayCommand rethrows that on the
+    // dispatcher, so a failed copy has to end as a status line, not a dead app (#163).
+    private async Task CopyToClipboardAsync(string text, string success)
+    {
+        try
+        {
+            await _clipboard.SetTextAsync(text);
+            StatusText = success;
+        }
+        catch (Exception ex)
+        {
+            StatusText = $"Couldn't copy to the clipboard: {ex.Message}";
+        }
+    }
 }

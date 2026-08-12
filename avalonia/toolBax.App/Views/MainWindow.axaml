@@ -16,11 +16,20 @@
   </Window.KeyBindings>
 
   <Panel>
-    <!-- Shell: header / [nav | content] / status strip -->
-    <Grid RowDefinitions="48,*,26">
+    <!-- Shell: degraded banner / header / [nav | content] / status strip -->
+    <Grid RowDefinitions="Auto,48,*,26">
+
+      <!-- Degraded-mode banner (#164): the offline fake stack is wired, so nothing on screen is live. -->
+      <Border Grid.Row="0" x:Name="DegradedBanner"
+              IsVisible="{Binding IsDegraded}"
+              Background="{StaticResource WarnBrush}">
+        <TextBlock Text="{Binding DegradedBannerText}" Margin="14,7"
+                   FontSize="12.5" FontWeight="SemiBold" TextWrapping="Wrap"
+                   Foreground="{StaticResource OnAccentBrush}" />
+      </Border>
 
       <!-- Header / caption -->
-      <Border Grid.Row="0"
+      <Border Grid.Row="1"
               Background="{StaticResource MicaBrush}"
               BorderBrush="{StaticResource StrokeBrush}"
               BorderThickness="0,0,0,1">
@@ -51,7 +60,7 @@
       </Border>
 
       <!-- Body: nav rail + content -->
-      <Grid Grid.Row="1" ColumnDefinitions="220,*">
+      <Grid Grid.Row="2" ColumnDefinitions="220,*">
 
         <Border Grid.Column="0"
                 Background="{StaticResource MicaBrush}"
@@ -114,7 +123,7 @@
       </Grid>
 
       <!-- Status strip -->
-      <Border Grid.Row="2"
+      <Border Grid.Row="3"
               Background="{StaticResource MicaBrush}"
               BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0">
         <StackPanel Orientation="Horizontal" Spacing="14" Margin="14,0" VerticalAlignment="Center">
@@ -124,6 +133,9 @@
                      FontSize="11.5" Foreground="{StaticResource Text2Brush}" />
           <TextBlock FontSize="11.5" Foreground="{StaticResource Text3Brush}"
                      Text="{Binding IsBusy, StringFormat='busy: {0}'}" />
+          <TextBlock x:Name="BackgroundErrorText" Text="{Binding BackgroundError}"
+                     FontSize="11.5" Foreground="{StaticResource WarnBrush}" TextTrimming="CharacterEllipsis"
+                     IsVisible="{Binding BackgroundError, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         </StackPanel>
       </Border>
     </Grid>
