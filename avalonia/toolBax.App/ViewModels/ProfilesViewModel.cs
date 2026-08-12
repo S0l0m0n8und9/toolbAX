@@ -603,10 +603,18 @@ public partial class ProfilesViewModel : ObservableObject
         }
 
         var name = Selected.Name;
+        var tenant = string.IsNullOrWhiteSpace(Selected.Tenant) ? "this tenant" : Selected.Tenant;
         try
         {
             await _auth.SignOutAsync(Selected, ct);
-            Status = $"Signed out of '{name}' — the cached token was cleared; you'll be asked to sign in again next time.";
+            // Say what actually happens. The MSAL token cache is keyed clientId|tenantId and sign-out
+            // deletes the whole blob for that key, and every Interactive profile shares the one app
+            // registration — so this is tenant-wide, not per-profile. The old wording named only this
+            // profile, so a user signing out of one sandbox silently lost every other profile too.
+            // Ceiling: making it genuinely per-profile needs either a per-profile client id (separate
+            // cache key) or MSAL account-level removal (RemoveAsync for just this profile's account
+            // instead of deleting the blob). That is the real fix if the scope ever matters.
+            Status = $"Signed out of {tenant}: every profile using the shared app registration in this tenant is signed out. You'll be asked to sign in again next time.";
         }
         catch (Exception ex)
         {

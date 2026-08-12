@@ -1,5 +1,6 @@
 using Microsoft.Identity.Client;
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -20,6 +21,13 @@ namespace FoToolbox.Core.Auth;
 public sealed class MsalInteractiveTokenProvider : IInteractiveTokenProvider
 {
     private readonly IMsalTokenCacheStore _cacheStore;
+
+    /// <summary>
+    /// Identifier of the account the last successful acquisition on this instance used, so the next
+    /// silent renewal prefers the same identity instead of whatever the cache happens to enumerate
+    /// first. In-memory and per-instance by design — see <see cref="SelectAccount"/> for the ceiling.
+    /// </summary>
+    private string? _lastUsedAccountId;
 
     public MsalInteractiveTokenProvider()
         : this(DefaultCacheStore())
@@ -43,7 +51,8 @@ public sealed class MsalInteractiveTokenProvider : IInteractiveTokenProvider
 
         var app = BuildApp(request);
         var scope = BuildScope(request.ResourceBaseUrl);
-        var account = (await app.GetAccountsAsync().ConfigureAwait(false)).FirstOrDefault();
+        var account = SelectAccount(
+            await app.GetAccountsAsync().ConfigureAwait(false), _lastUsedAccountId, request.TenantId);
 
         AuthenticationResult result;
         try
@@ -55,21 +64,79 @@ public sealed class MsalInteractiveTokenProvider : IInteractiveTokenProvider
                 ? await app.AcquireTokenSilent(new[] { scope }, account)
                     .WithForceRefresh(request.ForceRefresh)
                     .ExecuteAsync(cancellationToken).ConfigureAwait(false)
-                : await AcquireInteractiveAsync(app, scope, cancellationToken).ConfigureAwait(false);
+                : await AcquireInteractiveAsync(app, scope, account, cancellationToken).ConfigureAwait(false);
         }
         catch (MsalUiRequiredException)
         {
-            // Cached token can't be renewed silently (expired/revoked/needs consent): fall back to interactive.
-            result = await AcquireInteractiveAsync(app, scope, cancellationToken).ConfigureAwait(false);
+            // Cached token can't be renewed silently (expired/revoked/needs consent): fall back to
+            // interactive, pinned to the SAME account the silent path just attempted. Without the pin
+            // MSAL shows the generic picker, the user can complete sign-in as a different identity, and
+            // the next silent attempt selects the original account again — re-prompting forever.
+            result = await AcquireInteractiveAsync(app, scope, account, cancellationToken).ConfigureAwait(false);
         }
+
+        // Remember what actually worked, so subsequent acquisitions on this instance stay bound to that
+        // identity rather than re-picking from the cache's enumeration order.
+        _lastUsedAccountId = result.Account?.HomeAccountId?.Identifier ?? _lastUsedAccountId;
 
         return new InteractiveTokenResult(result.AccessToken, result.ExpiresOn);
     }
 
-    private static Task<AuthenticationResult> AcquireInteractiveAsync(IPublicClientApplication app, string scope, CancellationToken cancellationToken) =>
-        app.AcquireTokenInteractive(new[] { scope })
-            .WithUseEmbeddedWebView(false)
-            .ExecuteAsync(cancellationToken);
+    /// <summary>
+    /// Chooses which cached account the silent path renews against, in priority order:
+    /// (1) the account the last successful acquisition on this provider used, (2) an account whose home
+    /// tenant matches the authority's tenant, (3) the first account in the cache.
+    /// <para>
+    /// The old behaviour was (3) alone, which in a two-account cache could bind the wrong or a stale
+    /// account, fail silent renewal, and then re-prompt against an unpinned picker indefinitely.
+    /// </para>
+    /// <para>
+    /// <b>Ceiling:</b> the preference is in-memory and per-provider-instance, so it resets on restart and
+    /// is shared by every profile that routes through the same provider (all of them, today — the hosts
+    /// share one instance to share the token cache). If wrong-account binding recurs, the real fix is
+    /// persisting the chosen account identifier <i>per profile</i> and passing it in on the request.
+    /// </para>
+    /// </summary>
+    internal static IAccount? SelectAccount(IEnumerable<IAccount>? accounts, string? lastUsedAccountId, string? tenantId)
+    {
+        var candidates = accounts?.Where(a => a is not null).ToList();
+        if (candidates is null || candidates.Count == 0)
+        {
+            return null;
+        }
+
+        if (!string.IsNullOrWhiteSpace(lastUsedAccountId))
+        {
+            var remembered = candidates.FirstOrDefault(a =>
+                string.Equals(a.HomeAccountId?.Identifier, lastUsedAccountId, StringComparison.OrdinalIgnoreCase));
+            if (remembered is not null)
+            {
+                return remembered;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(tenantId))
+        {
+            var sameTenant = candidates.FirstOrDefault(a =>
+                string.Equals(a.HomeAccountId?.TenantId, tenantId, StringComparison.OrdinalIgnoreCase));
+            if (sameTenant is not null)
+            {
+                return sameTenant;
+            }
+        }
+
+        return candidates[0];
+    }
+
+    private static Task<AuthenticationResult> AcquireInteractiveAsync(
+        IPublicClientApplication app, string scope, IAccount? account, CancellationToken cancellationToken)
+    {
+        var builder = app.AcquireTokenInteractive(new[] { scope }).WithUseEmbeddedWebView(false);
+
+        // Pin the prompt to the identity being renewed when we know it; with no cached account there is
+        // nothing to hint and the picker is the correct experience (first sign-in).
+        return (account is not null ? builder.WithAccount(account) : builder).ExecuteAsync(cancellationToken);
+    }
 
     public async Task SignOutAsync(string clientId, string tenantId, CancellationToken cancellationToken = default)
     {

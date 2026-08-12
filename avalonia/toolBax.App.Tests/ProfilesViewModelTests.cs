@@ -366,6 +366,26 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
+    public async Task Sign_out_status_states_its_real_tenant_wide_scope()
+    {
+        // #168 low: the MSAL cache is keyed clientId|tenantId and sign-out deletes the whole blob, while
+        // every Interactive profile shares one app registration — so this signs out every profile in the
+        // tenant, not just the selected one. The old wording named only the selected profile, so the
+        // collateral sign-out was silent. Re-architecting the cache key is out of scope; being honest is not.
+        var auth = new FakeAuthService();
+        var vm = new ProfilesViewModel(new FakeProfileStore(), auth: auth);
+        vm.Selected = vm.Profiles.First();
+        var tenant = vm.Selected!.Tenant;
+
+        await vm.SignOutCommand.ExecuteAsync(null);
+
+        Assert.Contains(tenant, vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("every profile", vm.Status, StringComparison.OrdinalIgnoreCase);
+        // Must not imply the scope was limited to the selected profile.
+        Assert.DoesNotContain($"Signed out of '{vm.Selected.Name}'", vm.Status, StringComparison.Ordinal);
+    }
+
+    [Fact]
     public void Saving_an_auth_config_change_evicts_the_old_cached_session()
     {
         var auth = new FakeAuthService();

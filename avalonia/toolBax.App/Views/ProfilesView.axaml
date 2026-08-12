@@ -174,9 +174,13 @@
                   <Button Content="Test connection" Command="{Binding TestConnectionCommand}" />
                   <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingFoConnection}" Width="90" Height="4"
                                VerticalAlignment="Center" />
-                  <!-- Clears this profile's cached delegated sign-in so the next call re-authenticates. -->
+                  <!-- Clears the cached delegated sign-in so the next call re-authenticates. Scope is the
+                       whole tenant, not this profile: the MSAL cache is keyed clientId|tenantId and
+                       sign-out deletes that blob, and every Interactive profile shares the one app
+                       registration. Keep this wording in step with ProfilesViewModel.SignOut's status
+                       (and the ceiling noted there) — a per-profile promise here would be a lie. -->
                   <Button Content="Sign out" Command="{Binding SignOutCommand}"
-                          ToolTip.Tip="Clear the cached sign-in for this profile (forces a fresh interactive sign-in next time)." />
+                          ToolTip.Tip="Clear the cached sign-in for every profile using this tenant's shared app registration (forces a fresh interactive sign-in next time)." />
                 </StackPanel>
               </StackPanel>
             </TabItem>

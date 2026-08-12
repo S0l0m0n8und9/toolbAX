@@ -266,6 +266,89 @@ public class AuthServiceTests
         AuthService.ValidateTokenTenant("not-a-jwt", "tenant-x");
     }
 
+    // -----------------------------------------------------------------------
+    // #168 low: a domain-form / meta tenant used to fail AFTER a successful sign-in
+    // -----------------------------------------------------------------------
+
+    [Trait("Category", "TenantValidation")]
+    [Theory]
+    [InlineData("contoso.onmicrosoft.com")]
+    [InlineData("CONTOSO.ONMICROSOFT.COM")]
+    [InlineData("contoso.com")]
+    [InlineData("common")]
+    [InlineData("organizations")]
+    [InlineData("consumers")]
+    public void TenantValidation_NonGuidTenantForm_IsAcceptedAgainstAGuidTid(string configuredTenant)
+    {
+        // The `tid` claim is always a GUID, so comparing it to any of these forms could never match:
+        // sign-in succeeded and this validator then rejected it, telling the user to fix a tenant that
+        // is not wrong. The authority is built from the configured tenant, so the STS already enforced it.
+        AuthService.ValidateTokenTenant(
+            BuildJwtWithTid("11111111-1111-1111-1111-111111111111"),
+            configuredTenant);
+    }
+
+    [Trait("Category", "TenantValidation")]
+    [Fact]
+    public async Task TenantValidation_DomainFormTenant_CompletesAcquisitionInsteadOfThrowing()
+    {
+        // End-to-end through the acquire path: the token carries a real GUID tid and the profile carries
+        // the domain form. This is the exact shape that used to throw a non-retryable TenantMismatch.
+        var sp = new ServicePrincipal("sp", "env", "client", AuthMode.ClientSecret, "secretRef", null);
+        var provider = new FakeTokenProvider(BuildJwtWithTid("11111111-1111-1111-1111-111111111111"));
+        var svc = new AuthService(provider);
+
+        var token = await svc.AcquireTokenAsync(
+            "https://org.crm.dynamics.com",
+            "contoso.onmicrosoft.com",
+            sp);
+
+        Assert.False(string.IsNullOrWhiteSpace(token));
+    }
+
+    [Trait("Category", "TenantValidation")]
+    [Theory]
+    [InlineData("{11111111-1111-1111-1111-111111111111}")]
+    [InlineData("11111111111111111111111111111111")]
+    public void TenantValidation_GuidShapedTenant_StillDetectsAMisroute(string configuredTenant)
+    {
+        // Braced / dashless GUIDs are still GUID-shaped, so the strict check must stay on for them —
+        // relaxing the domain forms must not accidentally relax every non-canonical spelling.
+        Assert.Throws<TenantMismatchException>(() => AuthService.ValidateTokenTenant(
+            BuildJwtWithTid("22222222-2222-2222-2222-222222222222"),
+            configuredTenant));
+    }
+
+    [Trait("Category", "TenantValidation")]
+    [Theory]
+    [InlineData("11111111111111111111111111111111")]          // "N" — dashless
+    [InlineData("{11111111-1111-1111-1111-111111111111}")]    // "B" — braced
+    [InlineData("(11111111-1111-1111-1111-111111111111)")]    // "P" — parenthesised
+    [InlineData("11111111-1111-1111-1111-111111111111")]      // "D" — canonical
+    [InlineData("11111111-1111-1111-1111-111111111111 ")]     // stray trailing space (Guid.Parse trims)
+    [InlineData("AAAAAAAA-BBBB-CCCC-DDDD-EEEEEEEEEEEE")]      // upper-case hex (already tolerated; pinned)
+    public void TenantValidation_SameTenantInAnyGuidSpelling_IsNotAMismatch(string configuredTenant)
+    {
+        // A `tid` claim is always the canonical dashed form. Every spelling above parses to the SAME
+        // GUID, so comparing strings reported the tenant as a cross-tenant misroute against itself —
+        // the identical "fails after a successful sign-in" failure, one layer narrower than the
+        // domain-form case. Value comparison is what makes these equivalent.
+        var canonicalTid = Guid.Parse(configuredTenant).ToString("D");
+
+        AuthService.ValidateTokenTenant(BuildJwtWithTid(canonicalTid), configuredTenant);
+    }
+
+    [Trait("Category", "TenantValidation")]
+    [Fact]
+    public void TenantValidation_GuidTenant_AgainstANonGuidTid_StaysStrict()
+    {
+        // AAD always issues a GUID tid, so this shape is not real — but a tenant we know precisely
+        // versus a claim we cannot interpret must not be waved through on the value-comparison path.
+        Assert.Throws<TenantMismatchException>(() => AuthService.ValidateTokenTenant(
+            BuildJwtWithTid("not-a-guid"),
+            "11111111-1111-1111-1111-111111111111"));
+    }
+
     private static string BuildJwtWithTid(string tid)
     {
         var header = Base64UrlEncode(Encoding.UTF8.GetBytes("""{"alg":"none","typ":"JWT"}"""));
