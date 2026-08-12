@@ -50,6 +50,13 @@ public partial class QueryBuilderViewModel : ObservableObject
     // invalidated; only a counter discards that too.
     private int _resultsGeneration;
 
+    // Non-null exactly when the results on screen have a DERIVED header — one Run built from the payload
+    // because no field was selected ($select=*) — and then it holds the names already in ResultColumns.
+    // Load more consults it to decide whether it may grow the header for a late-appearing property: a
+    // derived header is the server's and must grow, an explicit $select is the user's and must not.
+    // Null also means "nothing to grow" for a failed run or a cleared result set.
+    private HashSet<string>? _derivedColumnNames;
+
     // True while a bulk field operation (Select all / Clear) flips many chips at once, so each chip's
     // PropertyChanged doesn't rebuild the URL per-field (O(n) churn on entities with hundreds of fields);
     // the URL + labels are refreshed once when the bulk op completes.
@@ -377,6 +384,7 @@ public partial class QueryBuilderViewModel : ObservableObject
         // Invalidate any in-flight Run / LoadMore so its completion is discarded instead of repopulating
         // the grid the switch just emptied (PR #193 review).
         _resultsGeneration++;
+        _derivedColumnNames = null; // no header to grow until the next run establishes one
         ResultRows.Clear();
         ResultColumns = Array.Empty<string>();
         NextLink = null;                 // also disables Load more (NotifyCanExecuteChangedFor)
@@ -802,7 +810,13 @@ public partial class QueryBuilderViewModel : ObservableObject
             // grid rendered "Results · 3" over rows carrying zero cells, and a CSV of bare CRLFs (#168).
             if (columns.Count == 0 && response.IsSuccess)
             {
-                MergeDerivedColumns(response.Body, columns, new HashSet<string>(StringComparer.Ordinal));
+                // Keep the seen-set: Load more reuses it to grow this derived header as pages arrive.
+                _derivedColumnNames = new HashSet<string>(StringComparer.Ordinal);
+                MergeDerivedColumns(response.Body, columns, _derivedColumnNames);
+            }
+            else
+            {
+                _derivedColumnNames = null; // an explicit $select owns the header; nothing may grow it
             }
 
             // Clear stale rows before swapping columns so the grid never renders old rows under new
@@ -929,9 +943,25 @@ public partial class QueryBuilderViewModel : ObservableObject
 
             if (response.IsSuccess)
             {
-                // Later pages are projected onto the columns the first page established (whether they
-                // came from $select or were derived from that page's payload), so the grid's headers
-                // stay stable; a property only some pages carry shows the null placeholder elsewhere.
+                // A DERIVED ($select=*) header belongs to the server, not the user, so it grows when a
+                // later page carries a property the earlier ones lacked (OData omits a null rather than
+                // emitting it). Fixing the header at page one instead dropped that column from the grid
+                // AND silently omitted it from Copy CSV / Save CSV, even though Export all kept it
+                // (PR #193 review). An explicit $select is left exactly as chosen.
+                if (_derivedColumnNames is not null)
+                {
+                    var grown = ResultColumns.ToList();
+                    MergeDerivedColumns(response.Body, grown, _derivedColumnNames);
+                    if (grown.Count != ResultColumns.Count)
+                    {
+                        // The reassignment is what raises PropertyChanged, which rebuilds the grid's
+                        // columns; mutating a list in place would leave the new column unrendered.
+                        ResultColumns = grown;
+                    }
+                }
+
+                // Rows already in the grid carry no cell for a newly added column. QueryResultRow reports
+                // that absence as null, so it shows the em-dash placeholder and exports as an empty field.
                 foreach (var row in ParseRows(response.Body, ResultColumns))
                 {
                     ResultRows.Add(row);

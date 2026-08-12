@@ -2019,6 +2019,86 @@ public class QueryBuilderViewModelTests
         Assert.Equal("CustomerAccount,OrganizationName\r\nUS-1,", fileSave.LastContent);
     }
 
+    // --- PR #193 review: a later page's new column reaches the grid and the CSV, not just Export all ---
+
+    [Fact]
+    public async Task Load_more_grows_a_derived_header_when_a_later_page_introduces_a_column()
+    {
+        const string page1 = "{\"@odata.nextLink\":\"https://x/data/CustomersV3?$skiptoken=p2\","
+            + "\"value\":[{\"A\":\"1\"}]}";
+        const string page2 = "{\"value\":[{\"A\":\"2\",\"B\":\"x\"}]}";
+        var client = new PagingODataClient(
+            new ODataResponse(200, "OK", page1, 5),
+            new ODataResponse(200, "OK", page2, 5));
+        var clipboard = new FakeClipboardService();
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, clipboard);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.ClearFieldsCommand.Execute(null); // $select=* — the server owns the header
+        await vm.RunCommand.ExecuteAsync(null);
+        Assert.Equal(new[] { "A" }, vm.ResultColumns);
+
+        await vm.LoadMoreCommand.ExecuteAsync(null);
+
+        // B reaches the grid instead of being silently dropped…
+        Assert.Equal(new[] { "A", "B" }, vm.ResultColumns);
+        Assert.Equal("x", vm.ResultRows[1]["B"]);
+        Assert.Equal(QueryResultRow.NullDisplay, vm.ResultRows[0]["B"]); // page 1 carried no B
+        Assert.Equal(2, vm.RowCount);
+
+        // …and the CSV exports carry it too, matching what Export all already produced.
+        await vm.ExportCsvCommand.ExecuteAsync(null);
+        Assert.Equal("A,B\r\n1,\r\n2,x", clipboard.LastText);
+    }
+
+    [Fact]
+    public async Task Load_more_does_not_grow_an_explicitly_selected_header()
+    {
+        // The user chose these columns, so a property the payload volunteers must stay out of the grid —
+        // only a derived ($select=*) header follows the server.
+        const string page1 = "{\"@odata.nextLink\":\"https://x/data/CustomersV3?$skiptoken=p2\","
+            + "\"value\":[{\"CustomerAccount\":\"US-1\"}]}";
+        const string page2 = "{\"value\":[{\"CustomerAccount\":\"US-2\",\"Surprise\":\"y\"}]}";
+        var client = new PagingODataClient(
+            new ODataResponse(200, "OK", page1, 5),
+            new ODataResponse(200, "OK", page2, 5));
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3"); // default = the key fields
+        await vm.RunCommand.ExecuteAsync(null);
+        var chosen = vm.ResultColumns.ToList();
+        Assert.NotEmpty(chosen);
+
+        await vm.LoadMoreCommand.ExecuteAsync(null);
+
+        Assert.Equal(chosen, vm.ResultColumns);
+        Assert.DoesNotContain("Surprise", vm.ResultColumns);
+    }
+
+    [Fact]
+    public async Task An_entity_switch_drops_the_derived_header_so_the_next_run_owns_its_own()
+    {
+        // The derive-state must not survive a switch: a following explicit-$select run would otherwise
+        // inherit permission to grow its header from the payload.
+        var client = new PagingODataClient(
+            new ODataResponse(200, "OK", "{\"value\":[{\"A\":\"1\"}]}", 5),
+            new ODataResponse(200, "OK",
+                "{\"@odata.nextLink\":\"https://x/data/C?$skiptoken=p2\",\"value\":[{\"CustomerAccount\":\"US-1\"}]}", 5),
+            new ODataResponse(200, "OK", "{\"value\":[{\"CustomerAccount\":\"US-2\",\"Surprise\":\"y\"}]}", 5));
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.ClearFieldsCommand.Execute(null);
+        await vm.RunCommand.ExecuteAsync(null);          // derived header: [A]
+        Assert.Equal(new[] { "A" }, vm.ResultColumns);
+
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "VendorsV2");
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        await vm.RunCommand.ExecuteAsync(null);          // explicit header: the key fields
+        var chosen = vm.ResultColumns.ToList();
+        await vm.LoadMoreCommand.ExecuteAsync(null);
+
+        Assert.Equal(chosen, vm.ResultColumns);
+        Assert.DoesNotContain("Surprise", vm.ResultColumns);
+    }
+
     [Fact]
     public async Task A_genuine_em_dash_payload_value_exports_as_an_em_dash()
     {

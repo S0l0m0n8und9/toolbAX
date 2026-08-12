@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -154,6 +155,48 @@ public class QueryBuilderViewRenderTests
 
             Assert.Equal("Run cancelled.", vm.StatusText);
             Assert.False(cancel.IsVisible);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    // Returns each queued response in turn, for a paging run.
+    private sealed class PagingODataClient : IODataClient
+    {
+        private readonly Queue<ODataResponse> _responses;
+        public PagingODataClient(params ODataResponse[] responses) => _responses = new Queue<ODataResponse>(responses);
+        public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
+            => Task.FromResult(_responses.Dequeue());
+    }
+
+    [AvaloniaFact]
+    public void A_late_appearing_select_star_column_is_rendered_by_the_results_grid()
+    {
+        const string page1 = "{\"@odata.nextLink\":\"https://x/data/CustomersV3?$skiptoken=p2\","
+            + "\"value\":[{\"A\":\"1\"}]}";
+        const string page2 = "{\"value\":[{\"A\":\"2\",\"B\":\"x\"}]}";
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(),
+            new PagingODataClient(new ODataResponse(200, "OK", page1, 5), new ODataResponse(200, "OK", page2, 5)));
+        var view = new QueryBuilderView { DataContext = vm };
+        var window = new Window { Content = view, Width = 1100, Height = 720 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            vm.ClearFieldsCommand.Execute(null); // $select=*
+            vm.RunCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+
+            var grid = view.GetVisualDescendants().OfType<DataGrid>().First();
+            Assert.Equal(new[] { "A" }, grid.Columns.Select(c => c.Header as string));
+
+            vm.LoadMoreCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+
+            // Growing ResultColumns must actually re-run the view's dynamic column build (#193 review).
+            Assert.Equal(new[] { "A", "B" }, grid.Columns.Select(c => c.Header as string));
         }
         finally
         {
