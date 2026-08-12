@@ -253,7 +253,12 @@ public sealed class CoreProfileStore : IProfileStore
 
     // Removes a service-principal row and the secret blob it points at. The SecretVault has no FK cascade
     // to ServicePrincipals, so dropping the row alone would orphan the credential on disk forever —
-    // unreachable, because HasSecret then reads false and ClearSecret early-returns.
+    // unreachable, because HasSecret then reads false and ClearSecret early-returns. Hence the blob
+    // deletion, and hence its order: the row goes first, on the same invariant as the client-id-change
+    // path (never delete a blob a still-persisted row points at). Deleting the blob first and then
+    // failing the row delete would leave a surviving SecretRef aimed at nothing; this way a failed row
+    // delete leaves row and blob consistent, and a failed blob delete leaves at worst an orphaned blob
+    // that a future vault scrub can collect — and which DeleteSecretBlob has already traced.
     private void DropServicePrincipal(ServicePrincipal? existing, string envId)
     {
         if (existing is null)
@@ -261,8 +266,8 @@ public sealed class CoreProfileStore : IProfileStore
             return;
         }
 
-        DeleteSecretBlob(existing.SecretRef, envId);
         RunBlocking(() => _profiles.DeleteServicePrincipalAsync(existing.Id));
+        DeleteSecretBlob(existing.SecretRef, envId);
     }
 
     // Deletes a vault blob if there is one. A vault I/O failure must not strand the profile, so log it

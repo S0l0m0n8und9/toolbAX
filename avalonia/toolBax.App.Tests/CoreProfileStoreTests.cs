@@ -655,6 +655,41 @@ END;";
         cmd.ExecuteNonQuery();
     }
 
+    // The delete-side counterpart of RejectServicePrincipalUpdates, for the drop-the-whole-row path.
+    private void RejectServicePrincipalDeletes()
+    {
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+CREATE TRIGGER RejectSpDelete BEFORE DELETE ON ServicePrincipals
+BEGIN
+  SELECT RAISE(ABORT, 'simulated write failure');
+END;";
+        cmd.ExecuteNonQuery();
+    }
+
+    [Fact]
+    public async Task A_failed_service_principal_delete_leaves_its_secret_blob_intact()
+    {
+        // Dropping the whole row obeys the same ordering invariant: if the row delete can't land, the
+        // service principal survives — and a blob deleted ahead of it would leave that survivor's
+        // SecretRef pointing at nothing. (The reverse failure is benign: an orphaned blob is collectable
+        // and traced, whereas a dangling SecretRef is not.)
+        var ct = TestContext.Current.CancellationToken;
+        var store = await SeedFoSecretAsync("app-a", "fo-row-1");
+        RejectServicePrincipalDeletes();
+
+        // Interactive is delegated, so this is the path that drops the app-only SP entirely.
+        Assert.ThrowsAny<Microsoft.Data.Sqlite.SqliteException>(
+            () => store.Save(store.GetAll().Single() with { AuthMode = FoAuthMode.Interactive }));
+
+        var sp = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct);
+        Assert.NotNull(sp);                          // the row survived the failed delete…
+        Assert.Equal("fo-row-1", sp!.SecretRef);
+        Assert.Equal(1, CountVaultRows("fo-row-1")); // …so its secret is still there to be read
+    }
+
     [Fact]
     public async Task A_failed_client_id_change_leaves_the_fo_secret_and_its_blob_intact()
     {
