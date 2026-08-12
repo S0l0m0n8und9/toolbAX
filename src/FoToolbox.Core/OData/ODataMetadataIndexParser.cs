@@ -28,8 +28,19 @@ public static class ODataMetadataIndexParser
         using var sr = new StringReader(rawXml);
         using var reader = XmlReader.Create(sr, CreateSettings());
 
-        while (reader.Read())
+        // An element with a blank Name is passed over with reader.Skip(), which ALREADY advances the reader
+        // onto the node that follows the skipped element (for a self-closing element Skip() is equivalent to
+        // Read(); for an expanded one it steps over the children and the end tag). Reading again at the top
+        // of the loop would step over that node as well, silently dropping the sibling after any unnamed
+        // element (#184). So the loop advances manually: when Skip() has already positioned the reader on an
+        // unhandled node, the next iteration processes it instead of reading past it. Well-formed documents
+        // never set the flag and behave exactly as `while (reader.Read())` did.
+        var alreadyPositioned = false;
+
+        while (alreadyPositioned || reader.Read())
         {
+            alreadyPositioned = false;
+
             if (reader.NodeType != XmlNodeType.Element)
             {
                 continue;
@@ -48,6 +59,7 @@ public static class ODataMetadataIndexParser
                 if (string.IsNullOrWhiteSpace(enumName))
                 {
                     reader.Skip();
+                    alreadyPositioned = !reader.EOF;
                     continue;
                 }
 
@@ -83,6 +95,7 @@ public static class ODataMetadataIndexParser
                 if (string.IsNullOrWhiteSpace(typeName))
                 {
                     reader.Skip();
+                    alreadyPositioned = !reader.EOF;
                     continue;
                 }
 
@@ -126,6 +139,7 @@ public static class ODataMetadataIndexParser
                 if (string.IsNullOrWhiteSpace(setName))
                 {
                     reader.Skip();
+                    alreadyPositioned = !reader.EOF;
                     continue;
                 }
 
