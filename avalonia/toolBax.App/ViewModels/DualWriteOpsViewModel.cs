@@ -21,9 +21,10 @@ public sealed record OpsAction(string Label, DualWriteActionType Type, bool Dang
 /// Dual-Write Operations screen (control-map §3). Connects to the live dual-write gateway for the active
 /// environment (<see cref="IDualWriteConnector"/> over the real FoToolbox.Core gateway), lists its maps,
 /// and runs lifecycle actions: select map(s) → confirm → <c>StartActionAsync</c> → poll
-/// <c>GetStatusAsync</c> until terminal → refresh. Actions are gateway-validated (no client-side state
-/// eligibility); the screen gates only on a connection + a selection + the connection still belonging to
-/// the active environment (see <c>SessionEnvMismatch</c>).
+/// <c>GetStatusAsync</c> until terminal → refresh. The screen gates on a connection + a selection + the
+/// connection still belonging to the active environment (see <c>SessionEnvMismatch</c>), and honours the
+/// gateway's own per-map action eligibility (<c>DualWriteMap.Actions</c>) by excluding maps the gateway
+/// says can't take the action and reporting them — see <see cref="RunAction"/>.
 /// </summary>
 public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 {
@@ -215,6 +216,12 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         return true;
     }
 
+    // Deliberately NOT gated on per-map action eligibility. The grid selection is multi-select and mixed
+    // states are the norm, so a button disabled because ONE selected map can't take the action would lie
+    // about the rest — and a button enabled for a mixed selection can't say which maps it will act on
+    // either. The honest surface is the outcome: RunAction excludes the maps the gateway says are
+    // ineligible, the confirm dialog lists only the ones actually being sent, and the skipped ones are
+    // named in the status line and the gateway log.
     private bool CanRunAction(OpsAction? action) =>
         action is not null && !IsBusy && _session is not null && !SessionEnvMismatch() && SelectedCount > 0;
 
@@ -234,15 +241,44 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             return;
         }
 
-        var targets = Maps.Where(m => m.IsSelected).ToList();
-        if (targets.Count == 0)
+        var selected = Maps.Where(m => m.IsSelected).ToList();
+        if (selected.Count == 0)
         {
             return;
+        }
+
+        // The gateway tells us, per map, which lifecycle actions its current state accepts
+        // (DualWriteMap.Actions, e.g. ["4","5"] = Stop/Pause for a Running map). Honour it here because an
+        // ineligible map doesn't fail alone: MapActionPayloadBuilder batches the whole selection into a
+        // single details[] array, so ONE map the gateway rejects fails the action for every map selected
+        // with it. A map whose action list the gateway didn't report (Supports == null — older gateways
+        // omit the field) is sent: refusing on absent data would lock the user out of the screen entirely.
+        var targets = selected.Where(t => t.Map.Supports(action.Type) != false).ToList();
+        var skipped = selected.Where(t => t.Map.Supports(action.Type) == false).ToList();
+        var skipNote = skipped.Count == 0
+            ? null
+            : $"Skipped {skipped.Count} map(s) that don't support {action.Label} in their current state: " +
+              $"{string.Join(", ", skipped.Select(t => t.Name))}.";
+
+        if (targets.Count == 0)
+        {
+            // Nothing the gateway would accept — refuse before the confirm dialog rather than send a batch
+            // that can only come back as an opaque 500.
+            Status = skipNote!;
+            Log(skipNote!, LogKind.Warn);
+            return;
+        }
+
+        if (skipNote is not null)
+        {
+            // Logged before the dialog so the shortened target list below is explained, not just shorter.
+            Log(skipNote, LogKind.Warn);
         }
 
         var request = new ConfirmRequest(
             Title: $"{action.Label} {targets.Count} map(s)?",
             Message: $"Sends {action.Label} to the dual-write gateway for {ConnectionName}.",
+            // Only the maps actually being sent: the dialog is the last chance to see what will happen.
             Targets: targets.Select(t => $"{t.Name} · {t.CeEntity} · {t.State}").ToList(),
             ConfirmLabel: action.Label,
             IsDanger: action.Danger,
@@ -281,7 +317,9 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             // caught separately — the grid just keeps its pre-refresh display.
             try
             {
-                var keep = targets.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
+                // Keep the whole selection, not just the maps sent: the user selected the skipped ones too
+                // and nothing was done to them, so silently deselecting them would hide the skip.
+                var keep = selected.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
                 var refreshed = await session.Gateway.GetMapsAsync(session.Cid, ct);
                 PopulateMaps(refreshed, keep);
             }
@@ -305,6 +343,14 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         }
         finally
         {
+            // Appended last so it survives every branch above (completed, submitted-but-unpollable, timed
+            // out, failed, cancelled): whatever the outcome for the maps that were sent, the ones left out
+            // were still left out, and the user has to be told which.
+            if (skipNote is not null)
+            {
+                Status = $"{Status} {skipNote}";
+            }
+
             IsBusy = false;
         }
     }

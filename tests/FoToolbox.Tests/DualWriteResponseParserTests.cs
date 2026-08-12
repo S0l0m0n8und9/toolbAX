@@ -143,6 +143,93 @@ public class DualWriteResponseParserTests
         var map = Assert.Single(DualWriteResponseParser.ParseMaps(json));
         Assert.Equal(string.Empty, map.CurrentVersion);
     }
+
+    // --- #168: detail.actions — the gateway's own per-map action eligibility ---
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ParseMaps_DetailActions_AreCarriedOntoTheMap()
+    {
+        // The capture's Running map reports "actions":["4","5"] — Stop (4) + Pause (5) per
+        // DualWriteActionType, exactly the transitions a running map can be asked for next. The parser used
+        // to drop the key, so the screen offered every action on every map and a batch containing an
+        // ineligible one failed for all of them.
+        var accounts = DualWriteResponseParser.ParseMaps(RealEntitiesJson)[0];
+
+        Assert.Equal("Running", accounts.State);
+        Assert.NotNull(accounts.Actions);
+        Assert.Equal(new[] { "4", "5" }, accounts.Actions!.OrderBy(a => a, StringComparer.Ordinal));
+        Assert.True(accounts.Supports(DualWriteActionType.Stop));
+        Assert.True(accounts.Supports(DualWriteActionType.Pause));
+        // Known-ineligible, and known to be so — not merely unreported.
+        Assert.False(accounts.Supports(DualWriteActionType.Start));
+        Assert.False(accounts.Supports(DualWriteActionType.Resume));
+        Assert.False(accounts.Supports(DualWriteActionType.InitialSync));
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ParseMaps_AbsentActions_LeavesEligibilityUnknownNotEmpty()
+    {
+        // The capture's Stopped sibling carries no "actions" key at all, and older gateways omit it
+        // wholesale. Unknown must never collapse to "supports nothing" — that would lock a user out of
+        // every action on every map.
+        var contacts = DualWriteResponseParser.ParseMaps(RealEntitiesJson)[1];
+
+        Assert.Equal("Stopped", contacts.State);
+        Assert.Null(contacts.Actions);
+        Assert.Null(contacts.Supports(DualWriteActionType.Start));
+        Assert.Null(contacts.Supports(DualWriteActionType.Stop));
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Theory]
+    [InlineData("[]")]                       // present but empty: still "unknown", not "none"
+    [InlineData("\"4\"")]                    // not an array — unusable, so unknown
+    [InlineData("null")]
+    public void ParseMaps_UnusableActionsValue_ReadsAsUnknown(string actionsJson)
+    {
+        var map = Assert.Single(DualWriteResponseParser.ParseMaps(MapJsonWithActions(actionsJson)));
+
+        Assert.Null(map.Actions);
+        Assert.Null(map.Supports(DualWriteActionType.Stop));
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ParseMaps_UnrecognisedActionCode_IsRetainedAndDoesNotWidenEligibility()
+    {
+        // A future/unknown code must not be dropped: dropping the only entry would turn a real action list
+        // into an empty one, which reads as unknown and quietly restores the always-eligible behaviour.
+        var map = Assert.Single(DualWriteResponseParser.ParseMaps(MapJsonWithActions("[\"99\"]")));
+
+        Assert.Equal(new[] { "99" }, map.Actions!);
+        Assert.False(map.Supports(DualWriteActionType.Stop));
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ParseMaps_NumericActionCodes_AreReadTheSameAsStrings()
+    {
+        // The capture quotes the codes; a gateway build that emits them bare must parse identically.
+        var map = Assert.Single(DualWriteResponseParser.ParseMaps(MapJsonWithActions("[4, 5]")));
+
+        Assert.True(map.Supports(DualWriteActionType.Stop));
+        Assert.True(map.Supports(DualWriteActionType.Pause));
+        Assert.False(map.Supports(DualWriteActionType.Start));
+    }
+
+    private static string MapJsonWithActions(string actionsJson) => $$"""
+    [
+      {
+        "leftEntity": { "name": "E", "displayName": "E" },
+        "rightEntity": { "name": "ce" },
+        "detail": { "tName": "ce - E", "pid": "p", "state": "4", "actions": {{actionsJson}},
+          "template": { "id": "t", "author": "A", "version": { "major": 1, "minor": 0, "build": 0, "revision": 0 } },
+          "templates": [] }
+      }
+    ]
+    """;
 }
 
 /// <summary>

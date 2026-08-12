@@ -124,6 +124,7 @@ public static class DualWriteResponseParser
         var activeTemplateId = string.Empty;
         var stateCode = string.Empty;
         var compositeName = string.Empty;
+        IReadOnlySet<string>? actions = null;
         DualWriteTemplate? active = null;
         var templates = new List<DualWriteTemplate>();
         if (TryGetProperty(item, out var detail, "detail") && detail.ValueKind == JsonValueKind.Object)
@@ -132,6 +133,7 @@ public static class DualWriteResponseParser
             activeTemplateId = GetString(detail, "tid");
             stateCode = GetString(detail, "state", "mapStatus");
             compositeName = GetString(detail, "tName");
+            actions = ReadActionCodes(detail);
             if (TryGetProperty(detail, out var templateEl, "template") && templateEl.ValueKind == JsonValueKind.Object)
             {
                 active = ParseTemplate(templateEl);
@@ -155,6 +157,8 @@ public static class DualWriteResponseParser
             projectId = GetString(item, "pid", "projectId");
         }
 
+        actions ??= ReadActionCodes(item);
+
         if (active is null && TryGetProperty(item, out var flatTemplate, "template") && flatTemplate.ValueKind == JsonValueKind.Object)
         {
             active = ParseTemplate(flatTemplate);
@@ -174,8 +178,43 @@ public static class DualWriteResponseParser
 
         return new DualWriteMap(id, name, displayName, projectId, state, active, templates)
         {
-            RightEntityName = rightEntityName
+            RightEntityName = rightEntityName,
+            Actions = actions
         };
+    }
+
+    /// <summary>
+    /// Reads the gateway's per-map list of lifecycle actions the map's current state accepts
+    /// (<c>detail.actions</c>). The values are action codes in the same numbering the <c>Start</c> request
+    /// body uses — <see cref="DualWriteActionType"/>: Start=1, Stop=4, Pause=5, Resume=6, InitialSync=8.
+    /// The live-captured <c>Entities</c> response pairs <c>"state":"4"</c> (Running) with
+    /// <c>"actions":["4","5"]</c>, i.e. Stop + Pause — exactly the transitions a running map can be asked
+    /// for next — while its Stopped sibling (<c>"state":"1"</c>) carries no <c>actions</c> key at all.
+    /// <para>
+    /// So absent is <em>unknown</em>, not "nothing allowed", and returns null: an older gateway that omits
+    /// the field must not have every action refused for it. Codes are kept verbatim (an unrecognised one
+    /// is retained, not dropped) and an empty array also degrades to null/unknown.
+    /// </para>
+    /// </summary>
+    private static IReadOnlySet<string>? ReadActionCodes(JsonElement element)
+    {
+        if (!TryGetProperty(element, out var value, "actions", "availableActions") ||
+            value.ValueKind != JsonValueKind.Array)
+        {
+            return null;
+        }
+
+        var codes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var entry in value.EnumerateArray())
+        {
+            var code = ScalarText(entry).Trim();
+            if (code.Length > 0)
+            {
+                codes.Add(code);
+            }
+        }
+
+        return codes.Count == 0 ? null : codes;
     }
 
     private static DualWriteTemplate ParseTemplate(JsonElement element)
