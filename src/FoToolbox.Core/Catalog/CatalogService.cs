@@ -42,6 +42,19 @@ public sealed class CatalogService : ICatalogService
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _metadataLocks = new();
     private string? _tableBrowserUrlTemplate;
 
+    // One-deep memo of the metadata XML for the most recently used environment. F&O $metadata is tens of
+    // megabytes, so every read of the ODataMetadataXml row materializes a large-object-heap string out of
+    // SQLite; holding the last one live is far cheaper than re-materializing it per entity click.
+    //
+    // Ceiling, deliberately: exactly ONE entry, keyed by the environment cache key. Switching
+    // environments (or repointing a profile's URL) evicts it, so the memory cost stays at a single
+    // metadata document rather than one per environment visited. The memo mirrors what the
+    // ODataMetadataXml row would have returned and is consulted under the same refresh-mode/max-age rules
+    // as that row (see TryUseMetadataXmlMemo), so it never widens the freshness window. It cannot,
+    // however, observe that row being changed or removed behind this instance's back — by another process
+    // or another CatalogService over the same database.
+    private MetadataXmlMemo? _metadataXmlMemo;
+
     public CatalogService(HttpClient httpClient, ProfileStore profileStore, CatalogStore store, CatalogServiceOptions? options = null)
     {
         _httpClient = httpClient;
@@ -188,38 +201,29 @@ public sealed class CatalogService : ICatalogService
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var (xml, etag, updatedUtc) = await GetMetadataXmlNoLockAsync(env, mode, ct).ConfigureAwait(false);
-
+            // Cache-first. The per-entity details row is a few KB; the metadata XML it was parsed from is
+            // tens of MB, so the small row decides and the blob is only pulled when the answer isn't
+            // already here. Both cache-honouring modes key off the *metadata* ETag, so this shortcut is
+            // only available while that ETag is knowable without reading the XML row — i.e. from the
+            // one-deep memo, which the entity-index load that populates the browser has already warmed.
+            // An absent/stale memo means the ETag is unverifiable and we fall through to the XML exactly
+            // as before; the freshness test itself (IsEntityDetailsUsable) is the same either way.
             var kind = EntityDetailsKindPrefix + Uri.EscapeDataString(entityName);
             var cached = await _store.GetAsync(key, kind, ct).ConfigureAwait(false);
             var cachedValid = cached is not null && string.Equals(cached.Version, EntityDetailsSchemaVersion, StringComparison.OrdinalIgnoreCase);
 
-            // Prefer ETag match for correctness; fall back to max-age when ETag is absent.
-            if (cachedValid && mode == CatalogRefreshMode.UseCacheIfAvailable)
+            if (cachedValid
+                && TryUseMetadataXmlMemo(key, mode) is { } memo
+                && IsEntityDetailsUsable(cached!, mode, memo.ETag))
             {
-                if (!string.IsNullOrWhiteSpace(etag) && string.Equals(cached!.ETag, etag, StringComparison.Ordinal))
-                {
-                    return DeserializeEntity(cached!.PayloadJson, entityName);
-                }
-
-                // If ETag is absent on the metadata response, prefer whatever we last cached.
-                if (string.IsNullOrWhiteSpace(etag))
-                {
-                    return DeserializeEntity(cached!.PayloadJson, entityName);
-                }
+                return DeserializeEntity(cached!.PayloadJson, entityName);
             }
 
-            if (cachedValid && mode == CatalogRefreshMode.UseCacheIfFresh)
-            {
-                if (!string.IsNullOrWhiteSpace(etag) && string.Equals(cached!.ETag, etag, StringComparison.Ordinal))
-                {
-                    return DeserializeEntity(cached!.PayloadJson, entityName);
-                }
+            var (xml, etag, updatedUtc) = await GetMetadataXmlNoLockAsync(env, mode, ct).ConfigureAwait(false);
 
-                if (string.IsNullOrWhiteSpace(etag) && IsFresh(cached!.UpdatedUtc, _options.MetadataMaxAge))
-                {
-                    return DeserializeEntity(cached!.PayloadJson, entityName);
-                }
+            if (cachedValid && IsEntityDetailsUsable(cached!, mode, etag))
+            {
+                return DeserializeEntity(cached!.PayloadJson, entityName);
             }
 
             var entity = ODataMetadataIndexParser.TryParseEntityDetails(xml, entityName);
@@ -340,6 +344,57 @@ public sealed class CatalogService : ICatalogService
         return $"{env.Id}|{url.TrimEnd('/')}";
     }
 
+    // Whether a cached per-entity details row may be served for this refresh mode, given the metadata ETag
+    // the XML layer reports. This is the pre-existing rule set, lifted verbatim out of
+    // GetODataEntityDetailsAsync so the cache-first ordering can apply it before the XML is materialized:
+    //   * ForceRefresh    → never; a forced refresh always reparses.
+    //   * ETag present    → serve only on an exact (ordinal) match, for both cache-honouring modes, and
+    //                       then regardless of the row's age: a matching ETag proves the metadata the row
+    //                       was parsed from has not moved, so a stale-but-matching row is still correct.
+    //   * ETag absent     → UseCacheIfAvailable serves whatever was last cached (no ETag, no better
+    //                       evidence, and "if available" accepts stale); UseCacheIfFresh serves it only
+    //                       while the row is within MetadataMaxAge, since age is the only proof left.
+    //   * ETag mismatched → never; the metadata moved, so reparse.
+    private bool IsEntityDetailsUsable(CatalogRecord cached, CatalogRefreshMode mode, string? metadataETag)
+    {
+        if (mode != CatalogRefreshMode.UseCacheIfAvailable && mode != CatalogRefreshMode.UseCacheIfFresh)
+        {
+            return false;
+        }
+
+        if (!string.IsNullOrWhiteSpace(metadataETag))
+        {
+            return string.Equals(cached.ETag, metadataETag, StringComparison.Ordinal);
+        }
+
+        return mode == CatalogRefreshMode.UseCacheIfAvailable
+            || IsFresh(cached.UpdatedUtc, _options.MetadataMaxAge);
+    }
+
+    // The memo, but only when it may stand in for the ODataMetadataXml row under this refresh mode — the
+    // same test GetMetadataXmlNoLockAsync applies to the stored row, so serving from memory can never
+    // return metadata the store read would have rejected as stale.
+    private MetadataXmlMemo? TryUseMetadataXmlMemo(string key, CatalogRefreshMode mode)
+    {
+        var memo = Volatile.Read(ref _metadataXmlMemo);
+        if (memo is null || !string.Equals(memo.Key, key, StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        return mode switch
+        {
+            CatalogRefreshMode.UseCacheIfAvailable => memo,
+            CatalogRefreshMode.UseCacheIfFresh when IsFresh(memo.UpdatedUtc, _options.MetadataMaxAge) => memo,
+            _ => null,
+        };
+    }
+
+    // Replaces the single memo slot (evicting whatever environment was there) with what the XML row now
+    // holds, so the next caller for this environment can skip the blob read entirely.
+    private void RememberMetadataXml(string key, string xml, string? etag, DateTime updatedUtc) =>
+        Volatile.Write(ref _metadataXmlMemo, new MetadataXmlMemo(key, xml, etag, updatedUtc));
+
     private static bool IsFresh(DateTime updatedUtc, TimeSpan maxAge)
     {
         // MaxAge <= 0 means "do not consider cached data fresh".
@@ -389,15 +444,25 @@ public sealed class CatalogService : ICatalogService
     private async Task<(string Xml, string? ETag, DateTime UpdatedUtc)> GetMetadataXmlNoLockAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct)
     {
         var key = CacheKey(env);
+
+        // Consecutive misses for different entities under one environment would otherwise re-read (and
+        // re-materialize) the same multi-MB blob out of SQLite per call.
+        if (TryUseMetadataXmlMemo(key, mode) is { } memo)
+        {
+            return (memo.Xml, memo.ETag, memo.UpdatedUtc);
+        }
+
         var cached = await _store.GetAsync(key, MetadataXmlKind, ct).ConfigureAwait(false);
         var cachedValid = cached is not null && string.Equals(cached.Version, MetadataXmlSchemaVersion, StringComparison.OrdinalIgnoreCase);
         if (cachedValid && mode == CatalogRefreshMode.UseCacheIfAvailable)
         {
+            RememberMetadataXml(key, cached!.PayloadJson, cached!.ETag, cached!.UpdatedUtc);
             return (cached!.PayloadJson, cached!.ETag, cached!.UpdatedUtc);
         }
 
         if (cachedValid && mode == CatalogRefreshMode.UseCacheIfFresh && IsFresh(cached!.UpdatedUtc, _options.MetadataMaxAge))
         {
+            RememberMetadataXml(key, cached!.PayloadJson, cached!.ETag, cached!.UpdatedUtc);
             return (cached!.PayloadJson, cached!.ETag, cached!.UpdatedUtc);
         }
 
@@ -412,6 +477,7 @@ public sealed class CatalogService : ICatalogService
         if (response.StatusCode == System.Net.HttpStatusCode.NotModified && cachedValid)
         {
             var touched = await _store.TouchAsync(key, MetadataXmlKind, ct).ConfigureAwait(false);
+            RememberMetadataXml(key, cached!.PayloadJson, cached!.ETag, touched);
             return (cached!.PayloadJson, cached!.ETag, touched);
         }
 
@@ -420,6 +486,7 @@ public sealed class CatalogService : ICatalogService
         var etag = response.Headers.ETag?.Tag?.Trim('"');
         var updatedUtc = DateTime.UtcNow;
         await _store.SaveAsync(key, MetadataXmlKind, MetadataXmlSchemaVersion, xml, etag, updatedUtc, ct).ConfigureAwait(false);
+        RememberMetadataXml(key, xml, etag, updatedUtc);
         return (xml, etag, updatedUtc);
     }
 
@@ -857,6 +924,13 @@ public sealed class CatalogService : ICatalogService
 
         return null;
     }
+
+    /// <summary>
+    /// The last environment's metadata XML held in memory alongside the ETag/timestamp of the row it came
+    /// from, so a cached-details decision (and a sibling entity's parse) needs no second blob read.
+    /// Immutable, so the single field can be swapped wholesale without tearing.
+    /// </summary>
+    private sealed record MetadataXmlMemo(string Key, string Xml, string? ETag, DateTime UpdatedUtc);
 
     private sealed record PublicEntitiesResponse(List<PublicEntityDto>? Value);
     private sealed record PublicEntityDto(string? EntitySetName, List<PublicEntityPropertyDto>? Properties);

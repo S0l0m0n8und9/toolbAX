@@ -20,6 +20,10 @@ public partial class MetadataViewModel : ObservableObject
     private readonly IMetadataService _metadata;
     private readonly EntityCatalogLoader _loader;
 
+    // Identifies the newest field fetch, so only it may lower IsLoadingFields. Interlocked/Volatile because
+    // a superseded fetch can unwind on a pool thread while the newest one is being started.
+    private int _fieldsFetchSequence;
+
     public ObservableCollection<EntitySet> Entities { get; }
     public ObservableCollection<EntityField> Fields { get; } = new();
 
@@ -37,10 +41,21 @@ public partial class MetadataViewModel : ObservableObject
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelection))]
+    [NotifyPropertyChangedFor(nameof(FieldsLoadingMessage))]
     private EntitySet? _selected;   // IsCached is updated (and notified) by LoadFields, not here.
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowNotCachedHint))]
     private bool _isCached;
+
+    // True while the selected entity's properties are being fetched from the environment's $metadata.
+    // Clicking an uncached entity is a live round-trip against a document that can be tens of MB; without
+    // this the detail pane sat on the "aren't cached — open it in Query Builder" hint for the whole call,
+    // which reads as a dead click rather than as work in progress.
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(FieldsLoadingMessage))]
+    [NotifyPropertyChangedFor(nameof(ShowNotCachedHint))]
+    private bool _isLoadingFields;
 
     // Surfaces a $metadata load/auth failure so the view shows it instead of a silently blank list.
     [ObservableProperty]
@@ -151,11 +166,35 @@ public partial class MetadataViewModel : ObservableObject
             return;
         }
 
-        var fetched = await _loader.EnsureFieldsAsync(entity.Name, ct);
-        LoadError = _loader.LastError;
-        if (fetched && Selected == entity)
+        // Set unconditionally: the loader decides whether a fetch is actually needed, and for an entity
+        // whose fields are already cached it returns without yielding — so the flag goes up and down inside
+        // this one call, with no render pass in between to flicker.
+        var fetchId = Interlocked.Increment(ref _fieldsFetchSequence);
+        IsLoadingFields = true;
+        try
         {
-            LoadFields();
+            var fetched = await _loader.EnsureFieldsAsync(entity.Name, ct);
+            LoadError = _loader.LastError;
+            if (fetched && Selected == entity)
+            {
+                LoadFields();
+            }
+        }
+        finally
+        {
+            // Only the newest fetch may lower the flag, so a superseded one unwinding later (the user
+            // clicked on to another entity mid-flight, cancelling this one) can't clear the indicator the
+            // newer fetch just raised.
+            //
+            // Ownership is the fetch sequence, deliberately not "is my entity still selected": a selection
+            // change that produces no fetch of its own — clearing the selection, which is what Refresh does
+            // when the environment comes back with no entities — would otherwise leave nobody willing to
+            // lower the flag, and the pane would spin forever. Nothing newer claimed the indicator, so this
+            // fetch still owns it and still clears it.
+            if (Volatile.Read(ref _fieldsFetchSequence) == fetchId)
+            {
+                IsLoadingFields = false;
+            }
         }
     }
 
@@ -171,6 +210,16 @@ public partial class MetadataViewModel : ObservableObject
     public string NotCachedMessage => Selected is null
         ? string.Empty
         : $"Fields for {Selected.Name} aren't cached — open it in Query Builder to fetch $metadata.";
+
+    /// <summary>Detail-pane progress text for an in-flight properties fetch.</summary>
+    public string FieldsLoadingMessage => Selected is null ? string.Empty : $"Loading {Selected.Name}…";
+
+    /// <summary>
+    /// The "not cached" hint, suppressed while a fetch is in flight — during the fetch the fields aren't
+    /// cached *yet*, and telling the user to go to Query Builder is wrong until the fetch has failed to
+    /// produce them.
+    /// </summary>
+    public bool ShowNotCachedHint => !IsCached && !IsLoadingFields;
 
     partial void OnSelectedChanged(EntitySet? value)
     {
