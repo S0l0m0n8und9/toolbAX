@@ -107,14 +107,38 @@ public class DualWriteOpsTests
     [Fact]
     public async Task Cancelled_load_resets_to_a_clean_disconnected_state()
     {
-        var vm = MakeVm(FakeDualWriteConnector.ThatCancels());
+        // A genuine user cancel: the connect is in flight when the Cancel command fires, so the VM's own
+        // token is cancelled — that, and only that, may be reported as "Cancelled."
+        var gate = new TaskCompletionSource();
+        var vm = MakeVm(FakeDualWriteConnector.ThatCancelsWhen(gate.Task));
 
-        await vm.LoadCommand.ExecuteAsync(null);
+        var running = vm.LoadCommand.ExecuteAsync(null);
+        vm.LoadCancelCommand.Execute(null);
+        gate.SetResult();
+        await running;
 
         Assert.False(vm.IsConnected);
         Assert.Null(vm.ConnectionName);
         Assert.Empty(vm.Maps);
         Assert.Contains("Cancel", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Null(vm.LoadError);   // the user asked for this; it isn't an error
+        Assert.False(vm.IsBusy);
+    }
+
+    // #166: an HttpClient timeout surfaces as an OperationCanceledException with the caller's token still
+    // live. Reporting that as "Cancelled." with no error banner told the user they'd done it themselves.
+    [Fact]
+    public async Task A_timed_out_load_is_reported_as_a_timeout_not_a_cancel()
+    {
+        var vm = MakeVm(FakeDualWriteConnector.ThatTimesOut());
+
+        await vm.LoadCommand.ExecuteAsync(null);
+
+        Assert.Contains("timed out", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.NotNull(vm.LoadError);
+        Assert.Contains("timed out", vm.LoadError!, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Err);
+        Assert.False(vm.IsConnected);
         Assert.False(vm.IsBusy);
     }
 
@@ -202,6 +226,51 @@ public class DualWriteOpsTests
         await vm.RunActionCommand.ExecuteAsync(vm.StartAction);
 
         Assert.Contains("completed", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.False(vm.IsBusy);
+    }
+
+    // --- #166: a submitted action is never reported as a failure just because it can't be polled ---
+
+    [Fact]
+    public async Task An_action_with_no_request_id_reports_it_as_submitted_and_still_refreshes()
+    {
+        // 202 + empty body (or a bare unlabelled id): the action WAS submitted, there is just nothing to
+        // poll. Calling GetStatusAsync with the blank id threw, which surfaced as "failed" and skipped the
+        // refresh — leaving a stale grid that invites a duplicate submit.
+        var connector = new FakeDualWriteConnector(emptyRequestId: true);
+        var vm = MakeVm(connector, confirm: true);
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+
+        await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+
+        Assert.Equal(1, connector.LastGateway!.StartCount);
+        Assert.Contains("submitted", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("failed", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, connector.LastGateway!.GetMapsCount);   // load + the post-action refresh
+        Assert.Equal("Stopped", vm.Maps.Single(m => m.Name == "Customers V3").State);
+        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Warn
+            && e.Text.Contains("submitted", StringComparison.OrdinalIgnoreCase));
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task An_action_that_outruns_the_poll_timeout_keeps_the_request_id_and_refreshes()
+    {
+        // The action is in flight; only our polling gave up. Saying "timed out" while discarding the
+        // request id and skipping the refresh is how a second Initial sync gets submitted.
+        var connector = new FakeDualWriteConnector(pollsBeforeTerminal: int.MaxValue);
+        var vm = new DualWriteOpsViewModel(connector, Env, new FakeDialogs(confirm: true),
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromMilliseconds(200));
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+
+        await vm.RunActionCommand.ExecuteAsync(vm.InitialAction);
+
+        Assert.Contains("submitted", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("still running", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("req-001", vm.Status);                  // the id survives, so it can be chased up
+        Assert.Equal(2, connector.LastGateway!.GetMapsCount);   // load + the post-action refresh
         Assert.False(vm.IsBusy);
     }
 

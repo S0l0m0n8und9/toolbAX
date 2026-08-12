@@ -15,7 +15,9 @@ public static class DualWriteConnectionSetParser
 {
     public static DualWriteConnectionSet Parse(string json)
     {
-        using var doc = JsonDocument.Parse(json);
+        // Same guard as the response parser: a proxy/WAF HTML page on a 2xx must not reach the user as
+        // "'<' is an invalid start of a value".
+        using var doc = DualWriteResponseParser.ParseGatewayJson(json);
         var root = doc.RootElement;
 
         var name = GetString(root, "name");
@@ -167,13 +169,18 @@ public static class DualWriteConnectionSetParser
     private static bool TryGet(JsonElement element, string name, out JsonElement value) =>
         TryGet(element, out value, name);
 
+    /// <summary>
+    /// Finds the first of <paramref name="names"/> present on the object, case-insensitively.
+    /// <paramref name="names"/> is a priority order, so the loops run names-outer, properties-inner —
+    /// properties-outer made the winner an accident of the gateway's serialization order.
+    /// </summary>
     private static bool TryGet(JsonElement element, out JsonElement value, params string[] names)
     {
         if (element.ValueKind == JsonValueKind.Object)
         {
-            foreach (var property in element.EnumerateObject())
+            foreach (var name in names)
             {
-                foreach (var name in names)
+                foreach (var property in element.EnumerateObject())
                 {
                     if (string.Equals(property.Name, name, StringComparison.OrdinalIgnoreCase))
                     {

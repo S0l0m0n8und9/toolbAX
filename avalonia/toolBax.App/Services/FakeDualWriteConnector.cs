@@ -18,42 +18,67 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
 {
     private readonly IReadOnlyList<DualWriteMap>? _maps;
     private readonly Exception? _failWith;
+    private readonly Task? _gate;
     private readonly int _pollsBeforeTerminal;
+    private readonly bool _emptyRequestId;
 
     /// <summary>The gateway handed out by the last successful connect (for asserting on actions).</summary>
     public FakeCoreDualWriteGateway? LastGateway { get; private set; }
 
     private readonly int _failGetMapsOnCall;
 
-    public FakeDualWriteConnector(IReadOnlyList<DualWriteMap>? maps = null, int pollsBeforeTerminal = 0, int failGetMapsOnCall = 0)
+    public FakeDualWriteConnector(
+        IReadOnlyList<DualWriteMap>? maps = null,
+        int pollsBeforeTerminal = 0,
+        int failGetMapsOnCall = 0,
+        bool emptyRequestId = false)
     {
         _maps = maps;
         _pollsBeforeTerminal = pollsBeforeTerminal;
         _failGetMapsOnCall = failGetMapsOnCall;
+        _emptyRequestId = emptyRequestId;
     }
 
     private FakeDualWriteConnector(Exception failWith) => _failWith = failWith;
+
+    private FakeDualWriteConnector(Task gate) => _gate = gate;
 
     /// <summary>A connector whose <see cref="ConnectAsync"/> always throws, to drive the error state.</summary>
     public static FakeDualWriteConnector ThatFails(string message) =>
         new(new InvalidOperationException(message));
 
-    /// <summary>A connector whose <see cref="ConnectAsync"/> reports cancellation, to drive the cancelled path.</summary>
-    public static FakeDualWriteConnector ThatCancels() =>
+    /// <summary>
+    /// A connector that reports cancellation the way an HTTP/socket timeout does — an
+    /// <see cref="OperationCanceledException"/> raised while the caller's own token is still live. That is
+    /// NOT a user cancel, so the screen must not report it as one (#166).
+    /// </summary>
+    public static FakeDualWriteConnector ThatTimesOut() =>
         new(new OperationCanceledException());
 
-    public Task<DualWriteSession> ConnectAsync(EnvProfile env, CancellationToken ct = default)
+    /// <summary>
+    /// A connector that waits for <paramref name="gate"/> and then honours the caller's token, so a test can
+    /// invoke the Cancel command while the connect is in flight and drive a genuine user cancel.
+    /// </summary>
+    public static FakeDualWriteConnector ThatCancelsWhen(Task gate) => new(gate);
+
+    public async Task<DualWriteSession> ConnectAsync(EnvProfile env, CancellationToken ct = default)
     {
-        if (_failWith is not null)
+        if (_gate is not null)
         {
-            return Task.FromException<DualWriteSession>(_failWith);
+            await _gate.ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
         }
 
-        var gateway = new FakeCoreDualWriteGateway(_maps ?? SeedMaps(), _pollsBeforeTerminal, _failGetMapsOnCall);
+        if (_failWith is not null)
+        {
+            throw _failWith;
+        }
+
+        var gateway = new FakeCoreDualWriteGateway(_maps ?? SeedMaps(), _pollsBeforeTerminal, _failGetMapsOnCall, _emptyRequestId);
         LastGateway = gateway;
         // Stamp the environment connected to (as the real connector does), so env-gating is exercisable.
-        return Task.FromResult(new DualWriteSession(gateway, "fake-cid", "Contoso (AUMF · APAC Prod)",
-            env.Id, "https://fake-gateway.dual-write.example"));
+        return new DualWriteSession(gateway, "fake-cid", "Contoso (AUMF · APAC Prod)",
+            env.Id, "https://fake-gateway.dual-write.example");
     }
 
     public static IReadOnlyList<DualWriteMap> SeedMaps() => new[]
@@ -91,6 +116,7 @@ public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
     private readonly List<DualWriteMap> _maps;
     private readonly int _pollsBeforeTerminal;
     private readonly int _failGetMapsOnCall;
+    private readonly bool _emptyRequestId;
     private readonly Dictionary<string, int> _pending = new();
     private int _requestSeq;
     private int _getMapsCalls;
@@ -98,11 +124,19 @@ public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
     /// <summary>Number of <see cref="StartActionAsync"/> calls — lets tests assert no silent mutation.</summary>
     public int StartCount { get; private set; }
 
-    public FakeCoreDualWriteGateway(IReadOnlyList<DualWriteMap> maps, int pollsBeforeTerminal = 0, int failGetMapsOnCall = 0)
+    /// <summary>Number of <see cref="GetMapsAsync"/> calls — lets tests assert the post-action refresh ran.</summary>
+    public int GetMapsCount => _getMapsCalls;
+
+    public FakeCoreDualWriteGateway(
+        IReadOnlyList<DualWriteMap> maps,
+        int pollsBeforeTerminal = 0,
+        int failGetMapsOnCall = 0,
+        bool emptyRequestId = false)
     {
         _maps = maps.ToList();
         _pollsBeforeTerminal = pollsBeforeTerminal;
         _failGetMapsOnCall = failGetMapsOnCall;
+        _emptyRequestId = emptyRequestId;
     }
 
     public Task<DualWriteEnvironment> GetEnvironmentAsync(string foIdentifier, CancellationToken cancellationToken = default)
@@ -133,6 +167,13 @@ public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
             }
         }
 
+        // A real gateway sometimes answers a submitted action with 202 + no body (or a bare id it doesn't
+        // label), leaving nothing to poll — the action still happened.
+        if (_emptyRequestId)
+        {
+            return Task.FromResult(new DualWriteActionResponse(string.Empty, null));
+        }
+
         var requestId = $"req-{++_requestSeq:000}";
         _pending[requestId] = _pollsBeforeTerminal;
         return Task.FromResult(new DualWriteActionResponse(requestId, "pending"));
@@ -140,6 +181,13 @@ public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
 
     public Task<DualWriteRequestStatus> GetStatusAsync(string requestId, CancellationToken cancellationToken = default)
     {
+        // Match DualWriteGatewayClient: a blank request id is a caller bug, not a pollable request. The
+        // fake being lenient here hid the fact that the Operations screen was polling with an empty id.
+        if (string.IsNullOrWhiteSpace(requestId))
+        {
+            throw new ArgumentException("A request id is required.", nameof(requestId));
+        }
+
         if (_pending.TryGetValue(requestId, out var remaining) && remaining > 0)
         {
             _pending[requestId] = remaining - 1;

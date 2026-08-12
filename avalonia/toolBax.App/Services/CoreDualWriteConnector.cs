@@ -1,7 +1,10 @@
 using System;
+using System.Diagnostics;
+using System.Globalization;
 using System.Threading;
 using System.Threading.Tasks;
 using FoToolbox.Core.DualWrite;
+using FoToolbox.Core.DualWrite.Auth;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 
@@ -43,7 +46,7 @@ public sealed class CoreDualWriteConnector : IDualWriteConnector
             RefreshToken = result.Token.RefreshToken,
             AccessTokenExpiryUtc = result.Token.ExpiresUtc,
         };
-        var gateway = _factory.Create(settings);
+        var gateway = DualWriteGatewayWiring.CreateFor(_factory, settings);
 
         // The gateway owns an HttpClient, so dispose it unless we hand it to a valid session. This covers
         // both the empty-cid case and any exception from GetEnvironmentAsync (HTTP/network/cancel) — so a
@@ -76,5 +79,34 @@ public sealed class CoreDualWriteConnector : IDualWriteConnector
                 (gateway as IDisposable)?.Dispose();
             }
         }
+    }
+}
+
+/// <summary>
+/// Shared gateway-client wiring for the two entry points that sign in and then talk to the gateway
+/// (<see cref="CoreDualWriteConnector"/> and <see cref="CoreDualWriteGatewayTester"/>).
+/// </summary>
+internal static class DualWriteGatewayWiring
+{
+    /// <summary>
+    /// Builds the gateway client for a freshly signed-in session, preferring the <em>renewing</em> client
+    /// whenever the sign-in also yielded a refresh token. The delegated Data Integrator access token lasts
+    /// about an hour; with the static-bearer client every operation past that point failed with a bare 401
+    /// and the only way back was another browser sign-in.
+    /// </summary>
+    public static IDualWriteGateway CreateFor(IDualWriteGatewayFactory factory, DualWriteConnectionSettings settings) =>
+        settings.HasDelegatedSession
+            ? factory.CreateRefreshing(settings, LogRenewal)
+            : factory.Create(settings);
+
+    // Nothing persists dual-write tokens today (they live for the lifetime of the session), so this only
+    // records that a renewal happened — deliberately the expiry only, never any part of the token itself.
+    private static Task LogRenewal(DualWriteToken token)
+    {
+        Trace.WriteLine(string.Format(
+            CultureInfo.InvariantCulture,
+            "Dual-write gateway token renewed; now valid to {0:O}.",
+            token.ExpiresUtc));
+        return Task.CompletedTask;
     }
 }

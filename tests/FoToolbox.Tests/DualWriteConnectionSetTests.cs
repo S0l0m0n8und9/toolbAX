@@ -100,6 +100,32 @@ public class DualWriteConnectionSetTests
         Assert.Equal(new[] { "USMF", "DEMF" },
             root.GetProperty("legalEntities").EnumerateArray().Select(e => e.GetString()).ToArray());
     }
+
+    // #166: the alias list is a priority order, not a set. Matching in document order made the winner an
+    // accident of the gateway's serialization — the same defect as the cid/id mix-up in the response parser.
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void Parse_PrefersEnvironmentDisplayName_OverAnEarlierConnectionDisplayName()
+    {
+        const string json = """
+        {
+          "name": "cs",
+          "environments": {
+            "ce-prod": {
+              "name": "ce-prod",
+              "targetType": "CRM",
+              "connectionDisplayName": "the connection",
+              "environmentDisplayName": "the environment",
+              "schemas": []
+            }
+          }
+        }
+        """;
+
+        var set = DualWriteConnectionSetParser.Parse(json);
+
+        Assert.Equal("the environment", Assert.Single(set.Environments).DisplayName);
+    }
 }
 
 public class DualWriteResetClientTests

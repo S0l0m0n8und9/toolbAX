@@ -45,7 +45,9 @@ public sealed class CoreDualWriteGatewayTester : IDualWriteGatewayTester
                 RefreshToken = result.Token.RefreshToken,
                 AccessTokenExpiryUtc = result.Token.ExpiresUtc,
             };
-            var gateway = _factory.Create(settings);
+            // Same renewing-client preference as CoreDualWriteConnector: the test is a single call, but it
+            // must exercise the client the app will actually use, not a shape that only the tester sees.
+            var gateway = DualWriteGatewayWiring.CreateFor(_factory, settings);
             DualWriteEnvironment linkage;
             try
             {
