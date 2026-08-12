@@ -64,7 +64,20 @@ public partial class DualWriteCompareViewModel : ObservableObject
     private EnvProfile? _selectedTarget;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowEmptyResult))]
+    [NotifyPropertyChangedFor(nameof(ShowDiffGrid))]
     private bool _hasResult;
+
+    /// <summary>
+    /// How many maps the last compare actually looked at. Surfaced because a compare that returned nothing
+    /// used to render exactly like a compare that found no differences — an empty grid, no chips, no count.
+    /// The count is the one thing that separates them, so it is always on screen with a result.
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ComparedSummary))]
+    [NotifyPropertyChangedFor(nameof(ShowEmptyResult))]
+    [NotifyPropertyChangedFor(nameof(ShowDiffGrid))]
+    private int _comparedCount;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(CompareCommand))]
@@ -123,6 +136,20 @@ public partial class DualWriteCompareViewModel : ObservableObject
         && !string.IsNullOrEmpty(GatewayHost(SelectedSource))
         && !string.IsNullOrEmpty(GatewayHost(SelectedTarget))
         && !SameGateway(SelectedSource, SelectedTarget);
+
+    /// <summary>Result-scale caption shown beside the verdict chips, e.g. "8 maps compared".</summary>
+    public string ComparedSummary =>
+        ComparedCount == 1 ? "1 map compared" : $"{ComparedCount} maps compared";
+
+    /// <summary>
+    /// A compare that completed but had nothing to compare — neither gateway returned a usable map. Not a
+    /// failure (no exception, so no error banner) and emphatically not parity, which is what a bare empty
+    /// grid implied. It gets its own message instead.
+    /// </summary>
+    public bool ShowEmptyResult => HasResult && ComparedCount == 0;
+
+    /// <summary>The diff grid, hidden for an empty result so its bare headers can't read as "all in sync".</summary>
+    public bool ShowDiffGrid => HasResult && ComparedCount > 0;
 
     /// <summary>Empty-state prompt when both picks resolve to the same F&amp;O environment.</summary>
     public bool ShowSamePrompt =>
@@ -184,6 +211,7 @@ public partial class DualWriteCompareViewModel : ObservableObject
                 Summary.Add(bucket);
             }
 
+            ComparedCount = rows.Count;
             HasResult = true;
         }
         catch (OperationCanceledException)
@@ -194,6 +222,7 @@ public partial class DualWriteCompareViewModel : ObservableObject
         {
             Error = ex.Message;
             HasResult = false;
+            ComparedCount = 0;
             DiffRows.Clear();
             Summary.Clear();
         }

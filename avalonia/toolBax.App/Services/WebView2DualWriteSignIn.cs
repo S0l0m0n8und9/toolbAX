@@ -1,5 +1,6 @@
 #if WEBVIEW2
 using System;
+using System.Diagnostics;
 using System.IO;
 using System.Runtime.Versioning;
 using System.Threading;
@@ -38,8 +39,9 @@ public sealed class WebView2DualWriteSignIn : IDualWriteSignIn
         }
 
         // The portal's axenv identifier is the F&O environment URL (the WPF plugin passes BaseUrl as-is;
-        // the gateway lookup normalises it to a host later).
-        var dialog = new DualWriteSignInDialog(env.Url, switchAccount);
+        // the gateway lookup normalises it to a host later). The title names the environment so a sign-in
+        // is attributable to the environment that asked for it.
+        var dialog = new DualWriteSignInDialog(env.Url, DualWriteSignInTitle.For(env), switchAccount);
         using var reg = ct.CanBeCanceled
             ? ct.Register(() => Dispatcher.UIThread.Post(dialog.Close))
             : default;
@@ -62,11 +64,11 @@ internal sealed class DualWriteSignInDialog : Window
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _completed;
 
-    public DualWriteSignInDialog(string foIdentifier, bool switchAccount)
+    public DualWriteSignInDialog(string foIdentifier, string title, bool switchAccount)
     {
         _foIdentifier = foIdentifier;
         _switchAccount = switchAccount;
-        Title = "Data Integrator sign-in";
+        Title = title;
         Width = 920;
         Height = 760;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -83,7 +85,10 @@ internal sealed class DualWriteSignInDialog : Window
         var browser = _host.Browser;
         if (browser is null)
         {
-            Complete(null);
+            // The embedded browser never came up — the WebView2 runtime is missing, or present and unable
+            // to start. Completing with a null result would reach the user as "sign-in was cancelled or did
+            // not complete", but there was never a window to cancel: the real cause has to travel.
+            Fail(DualWriteSignInFailure.BrowserUnavailableError(_host.InitializationError));
             return;
         }
 
@@ -149,6 +154,24 @@ internal sealed class DualWriteSignInDialog : Window
         Dispatcher.UIThread.Post(Close);
     }
 
+    /// <summary>
+    /// Completes the sign-in as a FAILURE: the exception surfaces from <c>SignInAsync</c> so the calling
+    /// screen (Compare / Operations) reports this cause instead of the generic cancelled-sign-in message.
+    /// Also marks the dialog complete, so the manual-close fallback in <see cref="OnClosed"/> can't
+    /// overwrite it with a best-effort (empty) result.
+    /// </summary>
+    private void Fail(Exception error)
+    {
+        if (_completed)
+        {
+            return;
+        }
+
+        _completed = true;
+        _tcs.TrySetException(error);
+        Dispatcher.UIThread.Post(Close);
+    }
+
     private void OnClosed(object? sender, EventArgs e)
     {
         // Closed before an API call pinned the regional gateway → fall back to the best-effort result so a
@@ -173,7 +196,17 @@ internal sealed class WebView2Host : NativeControlHost
     /// <summary>The underlying browser, available after <see cref="BrowserReady"/>.</summary>
     public CoreWebView2? Browser { get; private set; }
 
-    /// <summary>Raised on the UI thread once the WebView2 controller is created.</summary>
+    /// <summary>
+    /// Why <see cref="Browser"/> is null after <see cref="BrowserReady"/> — the WebView2 runtime is missing
+    /// (<c>WebView2RuntimeNotFoundException</c>) or failed to start. Null when the browser came up. Kept so
+    /// the dialog can report the real cause rather than an indistinguishable "no browser".
+    /// </summary>
+    public Exception? InitializationError { get; private set; }
+
+    /// <summary>
+    /// Raised on the UI thread once the WebView2 controller is created — or once creation has definitively
+    /// failed, in which case <see cref="Browser"/> is null and <see cref="InitializationError"/> is set.
+    /// </summary>
     public event EventHandler? BrowserReady;
 
     protected override IPlatformHandle CreateNativeControlCore(IPlatformHandle parent)
@@ -199,9 +232,14 @@ internal sealed class WebView2Host : NativeControlHost
             UpdateBounds();
             BrowserReady?.Invoke(this, EventArgs.Empty);
         }
-        catch
+        catch (Exception ex)
         {
-            // WebView2 runtime missing or failed to start — signal "no browser"; the dialog completes null.
+            // WebView2 runtime missing or failed to start. Keep the exception: swallowing it left the dialog
+            // completing null, which the connector reports as a cancelled sign-in — so a machine without the
+            // runtime looked like a user who changed their mind. Full exception to the trace log (stack +
+            // inner exceptions, for a support dump); only the message travels to the UI.
+            InitializationError = ex;
+            Trace.WriteLine($"Dual-write sign-in: WebView2 initialization failed.{Environment.NewLine}{ex}");
             BrowserReady?.Invoke(this, EventArgs.Empty);
         }
     }
