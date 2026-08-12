@@ -53,11 +53,12 @@ public sealed class CatalogService : ICatalogService
     public async Task<TableCatalog> GetTablesAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)
     {
         await _store.EnsureCreatedAsync(ct).ConfigureAwait(false);
-        var gate = _tableLocks.GetOrAdd(env.Id, _ => new SemaphoreSlim(1, 1));
+        var key = CacheKey(env);
+        var gate = _tableLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var cached = await _store.GetAsync(env.Id, TablesKind, ct).ConfigureAwait(false);
+            var cached = await _store.GetAsync(key, TablesKind, ct).ConfigureAwait(false);
             if (cached is not null)
             {
                 var cachedCatalog = DeserializeTableCatalog(cached.PayloadJson);
@@ -84,7 +85,7 @@ public sealed class CatalogService : ICatalogService
                 builtIn.Tables ?? Array.Empty<TableInfo>());
 
             var json = JsonSerializer.Serialize(normalized, JsonOptions);
-            await _store.SaveAsync(env.Id, TablesKind, normalized.Version, json, null, normalized.UpdatedUtc, ct).ConfigureAwait(false);
+            await _store.SaveAsync(key, TablesKind, normalized.Version, json, null, normalized.UpdatedUtc, ct).ConfigureAwait(false);
             return normalized;
         }
         finally
@@ -96,11 +97,12 @@ public sealed class CatalogService : ICatalogService
     public async Task<ODataMetadata> GetODataMetadataAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)
     {
         await _store.EnsureCreatedAsync(ct).ConfigureAwait(false);
-        var gate = _metadataLocks.GetOrAdd(env.Id, _ => new SemaphoreSlim(1, 1));
+        var key = CacheKey(env);
+        var gate = _metadataLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var cached = await _store.GetAsync(env.Id, MetadataKind, ct).ConfigureAwait(false);
+            var cached = await _store.GetAsync(key, MetadataKind, ct).ConfigureAwait(false);
             var cachedValid = cached is not null && string.Equals(cached.Version, MetadataSchemaVersion, StringComparison.OrdinalIgnoreCase);
             if (cachedValid && mode == CatalogRefreshMode.UseCacheIfAvailable)
             {
@@ -118,13 +120,13 @@ public sealed class CatalogService : ICatalogService
             // avoid re-parsing and just bump timestamps.
             if (cachedValid && !string.IsNullOrWhiteSpace(etag) && string.Equals(cached!.ETag, etag, StringComparison.Ordinal))
             {
-                await _store.TouchAsync(env.Id, MetadataKind, ct).ConfigureAwait(false);
+                await _store.TouchAsync(key, MetadataKind, ct).ConfigureAwait(false);
                 return DeserializeMetadata(cached!.PayloadJson);
             }
 
             var metadata = ODataMetadataProvider.Parse(xml, etag);
             var json = JsonSerializer.Serialize(metadata, JsonOptions);
-            await _store.SaveAsync(env.Id, MetadataKind, MetadataSchemaVersion, json, etag, updatedUtc, ct).ConfigureAwait(false);
+            await _store.SaveAsync(key, MetadataKind, MetadataSchemaVersion, json, etag, updatedUtc, ct).ConfigureAwait(false);
             return metadata;
         }
         finally
@@ -136,11 +138,12 @@ public sealed class CatalogService : ICatalogService
     public async Task<ODataEntityIndex> GetODataEntityIndexAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)
     {
         await _store.EnsureCreatedAsync(ct).ConfigureAwait(false);
-        var gate = _metadataLocks.GetOrAdd(env.Id, _ => new SemaphoreSlim(1, 1));
+        var key = CacheKey(env);
+        var gate = _metadataLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            var cached = await _store.GetAsync(env.Id, EntityIndexKind, ct).ConfigureAwait(false);
+            var cached = await _store.GetAsync(key, EntityIndexKind, ct).ConfigureAwait(false);
             var cachedValid = cached is not null && string.Equals(cached.Version, EntityIndexSchemaVersion, StringComparison.OrdinalIgnoreCase);
             if (cachedValid && mode == CatalogRefreshMode.UseCacheIfAvailable)
             {
@@ -157,13 +160,13 @@ public sealed class CatalogService : ICatalogService
             // If index exists for the same metadata ETag, keep it (even if stale) and just touch.
             if (cachedValid && !string.IsNullOrWhiteSpace(etag) && string.Equals(cached!.ETag, etag, StringComparison.Ordinal))
             {
-                await _store.TouchAsync(env.Id, EntityIndexKind, ct).ConfigureAwait(false);
+                await _store.TouchAsync(key, EntityIndexKind, ct).ConfigureAwait(false);
                 return DeserializeEntityIndex(cached!.PayloadJson);
             }
 
             var index = ODataMetadataIndexParser.ParseIndex(xml, etag);
             var json = JsonSerializer.Serialize(index, JsonOptions);
-            await _store.SaveAsync(env.Id, EntityIndexKind, EntityIndexSchemaVersion, json, etag, updatedUtc, ct).ConfigureAwait(false);
+            await _store.SaveAsync(key, EntityIndexKind, EntityIndexSchemaVersion, json, etag, updatedUtc, ct).ConfigureAwait(false);
             return index;
         }
         finally
@@ -180,14 +183,15 @@ public sealed class CatalogService : ICatalogService
         }
 
         await _store.EnsureCreatedAsync(ct).ConfigureAwait(false);
-        var gate = _metadataLocks.GetOrAdd(env.Id, _ => new SemaphoreSlim(1, 1));
+        var key = CacheKey(env);
+        var gate = _metadataLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             var (xml, etag, updatedUtc) = await GetMetadataXmlNoLockAsync(env, mode, ct).ConfigureAwait(false);
 
             var kind = EntityDetailsKindPrefix + Uri.EscapeDataString(entityName);
-            var cached = await _store.GetAsync(env.Id, kind, ct).ConfigureAwait(false);
+            var cached = await _store.GetAsync(key, kind, ct).ConfigureAwait(false);
             var cachedValid = cached is not null && string.Equals(cached.Version, EntityDetailsSchemaVersion, StringComparison.OrdinalIgnoreCase);
 
             // Prefer ETag match for correctness; fall back to max-age when ETag is absent.
@@ -230,7 +234,7 @@ public sealed class CatalogService : ICatalogService
             entity = await TryEnrichEntityFromDataManagementTargetMapAsync(env, entity, ct).ConfigureAwait(false) ?? entity;
 
             var json = JsonSerializer.Serialize(entity, JsonOptions);
-            await _store.SaveAsync(env.Id, kind, EntityDetailsSchemaVersion, json, etag, updatedUtc, ct).ConfigureAwait(false);
+            await _store.SaveAsync(key, kind, EntityDetailsSchemaVersion, json, etag, updatedUtc, ct).ConfigureAwait(false);
             return entity;
         }
         finally
@@ -279,7 +283,7 @@ public sealed class CatalogService : ICatalogService
             catalog.Tables);
 
         var storedJson = JsonSerializer.Serialize(normalized, JsonOptions);
-        await _store.SaveAsync(env.Id, TablesKind, normalized.Version, storedJson, null, normalized.UpdatedUtc, ct).ConfigureAwait(false);
+        await _store.SaveAsync(CacheKey(env), TablesKind, normalized.Version, storedJson, null, normalized.UpdatedUtc, ct).ConfigureAwait(false);
         return normalized;
     }
 
@@ -319,6 +323,21 @@ public sealed class CatalogService : ICatalogService
     public string BuildODataEntityUrl(FoEnvironment env, string entityName)
     {
         return $"{env.BaseUrl.TrimEnd('/')}/data/{Uri.EscapeDataString(entityName)}";
+    }
+
+    // Cache rows (and the per-environment locks) are keyed by profile id *and* normalized base URL, not
+    // by id alone: repointing a profile at another environment keeps its id, so a bare-id key would keep
+    // serving the previous host's $metadata until the row aged out. Normalization mirrors the request
+    // path (lower-invariant, implicit https, no trailing slash) so cosmetic URL edits don't split the key.
+    private static string CacheKey(FoEnvironment env)
+    {
+        var url = env.BaseUrl.Trim().ToLowerInvariant();
+        if (url.Length > 0 && !url.StartsWith("http", StringComparison.Ordinal))
+        {
+            url = "https://" + url;
+        }
+
+        return $"{env.Id}|{url.TrimEnd('/')}";
     }
 
     private static bool IsFresh(DateTime updatedUtc, TimeSpan maxAge)
@@ -369,7 +388,8 @@ public sealed class CatalogService : ICatalogService
 
     private async Task<(string Xml, string? ETag, DateTime UpdatedUtc)> GetMetadataXmlNoLockAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct)
     {
-        var cached = await _store.GetAsync(env.Id, MetadataXmlKind, ct).ConfigureAwait(false);
+        var key = CacheKey(env);
+        var cached = await _store.GetAsync(key, MetadataXmlKind, ct).ConfigureAwait(false);
         var cachedValid = cached is not null && string.Equals(cached.Version, MetadataXmlSchemaVersion, StringComparison.OrdinalIgnoreCase);
         if (cachedValid && mode == CatalogRefreshMode.UseCacheIfAvailable)
         {
@@ -391,7 +411,7 @@ public sealed class CatalogService : ICatalogService
         var response = await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
         if (response.StatusCode == System.Net.HttpStatusCode.NotModified && cachedValid)
         {
-            var touched = await _store.TouchAsync(env.Id, MetadataXmlKind, ct).ConfigureAwait(false);
+            var touched = await _store.TouchAsync(key, MetadataXmlKind, ct).ConfigureAwait(false);
             return (cached!.PayloadJson, cached!.ETag, touched);
         }
 
@@ -399,7 +419,7 @@ public sealed class CatalogService : ICatalogService
         var xml = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         var etag = response.Headers.ETag?.Tag?.Trim('"');
         var updatedUtc = DateTime.UtcNow;
-        await _store.SaveAsync(env.Id, MetadataXmlKind, MetadataXmlSchemaVersion, xml, etag, updatedUtc, ct).ConfigureAwait(false);
+        await _store.SaveAsync(key, MetadataXmlKind, MetadataXmlSchemaVersion, xml, etag, updatedUtc, ct).ConfigureAwait(false);
         return (xml, etag, updatedUtc);
     }
 

@@ -25,6 +25,20 @@ public interface IMetadataService
     Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default);
 
     /// <summary>
+    /// As <see cref="LoadEntitiesAsync(CancellationToken)"/>, but with <paramref name="forceRefresh"/>
+    /// bypassing every cached copy (in-memory and on-disk) so the environment is really re-read. Defaults
+    /// to the cache-respecting overload, which is already a no-op for implementations without a cache.
+    /// </summary>
+    Task LoadEntitiesAsync(bool forceRefresh, CancellationToken ct = default) => LoadEntitiesAsync(ct);
+
+    /// <summary>
+    /// As <see cref="LoadFieldsAsync(string, CancellationToken)"/>, but with <paramref name="forceRefresh"/>
+    /// bypassing every cached copy of the entity's metadata.
+    /// </summary>
+    Task<bool> LoadFieldsAsync(string entityName, bool forceRefresh, CancellationToken ct = default) =>
+        LoadFieldsAsync(entityName, ct);
+
+    /// <summary>
     /// The members of an enum type (e.g. "NoYes" → ["No","Yes"]), or null when not known. Used by the
     /// POST Builder to drive enum-dropdown cell editors. Defaults to null so implementations that don't
     /// surface enum metadata (most test fakes) need not implement it.

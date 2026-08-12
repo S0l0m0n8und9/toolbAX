@@ -35,6 +35,54 @@ public class CatalogServiceTests
     }
 
     [Fact]
+    public async Task GetODataEntityIndexAsync_Refetches_When_The_Same_Profile_Id_Points_At_A_New_Url()
+    {
+        var xml = await System.IO.File.ReadAllTextAsync(System.IO.Path.Combine("Resources", "SampleMetadata.xml"));
+        var handler = new CountingMetadataHandler(xml);
+        var httpClient = new HttpClient(handler);
+        var profileDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db");
+        var catalogDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db");
+        var profileStore = new ProfileStore(profileDb);
+        await profileStore.EnsureCreatedAsync();
+        var catalogStore = new CatalogStore(catalogDb);
+        var service = new CatalogService(httpClient, profileStore, catalogStore, new CatalogServiceOptions(TimeSpan.FromDays(1), TimeSpan.FromDays(1)));
+
+        // Editing a profile's URL keeps its id, so an id-only cache key would serve the first host's
+        // $metadata for the second environment until the row aged out.
+        var original = new FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com", "tenant", "USMF");
+        var repointed = new FoEnvironment("env", "Env", "https://fabrikam.operations.dynamics.com", "tenant", "USMF");
+
+        _ = await service.GetODataEntityIndexAsync(original, CatalogRefreshMode.UseCacheIfFresh, default);
+        _ = await service.GetODataEntityIndexAsync(repointed, CatalogRefreshMode.UseCacheIfFresh, default);
+
+        Assert.Equal(2, handler.Calls);
+    }
+
+    [Fact]
+    public async Task GetODataEntityIndexAsync_Uses_Cache_For_The_Same_Id_And_Url()
+    {
+        var xml = await System.IO.File.ReadAllTextAsync(System.IO.Path.Combine("Resources", "SampleMetadata.xml"));
+        var handler = new CountingMetadataHandler(xml);
+        var httpClient = new HttpClient(handler);
+        var profileDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db");
+        var catalogDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db");
+        var profileStore = new ProfileStore(profileDb);
+        await profileStore.EnsureCreatedAsync();
+        var catalogStore = new CatalogStore(catalogDb);
+        var service = new CatalogService(httpClient, profileStore, catalogStore, new CatalogServiceOptions(TimeSpan.FromDays(1), TimeSpan.FromDays(1)));
+
+        // Same id, and a URL differing only in casing/trailing slash — the key normalizes, so this is
+        // still one environment and must hit the cache.
+        var env = new FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com", "tenant", "USMF");
+        var cosmetic = new FoEnvironment("env", "Env", "https://Contoso.Operations.Dynamics.com/", "tenant", "USMF");
+
+        _ = await service.GetODataEntityIndexAsync(env, CatalogRefreshMode.UseCacheIfFresh, default);
+        _ = await service.GetODataEntityIndexAsync(cosmetic, CatalogRefreshMode.UseCacheIfFresh, default);
+
+        Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
     public async Task GetTablesAsync_Does_Not_Use_Cache_When_MaxAge_Is_Zero()
     {
         var handler = new CountingMetadataHandler("<root />");
