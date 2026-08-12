@@ -797,6 +797,63 @@ public class ProfilesViewModelTests
         Assert.Equal(FoAuthMode.Interactive, saved.DataverseAuthMode);
     }
 
+    // A store whose SetSecret fails outright — what the real CoreSecretStore does when no DPAPI vault is
+    // available. The command must surface that, not let it escape as an unhandled exception.
+    private sealed class ThrowingSecretStore : ToolBax.Core.Services.ISecretStore
+    {
+        public bool HasSecret(string key, SecretTarget target = SecretTarget.Fo) => false;
+
+        public void SetSecret(string key, string plaintext, SecretTarget target = SecretTarget.Fo) =>
+            throw new PlatformNotSupportedException("The DPAPI secret vault is Windows-only.");
+
+        public void ClearSecret(string key, SecretTarget target = SecretTarget.Fo) { }
+    }
+
+    [Fact]
+    public void Storing_a_di_secret_that_cannot_persist_keeps_the_entry_and_reports_no_success()
+    {
+        // The DI secret used to be written under a key the real store didn't recognise: nothing was
+        // stored, yet the UI cleared the box and said "Service-account secret stored."
+        var vm = new ProfilesViewModel(new FakeProfileStore(), new NoOpSecretStore());
+        vm.Selected = vm.Profiles.First();
+        vm.DiSecretInput = "svc-password";
+
+        vm.SaveDiSecretCommand.Execute(null);
+
+        Assert.False(vm.HasDiSecret);
+        Assert.Equal("svc-password", vm.DiSecretInput);        // not discarded
+        Assert.DoesNotContain("secret stored", vm.DiStatus);   // no false confirmation
+    }
+
+    [Fact]
+    public void Di_secret_storage_failure_is_reported_not_thrown()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore(), new ThrowingSecretStore());
+        vm.Selected = vm.Profiles.First();
+        vm.DiSecretInput = "svc-password";
+
+        vm.SaveDiSecretCommand.Execute(null);
+
+        Assert.Contains("Could not store", vm.DiStatus);
+        Assert.Contains("DPAPI", vm.DiStatus);                 // the underlying reason surfaces
+        Assert.Equal("svc-password", vm.DiSecretInput);         // not discarded
+        Assert.False(vm.HasDiSecret);
+    }
+
+    [Fact]
+    public void Client_secret_storage_failure_is_reported_not_thrown()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore(), new ThrowingSecretStore());
+        vm.Selected = vm.Profiles.First();
+        vm.SecretInput = "super-secret";
+
+        vm.SaveSecretCommand.Execute(null);
+
+        Assert.Contains("Could not store", vm.Status);
+        Assert.Equal("super-secret", vm.SecretInput);           // not discarded
+        Assert.False(vm.HasSecret);
+    }
+
     private sealed class ThrowingBroker : IInteractiveAuthBroker
     {
         public bool WasCalled { get; private set; }

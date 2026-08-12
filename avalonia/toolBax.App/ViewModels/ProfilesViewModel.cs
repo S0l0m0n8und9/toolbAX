@@ -210,7 +210,9 @@ public partial class ProfilesViewModel : ObservableObject
         }
     }
 
-    private static string DiKey(string id) => $"{id}:di";
+    // The DI service-account secret has its own key shape (the real store routes it to Settings-backed
+    // vault storage rather than a service principal), composed by the store so both ends agree.
+    private static string DiKey(string id) => CoreSecretStore.DiSecretKey(id);
 
     partial void OnSelectedChanged(EnvProfile? value)
     {
@@ -384,6 +386,21 @@ public partial class ProfilesViewModel : ObservableObject
         Status = $"Deleted '{name}'.";
     }
 
+    // Stores a secret, turning a hard storage failure (e.g. no DPAPI vault on this platform) into a
+    // message instead of an unhandled exception out of the command. Returns null on success.
+    private string? TryStoreSecret(string key, string plaintext, SecretTarget target = SecretTarget.Fo)
+    {
+        try
+        {
+            _secrets.SetSecret(key, plaintext, target);
+            return null;
+        }
+        catch (Exception ex)
+        {
+            return ex.Message;
+        }
+    }
+
     [RelayCommand]
     private void SaveSecret()
     {
@@ -392,8 +409,14 @@ public partial class ProfilesViewModel : ObservableObject
             return;
         }
 
-        _secrets.SetSecret(Selected.Id, SecretInput);
+        var error = TryStoreSecret(Selected.Id, SecretInput);
         OnPropertyChanged(nameof(HasSecret));
+        if (error is not null)
+        {
+            Status = $"Could not store the secret for '{Selected.Name}': {error}";
+            return;
+        }
+
         if (!HasSecret)
         {
             // The store no-ops when there's no F&O service principal yet; keep the entry and say so
@@ -427,8 +450,14 @@ public partial class ProfilesViewModel : ObservableObject
             return;
         }
 
-        _secrets.SetSecret(Selected.Id, DataverseSecretInput, SecretTarget.Dataverse);
+        var error = TryStoreSecret(Selected.Id, DataverseSecretInput, SecretTarget.Dataverse);
         OnPropertyChanged(nameof(HasDataverseSecret));
+        if (error is not null)
+        {
+            Status = $"Could not store the Dataverse secret for '{Selected.Name}': {error}";
+            return;
+        }
+
         if (!HasDataverseSecret)
         {
             // The store no-ops when there's no Dataverse service principal yet; keep the entry and say
@@ -462,9 +491,23 @@ public partial class ProfilesViewModel : ObservableObject
             return;
         }
 
-        _secrets.SetSecret(DiKey(Selected.Id), DiSecretInput);
-        DiSecretInput = string.Empty;
+        var error = TryStoreSecret(DiKey(Selected.Id), DiSecretInput);
         OnPropertyChanged(nameof(HasDiSecret));
+        if (error is not null)
+        {
+            DiStatus = $"Could not store the service-account secret: {error}";
+            return;
+        }
+
+        // Re-check presence like the client-secret commands do: a store that couldn't persist must not be
+        // reported as a success, and the entry the user typed must survive so they can retry.
+        if (!HasDiSecret)
+        {
+            DiStatus = "Could not store the service-account secret — save the environment first.";
+            return;
+        }
+
+        DiSecretInput = string.Empty; // don't keep plaintext around after it's protected
         DiStatus = "Service-account secret stored.";
     }
 

@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using ToolBax.Core.Services;
 
@@ -18,10 +19,14 @@ public sealed class FakeSecretStore : ISecretStore
 
     public void SetSecret(string key, string plaintext, SecretTarget target = SecretTarget.Fo)
     {
-        if (!string.IsNullOrEmpty(plaintext))
+        // Matches CoreSecretStore's contract: an empty secret is rejected, not silently dropped, so a
+        // test passing against this fake means the same call passes against the real store.
+        if (string.IsNullOrEmpty(plaintext))
         {
-            _keys.Add(Compose(key, target));
+            throw new ArgumentException("A secret must be non-empty; use ClearSecret to remove one.", nameof(plaintext));
         }
+
+        _keys.Add(Compose(key, target));
     }
 
     public void ClearSecret(string key, SecretTarget target = SecretTarget.Fo) => _keys.Remove(Compose(key, target));

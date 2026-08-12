@@ -432,6 +432,218 @@ public sealed class CoreProfileStoreTests : IDisposable
         Assert.Equal("dv-client", profile.DataverseClientId);
     }
 
+    // ── Secret-blob lifecycle (#165) ─────────────────────────────────────────────────────────────────
+    // A stored client secret is a SecretVault row pointed at by ServicePrincipal.SecretRef. The vault has
+    // no FK cascade to ServicePrincipals, so every Save path that drops or re-points an SP has to take
+    // the blob with it — otherwise it's unreachable forever (HasSecret false, ClearSecret early-returns).
+    // The blobs here are plain (non-DPAPI) rows, so these run on Linux CI.
+
+    private void InsertVaultRow(string id)
+    {
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "INSERT INTO SecretVault(Id, Kind, Blob) VALUES ($id, 'test', $blob)";
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.Parameters.Add("$blob", Microsoft.Data.Sqlite.SqliteType.Blob).Value = new byte[] { 1, 2, 3 };
+        cmd.ExecuteNonQuery();
+    }
+
+    private int CountVaultRows(string id)
+    {
+        using var conn = new Microsoft.Data.Sqlite.SqliteConnection($"Data Source={_dbPath}");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "SELECT COUNT(*) FROM SecretVault WHERE Id = $id";
+        cmd.Parameters.AddWithValue("$id", id);
+        return Convert.ToInt32(cmd.ExecuteScalar());
+    }
+
+    // Attaches a stored secret to an existing service principal the way CoreSecretStore would: a vault
+    // blob plus the SecretRef pointing at it (CoreProfileStore.Save has no way to set a secret itself).
+    private async Task AttachSecretAsync(string envId, AuthTarget target, string secretRef)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var svc = NewService();
+        var sp = await svc.GetServicePrincipalAsync(envId, target, ct);
+        Assert.NotNull(sp);
+        await svc.UpsertServicePrincipalAsync(sp! with { SecretRef = secretRef }, ct);
+        InsertVaultRow(secretRef);
+    }
+
+    // An app-only (ClientSecret) F&O profile with a stored secret, returned as a freshly loaded store.
+    private async Task<CoreProfileStore> SeedFoSecretAsync(string clientId, string secretRef)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        store.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected)
+        {
+            ClientId = clientId,
+            AuthMode = FoAuthMode.ClientSecret,
+        });
+        await AttachSecretAsync("env1", AuthTarget.Fo, secretRef);
+        return await CoreProfileStore.CreateAsync(NewService(), ct);
+    }
+
+    // The Dataverse mirror of SeedFoSecretAsync.
+    private async Task<CoreProfileStore> SeedDataverseSecretAsync(string clientId, string secretRef)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        store.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected)
+        {
+            DataverseUrl = "https://ce.example",
+            DataverseClientId = clientId,
+            DataverseAuthMode = FoAuthMode.ClientSecret,
+        });
+        await AttachSecretAsync("env1", AuthTarget.Dataverse, secretRef);
+        return await CoreProfileStore.CreateAsync(NewService(), ct);
+    }
+
+    [Fact]
+    public async Task Switching_fo_auth_to_interactive_deletes_the_abandoned_secret_blob()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await SeedFoSecretAsync("app-a", "fo-row-1");
+
+        // Interactive is delegated, so the app-only SP is dropped — its secret has to go with it.
+        store.Save(store.GetAll().Single() with { AuthMode = FoAuthMode.Interactive });
+
+        Assert.Null(await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct));
+        Assert.Equal(0, CountVaultRows("fo-row-1"));
+    }
+
+    [Fact]
+    public async Task Switching_dataverse_auth_to_interactive_deletes_the_abandoned_secret_blob()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await SeedDataverseSecretAsync("dv-a", "dv-row-1");
+
+        store.Save(store.GetAll().Single() with { DataverseAuthMode = FoAuthMode.Interactive });
+
+        Assert.Null(await NewService().GetServicePrincipalAsync("env1", AuthTarget.Dataverse, ct));
+        Assert.Equal(0, CountVaultRows("dv-row-1"));
+    }
+
+    [Fact]
+    public async Task Clearing_the_fo_client_id_deletes_the_abandoned_secret_blob()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await SeedFoSecretAsync("app-a", "fo-row-1");
+
+        store.Save(store.GetAll().Single() with { ClientId = null });
+
+        Assert.Null(await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct));
+        Assert.Equal(0, CountVaultRows("fo-row-1"));
+    }
+
+    [Fact]
+    public async Task Clearing_the_dataverse_client_id_deletes_the_abandoned_secret_blob()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await SeedDataverseSecretAsync("dv-a", "dv-row-1");
+
+        store.Save(store.GetAll().Single() with { DataverseClientId = null });
+
+        Assert.Null(await NewService().GetServicePrincipalAsync("env1", AuthTarget.Dataverse, ct));
+        Assert.Equal(0, CountVaultRows("dv-row-1"));
+    }
+
+    [Fact]
+    public async Task Changing_the_fo_client_id_unbinds_and_deletes_the_previous_secret()
+    {
+        // A secret issued for app registration A is not valid for B. Carrying it over silently re-binds
+        // A's secret to B and fails at AAD as invalid_client — an error that reads like anything but
+        // "the secret is for the wrong app". Unbinding makes the UI ask for B's secret instead.
+        var ct = TestContext.Current.CancellationToken;
+        var store = await SeedFoSecretAsync("app-a", "fo-row-1");
+
+        store.Save(store.GetAll().Single() with { ClientId = "app-b" });
+
+        var sp = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct);
+        Assert.NotNull(sp);
+        Assert.Equal("app-b", sp!.ClientId);
+        Assert.Null(sp.SecretRef);
+        Assert.Equal(0, CountVaultRows("fo-row-1"));
+    }
+
+    [Fact]
+    public async Task Changing_the_dataverse_client_id_unbinds_and_deletes_the_previous_secret()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = await SeedDataverseSecretAsync("dv-a", "dv-row-1");
+
+        store.Save(store.GetAll().Single() with { DataverseClientId = "dv-b" });
+
+        var sp = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Dataverse, ct);
+        Assert.NotNull(sp);
+        Assert.Equal("dv-b", sp!.ClientId);
+        Assert.Null(sp.SecretRef);
+        Assert.Equal(0, CountVaultRows("dv-row-1"));
+    }
+
+    [Fact]
+    public async Task Saving_an_unchanged_client_id_keeps_the_stored_secret()
+    {
+        // The regression guard for the two unbind tests above: an ordinary edit (a rename) must leave
+        // both credentials exactly where they were. Both are seeded by one Save, since each Save
+        // rewrites the F&O *and* Dataverse credential from the profile it's given.
+        var ct = TestContext.Current.CancellationToken;
+        var seeded = await CoreProfileStore.CreateAsync(NewService(), ct);
+        seeded.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected)
+        {
+            ClientId = "app-a",
+            AuthMode = FoAuthMode.ClientSecret,
+            DataverseUrl = "https://ce.example",
+            DataverseClientId = "dv-a",
+            DataverseAuthMode = FoAuthMode.ClientSecret,
+        });
+        await AttachSecretAsync("env1", AuthTarget.Fo, "fo-row-1");
+        await AttachSecretAsync("env1", AuthTarget.Dataverse, "dv-row-1");
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+
+        store.Save(store.GetAll().Single() with { Name = "Renamed" });
+
+        var foSp = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct);
+        Assert.Equal("fo-row-1", foSp!.SecretRef);
+        Assert.Equal(1, CountVaultRows("fo-row-1"));
+        var dvSp = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Dataverse, ct);
+        Assert.Equal("dv-row-1", dvSp!.SecretRef);
+        Assert.Equal(1, CountVaultRows("dv-row-1"));
+    }
+
+    [Fact]
+    public async Task Delete_also_removes_the_data_integrator_secret()
+    {
+        // The DI service-account secret is a vault blob referenced from Settings (there's no SP row to
+        // hang it off), so Delete has to clean up both the pointer and the blob.
+        var ct = TestContext.Current.CancellationToken;
+        var seed = NewService();
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "One", "https://one", "t", null), ct);
+        await seed.SetSettingAsync(CoreSecretStore.DiSecretRefSettingKey("env1"), "di-row-1", ct);
+        InsertVaultRow("di-row-1");
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+
+        store.Delete("env1");
+
+        Assert.Null(await NewService().GetSettingAsync(CoreSecretStore.DiSecretRefSettingKey("env1"), ct));
+        Assert.Equal(0, CountVaultRows("di-row-1"));
+    }
+
+    [Fact]
+    public async Task Delete_also_removes_the_service_principal_secret_blob()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        await SeedFoSecretAsync("app-a", "fo-row-1");
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+
+        store.Delete("env1");
+
+        Assert.Null(await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct));
+        Assert.Equal(0, CountVaultRows("fo-row-1"));
+    }
+
     [Fact]
     public async Task Empty_database_yields_no_profiles()
     {

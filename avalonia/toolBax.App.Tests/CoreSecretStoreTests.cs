@@ -157,6 +157,98 @@ public sealed class CoreSecretStoreTests : IDisposable
         Assert.False(string.IsNullOrEmpty(sp!.SecretRef)); // a vault ref was recorded
     }
 
+    // ── Data Integrator service-account secret (#165) ────────────────────────────────────────────────
+    // It has no service principal to hang off (AuthTarget only models F&O/Dataverse), so the vault ref
+    // lives in Settings under di.secretRef:{envId}, alongside the di.clientId/di.mode keys.
+
+    private async Task SeedEnvAsync(string envId)
+    {
+        var svc = NewService();
+        await svc.EnsureCreatedAsync(TestContext.Current.CancellationToken);
+        await svc.UpsertEnvironmentAsync(
+            new FoEnvironment(envId, "Env", "https://e", "t", null), TestContext.Current.CancellationToken);
+    }
+
+    [Fact]
+    public async Task Di_secret_presence_and_clear_need_no_service_principal()
+    {
+        // Cross-platform (no DPAPI): seed the ref the way SetSecret would, then read and clear it.
+        var ct = TestContext.Current.CancellationToken;
+        await SeedEnvAsync("env1");
+        await NewService().SetSettingAsync(CoreSecretStore.DiSecretRefSettingKey("env1"), "di-row-1", ct);
+        InsertVaultRow("di-row-1");
+        var store = new CoreSecretStore(NewService(), NewVault());
+        var key = CoreSecretStore.DiSecretKey("env1");
+
+        Assert.True(store.HasSecret(key));
+        Assert.False(store.HasSecret("env1")); // distinct from the F&O client secret
+
+        store.ClearSecret(key);
+
+        Assert.False(store.HasSecret(key));
+        Assert.Null(await NewService().GetSettingAsync(CoreSecretStore.DiSecretRefSettingKey("env1"), ct));
+        Assert.Equal(0, CountVaultRows("di-row-1")); // blob removed, not orphaned
+    }
+
+    [Fact]
+    public async Task Di_secret_round_trips_through_the_real_store()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "SecretVaultService uses DPAPI (Windows-only).");
+
+        var ct = TestContext.Current.CancellationToken;
+        await SeedEnvAsync("env1");
+        var store = new CoreSecretStore(NewService(), NewVault());
+        var key = CoreSecretStore.DiSecretKey("env1");
+
+        // No service principal exists for this key — which is exactly what used to make this a silent
+        // no-op while the UI reported "Service-account secret stored."
+        store.SetSecret(key, "svc-password");
+
+        Assert.True(store.HasSecret(key));
+        var secretRef = await NewService().GetSettingAsync(CoreSecretStore.DiSecretRefSettingKey("env1"), ct);
+        Assert.False(string.IsNullOrEmpty(secretRef));
+        Assert.Equal(1, CountVaultRows(secretRef!));
+
+        store.ClearSecret(key);
+
+        Assert.False(store.HasSecret(key));
+        Assert.Equal(0, CountVaultRows(secretRef!));
+    }
+
+    [Fact]
+    public async Task Rotating_the_di_secret_deletes_the_previous_blob()
+    {
+        Assert.SkipUnless(OperatingSystem.IsWindows(), "SecretVaultService uses DPAPI (Windows-only).");
+
+        var ct = TestContext.Current.CancellationToken;
+        await SeedEnvAsync("env1");
+        var store = new CoreSecretStore(NewService(), NewVault());
+        var key = CoreSecretStore.DiSecretKey("env1");
+        store.SetSecret(key, "first");
+        var firstRef = await NewService().GetSettingAsync(CoreSecretStore.DiSecretRefSettingKey("env1"), ct);
+
+        store.SetSecret(key, "second");
+
+        var secondRef = await NewService().GetSettingAsync(CoreSecretStore.DiSecretRefSettingKey("env1"), ct);
+        Assert.NotEqual(firstRef, secondRef);
+        Assert.Equal(0, CountVaultRows(firstRef!)); // no orphan accrual across rotations
+        Assert.Equal(1, CountVaultRows(secondRef!));
+    }
+
+    [Fact]
+    public async Task Setting_an_empty_secret_is_rejected_rather_than_ignored()
+    {
+        // "Store nothing" would read back as "a secret is stored" on the DI path, so it throws instead of
+        // no-op'ing; removing a secret is ClearSecret's job.
+        await SeedFoSpAsync("env1", secretRef: null);
+        var store = new CoreSecretStore(NewService(), NewVault());
+
+        Assert.Throws<ArgumentException>(() => store.SetSecret("env1", string.Empty));
+        Assert.Throws<ArgumentException>(() => store.SetSecret(CoreSecretStore.DiSecretKey("env1"), string.Empty));
+        Assert.False(store.HasSecret("env1"));
+        Assert.False(store.HasSecret(CoreSecretStore.DiSecretKey("env1")));
+    }
+
     public void Dispose()
     {
         try
