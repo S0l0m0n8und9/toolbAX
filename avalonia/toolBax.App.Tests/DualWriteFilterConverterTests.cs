@@ -77,4 +77,71 @@ public class DualWriteFilterConverterTests
         Assert.Equal("A eq 1 and B eq 2",
             DualWriteFilterConverter.XppToOData("A == 1\n\t&&   B == 2"));
     }
+
+    [Fact]
+    public void Whitespace_inside_a_literal_is_preserved()
+    {
+        // A double space inside the literal is data, not operator padding: collapsing it silently changes
+        // the row set F&O returns (200 OK, count 0) and corrupts what the Legs grid shows.
+        Assert.Equal("Name eq 'ACME  Corp'", DualWriteFilterConverter.XppToOData("Name == \"ACME  Corp\""));
+        Assert.Equal("Name eq 'ACME  Corp'", DualWriteFilterConverter.XppToOData("Name == 'ACME  Corp'"));
+    }
+
+    [Fact]
+    public void Tabs_and_newlines_inside_a_literal_are_preserved()
+    {
+        Assert.Equal("Note eq 'a\tb\nc'", DualWriteFilterConverter.XppToOData("Note == \"a\tb\nc\""));
+    }
+
+    [Fact]
+    public void Leading_and_trailing_whitespace_inside_a_literal_is_preserved()
+    {
+        Assert.Equal("Name eq '  padded  '", DualWriteFilterConverter.XppToOData("  Name ==   \"  padded  \"  "));
+    }
+
+    [Fact]
+    public void Whitespace_outside_literals_still_collapses_around_preserved_literals()
+    {
+        Assert.Equal("A eq 'x  y' and B eq 2",
+            DualWriteFilterConverter.XppToOData("A == \"x  y\"\n\t&&   B == 2"));
+    }
+
+    [Fact]
+    public void Doubled_quotes_inside_a_literal_do_not_confuse_the_literal_tracking()
+    {
+        // The escaped quote must not read as the end of the literal — otherwise the whitespace after it
+        // would be treated as literal content (or the following operators as literal text).
+        Assert.Equal("Name eq 'O''Brien  Jr' and B eq 2",
+            DualWriteFilterConverter.XppToOData("Name == \"O'Brien  Jr\"  &&  B == 2"));
+
+        // Literal ending in a quote: the trailing '' is escaped and the *next* quote closes the literal.
+        Assert.Equal("Name eq 'abc''' and B eq 2",
+            DualWriteFilterConverter.XppToOData("Name == \"abc'\"  &&  B == 2"));
+
+        // A literal that is nothing but a quote.
+        Assert.Equal("Name eq '''' and B eq 2",
+            DualWriteFilterConverter.XppToOData("Name == \"'\"  &&  B == 2"));
+    }
+
+    [Theory]
+    [InlineData("!(A == 1)", "not (A eq 1)")]
+    [InlineData("!(A == 1) && B == 2", "not (A eq 1) and B eq 2")]
+    [InlineData("!Blocked", "not Blocked")]
+    [InlineData("! Blocked", "not Blocked")]
+    [InlineData("A == 1 && !Blocked", "A eq 1 and not Blocked")]
+    public void A_bare_bang_becomes_not(string input, string expected) =>
+        Assert.Equal(expected, DualWriteFilterConverter.XppToOData(input));
+
+    [Theory]
+    [InlineData("A != 1", "A ne 1")]
+    [InlineData("A!=1", "A ne 1")]
+    [InlineData("A != 1 && !B", "A ne 1 and not B")]
+    public void Bang_equals_is_still_ne(string input, string expected) =>
+        Assert.Equal(expected, DualWriteFilterConverter.XppToOData(input));
+
+    [Fact]
+    public void A_bang_inside_a_literal_is_not_translated()
+    {
+        Assert.Equal("Note eq '!a != b'", DualWriteFilterConverter.XppToOData("Note == \"!a != b\""));
+    }
 }
