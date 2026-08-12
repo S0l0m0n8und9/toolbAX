@@ -210,6 +210,10 @@ public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
         {
             // The gateway accepted the action but its map list still reports the old states — so a caller
             // that refreshes on a terminal status can be caught showing pre-action states.
+            // Fresh budget per action (#167 P2, PR #185 review): _statusPolls counts polls towards THIS
+            // action's release threshold. Without resetting here, polls already spent releasing a prior
+            // action on this same gateway would carry over and release this one's deferral early.
+            _statusPolls = 0;
             _deferredState = (action, targetIds);
         }
         else

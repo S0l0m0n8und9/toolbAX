@@ -653,6 +653,46 @@ public class DualWriteOpsTests
     }
 
     [Fact]
+    public async Task Sequential_deferred_actions_each_get_their_own_poll_budget()
+    {
+        // #167 P2 (PR #185 review): the fake's status-poll counter used to be shared across every action
+        // run on the same gateway, so polls already spent releasing action 1's deferral counted towards
+        // action 2's release threshold too — action 2 could be released before its OWN poll count elapsed.
+        var connector = new FakeDualWriteConnector(deferStateUntilPolls: 2);
+        var vm = MakeVm(connector, confirm: true);
+        await vm.LoadCommand.ExecuteAsync(null);
+
+        // Action 1: Stop "Customers V3". A single automatic poll (pollsBeforeTerminal defaults to 0) does
+        // not reach the release threshold of 2, so it stays deferred — same seam as the test above.
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+        await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+        Assert.True(connector.LastGateway!.HasDeferredState);
+
+        // The gateway "catches up" on its own — action 1 is fully done with, no more polling against it.
+        connector.LastGateway!.ReleaseDeferredState();
+        Assert.False(connector.LastGateway!.HasDeferredState);
+
+        // Action 2: Pause "Vendors V2" on the SAME gateway, same 2-poll threshold. If the poll counter
+        // carried over from action 1 (which already consumed 1 poll), action 2's own single automatic poll
+        // would push the shared count to 2 and release action 2's deferral a full poll early.
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = false;
+        vm.Maps.Single(m => m.Name == "Vendors V2").IsSelected = true;
+        await vm.RunActionCommand.ExecuteAsync(vm.PauseAction);
+
+        // With a fresh, per-action budget, action 2's one poll is not enough to release it either — its map
+        // state must stay exactly what it was before action 2 (Running), not the withheld Paused state.
+        Assert.True(connector.LastGateway!.HasDeferredState);
+        Assert.Equal("Running", vm.Maps.Single(m => m.Name == "Vendors V2").State);
+
+        // The withheld change is real (not lost) and specific to action 2 — releasing it now shows Pause
+        // applied, while action 1's own result (Stopped) is undisturbed.
+        connector.LastGateway!.ReleaseDeferredState();
+        var caughtUp = await connector.LastGateway!.GetMapsAsync("fake-cid", TestContext.Current.CancellationToken);
+        Assert.Equal("Paused", caughtUp.Single(m => m.Name == "Vendors V2").State);
+        Assert.Equal("Stopped", caughtUp.Single(m => m.Name == "Customers V3").State);
+    }
+
+    [Fact]
     public async Task Reconnecting_resets_the_log_to_only_the_current_attempt()
     {
         // A failed first attempt should not interleave with a later one — the log isolates the latest connect.
