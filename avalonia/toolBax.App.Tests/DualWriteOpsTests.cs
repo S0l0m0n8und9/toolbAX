@@ -274,6 +274,54 @@ public class DualWriteOpsTests
         Assert.False(vm.IsBusy);
     }
 
+    [Fact]
+    public async Task An_action_whose_status_check_throws_is_reported_as_submitted_and_still_refreshes()
+    {
+        // The submit succeeded; only GetStatusAsync broke (gateway 500 / network blip / non-JSON body).
+        // That reached RunAction's outer catch as "Stop failed: …" and skipped the refresh, so the user was
+        // told a submitted action had failed while looking at the pre-action states.
+        var connector = new FakeDualWriteConnector(failStatusCheck: true);
+        var vm = MakeVm(connector, confirm: true);
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+
+        await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+
+        Assert.Equal(1, connector.LastGateway!.StartCount);
+        Assert.Contains("submitted", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("status check failed", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Stop failed", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("500", vm.Status);                        // the reason survives, in one line
+        Assert.DoesNotContain("<html", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, connector.LastGateway!.GetMapsCount);      // load + the post-action refresh
+        Assert.Equal("Stopped", vm.Maps.Single(m => m.Name == "Customers V3").State);
+        // Warn, not Err: the action most likely succeeded — only the report on it didn't.
+        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Warn
+            && e.Text.Contains("status check failed", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(vm.GatewayLog, e => e.Kind == LogKind.Err);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task A_user_cancel_during_polling_is_still_reported_as_a_cancel()
+    {
+        // Guards the catch above from swallowing a genuine cancel: the token the user cancelled is ours, so
+        // this must stay "Cancelled." rather than being dressed up as a submitted-but-unpollable action.
+        var connector = new FakeDualWriteConnector(pollsBeforeTerminal: int.MaxValue);
+        var vm = MakeVm(connector, confirm: true);
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+
+        var running = vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+        vm.RunActionCancelCommand.Execute(null);
+        await running;
+
+        Assert.Equal(1, connector.LastGateway!.StartCount);   // the submit happened before the cancel
+        Assert.Contains("Cancel", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("status check failed", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.False(vm.IsBusy);
+    }
+
     // --- #152: the session is pinned to the environment it was connected for ---
 
     [Fact]

@@ -21,22 +21,27 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
     private readonly Task? _gate;
     private readonly int _pollsBeforeTerminal;
     private readonly bool _emptyRequestId;
+    private readonly bool _failStatusCheck;
 
     /// <summary>The gateway handed out by the last successful connect (for asserting on actions).</summary>
     public FakeCoreDualWriteGateway? LastGateway { get; private set; }
 
     private readonly int _failGetMapsOnCall;
 
+    /// <param name="failStatusCheck">Makes every <c>GetStatusAsync</c> throw while the submit still
+    /// succeeds — the gateway-500 / network-blip / non-JSON-body case (#166).</param>
     public FakeDualWriteConnector(
         IReadOnlyList<DualWriteMap>? maps = null,
         int pollsBeforeTerminal = 0,
         int failGetMapsOnCall = 0,
-        bool emptyRequestId = false)
+        bool emptyRequestId = false,
+        bool failStatusCheck = false)
     {
         _maps = maps;
         _pollsBeforeTerminal = pollsBeforeTerminal;
         _failGetMapsOnCall = failGetMapsOnCall;
         _emptyRequestId = emptyRequestId;
+        _failStatusCheck = failStatusCheck;
     }
 
     private FakeDualWriteConnector(Exception failWith) => _failWith = failWith;
@@ -74,7 +79,8 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
             throw _failWith;
         }
 
-        var gateway = new FakeCoreDualWriteGateway(_maps ?? SeedMaps(), _pollsBeforeTerminal, _failGetMapsOnCall, _emptyRequestId);
+        var gateway = new FakeCoreDualWriteGateway(
+            _maps ?? SeedMaps(), _pollsBeforeTerminal, _failGetMapsOnCall, _emptyRequestId, _failStatusCheck);
         LastGateway = gateway;
         // Stamp the environment connected to (as the real connector does), so env-gating is exercisable.
         return new DualWriteSession(gateway, "fake-cid", "Contoso (AUMF · APAC Prod)",
@@ -117,6 +123,7 @@ public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
     private readonly int _pollsBeforeTerminal;
     private readonly int _failGetMapsOnCall;
     private readonly bool _emptyRequestId;
+    private readonly bool _failStatusCheck;
     private readonly Dictionary<string, int> _pending = new();
     private int _requestSeq;
     private int _getMapsCalls;
@@ -131,12 +138,14 @@ public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
         IReadOnlyList<DualWriteMap> maps,
         int pollsBeforeTerminal = 0,
         int failGetMapsOnCall = 0,
-        bool emptyRequestId = false)
+        bool emptyRequestId = false,
+        bool failStatusCheck = false)
     {
         _maps = maps.ToList();
         _pollsBeforeTerminal = pollsBeforeTerminal;
         _failGetMapsOnCall = failGetMapsOnCall;
         _emptyRequestId = emptyRequestId;
+        _failStatusCheck = failStatusCheck;
     }
 
     public Task<DualWriteEnvironment> GetEnvironmentAsync(string foIdentifier, CancellationToken cancellationToken = default)
@@ -186,6 +195,15 @@ public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
         if (string.IsNullOrWhiteSpace(requestId))
         {
             throw new ArgumentException("A request id is required.", nameof(requestId));
+        }
+
+        // A submitted action whose status check breaks: the gateway 500s, the connection blips, or the body
+        // isn't JSON (a proxy error page). Multi-line on purpose — the message the screen shows must stay
+        // one line. The action itself already happened (StartActionAsync above mutated the state).
+        if (_failStatusCheck)
+        {
+            throw new InvalidOperationException(
+                "gateway returned 500 (Internal Server Error)\n<html><body>Server Error</body></html>");
         }
 
         if (_pending.TryGetValue(requestId, out var remaining) && remaining > 0)

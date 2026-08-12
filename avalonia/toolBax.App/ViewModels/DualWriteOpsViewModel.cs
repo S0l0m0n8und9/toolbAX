@@ -309,9 +309,10 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         }
     }
 
-    // Polls a submitted request to a terminal state and reports the outcome. Our own polling budget running
-    // out is NOT a failed action and NOT a lost request: it's reported as still-running, carrying the
-    // request id so the operation can be chased up, and the caller still refreshes the map list.
+    // Polls a submitted request to a terminal state and reports the outcome. Neither our own polling budget
+    // running out nor the status check itself erroring is a failed action or a lost request: both are
+    // reported as submitted, and the caller still refreshes the map list. Only a genuine user cancel, and a
+    // failure of the submit itself (which happens before this is called), propagate as such.
     private async Task PollAndReportAsync(OpsAction action, DualWriteSession session, string requestId, CancellationToken ct)
     {
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -340,6 +341,17 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             Log(Status, LogKind.Warn);
             return;
         }
+        // The status check broke (gateway 500, network blip, a non-JSON body), not the action: the submit
+        // already succeeded. Letting this reach RunAction's outer catch reported "{action} failed" and
+        // skipped the refresh — a failure message over a stale grid, which is how the same Initial sync gets
+        // submitted twice. Warn, not Err: the action is most likely still running. A cancel is excluded from
+        // the filter so it keeps propagating to RunAction.
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            Status = $"{action.Label} submitted — status check failed ({Concise(ex)}); refreshing the map list.";
+            Log(Status, LogKind.Warn);
+            return;
+        }
 
         if (final is { IsSuccess: true })
         {
@@ -352,6 +364,14 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             Status = $"{action.Label} failed: {why}.";
             Log($"{action.Label} failed: {why}.", LogKind.Err);
         }
+    }
+
+    // One line, no trailing stop — a gateway that answers with an HTML error page or a truncated body
+    // surfaces as a multi-line parse message, and this is spliced into a single-line status sentence.
+    private static string Concise(Exception ex)
+    {
+        var first = ex.Message.Split('\n', 2)[0].Trim().TrimEnd('.');
+        return first.Length == 0 ? ex.GetType().Name : first;
     }
 
     private bool CanToggleDebug() =>
