@@ -215,6 +215,8 @@ public class DualWriteCompareViewModelTests
     [InlineData(DualWriteComparisonVerdict.StateMismatch, "state mismatch")]
     [InlineData(DualWriteComparisonVerdict.OnlyInLeft, "only in source")]
     [InlineData(DualWriteComparisonVerdict.OnlyInRight, "only in target")]
+    // #160: the unpairable verdict needs a label of its own, or the grid falls back to the enum name.
+    [InlineData(DualWriteComparisonVerdict.Ambiguous, "cannot compare")]
     public void Verdict_labels_are_friendly(DualWriteComparisonVerdict verdict, string expected) =>
         Assert.Equal(expected, CompareVerdict.Label(verdict));
 
