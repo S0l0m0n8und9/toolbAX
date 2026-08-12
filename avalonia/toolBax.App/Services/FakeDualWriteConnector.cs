@@ -27,21 +27,28 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
     public FakeCoreDualWriteGateway? LastGateway { get; private set; }
 
     private readonly int _failGetMapsOnCall;
+    private readonly int _deferStateUntilPolls;
 
     /// <param name="failStatusCheck">Makes every <c>GetStatusAsync</c> throw while the submit still
     /// succeeds — the gateway-500 / network-blip / non-JSON-body case (#166).</param>
+    /// <param name="deferStateUntilPolls">Withholds the action's map-state change from the gateway's map
+    /// list until this many status polls have run (or
+    /// <see cref="FakeCoreDualWriteGateway.ReleaseDeferredState"/> is called) — the "terminal, but the map
+    /// list hasn't caught up yet" case. 0 (the default) applies the change synchronously, as before.</param>
     public FakeDualWriteConnector(
         IReadOnlyList<DualWriteMap>? maps = null,
         int pollsBeforeTerminal = 0,
         int failGetMapsOnCall = 0,
         bool emptyRequestId = false,
-        bool failStatusCheck = false)
+        bool failStatusCheck = false,
+        int deferStateUntilPolls = 0)
     {
         _maps = maps;
         _pollsBeforeTerminal = pollsBeforeTerminal;
         _failGetMapsOnCall = failGetMapsOnCall;
         _emptyRequestId = emptyRequestId;
         _failStatusCheck = failStatusCheck;
+        _deferStateUntilPolls = deferStateUntilPolls;
     }
 
     private FakeDualWriteConnector(Exception failWith) => _failWith = failWith;
@@ -80,7 +87,8 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
         }
 
         var gateway = new FakeCoreDualWriteGateway(
-            _maps ?? SeedMaps(), _pollsBeforeTerminal, _failGetMapsOnCall, _emptyRequestId, _failStatusCheck);
+            _maps ?? SeedMaps(), _pollsBeforeTerminal, _failGetMapsOnCall, _emptyRequestId, _failStatusCheck,
+            _deferStateUntilPolls);
         LastGateway = gateway;
         // Stamp the environment connected to (as the real connector does), so env-gating is exercisable.
         return new DualWriteSession(gateway, "fake-cid", "Contoso (AUMF · APAC Prod)",
@@ -116,7 +124,12 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
 /// <summary>In-memory <see cref="IDualWriteGateway"/> for design-mode/tests. Read methods are real;
 /// lifecycle actions mutate the in-memory map states (so a refresh reflects them) and the status poll
 /// reports terminal success after <c>pollsBeforeTerminal</c> non-terminal polls. The remaining gateway
-/// surface throws until it's needed.</summary>
+/// surface throws until it's needed.
+/// <para>
+/// By default the state change lands synchronously inside <see cref="StartActionAsync"/>, which makes the
+/// real gateway's lag — terminal request, map list not yet updated — impossible to observe. Opt into that
+/// lag with <c>deferStateUntilPolls</c> and/or <see cref="ReleaseDeferredState"/>.
+/// </para></summary>
 public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
 {
     private readonly List<DualWriteMap> _maps;
@@ -124,7 +137,10 @@ public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
     private readonly int _failGetMapsOnCall;
     private readonly bool _emptyRequestId;
     private readonly bool _failStatusCheck;
+    private readonly int _deferStateUntilPolls;
     private readonly Dictionary<string, int> _pending = new();
+    private (DualWriteActionType Action, HashSet<string> TargetIds)? _deferredState;
+    private int _statusPolls;
     private int _requestSeq;
     private int _getMapsCalls;
 
@@ -134,18 +150,41 @@ public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
     /// <summary>Number of <see cref="GetMapsAsync"/> calls — lets tests assert the post-action refresh ran.</summary>
     public int GetMapsCount => _getMapsCalls;
 
+    /// <summary>True while an action's state change is still withheld from the map list.</summary>
+    public bool HasDeferredState => _deferredState is not null;
+
+    /// <param name="deferStateUntilPolls">Withholds the action's map-state change until this many
+    /// <see cref="GetStatusAsync"/> calls have run, or until <see cref="ReleaseDeferredState"/> is called.
+    /// 0 (the default) keeps the historical synchronous mutation; <see cref="int.MaxValue"/> means polling
+    /// never releases it, so only an explicit release does.</param>
     public FakeCoreDualWriteGateway(
         IReadOnlyList<DualWriteMap> maps,
         int pollsBeforeTerminal = 0,
         int failGetMapsOnCall = 0,
         bool emptyRequestId = false,
-        bool failStatusCheck = false)
+        bool failStatusCheck = false,
+        int deferStateUntilPolls = 0)
     {
         _maps = maps.ToList();
         _pollsBeforeTerminal = pollsBeforeTerminal;
         _failGetMapsOnCall = failGetMapsOnCall;
         _emptyRequestId = emptyRequestId;
         _failStatusCheck = failStatusCheck;
+        _deferStateUntilPolls = deferStateUntilPolls;
+    }
+
+    /// <summary>
+    /// Applies a withheld state change now — the gateway's map list finally catching up. A no-op when
+    /// nothing is deferred.
+    /// </summary>
+    public void ReleaseDeferredState()
+    {
+        var deferred = _deferredState;
+        _deferredState = null;
+        if (deferred is { } pending)
+        {
+            ApplyState(pending.Action, pending.TargetIds);
+        }
     }
 
     public Task<DualWriteEnvironment> GetEnvironmentAsync(string foIdentifier, CancellationToken cancellationToken = default)
@@ -166,14 +205,20 @@ public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
     public Task<DualWriteActionResponse> StartActionAsync(DualWriteActionType action, IReadOnlyList<DualWriteMap> maps, string cid, CancellationToken cancellationToken = default)
     {
         StartCount++;
-        var newState = ResultState(action);
         var targetIds = maps.Select(m => m.Id).ToHashSet();
-        for (var i = 0; i < _maps.Count; i++)
+        if (_deferStateUntilPolls > 0)
         {
-            if (targetIds.Contains(_maps[i].Id))
-            {
-                _maps[i] = _maps[i] with { State = newState };
-            }
+            // The gateway accepted the action but its map list still reports the old states — so a caller
+            // that refreshes on a terminal status can be caught showing pre-action states.
+            // Fresh budget per action (#167 P2, PR #185 review): _statusPolls counts polls towards THIS
+            // action's release threshold. Without resetting here, polls already spent releasing a prior
+            // action on this same gateway would carry over and release this one's deferral early.
+            _statusPolls = 0;
+            _deferredState = (action, targetIds);
+        }
+        else
+        {
+            ApplyState(action, targetIds);
         }
 
         // A real gateway sometimes answers a submitted action with 202 + no body (or a bare id it doesn't
@@ -197,6 +242,13 @@ public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
             throw new ArgumentException("A request id is required.", nameof(requestId));
         }
 
+        // Counted before the failure branch below: a gateway that 500s on the status check still received
+        // the poll, and a deferred release must not depend on whether the report succeeded.
+        if (++_statusPolls >= _deferStateUntilPolls && _deferStateUntilPolls > 0)
+        {
+            ReleaseDeferredState();
+        }
+
         // A submitted action whose status check breaks: the gateway 500s, the connection blips, or the body
         // isn't JSON (a proxy error page). Multi-line on purpose — the message the screen shows must stay
         // one line. The action itself already happened (StartActionAsync above mutated the state).
@@ -213,6 +265,18 @@ public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
         }
 
         return Task.FromResult(new DualWriteRequestStatus(requestId, "success", IsTerminal: true, IsSuccess: true, Message: null));
+    }
+
+    private void ApplyState(DualWriteActionType action, HashSet<string> targetIds)
+    {
+        var newState = ResultState(action);
+        for (var i = 0; i < _maps.Count; i++)
+        {
+            if (targetIds.Contains(_maps[i].Id))
+            {
+                _maps[i] = _maps[i] with { State = newState };
+            }
+        }
     }
 
     private static string ResultState(DualWriteActionType action) => action switch
