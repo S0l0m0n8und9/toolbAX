@@ -389,6 +389,88 @@ public class ShellViewModelTests
     }
 
     [Fact]
+    public void Deleting_the_active_profile_persists_the_replacement_and_refreshes_the_open_tools()
+    {
+        // #154: the store clears the persisted default when the active profile is deleted, so the shell
+        // must write the replacement back — otherwise the next launch starts with no active environment
+        // — and the open tools must drop the deleted environment's cached data.
+        var store = new FakeProfileStore();
+        var dialogs = new RecordingDialogs(answer: false);
+        var shell = new ShellViewModel(profileStore: store, dialogs: dialogs);
+        var activeId = shell.ActiveEnvironment!.Id;
+
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
+        var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
+        profiles.Selected = profiles.Profiles.Single(p => p.Id == activeId);
+
+        // Park on a data tool so its cached VM identity shows whether the tools were rebuilt.
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var before = shell.CurrentContent;
+
+        profiles.DeleteProfileCommand.Execute(null);
+
+        var replacement = shell.ActiveEnvironment;
+        Assert.NotNull(replacement);
+        Assert.NotEqual(activeId, replacement!.Id);
+        Assert.Equal(replacement.Id, store.ActiveId);  // persisted → the next launch is coherent
+        Assert.NotSame(before, shell.CurrentContent);  // deleted env's data is gone from the open tool
+        Assert.IsType<QueryBuilderViewModel>(shell.CurrentContent);
+        Assert.Equal(0, dialogs.Calls);                // no "refresh open tools?" prompt for a deletion
+    }
+
+    [Fact]
+    public void Deleting_a_non_active_profile_leaves_the_active_id_and_open_tools_alone()
+    {
+        var store = new FakeProfileStore();
+        var dialogs = new RecordingDialogs(answer: false);
+        var shell = new ShellViewModel(profileStore: store, dialogs: dialogs);
+        var activeId = shell.ActiveEnvironment!.Id;
+
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
+        var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
+        profiles.Selected = profiles.Profiles.First(p => p.Id != activeId);
+        var deletedId = profiles.Selected!.Id;
+
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var before = shell.CurrentContent;
+
+        profiles.DeleteProfileCommand.Execute(null);
+
+        Assert.DoesNotContain(shell.Environments, e => e.Id == deletedId);
+        Assert.Equal(activeId, shell.ActiveEnvironment!.Id);
+        Assert.Equal(activeId, store.ActiveId);       // untouched — the active profile didn't change
+        Assert.Same(before, shell.CurrentContent);    // …so the open tool's state is preserved
+        Assert.Equal(0, dialogs.Calls);
+    }
+
+    [Fact]
+    public void Deleting_the_last_remaining_profile_leaves_no_active_environment()
+    {
+        // The Profiles screen keeps at least one profile (CanDeleteProfile), so the shell's
+        // "no replacement" branch is defensive. Park a decoy in the screen's own list to get past that
+        // invariant; the store and the shell still hold exactly one real profile, so the end state is
+        // the genuine one — empty store, no persisted default, nothing for the tools to show.
+        var only = new EnvProfile("solo", "Solo Env", "solo.operations.dynamics.com", "t", "USMF", "Tier 1", EnvStatus.Disconnected);
+        var store = new FakeProfileStore(new[] { only }) { ActiveId = only.Id };
+        var shell = new ShellViewModel(profileStore: store, dialogs: new RecordingDialogs(answer: false));
+
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
+        var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
+        profiles.Profiles.Add(new EnvProfile("decoy", "Decoy", "d", "t", "L", "Tier 1", EnvStatus.Disconnected));
+        profiles.Selected = profiles.Profiles.Single(p => p.Id == only.Id);
+
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var before = shell.CurrentContent;
+
+        profiles.DeleteProfileCommand.Execute(null);
+
+        Assert.Empty(shell.Environments);
+        Assert.Null(shell.ActiveEnvironment);
+        Assert.Null(store.ActiveId);                   // correctly stays cleared — nothing to point at
+        Assert.NotSame(before, shell.CurrentContent);  // tools rebuilt: the deleted env's data is gone
+    }
+
+    [Fact]
     public void Empty_profile_store_does_not_crash_the_shell()
     {
         var shell = new ShellViewModel(profileStore: new FakeProfileStore(Array.Empty<EnvProfile>()));

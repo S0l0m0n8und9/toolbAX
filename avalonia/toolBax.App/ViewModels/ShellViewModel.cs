@@ -211,10 +211,26 @@ public partial class ShellViewModel : ObservableObject
                 Environments.Remove(existing);
             }
 
-            if (ActiveEnvironment?.Id == id)
+            if (ActiveEnvironment?.Id != id)
             {
-                ActiveEnvironment = Environments.FirstOrDefault(); // active env removed → pick another/none
+                return; // a non-active profile went away — the switcher list is all that changes.
             }
+
+            var replacement = Environments.FirstOrDefault(); // active env removed → pick another/none
+            ActiveEnvironment = replacement;
+
+            // Deleting the active profile made the store clear the persisted default, so the replacement
+            // has to be written back or the next launch starts with no active environment. When nothing
+            // is left (last profile deleted) the null the store already wrote is the correct answer.
+            if (replacement is not null)
+            {
+                _profileStore.ActiveId = replacement.Id;
+            }
+
+            // A deliberate switch asks before discarding open tool state; a deletion does not. Whatever
+            // those tools are showing belongs to an environment that no longer exists, so there is no
+            // unsaved input worth protecting — rebuild them unconditionally against the replacement.
+            InvalidateToolContent();
         };
         return profiles;
     }
@@ -243,8 +259,10 @@ public partial class ShellViewModel : ObservableObject
 
     // The single funnel for a deliberate active-environment switch (header switcher OR Profiles' "Set
     // active"). Profile rename/delete update ActiveEnvironment directly and intentionally bypass this —
-    // they aren't switches and must not discard open tool state. The active environment always changes;
-    // refreshing the open tools (which discards their unsaved input) is gated behind a confirm prompt.
+    // they aren't switches, so they must not raise this prompt (rename must not discard open tool state
+    // at all; deletion refreshes unconditionally — see the ProfileDeleted handler). The active
+    // environment always changes; refreshing the open tools (which discards their unsaved input) is
+    // gated behind a confirm prompt.
     private async Task ApplyActiveEnvironmentSwitchAsync(EnvProfile? target)
     {
         if (target is null)
