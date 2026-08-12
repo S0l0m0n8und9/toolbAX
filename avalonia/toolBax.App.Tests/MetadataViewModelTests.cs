@@ -261,6 +261,181 @@ public class MetadataViewModelTests
         Assert.Contains("unreachable", vm.LoadError);
     }
 
+    // Per-entity gates, so a test can hold one entity's fetch open, switch selection, then release — the
+    // mid-flight entity change the browser has to survive. LoadFieldsAsync honours the cancellation token
+    // like the real service, so a superseded fetch actually unwinds instead of hanging.
+    private sealed class GatedFieldsMetadata : IMetadataService
+    {
+        private static readonly EntitySet[] All =
+        {
+            new("Alpha", "M", 1, "k", false, "odata"),
+            new("Beta", "M", 1, "k", false, "odata"),
+        };
+        private static readonly EntityField[] Props = { new("Id", "String", false, IsKey: true, Length: 10) };
+        private readonly Dictionary<string, TaskCompletionSource<bool>> _gates = new();
+        private readonly HashSet<string> _loaded = new();
+        // A superseded fetch unwinds on a pool thread while the new selection runs on the test thread, so
+        // the recorded state is guarded rather than left to chance.
+        private readonly object _sync = new();
+
+        /// <summary>Every entity a fetch was actually started for, in order.</summary>
+        public List<string> FieldLoads { get; } = new();
+
+        public TaskCompletionSource<bool> Gate(string entityName)
+        {
+            lock (_sync)
+            {
+                if (!_gates.TryGetValue(entityName, out var gate))
+                {
+                    _gates[entityName] = gate = new TaskCompletionSource<bool>();
+                }
+
+                return gate;
+            }
+        }
+
+        /// <summary>Pre-caches an entity so selecting it needs no fetch.</summary>
+        public void MarkCached(string entityName)
+        {
+            lock (_sync)
+            {
+                _loaded.Add(entityName);
+            }
+        }
+
+        public IReadOnlyList<EntitySet> GetEntities() => All;
+
+        public IReadOnlyList<EntityField>? GetFields(string entityName)
+        {
+            lock (_sync)
+            {
+                return _loaded.Contains(entityName) ? Props : null;
+            }
+        }
+
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+        public async Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default)
+        {
+            lock (_sync)
+            {
+                FieldLoads.Add(entityName);
+            }
+
+            await Gate(entityName).Task.WaitAsync(ct);
+            MarkCached(entityName);
+            return true;
+        }
+
+        public IReadOnlyList<string> StartedFetches()
+        {
+            lock (_sync)
+            {
+                return FieldLoads.ToList();
+            }
+        }
+    }
+
+    // Awaits whatever field-fetch executions are pending. Selection changes start the command
+    // fire-and-forget, so ExecutionTask is the only handle a test has on them.
+    private static async Task DrainFieldFetchesAsync(MetadataViewModel vm)
+    {
+        for (var i = 0; i < 5 && vm.LoadSelectedFieldsCommand.ExecutionTask is { IsCompleted: false } running; i++)
+        {
+            await running;
+        }
+    }
+
+    [Fact]
+    public void Changing_entity_mid_fetch_starts_the_new_entitys_fetch()
+    {
+        // The load command is fired fire-and-forget on every selection change. If it refused to re-enter
+        // while the previous entity's fetch was still running, the click would be silently swallowed — and
+        // the indicator's ownership handover (below) would have nothing to hand over to.
+        var metadata = new GatedFieldsMetadata();
+        var vm = new MetadataViewModel(metadata);
+
+        vm.LoadSelectedFieldsCommand.Execute(null);
+        Assert.Equal(new[] { "Alpha" }, metadata.StartedFetches());
+
+        vm.Selected = vm.Entities.Single(e => e.Name == "Beta");
+
+        Assert.Contains("Beta", metadata.StartedFetches());
+    }
+
+    [Fact]
+    public async Task Changing_entity_mid_fetch_still_loads_the_new_entity_and_clears_the_indicator()
+    {
+        var metadata = new GatedFieldsMetadata();
+        var vm = new MetadataViewModel(metadata);   // Alpha selected, fields not cached
+
+        vm.LoadSelectedFieldsCommand.Execute(null);   // fire-and-forget, exactly as the view does
+        var supersededFetch = vm.LoadSelectedFieldsCommand.ExecutionTask!;
+        Assert.True(vm.IsLoadingFields);
+
+        // The user clicks Beta while Alpha's fetch is still in flight.
+        vm.Selected = vm.Entities.Single(e => e.Name == "Beta");
+
+        // Open both gates before waiting on anything: the superseded fetch may already have unwound via
+        // cancellation, and the new selection's fetch is only reachable through ExecutionTask.
+        metadata.Gate("Alpha").TrySetResult(true);
+        metadata.Gate("Beta").TrySetResult(true);
+        await supersededFetch;
+        await DrainFieldFetchesAsync(vm);
+
+        // The click must not be dropped, and nothing may be left spinning once the dust settles.
+        Assert.Contains("Beta", metadata.StartedFetches());
+        Assert.False(vm.IsLoadingFields);
+        Assert.True(vm.IsCached);
+        Assert.NotEmpty(vm.Fields);
+    }
+
+    [Fact]
+    public async Task Clearing_the_selection_mid_fetch_cannot_leave_the_indicator_stuck()
+    {
+        // What Refresh does when the environment comes back with no entities at all (a profile repointed at
+        // an environment without OData metadata): the selection is cleared. The replacement execution then
+        // bails out before it can take over the indicator, so the fetch already in flight is the only one
+        // left that can lower it — and it must, even though "its" entity is no longer selected.
+        var metadata = new GatedFieldsMetadata();
+        var vm = new MetadataViewModel(metadata);
+
+        vm.LoadSelectedFieldsCommand.Execute(null);
+        var supersededFetch = vm.LoadSelectedFieldsCommand.ExecutionTask!;
+        Assert.True(vm.IsLoadingFields);
+
+        vm.Selected = null;
+
+        metadata.Gate("Alpha").TrySetResult(true);
+        await supersededFetch;
+        await DrainFieldFetchesAsync(vm);
+
+        Assert.False(vm.IsLoadingFields);
+    }
+
+    [Fact]
+    public async Task Changing_to_a_cached_entity_mid_fetch_clears_the_indicator()
+    {
+        // The new selection needs no fetch of its own, so there is no later slow completion to piggyback
+        // the clear onto — the superseded fetch must not leave the pane spinning on its way out.
+        var metadata = new GatedFieldsMetadata();
+        metadata.MarkCached("Beta");
+        var vm = new MetadataViewModel(metadata);
+
+        vm.LoadSelectedFieldsCommand.Execute(null);
+        var supersededFetch = vm.LoadSelectedFieldsCommand.ExecutionTask!;
+        Assert.True(vm.IsLoadingFields);
+
+        vm.Selected = vm.Entities.Single(e => e.Name == "Beta");
+        metadata.Gate("Alpha").TrySetResult(true);
+        await supersededFetch;
+        await DrainFieldFetchesAsync(vm);
+
+        Assert.False(vm.IsLoadingFields);
+        Assert.True(vm.IsCached);           // Beta's cached fields are on screen
+        Assert.False(vm.ShowNotCachedHint);
+    }
+
     [Fact]
     public async Task A_cached_entity_leaves_no_loading_indicator_behind()
     {
