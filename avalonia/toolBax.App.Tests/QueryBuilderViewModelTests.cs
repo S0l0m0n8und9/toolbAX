@@ -489,7 +489,7 @@ public class QueryBuilderViewModelTests
         var columns = new[] { "Name", "Note" };
         var rows = new[]
         {
-            new QueryResultRow(new Dictionary<string, string> { ["Name"] = "Acme, Inc.", ["Note"] = "say \"hi\"" }),
+            new QueryResultRow(new Dictionary<string, string?> { ["Name"] = "Acme, Inc.", ["Note"] = "say \"hi\"" }),
         };
 
         var csv = QueryCsv.Build(columns, rows);
@@ -504,7 +504,7 @@ public class QueryBuilderViewModelTests
     [InlineData("@SUM(A1)")]
     public void Csv_builder_neutralises_formula_injection(string dangerous)
     {
-        var rows = new[] { new QueryResultRow(new Dictionary<string, string> { ["C"] = dangerous }) };
+        var rows = new[] { new QueryResultRow(new Dictionary<string, string?> { ["C"] = dangerous }) };
 
         var cell = QueryCsv.Build(new[] { "C" }, rows).Split("\r\n")[1];
 
@@ -628,16 +628,20 @@ public class QueryBuilderViewModelTests
     }
 
     // Holds the request open, then honours the caller's token the way CoreODataClient does: a cancelled
-    // token throws rather than being reported as a failed request. Lets a cancel land mid-flight.
+    // token throws rather than being reported as a failed request. Lets a cancel — or an entity switch —
+    // land mid-flight before the response is delivered.
     private sealed class CancellableGatedODataClient : IODataClient
     {
+        private readonly string _body;
         public readonly TaskCompletionSource Gate = new();
+
+        public CancellableGatedODataClient(string body = "{\"value\":[]}") => _body = body;
 
         public async Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
         {
             await Gate.Task;
             ct.ThrowIfCancellationRequested();
-            return new ODataResponse(200, "OK", "{\"value\":[]}", 5);
+            return new ODataResponse(200, "OK", _body, 5);
         }
     }
 
@@ -1582,17 +1586,45 @@ public class QueryBuilderViewModelTests
     {
         var rows = new[]
         {
-            new QueryResultRow(new Dictionary<string, string>
+            new QueryResultRow(new Dictionary<string, string?>
             {
                 ["Name"] = "Acme",
-                ["Note"] = QueryCsv.NullPlaceholder, // what the grid shows for a null/absent value
+                ["Note"] = null, // the grid displays an em-dash for this; the export must not
             }),
         };
 
         var csv = QueryCsv.Build(new[] { "Name", "Note" }, rows);
 
         Assert.Equal("Name,Note\r\nAcme,", csv);
-        Assert.DoesNotContain(QueryCsv.NullPlaceholder, csv); // display-only, never exported
+        Assert.DoesNotContain(QueryResultRow.NullDisplay, csv); // display-only, never exported
+        Assert.Equal(QueryResultRow.NullDisplay, rows[0]["Note"]); // …but it IS what the grid shows
+    }
+
+    [Fact]
+    public void A_genuine_em_dash_value_survives_the_csv_round_trip()
+    {
+        // "—" is only a placeholder when the cell is null. As an actual value it is data, and inferring
+        // nullness by comparing against the display string silently blanked it (PR #193 review).
+        var rows = new[]
+        {
+            new QueryResultRow(new Dictionary<string, string?> { ["A"] = "—", ["B"] = null }),
+        };
+
+        // Indistinguishable in the grid — both cells read "—" — but only the null one exports empty.
+        Assert.Equal(QueryResultRow.NullDisplay, rows[0]["A"]);
+        Assert.Equal(QueryResultRow.NullDisplay, rows[0]["B"]);
+        Assert.Equal("A,B\r\n—,", QueryCsv.Build(new[] { "A", "B" }, rows));
+    }
+
+    [Fact]
+    public void A_column_absent_from_the_row_exports_empty_like_an_explicit_null()
+    {
+        // ExportAllCsv's growing union relies on this: rows parsed before a late column appeared carry
+        // no entry for it at all, and must export as empty rather than throwing or shifting fields.
+        var rows = new[] { new QueryResultRow(new Dictionary<string, string?> { ["A"] = "1" }) };
+
+        Assert.Equal("A,B\r\n1,", QueryCsv.Build(new[] { "A", "B" }, rows));
+        Assert.Equal(QueryResultRow.NullDisplay, rows[0]["B"]);
     }
 
     [Fact]
@@ -1602,11 +1634,11 @@ public class QueryBuilderViewModelTests
         // so an emptied cell lands as a bare empty field — the guard's behaviour is unchanged.
         var rows = new[]
         {
-            new QueryResultRow(new Dictionary<string, string>
+            new QueryResultRow(new Dictionary<string, string?>
             {
-                ["A"] = QueryCsv.NullPlaceholder,
+                ["A"] = null,
                 ["B"] = "=1+2",
-                ["C"] = QueryCsv.NullPlaceholder,
+                ["C"] = null,
             }),
         };
 
@@ -1627,7 +1659,7 @@ public class QueryBuilderViewModelTests
         await vm.ExportCsvFileCommand.ExecuteAsync(null);
 
         Assert.Equal("CustomerAccount,OrganizationName\r\nUS-1,", fileSave.LastContent);
-        Assert.Equal(QueryCsv.NullPlaceholder, vm.ResultRows[0]["OrganizationName"]);
+        Assert.Equal(QueryResultRow.NullDisplay, vm.ResultRows[0]["OrganizationName"]);
     }
 
     // --- #168: results are invalidated when the entity changes ---
@@ -1713,7 +1745,7 @@ public class QueryBuilderViewModelTests
                 "PaymentTermsName", "CreditLimit", "IsOneTime", "PrimaryContactEmail",
             },
             vm.ResultColumns);
-        Assert.All(vm.ResultRows, row => Assert.NotEqual(QueryCsv.NullPlaceholder, row["CustomerAccount"]));
+        Assert.All(vm.ResultRows, row => Assert.NotEqual(QueryResultRow.NullDisplay, row["CustomerAccount"]));
         Assert.True(vm.ExportCsvCommand.CanExecute(null));
         Assert.True(vm.ExportCsvFileCommand.CanExecute(null));
     }
@@ -1732,7 +1764,7 @@ public class QueryBuilderViewModelTests
         await vm.RunCommand.ExecuteAsync(null);
 
         Assert.Equal(new[] { "A", "B" }, vm.ResultColumns);
-        Assert.Equal(QueryCsv.NullPlaceholder, vm.ResultRows[0]["B"]); // absent on the first row
+        Assert.Equal(QueryResultRow.NullDisplay, vm.ResultRows[0]["B"]); // absent on the first row
     }
 
     [Fact]
@@ -1825,5 +1857,184 @@ public class QueryBuilderViewModelTests
         vm.CancelBusyCommand.Execute(null); // must not throw when no command is cancellable
 
         Assert.False(vm.IsBusy);
+    }
+
+    // --- PR #193 review: an in-flight read that completes after an entity switch is discarded ---
+
+    // Two rows of CustomersV3 data, so a stale completion landing in the grid is unmistakable.
+    private const string StaleRunBody =
+        "{\"value\":[{\"CustomerAccount\":\"US-1\"},{\"CustomerAccount\":\"US-2\"}]}";
+
+    private static void AssertCleanSlate(QueryBuilderViewModel vm)
+    {
+        Assert.Empty(vm.ResultRows);
+        Assert.Empty(vm.ResultColumns);
+        Assert.False(vm.HasRun);
+        Assert.Equal(0, vm.RowCount);
+        Assert.Null(vm.TotalCount);
+        Assert.Null(vm.NextLink);
+        Assert.False(vm.RunSucceeded);
+        Assert.Empty(vm.StatusBadge);
+        Assert.Equal("Not run yet.", vm.StatusText);
+        Assert.Equal("Results", vm.ResultsTabHeader);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task An_entity_switch_mid_run_discards_the_stale_completion()
+    {
+        var client = new CancellableGatedODataClient(StaleRunBody);
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        var run = vm.RunCommand.ExecuteAsync(null);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "VendorsV2"); // switch while in flight
+        client.Gate.SetResult();
+        await run;
+
+        // Clearing on switch is not enough on its own — the in-flight Run still completed and used to
+        // repopulate the grid, labelling CustomersV3's rows VendorsV2.
+        AssertCleanSlate(vm);
+    }
+
+    [Fact]
+    public async Task A_switch_away_and_back_mid_run_still_discards_the_stale_completion()
+    {
+        // Comparing the entity NAME would pass here: it is CustomersV3 again by the time the response
+        // lands. But those results were already invalidated, so the generation stamp discards them.
+        var client = new CancellableGatedODataClient(StaleRunBody);
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        var run = vm.RunCommand.ExecuteAsync(null);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "VendorsV2");
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        client.Gate.SetResult();
+        await run;
+
+        AssertCleanSlate(vm);
+    }
+
+    [Fact]
+    public async Task An_entity_switch_mid_load_more_discards_the_stale_page()
+    {
+        var client = new CancellableGatedODataClient(StaleRunBody);
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.NextLink = "https://x/data/CustomersV3?$skiptoken=p2";
+
+        var more = vm.LoadMoreCommand.ExecuteAsync(null);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "VendorsV2");
+        client.Gate.SetResult();
+        await more;
+
+        AssertCleanSlate(vm);
+    }
+
+    [Fact]
+    public async Task A_run_with_no_switch_still_commits_its_results()
+    {
+        // The guard must discard only stale completions — the ordinary path is unaffected.
+        var client = new CancellableGatedODataClient(StaleRunBody);
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        var run = vm.RunCommand.ExecuteAsync(null);
+        client.Gate.SetResult();
+        await run;
+
+        Assert.True(vm.HasRun);
+        Assert.Equal(2, vm.RowCount);
+        Assert.True(vm.RunSucceeded);
+    }
+
+    // --- PR #193 review: export-all works from a bare $select=* ---
+
+    [Fact]
+    public void Export_all_is_enabled_with_no_fields_selected()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        vm.ClearFieldsCommand.Execute(null);
+
+        Assert.Contains("$select=*", vm.QueryUrl);
+        Assert.True(vm.ExportAllCsvCommand.CanExecute(null)); // demanding a $select blocked this
+    }
+
+    [Fact]
+    public async Task Export_all_with_no_selection_derives_a_header_unioned_across_pages()
+    {
+        // Page 1 carries A only; page 2 introduces B (OData omits a null rather than emitting it), so the
+        // final header is the union and page 1's row exports an empty field under B.
+        const string page1 = "{\"@odata.nextLink\":\"https://x/data/E?$skiptoken=p2\",\"value\":[{\"A\":\"1\"}]}";
+        const string page2 = "{\"value\":[{\"A\":\"2\",\"B\":\"x\"}]}";
+        var client = new PagingODataClient(
+            new ODataResponse(200, "OK", page1, 5),
+            new ODataResponse(200, "OK", page2, 5));
+        var fileSave = new FakeFileSaveService("C:/tmp/all.csv");
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, fileSave: fileSave);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.ClearFieldsCommand.Execute(null);
+
+        await vm.ExportAllCsvCommand.ExecuteAsync(null);
+
+        Assert.Equal("A,B\r\n1,\r\n2,x", fileSave.LastContent);
+        Assert.Equal(2, client.Requested.Count);
+        Assert.Contains("Saved 2 rows", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task Export_all_reports_nothing_to_export_when_no_columns_can_be_derived()
+    {
+        // Rows with no readable properties: the file would be bare line terminators, so none is offered.
+        var client = new PagingODataClient(new ODataResponse(200, "OK", "{\"value\":[{},{}]}", 5));
+        var fileSave = new FakeFileSaveService("C:/tmp/all.csv");
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, fileSave: fileSave);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.ClearFieldsCommand.Execute(null);
+
+        await vm.ExportAllCsvCommand.ExecuteAsync(null);
+
+        Assert.Null(fileSave.LastContent); // no picker, no file
+        Assert.Contains("no columns", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task Export_all_with_an_explicit_selection_keeps_that_header()
+    {
+        // Derivation applies only to the $select=* case: a chosen header must survive verbatim, including
+        // a column the payload never returns (which exports empty).
+        var client = new PagingODataClient(new ODataResponse(200, "OK",
+            "{\"value\":[{\"CustomerAccount\":\"US-1\"}]}", 5));
+        var fileSave = new FakeFileSaveService("C:/tmp/all.csv");
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, fileSave: fileSave);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.ClearFieldsCommand.Execute(null);
+        vm.Fields.Single(f => f.Name == "CustomerAccount").IsSelected = true;
+        vm.Fields.Single(f => f.Name == "OrganizationName").IsSelected = true;
+
+        await vm.ExportAllCsvCommand.ExecuteAsync(null);
+
+        Assert.Equal("CustomerAccount,OrganizationName\r\nUS-1,", fileSave.LastContent);
+    }
+
+    [Fact]
+    public async Task A_genuine_em_dash_payload_value_exports_as_an_em_dash()
+    {
+        var client = new PagingODataClient(new ODataResponse(200, "OK",
+            "{\"value\":[{\"CustomerAccount\":\"—\",\"OrganizationName\":null}]}", 5));
+        var fileSave = new FakeFileSaveService("C:/tmp/CustomersV3.csv");
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, fileSave: fileSave);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.ClearFieldsCommand.Execute(null);
+        await vm.RunCommand.ExecuteAsync(null);
+
+        await vm.ExportCsvFileCommand.ExecuteAsync(null);
+
+        // Both cells render "—" in the grid; only the null one is empty in the file.
+        Assert.Equal(QueryResultRow.NullDisplay, vm.ResultRows[0]["CustomerAccount"]);
+        Assert.Equal(QueryResultRow.NullDisplay, vm.ResultRows[0]["OrganizationName"]);
+        Assert.Equal("CustomerAccount,OrganizationName\r\n—,", fileSave.LastContent);
     }
 }
