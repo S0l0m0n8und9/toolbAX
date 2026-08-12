@@ -189,7 +189,9 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 
     // Hard guard for every use site. Nothing re-raises CanExecuteChanged on an environment switch, so the
     // CanExecute gating below is a UI courtesy only — this is what actually stops the call. Returns true
-    // (and reports it) when the operation must not proceed; leaves all other state untouched.
+    // (and reports it) when the operation must not proceed; leaves all other state untouched. Safe to call
+    // repeatedly inside one operation: multi-request operations re-check it before every request, since an
+    // entry-only check expires at the first await.
     private bool BlockedByEnvMismatch()
     {
         if (!SessionEnvMismatch())
@@ -334,7 +336,9 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 
         // The project ids come from the old session's maps while the PATCH would go through _odata, which
         // resolves the ACTIVE environment per call — so a mismatch here would write env B using env A's
-        // ids. Refuse before reading metadata or issuing a request.
+        // ids. Refuse before reading metadata or issuing a request. Entry is not enough, though: the
+        // environment can change across any of the awaits below, so this is re-checked before every request
+        // (see StopIfEnvChanged).
         if (BlockedByEnvMismatch())
         {
             DebugStatus = ReconnectRequired;
@@ -394,8 +398,32 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 
             var ok = 0;
             var failures = new List<string>();
+
+            // Re-checked immediately before EVERY request (the initial GET and each PATCH) — the entry guard
+            // above expires the moment we await. _odata resolves the active environment per call while the
+            // project ids came from this session's maps, so a switch mid-run would apply env A's ids to
+            // env B. On a trip we stop where we are and say how far we got; already-applied PATCHes are not
+            // rolled back, because each was valid for the environment it was issued against.
+            bool StopIfEnvChanged(int applied)
+            {
+                if (!BlockedByEnvMismatch())
+                {
+                    return false;
+                }
+
+                DebugStatus = applied == 0
+                    ? ReconnectRequired
+                    : $"Stopped after {applied} of {projectIds.Count} — environment changed; reconnect required.";
+                return true;
+            }
+
             foreach (var pid in projectIds)
             {
+                if (StopIfEnvChanged(ok))
+                {
+                    return;
+                }
+
                 // OData string-literal escaping doubles single quotes (not %27); GUID ids are URL-safe.
                 var getPath = $"data/{set}?$filter=ProjectId eq '{pid.Replace("'", "''")}'";
                 var get = await _odata.SendAsync("GET", getPath, null, getHeaders, ct).ConfigureAwait(true);
@@ -410,6 +438,11 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
                 {
                     failures.Add($"{pid}: no project-config record found");
                     continue;
+                }
+
+                if (StopIfEnvChanged(ok))
+                {
+                    return;
                 }
 
                 var patch = await _odata.SendAsync("PATCH", record.ODataId, body, patchHeaders, ct).ConfigureAwait(true);

@@ -272,8 +272,16 @@ public class DualWriteOpsTests
     private sealed class ScriptedODataClient : IODataClient
     {
         private readonly string _getBody;
+        private readonly Action<int>? _afterCall;
         public List<(string Method, string Path, string? Body)> Calls { get; } = new();
-        public ScriptedODataClient(string getBody) => _getBody = getBody;
+
+        /// <param name="afterCall">Invoked with the 1-based call ordinal once the response is prepared —
+        /// lets a test switch the active environment "during" a multi-request debug toggle.</param>
+        public ScriptedODataClient(string getBody, Action<int>? afterCall = null)
+        {
+            _getBody = getBody;
+            _afterCall = afterCall;
+        }
 
         public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
             => SendAsync(method, path, body, null, ct);
@@ -285,6 +293,7 @@ public class DualWriteOpsTests
             var resp = method == "GET"
                 ? new ODataResponse(200, "OK", _getBody, 1)
                 : new ODataResponse(204, "No Content", string.Empty, 1);
+            _afterCall?.Invoke(Calls.Count);
             return Task.FromResult(resp);
         }
     }
@@ -367,6 +376,73 @@ public class DualWriteOpsTests
         Assert.Contains("reconnect", vm.Status, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Warn
             && e.Text.Contains("Contoso") && e.Text.Contains("Fabrikam"));
+    }
+
+    // The entry guard above expires at the first await — these cover a switch landing mid-toggle.
+
+    private const string DebugRecord =
+        "{\"value\":[{\"@odata.id\":\"https://contoso.operations.dynamics.com/data/DualWriteProjectConfigurations(1)\",\"IsDebugMode\":\"No\"}]}";
+
+    [Fact]
+    public async Task A_switch_between_the_config_read_and_the_patch_stops_before_any_write()
+    {
+        var env = new EnvSwitch();
+        // Switch as the config GET returns: the PATCH would resolve env2 while carrying env1's project id.
+        var odata = new ScriptedODataClient(DebugRecord, afterCall: n =>
+        {
+            if (n == 1)
+            {
+                env.Current = OtherEnv();
+            }
+        });
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), env.Get, new FakeDialogs(false),
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5),
+            odata: odata, metadata: new FixedMetadata("DualWriteProjectConfigurations"));
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+
+        await vm.EnableDebugForSelectedCommand.ExecuteAsync(null);
+
+        Assert.Single(odata.Calls);                                  // the GET only…
+        Assert.DoesNotContain(odata.Calls, c => c.Method == "PATCH"); // …no write at all
+        Assert.Contains("reconnect", vm.DebugStatus, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("reconnect", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Warn
+            && e.Text.Contains("Contoso") && e.Text.Contains("Fabrikam"));
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task A_switch_after_the_first_patch_stops_and_reports_how_many_applied()
+    {
+        var env = new EnvSwitch();
+        // Two selected maps = two project ids = GET, PATCH, GET, PATCH. Switch as the first PATCH returns.
+        var odata = new ScriptedODataClient(DebugRecord, afterCall: n =>
+        {
+            if (n == 2)
+            {
+                env.Current = OtherEnv();
+            }
+        });
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), env.Get, new FakeDialogs(false),
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5),
+            odata: odata, metadata: new FixedMetadata("DualWriteProjectConfigurations"));
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+        vm.Maps.Single(m => m.Name == "Vendors V2").IsSelected = true;
+
+        await vm.EnableDebugForSelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, odata.Calls.Count(c => c.Method == "PATCH")); // the second target is never touched
+        Assert.Equal(2, odata.Calls.Count);                           // GET + PATCH, then stopped
+        // The applied PATCH stands (it was valid for the environment it was issued against) — the status has
+        // to say so rather than implying the whole toggle happened, or that none of it did.
+        Assert.Contains("1 of 2", vm.DebugStatus);
+        Assert.Contains("reconnect", vm.DebugStatus, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("reconnect", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Warn
+            && e.Text.Contains("Contoso") && e.Text.Contains("Fabrikam"));
+        Assert.False(vm.IsBusy);
     }
 
     // --- gateway log (self-diagnosis: which host, which cid, what happened) ---
