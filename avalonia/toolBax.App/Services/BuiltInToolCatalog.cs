@@ -25,6 +25,11 @@ public sealed class BuiltInToolCatalog : IPluginCatalog
             "Diff dual-write maps and row counts across two environments.", "C"),
         new PluginCard("metadata", "Table/Entity Browser", "Data",
             "Explore $metadata: entity sets, navigation properties, enums, keys.", "M"),
+        // Distinct from the Map Browser above: virtual tables surface F&O data live in Dataverse, they
+        // don't copy it. Read-only — the tables themselves are generated in the maker portal (#23).
+        new PluginCard("virtualtables", "Virtual Tables (CE → F&O)", "Integration",
+            "Inspect the Finance & Operations–backed virtual tables in Dataverse: logical and external names, data source, provider, and managed state.",
+            "V"),
         new PluginCard("post", "OData POST Builder", "Data",
             "Hand-craft and replay POST/PATCH requests with body validation.", "P"),
         new PluginCard("profiles", "Profiles", "System",
