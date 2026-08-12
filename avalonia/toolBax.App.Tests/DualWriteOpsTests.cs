@@ -587,6 +587,71 @@ public class DualWriteOpsTests
         Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Err && e.Text.Contains("no connection"));
     }
 
+    // --- #167: a terminal request whose map states haven't propagated yet ---
+
+    [Fact]
+    public async Task A_completed_action_whose_state_has_not_propagated_shows_the_pre_action_state()
+    {
+        // The fake used to mutate the map states inside StartActionAsync, so the post-action refresh could
+        // never come back with pre-action states — the real gateway's lag (request terminal, map list not
+        // yet updated) was unobservable, and any "the grid caught up" assertion passed for free.
+        // deferStateUntilPolls: 2 withholds the change past the single terminal poll.
+        var connector = new FakeDualWriteConnector(deferStateUntilPolls: 2);
+        var vm = MakeVm(connector, confirm: true);
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+
+        await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+
+        // The action completed as far as the gateway is concerned…
+        Assert.Equal(1, connector.LastGateway!.StartCount);
+        Assert.Contains("completed", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, connector.LastGateway!.GetMapsCount);   // load + the post-action refresh
+        // …but the refresh legitimately reported the old state, and the screen shows exactly that rather
+        // than a state it invented from the action it just sent.
+        Assert.True(connector.LastGateway!.HasDeferredState);
+        Assert.Equal("Running", vm.Maps.Single(m => m.Name == "Customers V3").State);
+        Assert.False(vm.IsBusy);
+
+        // Once the gateway catches up, its own map list carries the new state — so the next read the screen
+        // does reports it, with no re-submit.
+        connector.LastGateway!.ReleaseDeferredState();
+        var caughtUp = await connector.LastGateway!.GetMapsAsync("fake-cid", TestContext.Current.CancellationToken);
+
+        Assert.Equal("Stopped", caughtUp.Single(m => m.Name == "Customers V3").State);
+        Assert.Equal(1, connector.LastGateway!.StartCount);     // still exactly one submit
+    }
+
+    [Fact]
+    public async Task Deferring_is_opt_in_so_the_default_still_reflects_the_action_immediately()
+    {
+        var connector = new FakeDualWriteConnector();
+        var vm = MakeVm(connector, confirm: true);
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+
+        await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+
+        Assert.False(connector.LastGateway!.HasDeferredState);
+        Assert.Equal("Stopped", vm.Maps.Single(m => m.Name == "Customers V3").State);
+    }
+
+    [Fact]
+    public async Task A_deferred_state_can_be_released_by_polling_alone()
+    {
+        // Three non-terminal polls precede the terminal one, so a release budget of 2 lands mid-poll and
+        // the refresh sees the new state — the "it did catch up in time" half of the same seam.
+        var connector = new FakeDualWriteConnector(pollsBeforeTerminal: 3, deferStateUntilPolls: 2);
+        var vm = MakeVm(connector, confirm: true);
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+
+        await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+
+        Assert.False(connector.LastGateway!.HasDeferredState);
+        Assert.Equal("Stopped", vm.Maps.Single(m => m.Name == "Customers V3").State);
+    }
+
     [Fact]
     public async Task Reconnecting_resets_the_log_to_only_the_current_attempt()
     {
