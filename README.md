@@ -5,11 +5,13 @@ inspired by XrmToolBox-style workflows. It's an [Avalonia](https://avaloniaui.ne
 .NET core library.
 
 It provides:
-- Environment/profile management
+- Environment/profile management, including a header switcher for the active environment
 - Entra ID auth (MSAL interactive, client secret, certificate)
-- OData metadata exploration and query tools
-- A POST / write (OData) builder
-- Dual-write map browser, operations, and compare tooling
+- OData metadata exploration and query tools, with cancellable runs
+- A POST / write (OData) builder with metadata-backed payload validation
+- Dual-write map browser, operations, and compare tooling — row-count checks report capped or
+  not-comparable counts rather than a false Match/Mismatch
+- A Dataverse virtual-tables inspector for the F&O-backed tables
 - CSV export
 
 ## Status
@@ -59,18 +61,6 @@ Run the app: `dotnet run --project avalonia/toolBax.App`.
 - `avalonia/toolBax.App/` — the Avalonia app (views, view-models, service adapters)
 - `avalonia/toolBax.Core/` — UI-side models, service interfaces, dual-write map parser/exporter
 - `tests/` — automated tests (`FoToolbox.Tests` for Core; `avalonia/toolBax.App.Tests` for the app)
-
-## Ralph Task Validation Commands
-
-When writing `.ralph/tasks.json` entries, keep `validation` commands in a verifier-safe format:
-
-- Use repo-local validator wrappers as a single command token (for example, `.ralph\validate-build.cmd`).
-- Put real build/test arguments inside the wrapper script, not in the task `validation` value.
-- Do not use shell-chained commands such as `cd ... && dotnet build`.
-- Do not use environment-variable paths such as `%USERPROFILE%\...` in `validation`.
-- Do not use literal drive-letter paths such as `C:\...` in `validation`.
-
-Why: the Ralph validation runner can treat the full validation string as a path-like command token. Wrapper scripts avoid argument parsing, drive-letter colons, shell chaining, and environment-variable expansion issues.
 
 ## Security
 

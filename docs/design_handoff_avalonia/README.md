@@ -1,5 +1,9 @@
 # Handoff: toolBax — Avalonia 12 implementation
 
+> **Historical document.** This is the design-era handoff package that was written *before* the Avalonia app
+> was built, and it is kept as a record of the intended design. It is not a description of current behaviour —
+> the shipped code is authoritative wherever the two disagree.
+
 ## Overview
 
 **toolBax** (a.k.a. FO Toolbox 2.0) is a Windows-first desktop toolbox for Dynamics 365

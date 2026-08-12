@@ -5,25 +5,18 @@ Thanks for contributing to FO Toolbox.
 ## Development Setup
 
 1. Install the .NET SDK required by `global.json`.
-2. Restore/build/test:
+2. Restore/build/test the app and its headless tests (the primary, cross-platform codebase):
+   ```powershell
+   dotnet restore .\avalonia\toolBax.slnx
+   dotnet build .\avalonia\toolBax.slnx -c Release
+   dotnet test .\avalonia\toolBax.slnx -c Release
+   ```
+3. Restore/build/test the shared Core library and its Windows tests:
    ```powershell
    dotnet restore .\FoToolbox.sln
    dotnet build .\FoToolbox.sln -c Release
    dotnet test .\FoToolbox.sln -c Release
    ```
-
-## Ralph Task Authoring
-
-When creating or editing `.ralph/tasks.json`:
-
-- Set each task `validation` to a repo-local wrapper script with no arguments, for example:
-  - `.ralph\validate-build.cmd`
-  - `.ralph\validate-test-testifyconfiguration.cmd`
-- Put `dotnet` arguments, filters, and working-directory setup inside the wrapper script.
-- Do not use `cd <path> && <command>` in `validation`.
-- Do not use `%USERPROFILE%`, `$env:USERPROFILE`, or literal `C:\...` paths in `validation`.
-
-Rationale: the verifier executes validation as a command token and can mis-handle spaces, shell syntax, drive-letter colons, and environment-variable expansion. Single-token wrappers keep task metadata stable.
 
 ## Pull Requests
 
