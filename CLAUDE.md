@@ -50,8 +50,9 @@ dotnet test   .\FoToolbox.sln -c Release --no-build
 - `tests/FoToolbox.Tests/` — xUnit tests for `FoToolbox.Core` (Windows).
 - `avalonia/toolBax.App.Tests/` — headless (Avalonia) tests for the app.
 
-The Avalonia app's tools (Query Builder, POST Builder, Metadata Browser, Dual-Write Map/Operations/Compare)
-are **native in-app screens**, not dynamically-loaded plugins.
+The Avalonia app's tools (Query Builder, POST Builder, Metadata Browser, Dual-Write Map/Operations/Compare,
+Virtual Tables, Profiles) are **native in-app screens**, not dynamically-loaded plugins; the home grid's cards
+come from `BuiltInToolCatalog`, so a new screen needs a card there as well as a shell tool id.
 
 ## Conventions / gotchas
 
@@ -59,9 +60,13 @@ are **native in-app screens**, not dynamically-loaded plugins.
 - **Token leakage**: when following a server-supplied absolute URL (e.g. an `@odata.nextLink`) on a
   token-bearing client, gate it with `FoToolbox.Core.Net.RequestOriginGuard` so the env-scoped bearer is
   never sent to a foreign origin (scheme + host + port must match).
-- **Ralph task validation** (`.ralph/tasks.json`): the `validation` value must be a single repo-local wrapper
-  token (e.g. `.ralph\validate-build.cmd`). Put real build/test args inside the wrapper. No shell chaining
-  (`cd && ...`), no env-var paths (`%USERPROFILE%`), no drive-letter paths (`C:\...`) — the runner treats the
-  whole string as a path-like token.
+- **Environment-switch coherence**: the header switcher can change the active environment mid-flight, so any
+  async load resolves the environment (id) at entry and re-checks it before committing — a result whose
+  environment no longer matches is discarded, never rendered. Caches are env-scoped and emptied on switch
+  (see `CoreMetadataService`), and dual-write ops/counts re-verify the session's environment before acting.
+  Adding a fetch without that guard is how cross-environment data leaks onto a screen.
+- **Degraded mode must stay loud**: on a non-Windows platform or an unavailable profile store the app boots the
+  `Fake*` stack (`App.axaml.cs` → `DegradedMode`) and the shell shows a persistent offline banner. Never let a
+  fake service report a canned success in a way that looks live.
 - Releases are currently **unsigned** (SmartScreen warns); a published SHA-256 checksum accompanies each
   release zip so downloads can be verified. A signed path is on the roadmap.
