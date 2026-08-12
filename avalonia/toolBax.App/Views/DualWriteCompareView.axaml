@@ -104,9 +104,22 @@
           <DataGridTemplateColumn Header="Diff" Width="*">
             <DataGridTemplateColumn.CellTemplate>
               <DataTemplate x:DataType="dw:DualWriteMapComparisonRow">
-                <TextBlock Text="{Binding Verdict, Converter={x:Static conv:VerdictToLabelConverter.Instance}}"
-                           VerticalAlignment="Center" Margin="8,0" FontSize="12"
-                           Foreground="{Binding Verdict, Converter={x:Static conv:VerdictToBrushConverter.Instance}}" />
+                <!-- An Ambiguous row reads "cannot compare", which is only actionable with the reason
+                     attached: Note (#178) says WHICH unpairable case it is — duplicate name + CE target
+                     inside one environment, a map with neither, or two gateway response shapes that
+                     cannot be lined up. Carried as a marker + tooltip rather than inline text (the Ops
+                     view's gateway-log note) because the note is a full sentence and this column is one
+                     grid unit wide. The marker is the tooltip host and is gated on a non-empty Note, so
+                     an ordinary row has nothing to hover and gains no empty tooltip. -->
+                <StackPanel Orientation="Horizontal" Spacing="5" Margin="8,0" VerticalAlignment="Center">
+                  <TextBlock Text="{Binding Verdict, Converter={x:Static conv:VerdictToLabelConverter.Instance}}"
+                             VerticalAlignment="Center" FontSize="12"
+                             Foreground="{Binding Verdict, Converter={x:Static conv:VerdictToBrushConverter.Instance}}" />
+                  <TextBlock Text="&#x24D8;" VerticalAlignment="Center" FontSize="12"
+                             Foreground="{Binding Verdict, Converter={x:Static conv:VerdictToBrushConverter.Instance}}"
+                             IsVisible="{Binding Note, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                             ToolTip.Tip="{Binding Note}" />
+                </StackPanel>
               </DataTemplate>
             </DataGridTemplateColumn.CellTemplate>
           </DataGridTemplateColumn>
