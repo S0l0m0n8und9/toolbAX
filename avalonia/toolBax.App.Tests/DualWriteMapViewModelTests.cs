@@ -411,11 +411,23 @@ public class DualWriteMapViewModelTests
     private sealed class CountODataClient : IODataClient
     {
         private readonly long _count;
+        private readonly Action<int>? _afterCall;
         public string? LastPath { get; private set; }
-        public CountODataClient(long count) => _count = count;
+        public int Calls { get; private set; }
+
+        /// <param name="afterCall">Invoked with the 1-based call ordinal once the response is prepared —
+        /// lets a test switch the active environment "during" an F&amp;O count.</param>
+        public CountODataClient(long count, Action<int>? afterCall = null)
+        {
+            _count = count;
+            _afterCall = afterCall;
+        }
+
         public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
         {
             LastPath = path;
+            Calls++;
+            _afterCall?.Invoke(Calls);
             return Task.FromResult(new ODataResponse(200, "OK", $"{{\"@odata.count\":{_count},\"value\":[]}}", 1));
         }
     }
@@ -515,6 +527,237 @@ public class DualWriteMapViewModelTests
         await vm.CountAllRowsCommand.ExecuteAsync(null);
 
         Assert.Equal("Mismatch", vm.CountRows[0].ComparisonLabel); // F&O 999 vs CE 250
+    }
+
+    // --- #152: counts are gated on the environment the displayed maps were loaded from ---
+
+    // Real maps + counts, but records every CE count call so "no request was issued" is assertable.
+    private sealed class CallCountingReader : IDualWriteMapReader
+    {
+        private readonly FakeDualWriteMapReader _inner = new();
+        public int CeCountCalls { get; private set; }
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            _inner.GetMapsAsync(solutionUniqueName, ct);
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => _inner.GetSolutionsAsync(ct);
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default)
+        {
+            CeCountCalls++;
+            return _inner.GetCeRowCountAsync(entitySet, odataFilter, ct);
+        }
+    }
+
+    // Holds the map read open on a gate (and records CE counts), so an environment switch can be
+    // interleaved with an in-flight load. Entered completes once the read is actually parked, so the test
+    // never switches before the VM has captured the environment it is loading for.
+    private sealed class GatedLoadReader : IDualWriteMapReader
+    {
+        private readonly FakeDualWriteMapReader _inner = new();
+        public TaskCompletionSource Entered { get; } = new();
+        public TaskCompletionSource Gate { get; } = new();
+        public int CeCountCalls { get; private set; }
+
+        public async Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default)
+        {
+            Entered.TrySetResult();
+            await Gate.Task;
+            return await _inner.GetMapsAsync(solutionUniqueName, ct);
+        }
+
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => _inner.GetSolutionsAsync(ct);
+
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default)
+        {
+            CeCountCalls++;
+            return _inner.GetCeRowCountAsync(entitySet, odataFilter, ct);
+        }
+    }
+
+    // A single map with three legs, so a count run has several rows (and several awaits) to trip through.
+    private sealed class ThreeLegReader : IDualWriteMapReader
+    {
+        private readonly Action<int>? _afterCeCount;
+        public int CeCountCalls { get; private set; }
+
+        /// <param name="afterCeCount">Invoked with the 1-based CE-count ordinal — lets a test switch the
+        /// active environment "during" a leg's Dataverse count.</param>
+        public ThreeLegReader(Action<int>? afterCeCount = null) => _afterCeCount = afterCeCount;
+
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            Task.FromResult(DwMapLoadResult.Ok(ThreeLegMap()));
+
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => Task.FromResult(NoSolutions);
+
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default)
+        {
+            CeCountCalls++;
+            _afterCeCount?.Invoke(CeCountCalls);
+            return Task.FromResult(DwCountResult.Ok(100 * CeCountCalls));
+        }
+    }
+
+    private static IReadOnlyList<DwMapRecord> ThreeLegMap() => DualWriteMapParser.ParsePage("""
+        { "value": [ {
+            "msdyn_dualwriteentitymapid": "m1",
+            "msdyn_name": "threelegs",
+            "msdyn_displayname": "Three legs",
+            "msdyn_mapping": "{\"id\":\"map-3\",\"legs\":[{\"id\":\"leg-1\",\"sourceSchema\":\"AlphaEntity\",\"destinationSchema\":\"alphas\",\"fieldMappings\":[]},{\"id\":\"leg-2\",\"sourceSchema\":\"BetaEntity\",\"destinationSchema\":\"betas\",\"fieldMappings\":[]},{\"id\":\"leg-3\",\"sourceSchema\":\"GammaEntity\",\"destinationSchema\":\"gammas\",\"fieldMappings\":[]}]}"
+        } ] }
+        """).Records;
+
+    private static EnvProfile MapEnv(string id, string name) =>
+        new(id, name, $"https://{name}.operations.dynamics.com", "tenant", "AUMF", "Tier 2", EnvStatus.Connected);
+
+    // Mutable active-environment source: the shell switching environments under this cached VM.
+    private sealed class EnvSwitch
+    {
+        public EnvProfile? Current { get; set; } = MapEnv("env1", "contoso");
+        public EnvProfile? Get() => Current;
+    }
+
+    [Fact]
+    public async Task Counting_after_an_environment_switch_is_refused_until_the_maps_reload()
+    {
+        var reader = new CallCountingReader();
+        var odata = new CountODataClient(250);
+        var env = new EnvSwitch();
+        var vm = new DualWriteMapViewModel(reader, odata: odata, activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        env.Current = MapEnv("env2", "fabrikam");   // the grid still holds env1's maps
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, reader.CeCountCalls);                   // no Dataverse count
+        Assert.Null(odata.LastPath);                            // no F&O count
+        Assert.All(vm.CountRows, r => Assert.Null(r.CeCount));
+        Assert.Contains("reload maps", vm.LoadError, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Reloading_the_maps_under_the_new_environment_re_enables_counting()
+    {
+        var reader = new CallCountingReader();
+        var env = new EnvSwitch();
+        var vm = new DualWriteMapViewModel(reader, odata: new CountODataClient(250), activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+        env.Current = MapEnv("env2", "fabrikam");
+        await vm.CountAllRowsCommand.ExecuteAsync(null);        // refused
+        Assert.Equal(0, reader.CeCountCalls);
+
+        await vm.ReloadMapsCommand.ExecuteAsync(null);          // re-stamps to env2
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        Assert.True(reader.CeCountCalls > 0);
+        Assert.NotEmpty(vm.CountRows);
+        Assert.All(vm.CountRows, r => Assert.NotNull(r.CeCount));
+        Assert.False(vm.HasLoadError);                          // the refusal banner cleared on reload
+    }
+
+    [Fact]
+    public async Task Counting_works_without_any_environment_switch()
+    {
+        var reader = new CallCountingReader();
+        var env = new EnvSwitch();
+        var vm = new DualWriteMapViewModel(reader, odata: new CountODataClient(250), activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        Assert.True(reader.CeCountCalls > 0);
+        Assert.All(vm.CountRows, r => Assert.NotNull(r.CeCount));
+        Assert.False(vm.HasLoadError);
+    }
+
+    // The guards above are entry-only; these cover a switch that lands ACROSS the awaits of one operation.
+
+    [Fact]
+    public async Task A_mid_load_switch_stamps_the_environment_the_maps_were_read_for()
+    {
+        var env = new EnvSwitch();
+        var reader = new GatedLoadReader();
+        var odata = new CountODataClient(250);
+        var vm = new DualWriteMapViewModel(reader, odata: odata, activeEnv: env.Get);
+
+        var loading = vm.InitializeCommand.ExecuteAsync(null);
+        await reader.Entered.Task;                      // parked inside GetMapsAsync (env1 already captured)
+        env.Current = MapEnv("env2", "fabrikam");       // the shell switches while the load is in flight
+        reader.Gate.SetResult();
+        await loading;
+
+        // The load itself still succeeds — a switch mid-load is not an error…
+        Assert.NotEmpty(vm.Maps);
+        Assert.False(vm.HasLoadError);
+
+        // …but these maps are stamped with the environment they were READ for (env1), not whatever became
+        // active while the read was in flight — so counting them under env2 is refused until a reload.
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, reader.CeCountCalls);
+        Assert.Equal(0, odata.Calls);
+        Assert.Contains("reload maps", vm.LoadError, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task A_switch_mid_count_run_stops_it_and_marks_the_abandoned_leg_skipped()
+    {
+        var env = new EnvSwitch();
+        var reader = new ThreeLegReader();
+        // Switch as the first row's F&O count returns: no later row may be requested.
+        var odata = new CountODataClient(500, afterCall: n =>
+        {
+            if (n == 1)
+            {
+                env.Current = MapEnv("env2", "fabrikam");
+            }
+        });
+        var vm = new DualWriteMapViewModel(reader, odata: odata, activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        Assert.Equal(3, vm.CountRows.Count);
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, reader.CeCountCalls);                 // only the first row's Dataverse count
+        Assert.Equal(1, odata.Calls);                         // only the first row's F&O count
+        Assert.Equal(100, vm.CountRows[0].CeCount);           // fully-counted row keeps its numbers…
+        Assert.Equal(500, vm.CountRows[0].FoCount);           // …they were consistent when taken
+        Assert.Contains("Skipped", vm.CountRows[1].CeStatus);  // the row the run stopped at says why
+        Assert.Contains("Skipped", vm.CountRows[1].FoStatus);
+        Assert.Null(vm.CountRows[1].CeCount);
+        Assert.Null(vm.CountRows[2].CeCount);                  // never reached
+        Assert.Null(vm.CountRows[2].FoCount);
+        Assert.Contains("reload maps", vm.LoadError, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task A_switch_between_a_rows_two_legs_skips_its_fo_count_and_keeps_the_ce_number()
+    {
+        var env = new EnvSwitch();
+        // Switch as the first row's Dataverse count returns — its F&O leg is a separate await, and pairing
+        // env1's CE number with env2's F&O number in one row is exactly what must not happen.
+        var reader = new ThreeLegReader(afterCeCount: n =>
+        {
+            if (n == 1)
+            {
+                env.Current = MapEnv("env2", "fabrikam");
+            }
+        });
+        var odata = new CountODataClient(500);
+        var vm = new DualWriteMapViewModel(reader, odata: odata, activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, reader.CeCountCalls);
+        Assert.Equal(0, odata.Calls);                          // the F&O leg was never issued
+        Assert.Equal(100, vm.CountRows[0].CeCount);            // the number it did take stays
+        Assert.Equal(string.Empty, vm.CountRows[0].CeStatus);   // that leg succeeded, it wasn't skipped
+        Assert.Null(vm.CountRows[0].FoCount);                  // no second environment's number beside it
+        Assert.Contains("Skipped", vm.CountRows[0].FoStatus);
+        Assert.Equal("—", vm.CountRows[0].ComparisonLabel);    // and therefore no bogus Match/Mismatch
+        Assert.Contains("reload maps", vm.LoadError, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

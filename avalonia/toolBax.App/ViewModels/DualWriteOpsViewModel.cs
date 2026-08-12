@@ -22,7 +22,8 @@ public sealed record OpsAction(string Label, DualWriteActionType Type, bool Dang
 /// environment (<see cref="IDualWriteConnector"/> over the real FoToolbox.Core gateway), lists its maps,
 /// and runs lifecycle actions: select map(s) → confirm → <c>StartActionAsync</c> → poll
 /// <c>GetStatusAsync</c> until terminal → refresh. Actions are gateway-validated (no client-side state
-/// eligibility); the screen gates only on a connection + a selection.
+/// eligibility); the screen gates only on a connection + a selection + the connection still belonging to
+/// the active environment (see <c>SessionEnvMismatch</c>).
 /// </summary>
 public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 {
@@ -175,8 +176,37 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Message shown (and logged) when the session and the active environment have diverged.</summary>
+    private const string ReconnectRequired = "Connected to a different environment — reconnect required.";
+
+    // True when the live session belongs to an environment other than the one that's now active. The shell
+    // can switch the active environment while this cached VM keeps its session (the "Refresh open tools?"
+    // prompt is declinable), which would otherwise leave the gateway/cid pointing at the old environment
+    // while the header shows the new one — and, for the debug toggle, straddle both in one operation
+    // (project ids from the old session, the PATCH through an _odata that resolves the active env per call).
+    private bool SessionEnvMismatch() =>
+        _session is not null && !string.Equals(_session.EnvId, _activeEnv()?.Id, StringComparison.Ordinal);
+
+    // Hard guard for every use site. Nothing re-raises CanExecuteChanged on an environment switch, so the
+    // CanExecute gating below is a UI courtesy only — this is what actually stops the call. Returns true
+    // (and reports it) when the operation must not proceed; leaves all other state untouched. Safe to call
+    // repeatedly inside one operation: multi-request operations re-check it before every request, since an
+    // entry-only check expires at the first await.
+    private bool BlockedByEnvMismatch()
+    {
+        if (!SessionEnvMismatch())
+        {
+            return false;
+        }
+
+        Status = ReconnectRequired;
+        Log($"Environment changed: this session is connected to {ConnectionName}, but the active environment " +
+            $"is now {_activeEnv()?.Name ?? "none"}. Reconnect before running operations.", LogKind.Warn);
+        return true;
+    }
+
     private bool CanRunAction(OpsAction? action) =>
-        action is not null && !IsBusy && _session is not null && SelectedCount > 0;
+        action is not null && !IsBusy && _session is not null && !SessionEnvMismatch() && SelectedCount > 0;
 
     // Opens the confirm dialog; mutates nothing until the user accepts, then submits + polls to terminal.
     [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanRunAction))]
@@ -184,6 +214,12 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     {
         var session = _session;
         if (session is null)
+        {
+            return;
+        }
+
+        // Before the confirm dialog and before any network call: never act on a stale environment.
+        if (BlockedByEnvMismatch())
         {
             return;
         }
@@ -274,7 +310,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         }
     }
 
-    private bool CanToggleDebug() => !IsBusy && _session is not null && SelectedCount > 0;
+    private bool CanToggleDebug() =>
+        !IsBusy && _session is not null && !SessionEnvMismatch() && SelectedCount > 0;
 
     // Enable dual-write debug mode for the selected map(s); scoped to the selection, never all maps.
     [RelayCommand(CanExecute = nameof(CanToggleDebug))]
@@ -294,6 +331,17 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         if (_session is null)
         {
             DebugStatus = "Connect to the gateway first.";
+            return;
+        }
+
+        // The project ids come from the old session's maps while the PATCH would go through _odata, which
+        // resolves the ACTIVE environment per call — so a mismatch here would write env B using env A's
+        // ids. Refuse before reading metadata or issuing a request. Entry is not enough, though: the
+        // environment can change across any of the awaits below, so this is re-checked before every request
+        // (see StopIfEnvChanged).
+        if (BlockedByEnvMismatch())
+        {
+            DebugStatus = ReconnectRequired;
             return;
         }
 
@@ -350,8 +398,32 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 
             var ok = 0;
             var failures = new List<string>();
+
+            // Re-checked immediately before EVERY request (the initial GET and each PATCH) — the entry guard
+            // above expires the moment we await. _odata resolves the active environment per call while the
+            // project ids came from this session's maps, so a switch mid-run would apply env A's ids to
+            // env B. On a trip we stop where we are and say how far we got; already-applied PATCHes are not
+            // rolled back, because each was valid for the environment it was issued against.
+            bool StopIfEnvChanged(int applied)
+            {
+                if (!BlockedByEnvMismatch())
+                {
+                    return false;
+                }
+
+                DebugStatus = applied == 0
+                    ? ReconnectRequired
+                    : $"Stopped after {applied} of {projectIds.Count} — environment changed; reconnect required.";
+                return true;
+            }
+
             foreach (var pid in projectIds)
             {
+                if (StopIfEnvChanged(ok))
+                {
+                    return;
+                }
+
                 // OData string-literal escaping doubles single quotes (not %27); GUID ids are URL-safe.
                 var getPath = $"data/{set}?$filter=ProjectId eq '{pid.Replace("'", "''")}'";
                 var get = await _odata.SendAsync("GET", getPath, null, getHeaders, ct).ConfigureAwait(true);
@@ -366,6 +438,11 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
                 {
                     failures.Add($"{pid}: no project-config record found");
                     continue;
+                }
+
+                if (StopIfEnvChanged(ok))
+                {
+                    return;
                 }
 
                 var patch = await _odata.SendAsync("PATCH", record.ODataId, body, patchHeaders, ct).ConfigureAwait(true);

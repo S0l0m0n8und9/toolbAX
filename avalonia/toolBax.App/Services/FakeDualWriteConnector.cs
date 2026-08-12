@@ -51,8 +51,9 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
 
         var gateway = new FakeCoreDualWriteGateway(_maps ?? SeedMaps(), _pollsBeforeTerminal, _failGetMapsOnCall);
         LastGateway = gateway;
+        // Stamp the environment connected to (as the real connector does), so env-gating is exercisable.
         return Task.FromResult(new DualWriteSession(gateway, "fake-cid", "Contoso (AUMF · APAC Prod)",
-            "https://fake-gateway.dual-write.example"));
+            env.Id, "https://fake-gateway.dual-write.example"));
     }
 
     public static IReadOnlyList<DualWriteMap> SeedMaps() => new[]
