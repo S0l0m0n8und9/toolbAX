@@ -129,12 +129,13 @@ public partial class VirtualTablesViewModel : ObservableObject
     private async Task ReloadAsync(CancellationToken ct)
     {
         // Captured BEFORE the read (same pattern as DualWriteMapViewModel.LoadMapsAsync): the reader resolves
-        // the active environment internally at call time, so a switch landing mid-load must not stamp
-        // environment B onto the tables that were actually read from environment A — that would make the next
-        // activation a no-op and leave the grid permanently mismatched with the deep link. Capturing first
-        // errs the safe way: a mid-load switch leaves stamp = A while active = B, so the next Initialize
-        // reloads. The residual window is the microseconds between this line and the reader resolving the
-        // environment, which is as atomic as this seam allows without plumbing it through the reader API.
+        // the active environment internally at call time, so this is which environment the load is FOR — used
+        // both to stamp the tables it returns and to detect, once it returns, that the environment has moved
+        // on (see the staleness check below). Reading it afterwards instead would stamp environment B onto
+        // tables actually read from environment A, making the next activation a no-op and leaving the grid
+        // permanently mismatched with the deep link. The residual window is the microseconds between this
+        // line and the reader resolving the environment, which is as atomic as this seam allows without
+        // plumbing it through the reader API.
         var env = _activeEnv();
         var envId = env?.Id;
         var envName = env?.Name ?? string.Empty;
@@ -143,6 +144,19 @@ public partial class VirtualTablesViewModel : ObservableObject
         try
         {
             var result = await _reader.GetVirtualTablesAsync(ct);
+
+            // The active environment moved on while this read was in flight, so this result belongs to an
+            // environment the screen is no longer showing: discard it whole, before touching ANY state. Not
+            // the tables, not the id/name stamp, not LoadError, not even _loaded — the load that belongs to
+            // the now-active environment owns all of it. (Two loads can complete out of order: a slow read
+            // under A finishing after a fast read under B would otherwise replace B's tables with A's, or
+            // blank B's list and show A's error.) Mirrors the cache-generation discard in
+            // CoreMetadataService.IsStillCurrent (#170). IsLoading still clears in the finally below.
+            if (!string.Equals(_activeEnv()?.Id, envId, StringComparison.Ordinal))
+            {
+                return;
+            }
+
             _loaded = true;
             if (!result.IsSuccess)
             {

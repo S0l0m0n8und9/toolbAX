@@ -111,8 +111,15 @@ public partial class DualWriteCompareViewModel : ObservableObject
     private EnvProfile? ById(string? id) =>
         id is null ? null : Environments.FirstOrDefault(e => string.Equals(e.Id, id, StringComparison.Ordinal));
 
+    // Both picks must resolve to a gateway host of their own AND to two DIFFERENT hosts. The non-empty
+    // requirement is not implied by the same-host guard: a URL-less profile resolves to an empty host, so
+    // pairing it with a configured one yields two different hosts and would enable a compare that can only
+    // fail at connect time. There is nothing to connect to, so the button stays disabled.
     public bool CanCompare =>
-        SelectedSource is not null && SelectedTarget is not null && !SameGateway(SelectedSource, SelectedTarget);
+        SelectedSource is not null && SelectedTarget is not null
+        && !string.IsNullOrEmpty(GatewayHost(SelectedSource))
+        && !string.IsNullOrEmpty(GatewayHost(SelectedTarget))
+        && !SameGateway(SelectedSource, SelectedTarget);
 
     /// <summary>Empty-state prompt when both picks resolve to the same F&amp;O environment.</summary>
     public bool ShowSamePrompt =>
@@ -121,9 +128,10 @@ public partial class DualWriteCompareViewModel : ObservableObject
     // Two picks are the same environment when they resolve to the same gateway host — NOT when they are the
     // same record. Distinct profiles for one environment are normal (an interactive profile and an SPN
     // profile for the same F&O host), and both sides then connect the same gateway and resolve the same cid:
-    // every row comes back Identical and the screen reads as "these two environments are in sync". A profile
-    // with no URL has no resolvable gateway, so it can't be compared against anything (including another
-    // URL-less profile) — the same guard covers that.
+    // every row comes back Identical and the screen reads as "these two environments are in sync". Two
+    // URL-less profiles both resolve to an empty host, so this reads them as "same" and the screen shows the
+    // same-environment prompt; a URL-less profile paired with a configured one is NOT "same" (the hosts
+    // differ) — that case is blocked by CanCompare's explicit non-empty-host requirement instead.
     private static bool SameGateway(EnvProfile? a, EnvProfile? b) =>
         string.Equals(GatewayHost(a), GatewayHost(b), StringComparison.Ordinal);
 
