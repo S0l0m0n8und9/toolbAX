@@ -554,6 +554,38 @@ public class ShellViewModelTests
         Assert.Equal("A background action failed: clipboard is busy", shell.BackgroundError);
     }
 
+    // --- Nav rail / Plugins-home coherence (#168) ---
+
+    [Fact]
+    public void Every_shipped_tool_has_a_plugins_home_card()
+    {
+        // Virtual Tables shipped into the nav rail and the command palette but never got a landing-grid
+        // card, so the home screen quietly under-reported what the app can do. Home IS the grid, so it is
+        // the one tool with no card of its own.
+        var cardIds = new BuiltInToolCatalog().Plugins.Select(p => p.Id).ToHashSet();
+        var missing = new ShellViewModel().Tools
+            .Where(t => t.Id != "home" && !cardIds.Contains(t.Id))
+            .Select(t => t.Id)
+            .ToList();
+
+        Assert.True(missing.Count == 0,
+            "Shipped tools with no Plugins-home card: " + string.Join(", ", missing));
+    }
+
+    [Fact]
+    public void Every_plugins_home_card_opens_a_real_tool()
+    {
+        // The other direction: a card whose id matches no tool is a dead click (OpenToolById ignores it).
+        var toolIds = new ShellViewModel().Tools.Select(t => t.Id).ToHashSet();
+        var orphans = new BuiltInToolCatalog().Plugins
+            .Where(card => !toolIds.Contains(card.Id))
+            .Select(card => card.Id)
+            .ToList();
+
+        Assert.True(orphans.Count == 0,
+            "Plugins-home cards with no matching tool: " + string.Join(", ", orphans));
+    }
+
     [Fact]
     public void Unknown_tools_route_to_a_titled_placeholder()
     {

@@ -43,6 +43,19 @@ public class PluginsHomeViewModelTests
     }
 
     [Fact]
+    public void Catalog_lists_the_virtual_tables_tool()
+    {
+        // #168: the tool shipped in the nav rail and the palette but had no landing-grid card.
+        var card = Assert.Single(new BuiltInToolCatalog().Plugins, p => p.Id == "virtualtables");
+
+        Assert.Contains("Virtual Tables", card.Name);
+        Assert.Equal("Integration", card.Category);
+        Assert.Equal("Alt+V", card.ShortcutLabel);  // same accelerator as the nav-rail item
+        Assert.False(card.OperatesLive);            // read-only inspector — no mutations
+        Assert.NotEmpty(card.Description);
+    }
+
+    [Fact]
     public void Has_env_is_false_when_no_environment_is_supplied()
     {
         var vm = MakeVm(env: null);
