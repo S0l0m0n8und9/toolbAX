@@ -35,6 +35,28 @@ public class PostBuilderViewModelTests
             _inner.LoadFieldsAsync(entityName, ct);
     }
 
+    // Metadata carrying a date-only field, to prove an Edm.Date column reaches the payload builder's
+    // date-only branch instead of being widened to a timestamp. FakeMetadataService has no Date field and
+    // is app (not test) code, so the shape lives here.
+    private sealed class DateFieldMetadata : IMetadataService
+    {
+        private static readonly IReadOnlyList<EntitySet> Sets =
+            new[] { new EntitySet("WorkerV2", "HR", 2, "PersonnelNumber", false, "hr") };
+
+        private static readonly IReadOnlyList<EntityField> Fields = new[]
+        {
+            new EntityField("PersonnelNumber", "String", false, IsKey: true, Length: 20),
+            new EntityField("BirthDate", "Date", true),
+        };
+
+        public IReadOnlyList<EntitySet> GetEntities() => Sets;
+        public IReadOnlyList<EntityField>? GetFields(string entityName) =>
+            entityName == "WorkerV2" ? Fields : null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) =>
+            Task.FromResult(entityName == "WorkerV2");
+    }
+
     private sealed class RecordingODataClient : IODataClient
     {
         public string? LastPath { get; private set; }
@@ -332,10 +354,52 @@ public class PostBuilderViewModelTests
     [InlineData("Single", "Edm.Single")]
     [InlineData("Guid", "Edm.Guid")]
     [InlineData("DateTime", "Edm.DateTimeOffset")]
+    [InlineData("Date", "Edm.Date")] // date-only fields keep their own EDM type
     [InlineData("String", "Edm.String")]
     [InlineData("Enum", "Edm.String")] // enum members are sent as JSON strings (member-name)
     public void Friendly_types_map_to_edm(string friendly, string edm) =>
         Assert.Equal(edm, PostPayloadMapper.ToEdmType(friendly));
+
+    // The grid row whose value drives the payload, for the date end-to-end tests below.
+    private static (PostBuilderViewModel Vm, PostFieldRow Row) DateGrid()
+    {
+        var vm = new PostBuilderViewModel(new FakeODataClient(), metadata: new DateFieldMetadata());
+        vm.Method = "PATCH"; // key fields move to the URL predicate, so only BirthDate is in the body
+        vm.UseFieldGrid = true;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "WorkerV2");
+
+        // A keyed write needs its key value or the incomplete-key issue masks the coercion result.
+        vm.Fields.Single(f => f.Name == "PersonnelNumber").Value = "000123";
+
+        var row = vm.Fields.Single(f => f.Name == "BirthDate");
+        row.Include = true;
+        return (vm, row);
+    }
+
+    [Fact]
+    public void A_date_field_serialises_as_a_bare_date_not_a_timestamp()
+    {
+        var (vm, birthDate) = DateGrid();
+
+        birthDate.Value = "2026-08-11";
+
+        Assert.False(vm.HasPayloadIssues);
+        Assert.Contains("\"2026-08-11\"", vm.RequestBody);
+        Assert.DoesNotContain("T00:00:00", vm.RequestBody); // not widened to a DateTimeOffset
+    }
+
+    [Fact]
+    public void A_date_field_is_validated_rather_than_passed_through_as_a_string()
+    {
+        var (vm, birthDate) = DateGrid();
+
+        // Before Edm.Date was reachable a date cell was typed as string/DateTimeOffset, so an ambiguous
+        // locale date reached F&O unchallenged (or as 8 November).
+        birthDate.Value = "11/08/2026";
+
+        Assert.True(vm.HasPayloadIssues);
+        Assert.Contains("yyyy-MM-dd", vm.PayloadIssues, StringComparison.Ordinal);
+    }
 
     [Fact]
     public void Default_construction_does_not_disturb_the_raw_body_or_path()

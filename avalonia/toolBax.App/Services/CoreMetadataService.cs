@@ -247,7 +247,10 @@ public sealed class CoreMetadataService : IMetadataService
         {
             "String" => ("String", null),
             "Decimal" => ("Decimal", null),
-            "DateTimeOffset" or "Date" => ("DateTime", null),
+            "DateTimeOffset" => ("DateTime", null),
+            // Kept distinct from DateTimeOffset: collapsing the two made the payload builder's date-only
+            // branch unreachable, so every date was widened to a timestamp on the way to F&O.
+            "Date" => ("Date", null),
             "Boolean" => ("Boolean", null),
             "Guid" => ("Guid", null),
             _ => (primitive, null), // Int32/Int64/Double/etc. pass through as-is
