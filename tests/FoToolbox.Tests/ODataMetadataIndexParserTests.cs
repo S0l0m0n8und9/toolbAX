@@ -150,14 +150,13 @@ public sealed class ODataMetadataIndexParserTests
   <edmx:DataServices>
     <Schema Namespace="Default" xmlns="http://docs.oasis-open.org/odata/ns/edm">
       <EntityContainer Name="Resources">
+        <!-- The unnamed set is deliberately FIRST. It used to be pinned LAST because Skip() + the loop's
+             own Read() double-advanced and swallowed whatever followed an unnamed element (#184); now that
+             the advance discipline is fixed, an unnamed set costs nothing but itself, so every named
+             sibling after it must still be listed. -->
+        <EntitySet EntityType="Default.Nameless" />
         <EntitySet Name="Ghosts" EntityType="Default.NoSuchType" />
         <EntitySet Name="Untyped" />
-        <!-- The unnamed set is deliberately LAST. ParseIndex answers a blank Name with reader.Skip() +
-             continue, and Skip() on a self-closing element already lands on the NEXT sibling, so the
-             loop's own Read() then steps over it: an unnamed set in the middle of a container silently
-             swallows the set that follows it. That is a live parser defect, filed separately rather than
-             fixed here — do not reorder this fixture expecting the sibling to survive. -->
-        <EntitySet EntityType="Default.Nameless" />
       </EntityContainer>
     </Schema>
   </edmx:DataServices>
@@ -173,6 +172,181 @@ public sealed class ODataMetadataIndexParserTests
             Assert.Equal(0, e.PropertyCount);
             Assert.Equal(0, e.NavigationCount);
         });
+        Assert.Empty(index.Enums);
+    }
+
+    // ── Unnamed elements must not cost their siblings (#184) ──────────────────────────────────────────
+    // ParseIndex answers a blank Name with reader.Skip(). Skip() LANDS ON the node that follows the
+    // skipped element — for a self-closing element it is documented as equivalent to Read(), and for an
+    // expanded element it steps over the children AND the end tag — so in both forms the reader is already
+    // sitting on the next sibling. A `continue` back into a `while (reader.Read())` header therefore
+    // advances a second time and the sibling is never seen. Each theory places the unnamed element in the
+    // MIDDLE of named siblings, so a drop shows up as a missing entry rather than a short list.
+
+    private const string SelfClosingUnnamedSet = """<EntitySet EntityType="Default.Nameless" />""";
+    private const string ExpandedUnnamedSet = """<EntitySet EntityType="Default.Nameless"><Annotation Term="Core.Description" String="no Name attribute" /></EntitySet>""";
+
+    private const string SelfClosingUnnamedType = """<EntityType />""";
+    private const string ExpandedUnnamedType = """<EntityType><Property Name="Leaked" Type="Edm.String" /></EntityType>""";
+
+    private const string SelfClosingUnnamedEnum = """<EnumType />""";
+    private const string ExpandedUnnamedEnum = """<EnumType><Member Name="Leaked" Value="0" /></EnumType>""";
+
+    private static string SetsDocument(string unnamedSet) => $$"""
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Default" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityContainer Name="Resources">
+        <EntitySet Name="Alpha" EntityType="Default.Alpha" />
+        {{unnamedSet}}
+        <EntitySet Name="Survivor" EntityType="Default.Survivor" />
+        <EntitySet Name="Omega" EntityType="Default.Omega" />
+      </EntityContainer>
+      <EntityType Name="Alpha">
+        <Property Name="Id" Type="Edm.String" />
+      </EntityType>
+      <EntityType Name="Survivor">
+        <Property Name="Id" Type="Edm.String" />
+        <Property Name="Label" Type="Edm.String" />
+      </EntityType>
+      <EntityType Name="Omega">
+        <Property Name="Id" Type="Edm.String" />
+        <NavigationProperty Name="Related" Type="Default.Survivor" />
+      </EntityType>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>
+""";
+
+    [Theory]
+    [InlineData(SelfClosingUnnamedSet)]
+    [InlineData(ExpandedUnnamedSet)]
+    public void ParseIndex_Keeps_Every_Named_Set_Around_An_Unnamed_EntitySet(string unnamedSet)
+    {
+        var index = ODataMetadataIndexParser.ParseIndex(SetsDocument(unnamedSet));
+
+        Assert.Equal(new[] { "Alpha", "Survivor", "Omega" }, index.Entities.Select(e => e.Name).ToArray());
+
+        // Fully parsed, not merely present: the counts still come from the right EntityType.
+        var survivor = index.Entities.Single(e => e.Name == "Survivor");
+        Assert.Equal(2, survivor.PropertyCount);
+        Assert.Equal(0, survivor.NavigationCount);
+
+        var omega = index.Entities.Single(e => e.Name == "Omega");
+        Assert.Equal(1, omega.PropertyCount);
+        Assert.Equal(1, omega.NavigationCount);
+    }
+
+    private static string TypesDocument(string unnamedType) => $$"""
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Default" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityType Name="Alpha">
+        <Property Name="Id" Type="Edm.String" />
+      </EntityType>
+      {{unnamedType}}
+      <EntityType Name="Survivor">
+        <Property Name="Id" Type="Edm.String" />
+        <Property Name="Label" Type="Edm.String" />
+      </EntityType>
+      <EntityType Name="Omega">
+        <Property Name="Id" Type="Edm.String" />
+        <NavigationProperty Name="Related" Type="Default.Survivor" />
+      </EntityType>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>
+""";
+
+    [Theory]
+    [InlineData(SelfClosingUnnamedType)]
+    [InlineData(ExpandedUnnamedType)]
+    public void ParseIndex_Keeps_Every_Named_Type_Around_An_Unnamed_EntityType(string unnamedType)
+    {
+        // No EntityContainer, so the master list falls back to EntityType names.
+        var index = ODataMetadataIndexParser.ParseIndex(TypesDocument(unnamedType));
+
+        Assert.Equal(new[] { "Alpha", "Survivor", "Omega" }, index.Entities.Select(e => e.Name).ToArray());
+
+        // The unnamed type's own children must not be attributed to the sibling that follows it.
+        var survivor = index.Entities.Single(e => e.Name == "Survivor");
+        Assert.Equal(2, survivor.PropertyCount);
+        Assert.Equal(0, survivor.NavigationCount);
+
+        var omega = index.Entities.Single(e => e.Name == "Omega");
+        Assert.Equal(1, omega.PropertyCount);
+        Assert.Equal(1, omega.NavigationCount);
+    }
+
+    private static string EnumsDocument(string unnamedEnum) => $$"""
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Default" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EnumType Name="Alpha">
+        <Member Name="A" Value="0" />
+      </EnumType>
+      {{unnamedEnum}}
+      <EnumType Name="Survivor">
+        <Member Name="B" Value="0" />
+        <Member Name="C" Value="1" />
+      </EnumType>
+      <EnumType Name="Omega">
+        <Member Name="D" Value="0" />
+      </EnumType>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>
+""";
+
+    [Theory]
+    [InlineData(SelfClosingUnnamedEnum)]
+    [InlineData(ExpandedUnnamedEnum)]
+    public void ParseIndex_Keeps_Every_Named_Enum_Around_An_Unnamed_EnumType(string unnamedEnum)
+    {
+        var index = ODataMetadataIndexParser.ParseIndex(EnumsDocument(unnamedEnum));
+
+        Assert.Equal(
+            new[] { "Default.Alpha", "Default.Survivor", "Default.Omega" },
+            index.Enums.Select(e => e.Name).ToArray());
+
+        // Members belong to the enum that declared them; the unnamed enum contributes nothing.
+        Assert.Equal(new[] { "B", "C" }, index.Enums.Single(e => e.Name == "Default.Survivor").Members.ToArray());
+        Assert.Equal(new[] { "D" }, index.Enums.Single(e => e.Name == "Default.Omega").Members.ToArray());
+        Assert.DoesNotContain("Leaked", index.Enums.SelectMany(e => e.Members));
+    }
+
+    [Fact]
+    public async Task ParseIndex_Terminates_On_A_Document_Of_Nothing_But_Unnamed_Elements()
+    {
+        // The advance discipline that stops Skip() eating a sibling must not turn into a loop that never
+        // advances: every iteration has to consume at least one node even when every element is unnamed.
+        const string allUnnamed = """
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Default" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityContainer Name="Resources">
+        <EntitySet EntityType="Default.A" />
+        <EntitySet EntityType="Default.B"><Annotation Term="Core.Description" String="b" /></EntitySet>
+      </EntityContainer>
+      <EntityType />
+      <EntityType><Property Name="Orphaned" Type="Edm.String" /></EntityType>
+      <EnumType />
+      <EnumType><Member Name="Orphaned" Value="0" /></EnumType>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>
+""";
+
+        var parse = Task.Run(() => ODataMetadataIndexParser.ParseIndex(allUnnamed));
+        var finished = await Task.WhenAny(parse, Task.Delay(TimeSpan.FromSeconds(10)));
+        Assert.True(ReferenceEquals(parse, finished), "ParseIndex did not terminate on a document of only unnamed elements.");
+
+        var index = await parse;
+        Assert.Empty(index.Entities);
         Assert.Empty(index.Enums);
     }
 
