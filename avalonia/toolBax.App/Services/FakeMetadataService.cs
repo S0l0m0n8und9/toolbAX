@@ -40,10 +40,15 @@ public sealed class FakeMetadataService : IMetadataService
             new EntityField("CurrencyCode", "String", false, Length: 3, Mandatory: true),
             new EntityField("PaymentTermsName", "String", true, Length: 10),
             new EntityField("CreditLimit", "Decimal", true, Precision: 32, Scale: 4, MinValue: "0", MaxValue: "9999999"),
-            new EntityField("IsOneTime", "Enum", false, EnumType: "NoYes"),
+            // Enum fields carry BOTH names, as the real projection does: the local one keys GetEnumMembers,
+            // the qualified one is what the filter builder needs for a valid OData enum literal. Seeded with
+            // F&O's real namespace so the fake exercises the same path a live environment does.
+            new EntityField("IsOneTime", "Enum", false, EnumType: "NoYes",
+                QualifiedEnumType: "Microsoft.Dynamics.DataEntities.NoYes"),
             new EntityField("CreatedDateTime", "DateTime", false),
             new EntityField("ModifiedDateTime", "DateTime", false),
-            new EntityField("BlockedForInvoice", "Enum", true, EnumType: "CustVendorBlocked"),
+            new EntityField("BlockedForInvoice", "Enum", true, EnumType: "CustVendorBlocked",
+                QualifiedEnumType: "Microsoft.Dynamics.DataEntities.CustVendorBlocked"),
             new EntityField("PrimaryContactEmail", "String", true, Length: 80),
         },
         // A genuinely global (not company-aware) entity WITH cached fields: no dataAreaId property, so the
