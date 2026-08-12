@@ -8,7 +8,6 @@
 # Packaging / generated outputs
 artifacts/
 publish/
-codex/
 
 # Installer build outputs (keep WiX sources/scripts checked in)
 install/*.msi
