@@ -10,6 +10,13 @@ public sealed record EntitySet(
     string Tag);
 
 /// <summary>A property of an entity set (Metadata Browser detail grid).</summary>
+/// <param name="EnumType">Short, local enum type name (e.g. "NoYes") — the key enum members are cached
+/// under, so <c>IMetadataService.GetEnumMembers(EnumType)</c> resolves. Display-friendly, but NOT a valid
+/// OData type reference.</param>
+/// <param name="QualifiedEnumType">Namespace-qualified enum type name exactly as $metadata declared it
+/// (e.g. "Microsoft.Dynamics.DataEntities.NoYes"). Required to build an OData v4 enum literal —
+/// <c>Microsoft.Dynamics.DataEntities.NoYes'Yes'</c> — which F&amp;O demands for a genuine enum property;
+/// the bare <c>'Yes'</c> form is a 400. Null when the source didn't carry a qualified name.</param>
 public sealed record EntityField(
     string Name,
     string Type,
@@ -21,7 +28,8 @@ public sealed record EntityField(
     bool Mandatory = false,
     int? Scale = null,
     string? MinValue = null,
-    string? MaxValue = null)
+    string? MaxValue = null,
+    string? QualifiedEnumType = null)
 {
     /// <summary>Human type, e.g. "Enum&lt;NoYes&gt;", "String(20)", "Decimal(32)", "DateTime".</summary>
     public string TypeDisplay => Type switch

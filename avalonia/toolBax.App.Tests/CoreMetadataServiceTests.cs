@@ -132,6 +132,36 @@ public class CoreMetadataServiceTests
     }
 
     [Fact]
+    public async Task LoadFieldsAsync_keeps_both_the_local_and_the_qualified_enum_type_name()
+    {
+        var svc = Make();
+
+        var loaded = await svc.LoadFieldsAsync("CustomersV3", TestContext.Current.CancellationToken);
+
+        Assert.True(loaded);
+        var isOneTime = svc.GetFields("CustomersV3")!.Single(f => f.Name == "IsOneTime");
+        // The local name keys the enum-member cache and drives the grid's Enum<NoYes> label…
+        Assert.Equal("NoYes", isOneTime.EnumType);
+        // …but only the qualified name can build an OData v4 enum literal. Collapsing the type to its local
+        // name alone discarded it, so the filter builder emitted a bare 'Yes' and F&O answered 400.
+        Assert.Equal("Microsoft.Dynamics.DataEntities.NoYes", isOneTime.QualifiedEnumType);
+    }
+
+    [Theory]
+    [InlineData("CustomerAccount")]  // Edm.String
+    [InlineData("CreditLimit")]      // Edm.Decimal
+    [InlineData("CreatedDateTime")]  // Edm.DateTimeOffset
+    [InlineData("BirthDate")]        // Edm.Date
+    public async Task LoadFieldsAsync_leaves_the_qualified_enum_type_null_for_an_Edm_primitive(string field)
+    {
+        var svc = Make();
+
+        await svc.LoadFieldsAsync("CustomersV3", TestContext.Current.CancellationToken);
+
+        Assert.Null(svc.GetFields("CustomersV3")!.Single(f => f.Name == field).QualifiedEnumType);
+    }
+
+    [Fact]
     public async Task LoadFieldsAsync_keeps_Edm_Date_distinct_from_Edm_DateTimeOffset()
     {
         var svc = Make();
@@ -160,6 +190,9 @@ public class CoreMetadataServiceTests
         // enum value editor offered for it.
         Assert.Equal("Collection", tags.Type);
         Assert.Null(tags.EnumType);
+        // Not an enum, so no qualified name either — "Collection(Edm.String)" is not a type reference an
+        // enum literal could ever be built from.
+        Assert.Null(tags.QualifiedEnumType);
         Assert.Equal("Collection", tags.TypeDisplay);
     }
 

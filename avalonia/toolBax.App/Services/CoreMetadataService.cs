@@ -212,7 +212,7 @@ public sealed class CoreMetadataService : IMetadataService
     // understands ("String"/"Decimal"/"DateTime"/"Enum"), carrying length/precision/enum-name across.
     private static EntityField MapField(ODataProperty p)
     {
-        var (type, enumType) = MapType(p.Type);
+        var (type, enumType, qualifiedEnumType) = MapType(p.Type);
         return new EntityField(
             p.Name,
             type,
@@ -224,14 +224,19 @@ public sealed class CoreMetadataService : IMetadataService
             Mandatory: p.Mandatory,
             Scale: ParseInt(p.Scale),
             MinValue: p.MinValue,
-            MaxValue: p.MaxValue);
+            MaxValue: p.MaxValue,
+            QualifiedEnumType: qualifiedEnumType);
     }
 
-    private static (string Type, string? EnumType) MapType(string edmType)
+    // An enum property yields BOTH names: the local one keys the enum-member cache (see LoadEntitiesAsync)
+    // and drives the grid's "Enum<NoYes>" display, while the qualified one is the only form an OData v4
+    // enum literal accepts ("…DataEntities.NoYes'Yes'"). Collapsing to the local name alone left the filter
+    // builder emitting a bare 'Yes', which F&O rejects with a 400 for a genuine enum property.
+    private static (string Type, string? EnumType, string? QualifiedEnumType) MapType(string edmType)
     {
         if (string.IsNullOrWhiteSpace(edmType))
         {
-            return ("String", null);
+            return ("String", null, null);
         }
 
         // Collection(...) properties aren't a scalar type and have no enum members. The local-name
@@ -240,29 +245,30 @@ public sealed class CoreMetadataService : IMetadataService
         // (POST Builder's ResolveEditor falls through to a text box, and the payload mapper to Edm.String).
         if (edmType.StartsWith("Collection(", StringComparison.Ordinal))
         {
-            return ("Collection", null);
+            return ("Collection", null, null);
         }
 
         // Anything outside the Edm.* namespace is an enum/complex type in F&O metadata; surface the
-        // local name as the enum type so the grid shows "Enum<NoYes>".
+        // local name as the enum type so the grid shows "Enum<NoYes>", and keep the declared name verbatim
+        // for the literal. No local-name collapse happens on the qualified one: the namespace IS the point.
         if (!edmType.StartsWith("Edm.", StringComparison.Ordinal))
         {
             var local = edmType[(edmType.LastIndexOf('.') + 1)..];
-            return ("Enum", local);
+            return ("Enum", local, edmType);
         }
 
         var primitive = edmType["Edm.".Length..];
         return primitive switch
         {
-            "String" => ("String", null),
-            "Decimal" => ("Decimal", null),
-            "DateTimeOffset" => ("DateTime", null),
+            "String" => ("String", null, null),
+            "Decimal" => ("Decimal", null, null),
+            "DateTimeOffset" => ("DateTime", null, null),
             // Kept distinct from DateTimeOffset: collapsing the two made the payload builder's date-only
             // branch unreachable, so every date was widened to a timestamp on the way to F&O.
-            "Date" => ("Date", null),
-            "Boolean" => ("Boolean", null),
-            "Guid" => ("Guid", null),
-            _ => (primitive, null), // Int32/Int64/Double/etc. pass through as-is
+            "Date" => ("Date", null, null),
+            "Boolean" => ("Boolean", null, null),
+            "Guid" => ("Guid", null, null),
+            _ => (primitive, null, null), // Int32/Int64/Double/etc. pass through as-is
         };
     }
 

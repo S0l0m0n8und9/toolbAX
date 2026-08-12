@@ -874,10 +874,107 @@ public class QueryBuilderViewModelTests
         cond.Field = "IsOneTime"; // Enum<NoYes>
 
         Assert.True(cond.IsEnum);
+        // Members still resolve off the LOCAL enum name, which is what the member cache is keyed by.
         Assert.Equal(new[] { "No", "Yes" }, cond.EnumMembers);
 
         cond.Value = "Yes";
-        Assert.Equal("IsOneTime eq 'Yes'", vm.BuilderFilter);
+        Assert.Equal("IsOneTime eq Microsoft.Dynamics.DataEntities.NoYes'Yes'", vm.BuilderFilter);
+    }
+
+    // --- Qualified enum literals (#179) ---
+    // OData v4 requires an enum comparison to name the qualified type ahead of the quoted member. F&O 400s
+    // on the bare 'Yes' form for a genuine enum property, so a filter the builder composed visually was
+    // unrunnable the moment it touched an enum field.
+
+    [Fact]
+    public void Builder_renders_an_enum_condition_as_a_namespace_qualified_literal()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.CrossCompany = true; // keep the company clause out of the way
+
+        var cond = AddCondition(vm);
+        cond.Field = "BlockedForInvoice"; // Enum<CustVendorBlocked>
+        cond.Operator = Op("ne");
+        cond.Value = "Invoice";
+
+        Assert.Equal(
+            "BlockedForInvoice ne Microsoft.Dynamics.DataEntities.CustVendorBlocked'Invoice'",
+            vm.BuilderFilter);
+        // The literal reaches the request URL, not just the preview.
+        Assert.Contains(
+            "$filter=BlockedForInvoice ne Microsoft.Dynamics.DataEntities.CustVendorBlocked'Invoice'",
+            vm.QueryUrl);
+    }
+
+    [Fact]
+    public void Builder_doubles_an_apostrophe_inside_a_qualified_enum_literal()
+    {
+        var vm = MakeVm();
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.CrossCompany = true;
+
+        var cond = AddCondition(vm);
+        cond.Field = "IsOneTime";
+        cond.Operator = Op("eq");
+        cond.Value = "O'Brien"; // not a real member, but the escaping must survive the prefix
+
+        // The type prefix sits OUTSIDE the quotes; the doubling stays inside them.
+        Assert.Equal("IsOneTime eq Microsoft.Dynamics.DataEntities.NoYes'O''Brien'", vm.BuilderFilter);
+    }
+
+    // An enum field whose metadata never carried a qualified name — a legacy cache entry, or a fake that
+    // only seeded the local name. Guessing a namespace would fabricate a type reference, so the old
+    // bare-quoted rendering has to survive untouched.
+    private sealed class UnqualifiedEnumMetadata : IMetadataService
+    {
+        private static readonly EntitySet[] Sets =
+            { new("Things", string.Empty, 3, string.Empty, CompanyAware: false, "odata") };
+
+        private static readonly EntityField[] Props =
+        {
+            new("Id", "String", false, IsKey: true, Length: 10),
+            new("Status", "Enum", false, EnumType: "NoYes"), // local name only — no QualifiedEnumType
+            new("Flag", "Enum", true, EnumType: "NoYes", QualifiedEnumType: "Contoso.Custom.NoYes"),
+        };
+
+        public IReadOnlyList<EntitySet> GetEntities() => Sets;
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => Props;
+        public IReadOnlyList<string>? GetEnumMembers(string enumType) =>
+            string.Equals(enumType, "NoYes", StringComparison.OrdinalIgnoreCase) ? new[] { "No", "Yes" } : null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) => Task.FromResult(true);
+    }
+
+    [Fact]
+    public void An_enum_field_without_a_qualified_name_falls_back_to_the_bare_quoted_literal()
+    {
+        var vm = new QueryBuilderViewModel(new UnqualifiedEnumMetadata(), new FakeODataClient());
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "Things");
+
+        var cond = AddCondition(vm);
+        cond.Field = "Status";
+        cond.Operator = Op("eq");
+        cond.Value = "Yes";
+
+        Assert.True(cond.IsEnum);
+        Assert.Equal(new[] { "No", "Yes" }, cond.EnumMembers); // still keyed by the local name
+        Assert.Equal("Status eq 'Yes'", vm.BuilderFilter);     // unchanged from before #179
+    }
+
+    [Fact]
+    public void A_qualified_enum_name_is_emitted_verbatim_whatever_the_namespace()
+    {
+        var vm = new QueryBuilderViewModel(new UnqualifiedEnumMetadata(), new FakeODataClient());
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "Things");
+
+        var cond = AddCondition(vm);
+        cond.Field = "Flag";
+        cond.Operator = Op("eq");
+        cond.Value = "No";
+
+        // The declared name goes through as-is — nothing hardcodes Microsoft.Dynamics.DataEntities.
+        Assert.Equal("Flag eq Contoso.Custom.NoYes'No'", vm.BuilderFilter);
     }
 
     [Fact]
@@ -1107,7 +1204,10 @@ public class QueryBuilderViewModelTests
 
         var enumCond = AddCondition(vm);
         enumCond.Field = "IsOneTime"; enumCond.Operator = Op("eq"); enumCond.Value = "Yes";
-        Assert.Equal("OrganizationName eq 'O''Brien' and IsOneTime eq 'Yes'", vm.BuilderFilter);
+        // A string stays plainly quoted; the enum member gains its qualified type prefix (#179).
+        Assert.Equal(
+            "OrganizationName eq 'O''Brien' and IsOneTime eq Microsoft.Dynamics.DataEntities.NoYes'Yes'",
+            vm.BuilderFilter);
     }
 
     [Fact]

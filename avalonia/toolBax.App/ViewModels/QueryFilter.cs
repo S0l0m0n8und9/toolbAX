@@ -38,7 +38,9 @@ public sealed record QueryFilterOperator(string Op, string Symbol, bool IsFuncti
 /// </summary>
 public enum QueryLiteralKind
 {
-    /// <summary>Single-quoted, embedded quotes doubled — Edm.String and F&amp;O enum members.</summary>
+    /// <summary>Single-quoted, embedded quotes doubled — Edm.String and F&amp;O enum members. An enum member
+    /// additionally carries its namespace-qualified type ahead of the quotes
+    /// (<c>Microsoft.Dynamics.DataEntities.NoYes'Yes'</c>), which OData v4 requires.</summary>
     Quoted,
 
     /// <summary>Bare numeric literal (blank renders as <c>0</c>).</summary>
@@ -239,8 +241,21 @@ public sealed partial class QueryFilterCondition : QueryFilterNode
             QueryLiteralKind.Number => string.IsNullOrWhiteSpace(raw) ? "0" : raw,
             QueryLiteralKind.Boolean => FormatBoolean(raw),
             QueryLiteralKind.Guid or QueryLiteralKind.DateTime or QueryLiteralKind.Date => raw,
-            _ => $"'{raw.Replace("'", "''")}'",
+            _ => FormatQuoted(meta, raw),
         };
+
+    // OData v4 dropped every prefixed literal form EXCEPT the enum one: an enum comparison must name the
+    // qualified type ahead of the quoted member — Microsoft.Dynamics.DataEntities.NoYes'Yes' — and F&O 400s
+    // on a bare 'Yes' for a genuine enum property. Strings keep the plain quoted form, and so does an enum
+    // whose metadata never carried a qualified name (a legacy/fake field): guessing a namespace would
+    // fabricate a type reference, so fall back to the old rendering rather than invent one.
+    private static string FormatQuoted(EntityField? meta, string raw)
+    {
+        var quoted = $"'{raw.Replace("'", "''")}'";
+        return meta is { Type: "Enum" } && !string.IsNullOrWhiteSpace(meta.QualifiedEnumType)
+            ? meta.QualifiedEnumType + quoted
+            : quoted;
+    }
 
     // OData wants lowercase true/false, so a typed "True"/"TRUE" is normalised. Anything that isn't a
     // boolean word goes through as typed — the server rejects it, the same way a non-numeric value in a
