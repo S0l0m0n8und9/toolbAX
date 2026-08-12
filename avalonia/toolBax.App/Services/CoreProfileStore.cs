@@ -128,28 +128,17 @@ public sealed class CoreProfileStore : IProfileStore
     public void Delete(string id)
     {
         // Explicitly remove the env's service principals (don't rely on a FK cascade), so a reused
-        // env id can't inherit a stale SecretRef/CertThumbprint.
+        // env id can't inherit a stale SecretRef/CertThumbprint. Each one takes its secret blob with it
+        // (see DropServicePrincipal).
         foreach (var sp in RunBlocking(() => _profiles.GetServicePrincipalsAsync(id, CancellationToken.None)))
         {
-            // Delete the DPAPI-encrypted secret blob first — SecretVault has no FK cascade to
-            // ServicePrincipals, so dropping only the SP row would orphan the credential on disk forever.
-            // A vault I/O failure must not strand the profile, so log it and still remove the SP row
-            // (the blob is at most a leftover a future vault scrub can collect).
-            if (!string.IsNullOrEmpty(sp.SecretRef))
-            {
-                try
-                {
-                    RunBlocking(() => _profiles.DeleteSecretAsync(sp.SecretRef, CancellationToken.None));
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Trace.TraceWarning(
-                        $"Failed to delete secret blob '{sp.SecretRef}' while deleting profile '{id}'; removing the service principal anyway. {ex}");
-                }
-            }
-
-            RunBlocking(() => _profiles.DeleteServicePrincipalAsync(sp.Id));
+            DropServicePrincipal(sp, id);
         }
+
+        // The DI service-account secret is a vault blob referenced from Settings (there's no SP row to
+        // hang it off), so delete the blob before its pointer — same missing-FK-cascade reason as above.
+        DeleteSecretBlob(RunBlocking(() => _profiles.GetSettingAsync(CoreSecretStore.DiSecretRefSettingKey(id), CancellationToken.None)), id);
+        RunBlocking(() => _profiles.DeleteSettingAsync(CoreSecretStore.DiSecretRefSettingKey(id)));
 
         // Remove the env's DI/dual-write settings so a reused env id can't inherit stale config (and
         // no orphan Settings rows linger — the Settings table has no FK cascade to environments).
@@ -173,7 +162,8 @@ public sealed class CoreProfileStore : IProfileStore
     // Persists the F&O credential. Interactive is delegated (no app-only secret), so its (public) client
     // id lives in Settings and no service-principal row is kept — an SP only models the app-only
     // ClientSecret/Certificate modes (and carries the secret ref). For app-only modes the SP is
-    // upserted (preserving the SecretRef) and the Settings client-id copy is cleared.
+    // upserted (preserving the SecretRef/CertThumbprint only for the SAME app registration — see
+    // ClientIdChanged) and the Settings client-id copy is cleared.
     private void SaveFoServicePrincipal(EnvProfile profile)
     {
         var existing = RunBlocking(() => _profiles.GetServicePrincipalAsync(profile.Id, AuthTarget.Fo, CancellationToken.None));
@@ -181,33 +171,37 @@ public sealed class CoreProfileStore : IProfileStore
         if (profile.AuthMode == FoAuthMode.Interactive)
         {
             SetOrClearSetting(FoClientIdKey(profile.Id), profile.ClientId);
-            if (existing is not null)
-            {
-                RunBlocking(() => _profiles.DeleteServicePrincipalAsync(existing.Id));
-            }
-
+            DropServicePrincipal(existing, profile.Id);
             return;
         }
 
         SetOrClearSetting(FoClientIdKey(profile.Id), null); // app-only: the SP is the client-id source
         if (string.IsNullOrWhiteSpace(profile.ClientId))
         {
-            if (existing is not null)
-            {
-                RunBlocking(() => _profiles.DeleteServicePrincipalAsync(existing.Id));
-            }
-
+            DropServicePrincipal(existing, profile.Id);
             return;
         }
 
+        var clientIdChanged = ClientIdChanged(existing, profile.ClientId);
+
+        // Order matters: persist the row (with the credential unbound) BEFORE deleting the blob it used
+        // to point at. Invariant: never delete a blob a still-persisted row points at — deleting first
+        // and then failing the upsert would leave the surviving row's SecretRef aimed at a blob that no
+        // longer exists (HasSecret true, secret unreadable). This way a failed upsert leaves the old row
+        // and its blob intact and consistent, so the save can simply be retried.
         RunBlocking(() => _profiles.UpsertServicePrincipalAsync(new ServicePrincipal(
             existing?.Id ?? $"{profile.Id}:fo",
             profile.Id,
             profile.ClientId!,
             ToCoreAuthMode(profile.AuthMode),
-            existing?.SecretRef,
-            existing?.CertThumbprint,
+            clientIdChanged ? null : existing?.SecretRef,
+            clientIdChanged ? null : existing?.CertThumbprint,
             AuthTarget.Fo)));
+
+        if (clientIdChanged)
+        {
+            DeleteSecretBlob(existing!.SecretRef, profile.Id);
+        }
     }
 
     // Mirrors SaveFoServicePrincipal for the Dataverse credential (Target=Dataverse).
@@ -218,33 +212,82 @@ public sealed class CoreProfileStore : IProfileStore
         if (profile.DataverseAuthMode == FoAuthMode.Interactive)
         {
             SetOrClearSetting(DataverseClientIdKey(profile.Id), profile.DataverseClientId);
-            if (existing is not null)
-            {
-                RunBlocking(() => _profiles.DeleteServicePrincipalAsync(existing.Id));
-            }
-
+            DropServicePrincipal(existing, profile.Id);
             return;
         }
 
         SetOrClearSetting(DataverseClientIdKey(profile.Id), null);
         if (string.IsNullOrWhiteSpace(profile.DataverseClientId))
         {
-            if (existing is not null)
-            {
-                RunBlocking(() => _profiles.DeleteServicePrincipalAsync(existing.Id));
-            }
-
+            DropServicePrincipal(existing, profile.Id);
             return;
         }
 
+        var clientIdChanged = ClientIdChanged(existing, profile.DataverseClientId);
+
+        // Upsert before deleting the superseded blob — see SaveFoServicePrincipal for the invariant.
         RunBlocking(() => _profiles.UpsertServicePrincipalAsync(new ServicePrincipal(
             existing?.Id ?? $"{profile.Id}:dataverse",
             profile.Id,
             profile.DataverseClientId!,
             ToCoreAuthMode(profile.DataverseAuthMode),
-            existing?.SecretRef,
-            existing?.CertThumbprint,
+            clientIdChanged ? null : existing?.SecretRef,
+            clientIdChanged ? null : existing?.CertThumbprint,
             AuthTarget.Dataverse)));
+
+        if (clientIdChanged)
+        {
+            DeleteSecretBlob(existing!.SecretRef, profile.Id);
+        }
+    }
+
+    // A stored credential belongs to the app registration it was issued for — both the client secret and
+    // the certificate thumbprint. When the client id changes neither is valid any more, so both are
+    // unbound (and the secret's blob deleted); carrying them over silently re-points app A's credential at
+    // app B, which surfaces as an AAD invalid_client rather than "no credential stored" and sends the user
+    // hunting an unrelated auth fault. Dropping them makes HasSecret read false so the UI asks for the new
+    // registration's credential. (The thumbprint needs no cleanup: it points at the machine certificate
+    // store, not the vault.)
+    private static bool ClientIdChanged(ServicePrincipal? existing, string? clientId) =>
+        existing is not null && !string.Equals(existing.ClientId, clientId, StringComparison.Ordinal);
+
+    // Removes a service-principal row and the secret blob it points at. The SecretVault has no FK cascade
+    // to ServicePrincipals, so dropping the row alone would orphan the credential on disk forever —
+    // unreachable, because HasSecret then reads false and ClearSecret early-returns. Hence the blob
+    // deletion, and hence its order: the row goes first, on the same invariant as the client-id-change
+    // path (never delete a blob a still-persisted row points at). Deleting the blob first and then
+    // failing the row delete would leave a surviving SecretRef aimed at nothing; this way a failed row
+    // delete leaves row and blob consistent, and a failed blob delete leaves at worst an orphaned blob
+    // that a future vault scrub can collect — and which DeleteSecretBlob has already traced.
+    private void DropServicePrincipal(ServicePrincipal? existing, string envId)
+    {
+        if (existing is null)
+        {
+            return;
+        }
+
+        RunBlocking(() => _profiles.DeleteServicePrincipalAsync(existing.Id));
+        DeleteSecretBlob(existing.SecretRef, envId);
+    }
+
+    // Deletes a vault blob if there is one. A vault I/O failure must not strand the profile, so log it
+    // and carry on (the blob is at most a leftover a future vault scrub can collect).
+    private void DeleteSecretBlob(string? secretRef, string envId)
+    {
+        if (string.IsNullOrEmpty(secretRef))
+        {
+            return;
+        }
+
+        try
+        {
+            RunBlocking(() => _profiles.DeleteSecretAsync(secretRef, CancellationToken.None));
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Trace.TraceWarning(
+                $"Failed to delete secret blob '{secretRef}' for profile '{envId}'; continuing without it. {ex}");
+        }
     }
 
     private static EnvProfile Map(FoEnvironment env, string? dataverseUrl, ServicePrincipal? sp, ServicePrincipal? dataverseSp,

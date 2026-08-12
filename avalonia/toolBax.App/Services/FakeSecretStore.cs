@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using ToolBax.Core.Services;
 
@@ -12,16 +13,23 @@ public sealed class FakeSecretStore : ISecretStore
 {
     private readonly HashSet<string> _keys = new();
 
+    // Routes on the (target, environment id) pair exactly as CoreSecretStore does — the target alone
+    // decides which of an environment's credentials is meant, so an F&O, Dataverse and Data Integrator
+    // secret for the same environment id stay three distinct entries whatever the id looks like.
     private static string Compose(string key, SecretTarget target) => $"{target}:{key}";
 
     public bool HasSecret(string key, SecretTarget target = SecretTarget.Fo) => _keys.Contains(Compose(key, target));
 
     public void SetSecret(string key, string plaintext, SecretTarget target = SecretTarget.Fo)
     {
-        if (!string.IsNullOrEmpty(plaintext))
+        // Matches CoreSecretStore's contract: an empty secret is rejected, not silently dropped, so a
+        // test passing against this fake means the same call passes against the real store.
+        if (string.IsNullOrEmpty(plaintext))
         {
-            _keys.Add(Compose(key, target));
+            throw new ArgumentException("A secret must be non-empty; use ClearSecret to remove one.", nameof(plaintext));
         }
+
+        _keys.Add(Compose(key, target));
     }
 
     public void ClearSecret(string key, SecretTarget target = SecretTarget.Fo) => _keys.Remove(Compose(key, target));
