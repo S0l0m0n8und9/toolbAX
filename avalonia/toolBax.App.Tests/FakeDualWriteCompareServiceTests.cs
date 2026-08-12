@@ -43,4 +43,25 @@ public class FakeDualWriteCompareServiceTests
             rows.Where(r => r.Verdict == DualWriteComparisonVerdict.Ambiguous),
             r => Assert.False(string.IsNullOrWhiteSpace(r.Note)));
     }
+
+    [Fact]
+    public async System.Threading.Tasks.Task Ambiguous_seed_is_the_full_trio_the_note_describes()
+    {
+        // The seeded note reads "2 map(s) in source and 1 in target share this name and CE target" — a
+        // real DualWriteMapComparer collision this shape would emit exactly three Ambiguous rows (two
+        // one-sided source rows, one one-sided target row), all under the same name and the same note
+        // text (AmbiguousRows stamps one note per collision onto every row it emits, never a per-row
+        // variant). A partial seed — e.g. only one side represented — would silently misrepresent what
+        // the real comparer produces.
+        var env = new EnvProfile("e", "Env", "https://x", "t", "USMF", "Tier", EnvStatus.Connected);
+        var rows = await new FakeDualWriteCompareService().CompareAsync(env, env, CancellationToken.None);
+
+        var ambiguous = rows.Where(r => r.Verdict == DualWriteComparisonVerdict.Ambiguous).ToList();
+
+        Assert.Equal(3, ambiguous.Count);
+        Assert.All(ambiguous, r => Assert.Equal(ambiguous[0].MapName, r.MapName));
+        Assert.All(ambiguous, r => Assert.Equal(ambiguous[0].Note, r.Note));
+        Assert.Equal(2, ambiguous.Count(r => r.InLeft && !r.InRight));
+        Assert.Equal(1, ambiguous.Count(r => r.InRight && !r.InLeft));
+    }
 }
