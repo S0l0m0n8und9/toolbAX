@@ -69,12 +69,6 @@ public partial class ShellViewModel : ObservableObject
     private EnvProfile? _activeEnvironment;
 
     [ObservableProperty]
-    private bool _isBusy;
-
-    [ObservableProperty]
-    private bool _isPaneOpen = true;
-
-    [ObservableProperty]
     private bool _isCommandPaletteOpen;
 
     /// <summary>
@@ -269,9 +263,6 @@ public partial class ShellViewModel : ObservableObject
     private object DefaultOperationsContent() =>
         new DualWriteOpsViewModel(new FakeDualWriteConnector(), () => ActiveEnvironment, new DialogService(),
             odata: _odataClient, metadata: _metadataService);
-
-    [RelayCommand]
-    private void TogglePane() => IsPaneOpen = !IsPaneOpen;
 
     [RelayCommand]
     private void OpenCommandPalette()
