@@ -50,11 +50,23 @@ public sealed class HttpODataWriteClient : IODataWriteClient
             // for the two halves of the write path to compose.
             var contentType = MediaTypeHeaderValue.Parse(ctValue);
 
-            // The body below is written as UTF-8, so say so — unless the caller already pinned a charset,
-            // or this is a multipart body, whose parts carry their own encodings (and whose Content-Type
-            // must stay byte-identical to the boundary the body was built with).
-            if (contentType.CharSet is null &&
-                contentType.MediaType?.StartsWith("multipart/", StringComparison.OrdinalIgnoreCase) != true)
+            // This client always writes the body as UTF-8 bytes (below), so the declared charset must
+            // describe those bytes. A caller-supplied charset is therefore normalised rather than
+            // honoured: keeping e.g. "iso-8859-1" would declare an encoding the payload isn't in, and
+            // re-encoding to the requested codepage is not a better answer — on .NET Core most legacy
+            // codepages need CodePagesEncodingProvider registration, so Encoding.GetEncoding would throw
+            // at send time. A charset is only added when absent for non-multipart types: multipart
+            // Content-Types carry a boundary but no charset (their parts declare their own encodings), so
+            // neither branch alters the batch header, which must stay byte-identical to the body it was
+            // built with.
+            if (contentType.CharSet is null)
+            {
+                if (contentType.MediaType?.StartsWith("multipart/", StringComparison.OrdinalIgnoreCase) != true)
+                {
+                    contentType.CharSet = Encoding.UTF8.WebName;
+                }
+            }
+            else if (!string.Equals(contentType.CharSet.Trim('"'), Encoding.UTF8.WebName, StringComparison.OrdinalIgnoreCase))
             {
                 contentType.CharSet = Encoding.UTF8.WebName;
             }
