@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -38,8 +39,40 @@ public sealed class HttpODataWriteClient : IODataWriteClient
 
         if (request.Body is not null)
         {
-            var ctValue = string.IsNullOrWhiteSpace(request.ContentType) ? "application/octet-stream" : request.ContentType;
-            msg.Content = new StringContent(request.Body, Encoding.UTF8, ctValue);
+            // Default to JSON, not application/octet-stream: every endpoint this client talks to is an
+            // OData one, so octet-stream is a guaranteed 415 rather than a useful fallback.
+            var ctValue = string.IsNullOrWhiteSpace(request.ContentType) ? "application/json" : request.ContentType;
+
+            // Parse the content type instead of passing it as StringContent's "mediaType" argument: that
+            // argument goes through new MediaTypeHeaderValue(mediaType), which rejects any value carrying
+            // parameters (FormatException). ODataBatchBuilder.BuildWriteBatch produces exactly such a
+            // value — "multipart/mixed; boundary=batch_..." — so the parameterised form has to survive
+            // for the two halves of the write path to compose.
+            var contentType = MediaTypeHeaderValue.Parse(ctValue);
+
+            // This client always writes the body as UTF-8 bytes (below), so the declared charset must
+            // describe those bytes. A caller-supplied charset is therefore normalised rather than
+            // honoured: keeping e.g. "iso-8859-1" would declare an encoding the payload isn't in, and
+            // re-encoding to the requested codepage is not a better answer — on .NET Core most legacy
+            // codepages need CodePagesEncodingProvider registration, so Encoding.GetEncoding would throw
+            // at send time. A charset is only added when absent for non-multipart types: multipart
+            // Content-Types carry a boundary but no charset (their parts declare their own encodings), so
+            // neither branch alters the batch header, which must stay byte-identical to the body it was
+            // built with.
+            if (contentType.CharSet is null)
+            {
+                if (contentType.MediaType?.StartsWith("multipart/", StringComparison.OrdinalIgnoreCase) != true)
+                {
+                    contentType.CharSet = Encoding.UTF8.WebName;
+                }
+            }
+            else if (!string.Equals(contentType.CharSet.Trim('"'), Encoding.UTF8.WebName, StringComparison.OrdinalIgnoreCase))
+            {
+                contentType.CharSet = Encoding.UTF8.WebName;
+            }
+
+            msg.Content = new StringContent(request.Body, Encoding.UTF8);
+            msg.Content.Headers.ContentType = contentType;
         }
         else if (request.JsonBody is not null)
         {

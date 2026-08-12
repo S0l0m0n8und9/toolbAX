@@ -28,6 +28,8 @@ public static class QueryCsv
     // Quote fields containing a comma/quote/newline (doubling embedded quotes), and neutralise
     // formula-injection by prefixing a leading =,+,-,@,TAB,CR with an apostrophe so the value is
     // treated as literal text when the CSV is opened in Excel/Sheets.
+    // Deliberately identical to FoToolbox.Core.Export.CsvExporter.Escape — the two CSV writers must
+    // agree on escaping, so change them together.
     private static string Escape(string value)
     {
         var needsFormulaGuard = value.Length > 0 && Array.IndexOf(FormulaLeaders, value[0]) >= 0;

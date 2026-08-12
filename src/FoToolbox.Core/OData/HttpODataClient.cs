@@ -29,8 +29,9 @@ public sealed class HttpODataClient : IODataClient
         var next = request.Url;
         // The initial request defines the trusted origin: its absolute URL, or the HttpClient's
         // BaseAddress when the request URL is relative. A server-supplied @odata.nextLink must stay on
-        // that origin, so the (possibly auth-bearing) HttpClient never follows a page off-origin. If no
-        // origin can be determined, any absolute nextLink is refused (fail closed).
+        // that origin, so the (possibly auth-bearing) HttpClient never follows a page off-origin. Every
+        // nextLink is resolved against that origin before the check (see IsSameOriginNextLink); if no
+        // origin can be determined, any nextLink is refused (fail closed).
         var origin = Uri.TryCreate(request.Url, UriKind.Absolute, out var seed) ? seed : _httpClient.BaseAddress;
         while (!string.IsNullOrWhiteSpace(next))
         {
@@ -112,17 +113,41 @@ public sealed class HttpODataClient : IODataClient
                 root.TryGetProperty("@odata.nextLink", out var nlElement);
                 next = nlElement.ValueKind == JsonValueKind.String ? nlElement.GetString() : null;
 
-                if (!string.IsNullOrWhiteSpace(next)
-                    && Uri.TryCreate(next, UriKind.Absolute, out var nextUri)
-                    && (origin is null || !RequestOriginGuard.IsSameOrigin(origin, nextUri)))
+                if (!string.IsNullOrWhiteSpace(next) && !IsSameOriginNextLink(origin, next!))
                 {
                     throw new InvalidOperationException(
-                        "Refusing to follow an @odata.nextLink that points to a different origin than the request.");
+                        "Refusing to follow an @odata.nextLink that points to a different origin than the request: " +
+                        $"'{next}' does not resolve to '{origin?.GetLeftPart(UriPartial.Authority) ?? "(unknown origin)"}'.");
                 }
 
                 yield return new ODataPage(rows, next, odataCount, headers, odataContext);
             }
         }
+    }
+
+    /// <summary>
+    /// True when a server-supplied <c>@odata.nextLink</c> is safe to follow on the (token-bearing) client.
+    /// </summary>
+    /// <remarks>
+    /// The link is resolved the same way <see cref="HttpClient"/> will resolve it (RFC 3986 §5.3) and the
+    /// resolved origin is then compared with the trusted one, rather than only checking links that parse
+    /// as absolute URIs. That matters for a <c>//host/path</c> network-path reference (RFC 3986 §4.2):
+    /// it keeps the base scheme but <em>replaces the authority</em>, and whether
+    /// <c>Uri.TryCreate(.., UriKind.Absolute, ..)</c> accepts it is platform-dependent — on Windows it
+    /// becomes an implicit UNC <c>file://</c> URI, elsewhere it stays "relative" and an absolute-only
+    /// check waves it through, after which <c>BaseAddress</c> resolution sends the bearer to
+    /// <c>//attacker.example/steal</c>. Resolving first removes that platform dependency.
+    /// </remarks>
+    private static bool IsSameOriginNextLink(Uri? origin, string next)
+    {
+        if (origin is null)
+        {
+            // No trusted origin to compare against, so nothing can be shown safe: fail closed. (Not
+            // reachable in practice — a relative request URL with no BaseAddress fails on the first send.)
+            return false;
+        }
+
+        return Uri.TryCreate(origin, next, out var resolved) && RequestOriginGuard.IsSameOrigin(origin, resolved);
     }
 
     private static Exception BuildPluginFriendlyException(Exception exception)
