@@ -288,4 +288,85 @@ public class DualWriteMapComparerTests
         Assert.Equal(DualWriteComparisonVerdict.VersionMismatch, row.Verdict);
         Assert.Equal(string.Empty, row.Note);
     }
+
+    // ── #160 follow-up: the two environments' gateways need not answer in the same shape. The flat
+    // response carries the map name with no rightEntity block, so its CE target arrives empty, while the
+    // nested response supplies it. An empty target is therefore a *degraded* form of the same identity,
+    // not a different one — keying on it unconditionally split one logical map into OnlyInLeft +
+    // OnlyInRight across a cross-version pair of environments. ─────────────────────────────────────────
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void Compare_SameMapUnderDifferentGatewayShapes_IsPairedNotSplit()
+    {
+        var rows = DualWriteMapComparer.Compare(
+            new[] { Map("Customers V3", "1.0", "Running") },
+            new[] { Map("Customers V3", "2.0", "Running", "accounts") });
+
+        // One row with a real verdict: the drift is what the user came to see. Splitting it into
+        // "only in source" + "only in target" reported two phantom maps and hid the version mismatch.
+        var row = Assert.Single(rows);
+        Assert.Equal(DualWriteComparisonVerdict.VersionMismatch, row.Verdict);
+        Assert.True(row.InLeft);
+        Assert.True(row.InRight);
+        Assert.Equal("1.0", row.LeftVersion);
+        Assert.Equal("2.0", row.RightVersion);
+
+        // The name is unique on the grid, so it needs no disambiguating suffix, and a clean pairing
+        // carries no note.
+        Assert.Equal("Customers V3", row.MapName);
+        Assert.Equal(string.Empty, row.Note);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void Compare_ShapeDifferenceTheOtherWayRound_IsAlsoPaired()
+    {
+        // Same scenario mirrored: the nested shape is the source and the flat one is the target.
+        var rows = DualWriteMapComparer.Compare(
+            new[] { Map("Customers V3", "1.0", "Running", "accounts") },
+            new[] { Map("Customers V3", "1.0", "Stopped") });
+
+        var row = Assert.Single(rows);
+        Assert.Equal(DualWriteComparisonVerdict.StateMismatch, row.Verdict);
+        Assert.Equal("Running", row.LeftState);
+        Assert.Equal("Stopped", row.RightState);
+        Assert.Equal(string.Empty, row.Note);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void Compare_UntargetedMapAgainstTwoSameNameTargets_IsAmbiguousNotGuessed()
+    {
+        // Degraded identity only pairs where the pairing is unique. Here the flat side reports one
+        // CustCustomerV3Entity with no target and the nested side reports two, so which one it is cannot
+        // be known — and guessing is exactly the fabricated-verdict bug #160 fixed.
+        var rows = DualWriteMapComparer.Compare(
+            new[] { Map("CustCustomerV3Entity", "1.0", "Running") },
+            new[]
+            {
+                Map("CustCustomerV3Entity", "1.0", "Running", "accounts"),
+                Map("CustCustomerV3Entity", "2.0", "Running", "contacts"),
+            });
+
+        Assert.Equal(3, rows.Count);
+        Assert.All(rows, r => Assert.Equal(DualWriteComparisonVerdict.Ambiguous, r.Verdict));
+
+        // Every map keeps its own identity on its own row, on the side it came from — nothing is paired.
+        Assert.Equal(
+            new[]
+            {
+                "CustCustomerV3Entity → (no CE target)",
+                "CustCustomerV3Entity → accounts",
+                "CustCustomerV3Entity → contacts",
+            },
+            rows.Select(r => r.MapName).ToArray());
+        Assert.All(rows, r => Assert.NotEqual(r.InLeft, r.InRight));
+        Assert.Equal(new[] { "1.0" }, rows.Where(r => r.InLeft).Select(r => r.LeftVersion).ToArray());
+        Assert.Equal(new[] { "1.0", "2.0" }, rows.Where(r => r.InRight).Select(r => r.RightVersion).ToArray());
+
+        // The note has to name the cause, or the rows look like the duplicate-identity case.
+        Assert.All(rows, r => Assert.Contains("no CE target", r.Note));
+        Assert.All(rows, r => Assert.Contains("2 map(s) with that name", r.Note));
+    }
 }
