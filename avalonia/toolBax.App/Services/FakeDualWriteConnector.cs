@@ -95,16 +95,41 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
             env.Id, "https://fake-gateway.dual-write.example");
     }
 
+    /// <summary>
+    /// Representative maps. The <c>actions</c> sets mirror the live-captured gateway response, which
+    /// reported <c>"actions":["4","5"]</c> (Stop + Pause — see <see cref="DualWriteActionType"/>) for a
+    /// Running map and <em>no</em> <c>actions</c> key at all for its Stopped sibling. So the Running seeds
+    /// carry that evidence-backed pair, while the Paused/Stopped seeds leave their actions unreported —
+    /// which keeps the "gateway didn't say → don't restrict" path present in the seed data too, rather
+    /// than inventing eligibility for states the capture says nothing about.
+    /// </summary>
     public static IReadOnlyList<DualWriteMap> SeedMaps() => new[]
     {
-        Map("Customers V3", "account", "Running", "1.0.0.12", "Microsoft"),
-        Map("Vendors V2", "msdyn_vendor", "Running", "1.0.0.8", "Microsoft"),
-        Map("Released products V2", "product", "Paused", "1.0.0.21", "contoso.it"),
-        Map("Sales order headers", "salesorder", "Running", "1.0.0.15", "contoso.it"),
-        Map("Chart of accounts", "msdyn_coa", "Stopped", "1.0.0.3", "Microsoft"),
+        Map("Customers V3", "account", "Running", "1.0.0.12", "Microsoft", RunningActions),
+        Map("Vendors V2", "msdyn_vendor", "Running", "1.0.0.8", "Microsoft", RunningActions),
+        Map("Released products V2", "product", "Paused", "1.0.0.21", "contoso.it", actions: null),
+        Map("Sales order headers", "salesorder", "Running", "1.0.0.15", "contoso.it", RunningActions),
+        Map("Chart of accounts", "msdyn_coa", "Stopped", "1.0.0.3", "Microsoft", actions: null),
     };
 
-    private static DualWriteMap Map(string name, string ceEntity, string state, string version, string author)
+    /// <summary>What a Running map accepts, per the live capture: Stop (4) and Pause (5) only.</summary>
+    private static readonly IReadOnlySet<string> RunningActions =
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        {
+            DualWriteActionType.Stop.ToActionCode(),
+            DualWriteActionType.Pause.ToActionCode(),
+        };
+
+    /// <summary>
+    /// The action list the fake gateway reports for a map that has just moved to <paramref name="state"/>.
+    /// Only Running is evidence-backed (the capture's <c>["4","5"]</c>); every other state reports nothing,
+    /// exactly as the capture's Stopped map did — i.e. "unknown", which the screen must not treat as "none".
+    /// </summary>
+    internal static IReadOnlySet<string>? ActionsForState(string state) =>
+        string.Equals(state, "Running", StringComparison.OrdinalIgnoreCase) ? RunningActions : null;
+
+    private static DualWriteMap Map(
+        string name, string ceEntity, string state, string version, string author, IReadOnlySet<string>? actions)
     {
         var template = new DualWriteTemplate($"tpl-{ceEntity}", version, author);
         return new DualWriteMap(
@@ -117,6 +142,7 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
             Templates: new[] { template })
         {
             RightEntityName = ceEntity,
+            Actions = actions,
         };
     }
 }
@@ -146,6 +172,13 @@ public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
 
     /// <summary>Number of <see cref="StartActionAsync"/> calls — lets tests assert no silent mutation.</summary>
     public int StartCount { get; private set; }
+
+    /// <summary>
+    /// The maps handed to the last <see cref="StartActionAsync"/> call. The whole selection goes into one
+    /// batched <c>details[]</c>, so which maps are in it is the thing to assert when a caller filters an
+    /// ineligible map out of the payload rather than letting it fail the batch.
+    /// </summary>
+    public IReadOnlyList<DualWriteMap> LastActionMaps { get; private set; } = Array.Empty<DualWriteMap>();
 
     /// <summary>Number of <see cref="GetMapsAsync"/> calls — lets tests assert the post-action refresh ran.</summary>
     public int GetMapsCount => _getMapsCalls;
@@ -205,6 +238,7 @@ public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
     public Task<DualWriteActionResponse> StartActionAsync(DualWriteActionType action, IReadOnlyList<DualWriteMap> maps, string cid, CancellationToken cancellationToken = default)
     {
         StartCount++;
+        LastActionMaps = maps.ToList();
         var targetIds = maps.Select(m => m.Id).ToHashSet();
         if (_deferStateUntilPolls > 0)
         {
@@ -270,11 +304,15 @@ public sealed class FakeCoreDualWriteGateway : IDualWriteGateway
     private void ApplyState(DualWriteActionType action, HashSet<string> targetIds)
     {
         var newState = ResultState(action);
+        // The eligible-action list travels with the state — a real gateway recomputes it. Leaving the old
+        // list on a map whose state just changed would let the fake claim, say, that a freshly Stopped map
+        // still accepts Stop/Pause, which is precisely the incoherence this seam exists to catch.
+        var newActions = FakeDualWriteConnector.ActionsForState(newState);
         for (var i = 0; i < _maps.Count; i++)
         {
             if (targetIds.Contains(_maps[i].Id))
             {
-                _maps[i] = _maps[i] with { State = newState };
+                _maps[i] = _maps[i] with { State = newState, Actions = newActions };
             }
         }
     }

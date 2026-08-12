@@ -41,9 +41,15 @@ public class DualWriteOpsTests
         private readonly bool _confirm;
         public FakeDialogs(bool confirm) => _confirm = confirm;
         public int Calls { get; private set; }
+
+        /// <summary>The last request shown — the dialog is what the user reads before agreeing, so what it
+        /// lists (and doesn't) is assertable.</summary>
+        public ConfirmRequest? LastRequest { get; private set; }
+
         public Task<bool> ConfirmAsync(ConfirmRequest request)
         {
             Calls++;
+            LastRequest = request;
             return Task.FromResult(_confirm);
         }
     }
@@ -221,12 +227,148 @@ public class DualWriteOpsTests
         var connector = new FakeDualWriteConnector(pollsBeforeTerminal: 3);
         var vm = MakeVm(connector, confirm: true);
         await vm.LoadCommand.ExecuteAsync(null);
-        vm.Maps.First().IsSelected = true;
+        // Start goes to a Stopped map: the seeds' Running maps report the live capture's action list
+        // ("4","5" = Stop/Pause), which does NOT include Start, so this used to lean on the screen offering
+        // every action on every map (#168). The polling seam under test is unchanged either way.
+        vm.Maps.Single(m => m.Name == "Chart of accounts").IsSelected = true;
 
         await vm.RunActionCommand.ExecuteAsync(vm.StartAction);
 
         Assert.Contains("completed", vm.Status, StringComparison.OrdinalIgnoreCase);
         Assert.False(vm.IsBusy);
+    }
+
+    // --- #168: the gateway's per-map action eligibility (detail.actions) ---
+
+    /// <summary>A map reporting exactly the actions the gateway says its state accepts. No
+    /// <paramref name="actions"/> at all = the gateway didn't report any (unknown), as older gateways and
+    /// the live capture's Stopped map do.</summary>
+    private static DualWriteMap MapWith(string name, string state, params DualWriteActionType[] actions)
+    {
+        var template = new DualWriteTemplate($"tpl-{name}", "1.0.0.0", "Microsoft");
+        return new DualWriteMap($"map-{name}", name, name, $"proj-{name}", state, template, new[] { template })
+        {
+            RightEntityName = name.ToLowerInvariant(),
+            Actions = actions.Length == 0
+                ? null
+                : actions.Select(a => a.ToActionCode()).ToHashSet(StringComparer.OrdinalIgnoreCase),
+        };
+    }
+
+    // A mixed selection — the normal case, since the grid is multi-select and map states differ.
+    private static IReadOnlyList<DualWriteMap> MixedEligibilityMaps() => new[]
+    {
+        MapWith("Customers V3", "Running", DualWriteActionType.Stop, DualWriteActionType.Pause), // Stop: yes
+        MapWith("Released products", "Paused", DualWriteActionType.Resume),                      // Stop: no
+        MapWith("Vendors V2", "Running"),                                                        // unreported
+    };
+
+    [Fact]
+    public async Task An_action_sends_only_the_maps_the_gateway_says_can_take_it()
+    {
+        // MapActionPayloadBuilder batches the whole selection into ONE details[], so including a map the
+        // gateway rejects failed the action for every map selected with it — with only an opaque "500" to
+        // show for it. The ineligible map must be left out of the payload instead.
+        var connector = new FakeDualWriteConnector(MixedEligibilityMaps());
+        var vm = MakeVm(connector, confirm: true);
+        await vm.LoadCommand.ExecuteAsync(null);
+        foreach (var row in vm.Maps)
+        {
+            row.IsSelected = true;
+        }
+
+        await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+
+        var gateway = connector.LastGateway!;
+        Assert.Equal(1, gateway.StartCount);
+        // Sent: the map that reports Stop, plus the one whose actions the gateway never reported.
+        Assert.Equal(
+            new[] { "Customers V3", "Vendors V2" },
+            gateway.LastActionMaps.Select(m => m.Name).OrderBy(n => n, StringComparer.Ordinal));
+        // The Paused map was never sent — had it been, the fake would have moved it to Stopped.
+        Assert.Equal("Paused", vm.Maps.Single(m => m.Name == "Released products").State);
+        Assert.Equal("Stopped", vm.Maps.Single(m => m.Name == "Customers V3").State);
+        Assert.Equal("Stopped", vm.Maps.Single(m => m.Name == "Vendors V2").State);
+        // The action result stands AND the skip is named — a silent exclusion is its own bug.
+        Assert.Contains("completed", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("Skipped 1 map(s)", vm.Status);
+        Assert.Contains("Stop", vm.Status);
+        Assert.Contains("Released products", vm.Status);
+        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Warn && e.Text.Contains("Released products"));
+        // The user selected the skipped map too; nothing was done to it, so it stays selected.
+        Assert.True(vm.Maps.Single(m => m.Name == "Released products").IsSelected);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task An_action_no_selected_map_supports_is_refused_before_the_confirm_dialog()
+    {
+        // Nothing would be left in the payload, so there is nothing to confirm — and sending an empty
+        // details[] (or the ineligible maps anyway) could only come back as an opaque failure.
+        var connector = new FakeDualWriteConnector(MixedEligibilityMaps());
+        var dialogs = new FakeDialogs(confirm: true);
+        var vm = new DualWriteOpsViewModel(connector, Env, dialogs,
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5));
+        await vm.LoadCommand.ExecuteAsync(null);
+        // Both report their actions, and neither list includes Resume.
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+        vm.Maps.Single(m => m.Name == "Released products").IsSelected = false;
+        vm.Maps.Single(m => m.Name == "Vendors V2").IsSelected = false;
+
+        await vm.RunActionCommand.ExecuteAsync(vm.ResumeAction);
+
+        Assert.Equal(0, dialogs.Calls);                     // refused before the dialog, not after it
+        Assert.Equal(0, connector.LastGateway!.StartCount);  // no gateway call at all
+        Assert.Equal("Running", vm.Maps.Single(m => m.Name == "Customers V3").State);
+        Assert.Contains("Skipped 1 map(s)", vm.Status);
+        Assert.Contains("Resume", vm.Status);
+        Assert.Contains("Customers V3", vm.Status);
+        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Warn && e.Text.Contains("Customers V3"));
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task A_map_whose_actions_the_gateway_did_not_report_is_still_sent()
+    {
+        // Regression for older gateways (and any response that omits detail.actions): unknown eligibility
+        // must not be read as "supports nothing", or the screen refuses every action on every map.
+        var connector = new FakeDualWriteConnector(new[] { MapWith("Legacy map", "Stopped") });
+        var vm = MakeVm(connector, confirm: true);
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.Single().IsSelected = true;
+
+        await vm.RunActionCommand.ExecuteAsync(vm.StartAction);
+
+        Assert.Equal(1, connector.LastGateway!.StartCount);
+        Assert.Equal("Legacy map", Assert.Single(connector.LastGateway!.LastActionMaps).Name);
+        Assert.Contains("completed", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Skipped", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal("Running", vm.Maps.Single().State);
+    }
+
+    [Fact]
+    public async Task The_confirm_dialog_lists_only_the_maps_that_will_be_sent()
+    {
+        // The dialog is the last chance to see what is about to happen: listing a map that has already been
+        // excluded would make it the wrong last chance.
+        var connector = new FakeDualWriteConnector(MixedEligibilityMaps());
+        var dialogs = new FakeDialogs(confirm: false);
+        var vm = new DualWriteOpsViewModel(connector, Env, dialogs,
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5));
+        await vm.LoadCommand.ExecuteAsync(null);
+        foreach (var row in vm.Maps)
+        {
+            row.IsSelected = true;
+        }
+
+        await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+
+        var request = dialogs.LastRequest;
+        Assert.NotNull(request);
+        Assert.Equal(2, request!.Targets.Count);
+        Assert.Contains("2 map(s)", request.Title);   // the count matches the list, not the selection
+        Assert.DoesNotContain(request.Targets, t => t.Contains("Released products"));
+        Assert.Equal(0, connector.LastGateway!.StartCount);   // declined, so still nothing submitted
     }
 
     // --- #166: a submitted action is never reported as a failure just because it can't be polled ---
@@ -263,7 +405,8 @@ public class DualWriteOpsTests
         var vm = new DualWriteOpsViewModel(connector, Env, new FakeDialogs(confirm: true),
             pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromMilliseconds(200));
         await vm.LoadCommand.ExecuteAsync(null);
-        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+        // Initial sync targets a Stopped map — a Running seed reports only Stop/Pause as available (#168).
+        vm.Maps.Single(m => m.Name == "Chart of accounts").IsSelected = true;
 
         await vm.RunActionCommand.ExecuteAsync(vm.InitialAction);
 
