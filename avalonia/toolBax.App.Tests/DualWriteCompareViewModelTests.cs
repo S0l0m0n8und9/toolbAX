@@ -289,15 +289,53 @@ public class DualWriteCompareViewModelTests
         // Connecting can open a MODAL browser sign-in, so the two connects must NOT overlap: two modal
         // windows stack on the same owner, closing either re-enables the main window while the other is
         // still up, and a manually-closed window's best-effort capture can be attributed to the wrong
-        // environment. The recorder yields inside ConnectAsync, so an overlapping caller (the previous
-        // Task.WhenAll form) is caught deterministically rather than by timing.
+        // environment. The recorder yields inside ConnectAsync, so an overlapping caller is caught
+        // deterministically rather than by timing. Once both sides are signed in, the map loads are plain
+        // HTTP and are explicitly allowed to overlap (#168 P2) — this test only pins down that the
+        // connects stay strictly ordered and that both loads still complete and feed the diff.
         var connector = new SequenceRecordingConnector();
         var service = new CoreDualWriteCompareService(connector);
 
-        await service.CompareAsync(EnvNamed("src"), EnvNamed("tgt"), CancellationToken.None);
+        var rows = await service.CompareAsync(EnvNamed("src"), EnvNamed("tgt"), CancellationToken.None);
 
         Assert.Equal(new[] { "start:src", "finish:src", "start:tgt", "finish:tgt" }, connector.Log);
         Assert.Equal(1, connector.MaxConcurrent);
+        Assert.Equal(FakeDualWriteConnector.SeedMaps().Count, rows.Count);   // both loads completed and diffed
+    }
+
+    [Fact]
+    public async Task A_map_load_failure_on_one_side_still_disposes_both_gateways()
+    {
+        // The loads run in parallel (Task.WhenAll) — a failure on one side must not leave the other's
+        // gateway (and its HttpClient) undisposed just because Task.WhenAll rethrows before both
+        // finallys have necessarily been observed by the caller.
+        var sourceGateway = new DisposableStubGateway(FakeDualWriteConnector.SeedMaps());
+        var targetGateway = new DisposableStubGateway(new InvalidOperationException("map load failed"));
+        var connector = new FixedGatewayConnector(sourceGateway, targetGateway);
+        var service = new CoreDualWriteCompareService(connector);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.CompareAsync(EnvNamed("src"), EnvNamed("tgt"), CancellationToken.None));
+
+        Assert.True(sourceGateway.Disposed);   // the healthy side's load still finished and disposed
+        Assert.True(targetGateway.Disposed);
+    }
+
+    [Fact]
+    public async Task A_target_sign_in_failure_disposes_the_already_connected_source_gateway()
+    {
+        // Source signs in first and its gateway is live before target's sign-in is even attempted. If
+        // target's sign-in then fails, source never reaches its own load (and its dispose) — unlike the
+        // old fully-sequential flow, splitting connect from load means this must be disposed explicitly
+        // or it leaks.
+        var sourceGateway = new DisposableStubGateway(FakeDualWriteConnector.SeedMaps());
+        var connector = new FailsSecondConnectConnector(sourceGateway, new InvalidOperationException("sign-in failed"));
+        var service = new CoreDualWriteCompareService(connector);
+
+        await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.CompareAsync(EnvNamed("src"), EnvNamed("tgt"), CancellationToken.None));
+
+        Assert.True(sourceGateway.Disposed);
     }
 
     [Fact]
@@ -379,5 +417,86 @@ public class DualWriteCompareViewModelTests
                 new FakeCoreDualWriteGateway(FakeDualWriteConnector.SeedMaps()),
                 "fake-cid", "Contoso", env.Id, "https://fake-gateway.dual-write.example");
         }
+    }
+
+    /// <summary>Hands back a fixed, caller-supplied gateway per environment id ("src"/"tgt") — lets a test
+    /// arrange independent success/failure behaviour for each side's load.</summary>
+    private sealed class FixedGatewayConnector : IDualWriteConnector
+    {
+        private readonly IDualWriteGateway _sourceGateway;
+        private readonly IDualWriteGateway _targetGateway;
+
+        public FixedGatewayConnector(IDualWriteGateway sourceGateway, IDualWriteGateway targetGateway)
+        {
+            _sourceGateway = sourceGateway;
+            _targetGateway = targetGateway;
+        }
+
+        public Task<DualWriteSession> ConnectAsync(EnvProfile env, CancellationToken ct = default)
+        {
+            var gateway = env.Id == "src" ? _sourceGateway : _targetGateway;
+            return Task.FromResult(
+                new DualWriteSession(gateway, "fake-cid", "Contoso", env.Id, "https://fake-gateway.dual-write.example"));
+        }
+    }
+
+    /// <summary>Connects "src" normally but fails signing in to "tgt" — for proving the already-connected
+    /// source gateway is disposed rather than leaked when the second sign-in fails.</summary>
+    private sealed class FailsSecondConnectConnector : IDualWriteConnector
+    {
+        private readonly IDualWriteGateway _sourceGateway;
+        private readonly Exception _targetFailure;
+
+        public FailsSecondConnectConnector(IDualWriteGateway sourceGateway, Exception targetFailure)
+        {
+            _sourceGateway = sourceGateway;
+            _targetFailure = targetFailure;
+        }
+
+        public Task<DualWriteSession> ConnectAsync(EnvProfile env, CancellationToken ct = default) =>
+            env.Id == "src"
+                ? Task.FromResult(new DualWriteSession(
+                    _sourceGateway, "fake-cid", "Contoso", env.Id, "https://fake-gateway.dual-write.example"))
+                : Task.FromException<DualWriteSession>(_targetFailure);
+    }
+
+    /// <summary>Minimal disposable <see cref="IDualWriteGateway"/>: returns fixed maps, or throws, from
+    /// <see cref="GetMapsAsync"/>, and tracks whether it was disposed.</summary>
+    private sealed class DisposableStubGateway : IDualWriteGateway, IDisposable
+    {
+        private readonly IReadOnlyList<DualWriteMap>? _maps;
+        private readonly Exception? _failWith;
+
+        public bool Disposed { get; private set; }
+
+        public DisposableStubGateway(IReadOnlyList<DualWriteMap> maps) => _maps = maps;
+
+        public DisposableStubGateway(Exception failWith) => _failWith = failWith;
+
+        public void Dispose() => Disposed = true;
+
+        public Task<IReadOnlyList<DualWriteMap>> GetMapsAsync(string cid, CancellationToken cancellationToken = default) =>
+            _failWith is not null
+                ? Task.FromException<IReadOnlyList<DualWriteMap>>(_failWith)
+                : Task.FromResult(_maps!);
+
+        public Task<DualWriteEnvironment> GetEnvironmentAsync(string foIdentifier, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+        public Task<DualWriteActionResponse> StartActionAsync(DualWriteActionType action, IReadOnlyList<DualWriteMap> maps, string cid, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+        public Task<DualWriteRequestStatus> GetStatusAsync(string requestId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+        public Task<DualWriteActionResponse> SwitchActiveTemplateAsync(string cid, string projectId, string templateId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+        public Task<IReadOnlyList<DualWriteFieldMapping>> GetFieldMappingsAsync(string projectId, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+        public Task RefreshTablesAsync(string fieldMappingName, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+        public Task<DualWriteConnectionSet> GetConnectionSetAsync(string cname, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+        public Task ResetLinksAsync(string cid, DualWriteConnectionSet connectionSet, IReadOnlyList<string> legalEntities, bool forceReset, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
+        public Task ApplyIntegrationKeysAsync(string datasetName, string ceEntityName, IReadOnlyList<string> keyFields, CancellationToken cancellationToken = default)
+            => throw new NotSupportedException();
     }
 }

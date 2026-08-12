@@ -21,31 +21,55 @@ public sealed class CoreDualWriteCompareService : IDualWriteCompareService
 
     public async Task<IReadOnlyList<DualWriteMapComparisonRow>> CompareAsync(EnvProfile source, EnvProfile target, CancellationToken ct = default)
     {
-        // SEQUENTIALLY, source fully connected + loaded before target starts: connecting opens a MODAL
-        // browser sign-in window (the Data Integrator portal), and only one of those can be up at a time.
-        // Run in parallel, two modal windows stack on the same owner — closing one re-enables the main
-        // window while the other is still modal, and a manually-closed window's best-effort token capture
-        // can be attributed to the wrong environment. One sign-in at a time, each named after the
+        // Sign-ins run SEQUENTIALLY, source fully signed in before target's starts: connecting opens a
+        // MODAL browser sign-in window (the Data Integrator portal), and only one of those can be up at a
+        // time. Run in parallel, two modal windows stack on the same owner — closing one re-enables the
+        // main window while the other is still modal, and a manually-closed window's best-effort token
+        // capture can be attributed to the wrong environment. One sign-in at a time, each named after the
         // environment it belongs to (see DualWriteSignInTitle). The extra wall-clock cost is a round-trip
         // the user spends signing in anyway.
-        var left = await ConnectAndLoadAsync(source, ct).ConfigureAwait(false);
-        var right = await ConnectAndLoadAsync(target, ct).ConfigureAwait(false);
-        return DualWriteMapComparer.Compare(left, right);
+        var sourceSession = await _connector.ConnectAsync(source, ct).ConfigureAwait(false);
+        DualWriteSession targetSession;
+        try
+        {
+            targetSession = await _connector.ConnectAsync(target, ct).ConfigureAwait(false);
+        }
+        catch
+        {
+            // Source is already signed in and its gateway is live — if target's sign-in then fails, that
+            // gateway would otherwise leak (unlike the old fully-sequential flow, where source's own load
+            // — and dispose — always finished before target's connect was even attempted).
+            DisposeGateway(sourceSession);
+            throw;
+        }
+
+        // Once both sides are signed in, loading maps is plain headless HTTP — no modal, no attribution
+        // risk — so the two loads can run in parallel. Each load disposes its own gateway in a finally
+        // regardless of outcome, so one side's load failing still leaves both gateways cleaned up.
+        var sourceLoad = LoadAsync(sourceSession, ct);
+        var targetLoad = LoadAsync(targetSession, ct);
+        await Task.WhenAll(sourceLoad, targetLoad).ConfigureAwait(false);
+
+        return DualWriteMapComparer.Compare(sourceLoad.Result, targetLoad.Result);
     }
 
-    private async Task<IReadOnlyList<DualWriteMap>> ConnectAndLoadAsync(EnvProfile env, CancellationToken ct)
+    private static async Task<IReadOnlyList<DualWriteMap>> LoadAsync(DualWriteSession session, CancellationToken ct)
     {
-        var session = await _connector.ConnectAsync(env, ct).ConfigureAwait(false);
         try
         {
             return await session.Gateway.GetMapsAsync(session.Cid, ct).ConfigureAwait(false);
         }
         finally
         {
-            if (session.Gateway is IDisposable disposable)
-            {
-                disposable.Dispose();
-            }
+            DisposeGateway(session);
+        }
+    }
+
+    private static void DisposeGateway(DualWriteSession session)
+    {
+        if (session.Gateway is IDisposable disposable)
+        {
+            disposable.Dispose();
         }
     }
 }
