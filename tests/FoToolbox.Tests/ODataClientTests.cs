@@ -89,6 +89,98 @@ public class ODataClientTests
         });
     }
 
+    [Fact]
+    public async Task Refuses_A_Scheme_Relative_NextLink_That_Swaps_The_Host()
+    {
+        // "//attacker.example/steal" is a network-path reference (RFC 3986 4.2): it is NOT parseable as
+        // an absolute URI, so an absolute-only origin check skips it, and HttpClient then resolves it
+        // against BaseAddress -- keeping the scheme but replacing the authority, bearer token included.
+        var handler = new SequenceHandler(new[]
+        {
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"value\":[{\"Id\":1}],\"@odata.nextLink\":\"//attacker.example/steal\"}", Encoding.UTF8, "application/json")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"value\":[{\"Id\":2}]}", Encoding.UTF8, "application/json")
+            }
+        });
+        var client = new HttpClient(handler) { BaseAddress = new Uri("https://host") };
+        var odata = new HttpODataClient(client);
+
+        var failure = await Assert.ThrowsAsync<InvalidOperationException>(async () =>
+        {
+            await foreach (var _ in odata.StreamAsync(new QueryRequest("https://host/data/Entity"), CancellationToken.None))
+            {
+            }
+        });
+
+        Assert.Contains("different origin", failure.Message, StringComparison.OrdinalIgnoreCase);
+        // The message must name what was refused and what it was measured against: on Windows this link
+        // parses as an implicit UNC file:// URI, so an absolute-only check can reject it by accident
+        // (scheme mismatch) while the same link sails straight through on Linux.
+        Assert.Contains("//attacker.example/steal", failure.Message, StringComparison.Ordinal);
+        Assert.Contains("https://host", failure.Message, StringComparison.Ordinal);
+        // The decisive assertion: the request to the foreign authority was never made.
+        Assert.Single(handler.Requests);
+        Assert.DoesNotContain(handler.Requests, uri => uri is not null && uri.Contains("attacker.example", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public async Task Follows_A_Scheme_Relative_NextLink_On_The_Same_Origin()
+    {
+        // Same reference form, same origin: guarded, not blanket-rejected.
+        var handler = new SequenceHandler(new[]
+        {
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"value\":[{\"Id\":1}],\"@odata.nextLink\":\"//host/data/Entity?$skiptoken=2\"}", Encoding.UTF8, "application/json")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"value\":[{\"Id\":2}]}", Encoding.UTF8, "application/json")
+            }
+        });
+        var client = new HttpClient(handler) { BaseAddress = new Uri("https://host") };
+        var odata = new HttpODataClient(client);
+
+        var pages = new List<ODataPage>();
+        await foreach (var page in odata.StreamAsync(new QueryRequest("https://host/data/Entity"), CancellationToken.None))
+        {
+            pages.Add(page);
+        }
+
+        Assert.Equal(2, pages.Count);
+        Assert.Equal(2, handler.Requests.Count);
+    }
+
+    [Fact]
+    public async Task Follows_A_Relative_NextLink_On_The_Request_Origin()
+    {
+        var handler = new SequenceHandler(new[]
+        {
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"value\":[{\"Id\":1}],\"@odata.nextLink\":\"/data/Entity?$skiptoken=2\"}", Encoding.UTF8, "application/json")
+            },
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent("{\"value\":[{\"Id\":2}]}", Encoding.UTF8, "application/json")
+            }
+        });
+        var client = new HttpClient(handler) { BaseAddress = new Uri("https://host") };
+        var odata = new HttpODataClient(client);
+
+        var pages = new List<ODataPage>();
+        await foreach (var page in odata.StreamAsync(new QueryRequest("https://host/data/Entity"), CancellationToken.None))
+        {
+            pages.Add(page);
+        }
+
+        Assert.Equal(2, pages.Count);
+    }
+
     [Trait("Category", "Auth")]
     [Fact]
     public async Task StreamAsync_Unauthorized_Returns_Clear_Reauth_Message()
@@ -123,8 +215,13 @@ public class ODataClientTests
             _responses = new Queue<HttpResponseMessage>(responses);
         }
 
+        /// <summary>Absolute URI of every request that actually left the client, in order.</summary>
+        public List<string?> Requests { get; } = new();
+
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
+            Requests.Add(request.RequestUri?.ToString());
+
             if (_responses.Count == 0)
             {
                 throw new InvalidOperationException("No more responses configured.");
