@@ -496,17 +496,28 @@ public class ShellViewModelTests
     }
 
     [Fact]
-    public async Task A_profile_store_that_cannot_persist_the_active_id_does_not_fault_the_switch()
+    public async Task A_profile_store_that_cannot_persist_the_active_id_rolls_the_switch_back()
     {
-        // This is the method behind the fire-and-forget ActiveChanged handler, where a fault becomes an
+        // The switch is all-or-nothing. A store that rejects the write used to leave the header on the new
+        // environment with the tools and the persisted default still on the old one: the shell then lied
+        // about where it was pointing, and the only evidence was a trace line. It must roll back and say so.
+        // This is also the method behind the fire-and-forget ActiveChanged handler, where a fault becomes an
         // unobserved exception the dispatcher later rethrows — i.e. a dead app (#163).
-        var shell = new ShellViewModel(profileStore: new UnwritableActiveIdStore(), dialogs: new StubDialogs());
-        var other = shell.Environments.First(e => e.Id != shell.ActiveEnvironment!.Id);
+        var dialogs = new RecordingDialogs(answer: true); // would rebuild the tools if it were ever asked
+        var shell = new ShellViewModel(profileStore: new UnwritableActiveIdStore(), dialogs: dialogs);
+        var previous = shell.ActiveEnvironment!;
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var before = shell.CurrentContent;
+        var other = shell.Environments.First(e => e.Id != previous.Id);
 
         shell.SetActiveEnvironmentCommand.Execute(other);
         await shell.SetActiveEnvironmentCommand.ExecutionTask!; // must complete, not fault
 
-        Assert.Equal(other.Id, shell.ActiveEnvironment!.Id);
+        Assert.Equal(previous.Id, shell.ActiveEnvironment!.Id);      // rolled back: the switch didn't happen
+        Assert.Contains("Couldn't switch environment", shell.BackgroundError);
+        Assert.Contains("profile.db is locked", shell.BackgroundError); // …with the store's own reason
+        Assert.Equal(0, dialogs.Calls);             // nothing switched, so nothing to offer refreshing for
+        Assert.Same(before, shell.CurrentContent);  // …and the open tool keeps the environment it has
     }
 
     // --- Degraded mode + background-failure surface (#163/#164) ---

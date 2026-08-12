@@ -289,9 +289,10 @@ public partial class ShellViewModel : ObservableObject
     // The single funnel for a deliberate active-environment switch (header switcher OR Profiles' "Set
     // active"). Profile rename/delete update ActiveEnvironment directly and intentionally bypass this —
     // they aren't switches, so they must not raise this prompt (rename must not discard open tool state
-    // at all; deletion refreshes unconditionally — see the ProfileDeleted handler). The active
-    // environment always changes; refreshing the open tools (which discards their unsaved input) is
-    // gated behind a confirm prompt.
+    // at all; deletion refreshes unconditionally — see the ProfileDeleted handler). The switch is
+    // all-or-nothing: it moves the shell AND persists the choice, or it moves neither and reports why.
+    // Only once it has committed is refreshing the open tools (which discards their unsaved input)
+    // offered, gated behind a confirm prompt.
     private async Task ApplyActiveEnvironmentSwitchAsync(EnvProfile? target)
     {
         if (target is null)
@@ -301,21 +302,37 @@ public partial class ShellViewModel : ObservableObject
 
         var previous = ActiveEnvironment;
 
-        // Best-effort for the ENTIRE switch: this also runs from the fire-and-forget ActiveChanged handler,
-        // so any failure along the way — persisting the active id to a locked store as much as a dialog
-        // dying with the window mid-prompt — must surface as a trace warning, not an unobserved exception
-        // the dispatcher later rethrows. The in-memory switch is committed before anything can fail, so a
-        // store/dialog failure still leaves the app pointing at the environment the user picked.
+        // Persisting the active id is part of the switch, not a side effect of it: either the shell and the
+        // store both move to the target or neither does. A store that rejects the write (a locked
+        // profile.db) previously left the header on the new environment, the tools on the old one and
+        // nothing persisted — a half-switched shell that lies about where it is pointing, with only a trace
+        // line to show for it. Roll the in-memory switch back and say so instead.
+        ActiveEnvironment = target;
         try
         {
-            ActiveEnvironment = target;
             _profileStore.ActiveId = target.Id;
+        }
+        catch (Exception ex)
+        {
+            ActiveEnvironment = previous;
+            ReportBackgroundFailure(
+                $"Couldn't switch environment — the profile store rejected the write: {ex.Message}");
+            System.Diagnostics.Trace.TraceWarning(
+                $"Switching to '{target.Name}' was rolled back: the profile store rejected the active-id write: {ex}");
+            return; // no prompt, no invalidate — the switch did not happen.
+        }
 
-            if (previous is null || previous.Id == target.Id)
-            {
-                return; // first selection, or re-selecting the current one — nothing to refresh.
-            }
+        if (previous is null || previous.Id == target.Id)
+        {
+            return; // first selection, or re-selecting the current one — nothing to refresh.
+        }
 
+        // Best-effort from here on: this also runs from the fire-and-forget ActiveChanged handler, so a
+        // dialog dying with the window mid-prompt must surface as a trace warning, not an unobserved
+        // exception the dispatcher later rethrows. The switch itself is already committed at both levels,
+        // so losing the prompt only costs the tool refresh.
+        try
+        {
             var refresh = await _dialogs.ConfirmAsync(new ConfirmRequest(
                 Title: "Active environment changed",
                 Message: $"Switched to '{target.Name}'. Refresh open tools so they use this environment? Unsaved input in those tools will be discarded.",
@@ -331,7 +348,8 @@ public partial class ShellViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.TraceWarning($"Switching to '{target.Name}' did not complete cleanly: {ex}");
+            System.Diagnostics.Trace.TraceWarning(
+                $"Switched to '{target.Name}', but the refresh prompt did not complete cleanly: {ex}");
         }
     }
 

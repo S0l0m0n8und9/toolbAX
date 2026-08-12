@@ -46,10 +46,14 @@ public sealed class StorageFileSaveService : IFileSaveService
 
         // Cancellation MUST be observed before OpenWriteAsync: that call truncates the target, so checking
         // afterwards would leave the user's existing file emptied by an export that never wrote a byte.
+        // This is the last point at which cancelling is free — the content is already fully in hand, so
+        // there is no long-running work left to abandon.
         ct.ThrowIfCancellationRequested();
         await using var stream = await file.OpenWriteAsync();
         await using var writer = new StreamWriter(stream, new UTF8Encoding(encoderShouldEmitUTF8Identifier: false));
-        await writer.WriteAsync(content.AsMemory(), ct);
+        // Deliberately NOT passing ct: past the point of no return: the destination is already truncated,
+        // so finishing the write is strictly better than honouring a late cancel with a torn file.
+        await writer.WriteAsync(content.AsMemory(), CancellationToken.None);
         return file.Path.IsAbsoluteUri ? file.Path.LocalPath : file.Name;
     }
 }
