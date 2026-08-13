@@ -1,3 +1,4 @@
+using System;
 using System.Linq;
 using ToolBax.Core.Services;
 using Xunit;
@@ -297,5 +298,97 @@ public class DualWriteMapParserTests
         Assert.Empty(DualWriteMapParser.ParsePage(null).Records);
         Assert.Empty(DualWriteMapParser.ParsePage("").Records);
         Assert.Empty(DualWriteMapParser.ParsePage("not json at all").Records);
+    }
+
+    // --- #210: the RetrieveTotalRecordCount upgrade for a capped, unfiltered CE count ---
+
+    [Fact]
+    public void The_logical_name_lookup_filters_on_the_entity_set_name()
+    {
+        var path = DualWriteMapParser.EntityLogicalNamePath("accounts");
+
+        Assert.StartsWith("EntityDefinitions?$select=LogicalName&$filter=", path);
+        Assert.Contains("EntitySetName eq 'accounts'", Uri.UnescapeDataString(path));
+    }
+
+    [Fact]
+    public void The_logical_name_lookup_escapes_a_quote_in_the_entity_set_name()
+    {
+        // A stray apostrophe would otherwise close the OData string literal early.
+        var decoded = Uri.UnescapeDataString(DualWriteMapParser.EntityLogicalNamePath("o'briens"));
+
+        Assert.Contains("EntitySetName eq 'o''briens'", decoded);
+    }
+
+    [Fact]
+    public void ParseEntityLogicalName_reads_the_first_logical_name()
+    {
+        const string json = """
+        { "value": [ { "LogicalName": "account", "MetadataId": "11111111-1111-1111-1111-111111111111" } ] }
+        """;
+
+        Assert.Equal("account", DualWriteMapParser.ParseEntityLogicalName(json));
+    }
+
+    [Fact]
+    public void ParseEntityLogicalName_returns_null_when_nothing_matched()
+    {
+        Assert.Null(DualWriteMapParser.ParseEntityLogicalName("""{ "value": [] }"""));
+        Assert.Null(DualWriteMapParser.ParseEntityLogicalName("""{ "value": [ { "LogicalName": "" } ] }"""));
+        Assert.Null(DualWriteMapParser.ParseEntityLogicalName("not json"));
+        Assert.Null(DualWriteMapParser.ParseEntityLogicalName(null));
+    }
+
+    [Fact]
+    public void The_total_record_count_path_passes_the_logical_name_as_a_json_array()
+    {
+        var path = DualWriteMapParser.TotalRecordCountPath("account");
+
+        Assert.Equal("RetrieveTotalRecordCount(EntityNames=@p1)?@p1=[\"account\"]", Uri.UnescapeDataString(path));
+        Assert.DoesNotContain("\"", path); // the brackets/quotes are escaped on the wire
+    }
+
+    [Fact]
+    public void ParseTotalRecordCount_reads_the_documented_keys_and_values_shape()
+    {
+        const string json = """
+        { "EntityRecordCountCollection": {
+            "Count": 2, "IsReadOnly": false, "Keys": [ "contact", "account" ], "Values": [ 3, 42317 ] } }
+        """;
+
+        Assert.Equal(42_317, DualWriteMapParser.ParseTotalRecordCount(json, "account"));
+        Assert.Equal(3, DualWriteMapParser.ParseTotalRecordCount(json, "contact"));
+    }
+
+    [Fact]
+    public void ParseTotalRecordCount_also_reads_a_dictionary_shaped_collection()
+    {
+        // A key-value collection serializes just as naturally as a plain object, and the whole feature is an
+        // optional upgrade — so a shape difference must not cost the total.
+        const string json = """{ "EntityRecordCountCollection": { "account": 42317 } }""";
+
+        Assert.Equal(42_317, DualWriteMapParser.ParseTotalRecordCount(json, "account"));
+    }
+
+    [Fact]
+    public void ParseTotalRecordCount_reads_a_numeric_string_total()
+    {
+        const string json = """{ "EntityRecordCountCollection": { "Keys": [ "account" ], "Values": [ "42317" ] } }""";
+
+        Assert.Equal(42_317, DualWriteMapParser.ParseTotalRecordCount(json, "account"));
+    }
+
+    [Fact]
+    public void ParseTotalRecordCount_returns_null_when_the_response_carries_no_total_for_the_table()
+    {
+        const string other = """
+        { "EntityRecordCountCollection": { "Keys": [ "contact" ], "Values": [ 3 ] } }
+        """;
+
+        Assert.Null(DualWriteMapParser.ParseTotalRecordCount(other, "account"));
+        Assert.Null(DualWriteMapParser.ParseTotalRecordCount("""{ "EntityRecordCountCollection": {} }""", "account"));
+        Assert.Null(DualWriteMapParser.ParseTotalRecordCount("""{ "value": [] }""", "account"));
+        Assert.Null(DualWriteMapParser.ParseTotalRecordCount("not json", "account"));
+        Assert.Null(DualWriteMapParser.ParseTotalRecordCount(null, "account"));
     }
 }

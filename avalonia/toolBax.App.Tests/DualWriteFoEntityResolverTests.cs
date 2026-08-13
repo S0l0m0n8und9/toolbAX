@@ -58,4 +58,36 @@ public class DualWriteFoEntityResolverTests
         Assert.Equal(string.Empty, DualWriteFoEntityResolver.Resolve(null, null, Catalog));
         Assert.Equal(string.Empty, DualWriteFoEntityResolver.Resolve("   ", "", Catalog));
     }
+
+    // --- #209: what can and cannot be pasted into /data/{entity} ---
+
+    [Fact]
+    public void A_display_style_schema_is_not_a_usable_entity_name()
+    {
+        // The live 404: "GET /data/CDS released distinct products". Spaces (and punctuation) can't appear in
+        // an OData entity-set name, so callers must treat such a value as unresolved.
+        Assert.False(DualWriteFoEntityResolver.IsUsableEntityName("CDS released distinct products"));
+        Assert.False(DualWriteFoEntityResolver.IsUsableEntityName("VendVendorV2Entity (Distinct)"));
+        Assert.False(DualWriteFoEntityResolver.IsUsableEntityName("Cust-Customer"));
+        Assert.False(DualWriteFoEntityResolver.IsUsableEntityName("   "));
+        Assert.False(DualWriteFoEntityResolver.IsUsableEntityName(null));
+    }
+
+    [Fact]
+    public void An_identifier_shaped_name_is_usable()
+    {
+        Assert.True(DualWriteFoEntityResolver.IsUsableEntityName("CustCustomerV3"));
+        Assert.True(DualWriteFoEntityResolver.IsUsableEntityName("my_custom_entity9"));
+    }
+
+    [Fact]
+    public void A_catalog_entry_that_cannot_be_an_entity_name_is_not_returned_as_a_match()
+    {
+        // The resolver only ever returns names the caller supplied, so this is belt-and-braces: a catalogue
+        // carrying a display-style entry must not become the value a count is fired at.
+        var resolved = DualWriteFoEntityResolver.Resolve(
+            "released distinct products", null, new[] { "released distinct products" });
+
+        Assert.Equal(string.Empty, resolved);
+    }
 }

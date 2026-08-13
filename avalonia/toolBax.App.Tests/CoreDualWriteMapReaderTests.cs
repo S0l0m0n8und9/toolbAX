@@ -172,6 +172,186 @@ public class CoreDualWriteMapReaderTests
         Assert.False(result.IsSuccess);
     }
 
+    // ── #210: an UNFILTERED capped CE count is upgraded to the platform's snapshot total ──────────────
+    // RetrieveTotalRecordCount has no 5,000-row ceiling, but takes no filter, answers from a ≤24h snapshot,
+    // and wants logical names — so the upgrade is conditional, two extra requests, and strictly optional.
+
+    private const string CappedCount = """
+    { "@odata.count": 5000, "@Microsoft.Dynamics.CRM.totalrecordcountlimitexceeded": true, "value": [] }
+    """;
+
+    private const string AccountLogicalName = """
+    { "value": [ { "LogicalName": "account", "MetadataId": "11111111-1111-1111-1111-111111111111" } ] }
+    """;
+
+    // The documented response: an SDK EntityRecordCountCollection, whose data contract serializes as
+    // parallel Keys/Values arrays.
+    private const string SnapshotTotal = """
+    { "@odata.context": "https://x/api/data/v9.2/$metadata#Microsoft.Dynamics.CRM.RetrieveTotalRecordCountResponse",
+      "EntityRecordCountCollection": {
+        "Count": 1, "IsReadOnly": false, "Keys": [ "account" ], "Values": [ 42317 ] } }
+    """;
+
+    private static int EntityDefinitionRequests(FakeDataverseClient dv) =>
+        dv.Requested.Count(r => r.StartsWith("EntityDefinitions?", StringComparison.Ordinal));
+
+    [Fact]
+    public async Task GetCeRowCount_upgrades_a_capped_unfiltered_count_to_the_snapshot_total()
+    {
+        var dv = new FakeDataverseClient(Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal));
+        var reader = new CoreDualWriteMapReader(dv);
+
+        var result = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(42_317, result.Count);
+        Assert.True(result.Snapshot);
+        Assert.False(result.Capped);   // the snapshot total REPLACES the ceiling, it doesn't annotate it
+        Assert.Equal(3, dv.Requested.Count);
+        Assert.Contains("$select=LogicalName", dv.Requested[1]);
+        Assert.Contains("EntitySetName eq 'accounts'", Uri.UnescapeDataString(dv.Requested[1]));
+        Assert.Equal("RetrieveTotalRecordCount(EntityNames=@p1)?@p1=[\"account\"]",
+            Uri.UnescapeDataString(dv.Requested[2]));
+    }
+
+    [Fact]
+    public async Task GetCeRowCount_leaves_a_capped_FILTERED_count_alone()
+    {
+        // The function accepts no filter, so a filtered leg's ceiling cannot be upgraded — it keeps today's
+        // floor (and, at the row, today's Unknown verdict). No metadata lookup is even attempted.
+        var dv = new FakeDataverseClient(Ok(CappedCount));
+        var reader = new CoreDualWriteMapReader(dv);
+
+        var result = await reader.GetCeRowCountAsync(
+            "accounts", "accounttype eq 'customer'", TestContext.Current.CancellationToken);
+
+        Assert.Equal(5000, result.Count);
+        Assert.True(result.Capped);
+        Assert.False(result.Snapshot);
+        Assert.Single(dv.Requested);
+    }
+
+    [Fact]
+    public async Task GetCeRowCount_does_not_reach_for_a_snapshot_when_the_live_count_was_exact()
+    {
+        // An exact live count is strictly better than a ≤24h snapshot, so nothing else is requested.
+        var dv = new FakeDataverseClient(Ok("{\"@odata.count\":3120,\"value\":[]}"));
+        var reader = new CoreDualWriteMapReader(dv);
+
+        var result = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.Equal(3120, result.Count);
+        Assert.False(result.Capped);
+        Assert.False(result.Snapshot);
+        Assert.Single(dv.Requested);
+    }
+
+    [Fact]
+    public async Task GetCeRowCount_degrades_to_the_capped_count_when_the_logical_name_lookup_fails()
+    {
+        // The upgrade is never a new failure mode: a caller with no metadata read privilege still gets the
+        // count it asked for, exactly as before #210.
+        var dv = new FakeDataverseClient(
+            Ok(CappedCount), new ODataResponse(403, "Forbidden", "no metadata read", 1));
+        var reader = new CoreDualWriteMapReader(dv);
+
+        var result = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Null(result.Error);
+        Assert.Equal(5000, result.Count);
+        Assert.True(result.Capped);
+        Assert.False(result.Snapshot);
+        Assert.Equal(2, dv.Requested.Count);   // the function is never called without a logical name
+    }
+
+    [Fact]
+    public async Task GetCeRowCount_degrades_to_the_capped_count_when_the_snapshot_function_fails()
+    {
+        var dv = new FakeDataverseClient(
+            Ok(CappedCount), Ok(AccountLogicalName), new ODataResponse(500, "Server Error", "boom", 1));
+        var reader = new CoreDualWriteMapReader(dv);
+
+        var result = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(5000, result.Count);
+        Assert.True(result.Capped);
+        Assert.False(result.Snapshot);
+    }
+
+    [Fact]
+    public async Task GetCeRowCount_degrades_to_the_capped_count_when_the_snapshot_body_names_no_total()
+    {
+        // A 200 that doesn't mention this table is as much a miss as a 500, and degrades the same way.
+        var dv = new FakeDataverseClient(Ok(CappedCount), Ok(AccountLogicalName), Ok("""
+            { "EntityRecordCountCollection": { "Count": 0, "IsReadOnly": false, "Keys": [], "Values": [] } }
+            """));
+        var reader = new CoreDualWriteMapReader(dv);
+
+        var result = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(5000, result.Count);
+        Assert.True(result.Capped);
+        Assert.False(result.Snapshot);
+    }
+
+    [Fact]
+    public async Task GetCeRowCount_reads_a_snapshot_total_from_a_dictionary_shaped_collection()
+    {
+        // A key-value collection is as plausibly serialized as a plain object as it is as parallel arrays,
+        // and betting on one shape must not cost the upgrade — so both are read.
+        var dv = new FakeDataverseClient(Ok(CappedCount), Ok(AccountLogicalName),
+            Ok("""{ "EntityRecordCountCollection": { "account": 42317 } }"""));
+        var reader = new CoreDualWriteMapReader(dv);
+
+        var result = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.True(result.Snapshot);
+        Assert.Equal(42_317, result.Count);
+    }
+
+    [Fact]
+    public async Task GetCeRowCount_resolves_the_logical_name_once_per_entity_set()
+    {
+        // The lookup is metadata, not data: caching it keeps the upgrade at one extra request per count
+        // after the first, rather than two.
+        var dv = new FakeDataverseClient(
+            Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal),
+            Ok(CappedCount), Ok(SnapshotTotal));
+        var reader = new CoreDualWriteMapReader(dv);
+
+        await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+        var second = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.True(second.Snapshot);
+        Assert.Equal(42_317, second.Count);
+        Assert.Equal(5, dv.Requested.Count);
+        Assert.Equal(1, EntityDefinitionRequests(dv));
+    }
+
+    [Fact]
+    public async Task A_cached_logical_name_the_function_rejects_is_re_resolved_next_time()
+    {
+        // What an environment switch looks like from inside the reader: the cached name is metadata from an
+        // environment that is no longer active, so the function rejects it. Dropping the entry lets the next
+        // run recover instead of repeating a dead request for the life of the app.
+        var dv = new FakeDataverseClient(
+            Ok(CappedCount), Ok(AccountLogicalName), new ODataResponse(404, "Not Found", "no such entity", 1),
+            Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal));
+        var reader = new CoreDualWriteMapReader(dv);
+
+        var first = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+        var second = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.True(first.Capped);
+        Assert.False(first.Snapshot);
+        Assert.True(second.Snapshot);
+        Assert.Equal(42_317, second.Count);
+        Assert.Equal(2, EntityDefinitionRequests(dv));
+    }
+
     [Fact]
     public async Task GetMaps_for_a_solution_surfaces_a_component_fetch_error()
     {

@@ -1,3 +1,4 @@
+using System;
 using ToolBax.App.ViewModels;
 using ToolBax.Core.Models;
 using Xunit;
@@ -182,5 +183,94 @@ public class MapLegCountRowTests
         Assert.False(row.FoFilterApplied);
         Assert.Equal("Counted unfiltered", row.FoFilterTip);
         Assert.True(row.FiltersComparable); // neither side filtered
+    }
+
+    // --- #210: a snapshot total is a real total, but not an exact-as-of-now one ---
+
+    [Fact]
+    public void A_snapshot_ce_total_renders_with_a_tilde_and_an_approximate_verdict()
+    {
+        // RetrieveTotalRecordCount answers from a snapshot up to 24 hours old, so equality with a live F&O
+        // number is strong evidence and not proof — the verdict says approximately, not "Match".
+        var row = Row();
+        row.CeCountSnapshot = true;
+        row.CeCount = 42_317;
+        row.FoCount = 42_317;
+
+        Assert.Equal("≈42,317", row.CeCountLabel);
+        Assert.Equal("≈ Match", row.ComparisonLabel);
+    }
+
+    [Fact]
+    public void A_snapshot_ce_total_that_disagrees_is_an_approximate_mismatch()
+    {
+        var row = Row();
+        row.CeCountSnapshot = true;
+        row.CeCount = 42_317;
+        row.FoCount = 40_000;
+
+        Assert.Equal("≈ Mismatch", row.ComparisonLabel);
+    }
+
+    [Fact]
+    public void A_snapshot_total_carries_its_caveat_in_the_ce_tooltip()
+    {
+        // The cell is narrow, so "≈42,317" is the label and the ≤24h caveat lives in the existing tooltip.
+        var row = Row();
+        row.CeCountSnapshot = true;
+        row.CeCount = 42_317;
+
+        Assert.Contains("snapshot", row.CeFilterTip, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("24h", row.CeFilterTip);
+        Assert.Equal("Counted unfiltered", Row().CeFilterTip); // …and only when the number is one
+    }
+
+    [Fact]
+    public void A_one_sided_filter_still_outranks_a_snapshot_total()
+    {
+        // The verdict tiers keep their order: differing populations are the more actionable finding.
+        var row = Row(foFilter: "CustomerGroupId eq 'DOM'");
+        row.CeCountSnapshot = true;
+        row.CeCount = 42_317;
+        row.FoCount = 250;
+
+        Assert.Equal("Not comparable (filters differ)", row.ComparisonLabel);
+    }
+
+    // --- #209: a late entity resolution replaces the default, never the user's correction ---
+
+    [Fact]
+    public void A_later_resolution_replaces_a_defaulted_fo_entity()
+    {
+        var row = Row();
+        Assert.Equal("CustCustomerV3", row.FoEntity);   // the "drop the Entity suffix" guess
+        Assert.True(row.FoEntityIsDefault);
+
+        row.AdoptResolvedFoEntity("CustCustomersV3");    // the catalogue arrived and knows better
+
+        Assert.Equal("CustCustomersV3", row.FoEntity);
+        Assert.True(row.FoEntityIsDefault);              // still un-corrected, so still replaceable
+    }
+
+    [Fact]
+    public void A_later_resolution_leaves_a_user_corrected_fo_entity_alone()
+    {
+        var row = Row();
+        row.FoEntity = "MyOwnEntity";
+
+        row.AdoptResolvedFoEntity("CustCustomersV3");
+
+        Assert.Equal("MyOwnEntity", row.FoEntity);
+        Assert.False(row.FoEntityIsDefault);
+    }
+
+    [Fact]
+    public void A_blank_resolution_leaves_the_default_in_place()
+    {
+        var row = Row();
+
+        row.AdoptResolvedFoEntity(string.Empty);
+
+        Assert.Equal("CustCustomerV3", row.FoEntity);
     }
 }

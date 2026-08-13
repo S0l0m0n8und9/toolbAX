@@ -1290,4 +1290,175 @@ public class DualWriteMapViewModelTests
         Assert.Equal(42, row.FoCount);
         Assert.Empty(row.FoStatus);
     }
+
+    // --- #209: the count run waits for the F&O entity catalogue instead of racing it ------------------
+
+    // Metadata whose FIRST LoadEntitiesAsync fails and whose second succeeds — the live shape behind #209
+    // (no F&O token yet when the Map Browser initialises, so the catalogue is still empty when the first
+    // count run starts; Ben's second run worked because by then it was cached). Optionally parks that second
+    // load on a gate, so an environment switch can land inside the load the count run now performs.
+    private sealed class LateEntityMetadataService : IMetadataService
+    {
+        private readonly string[] _names;
+        private readonly bool _gateSecondLoad;
+        private bool _loaded;
+
+        public TaskCompletionSource Entered { get; } = new();
+        public TaskCompletionSource Gate { get; } = new();
+        public int EntityLoads { get; private set; }
+
+        public LateEntityMetadataService(bool gateSecondLoad, params string[] names)
+        {
+            _gateSecondLoad = gateSecondLoad;
+            _names = names;
+        }
+
+        public IReadOnlyList<EntitySet> GetEntities() => _loaded
+            ? _names.Select(n => new EntitySet(n, "Module", 0, "Id", false, "Table")).ToList()
+            : Array.Empty<EntitySet>();
+
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => null;
+
+        public async Task LoadEntitiesAsync(CancellationToken ct = default)
+        {
+            if (EntityLoads++ == 0)
+            {
+                throw new InvalidOperationException("F&O metadata isn't available yet.");
+            }
+
+            if (_gateSecondLoad)
+            {
+                Entered.TrySetResult();
+                await Gate.Task;
+            }
+
+            _loaded = true;
+        }
+
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) => Task.FromResult(false);
+    }
+
+    [Fact]
+    public async Task An_empty_entity_catalogue_is_loaded_before_the_counts_resolve()
+    {
+        // The live 404 (v1.2.2 session log, 2026-08-14): the catalogue was still empty when the rows were
+        // built, so the F&O entity defaulted to the raw map schema — a display-style string — and the count
+        // fired at "GET /data/CDS released distinct products".
+        var reader = new FilterLegReader("CDS released distinct products", string.Empty);
+        var metadata = new LateEntityMetadataService(gateSecondLoad: false, "ReleasedDistinctProducts");
+        var odata = new CountODataClient(42);
+        var vm = new DualWriteMapViewModel(reader, odata: odata, metadata: metadata);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        Assert.Equal("CDS released distinct products", vm.CountRows.Single().FoEntity); // pre-catalogue default
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        var row = vm.CountRows.Single();
+        Assert.Equal(2, metadata.EntityLoads);                   // the count run retried the failed load…
+        Assert.Equal("ReleasedDistinctProducts", row.FoEntity);  // …and re-resolved off the real catalogue
+        Assert.Equal("/data/ReleasedDistinctProducts?$top=1&$count=true&cross-company=true", odata.LastPath);
+        Assert.Equal(42, row.FoCount);
+        Assert.Empty(row.FoStatus);
+    }
+
+    [Fact]
+    public async Task An_fo_entity_that_cannot_be_an_odata_name_is_reported_instead_of_counted()
+    {
+        // Defense in depth for the same 404: when the catalogue genuinely matches nothing, the row is left
+        // holding the raw schema — and a string with spaces can't name an entity set, so it takes the "not
+        // resolved" path rather than being pasted into a URL.
+        var reader = new FilterLegReader("CDS released distinct products", string.Empty);
+        var odata = new CountODataClient(42);
+        var vm = new DualWriteMapViewModel(reader, odata: odata, metadata: new StubMetadataService());
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        var row = vm.CountRows.Single();
+        Assert.Equal(0, odata.Calls);
+        Assert.Null(odata.LastPath);
+        Assert.Null(row.FoCount);
+        Assert.Contains("not resolved", row.FoStatus, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(7, row.CeCount);   // the Dataverse side of the row still counted
+    }
+
+    [Fact]
+    public async Task A_switch_during_the_entity_catalogue_load_stops_the_count_before_it_is_issued()
+    {
+        // #209 adds an await BEFORE the first row is counted, which the run's entry guard predates: a switch
+        // landing inside it would apply another environment's entity names to this map and then count there.
+        var env = new EnvSwitch();
+        var reader = new CallCountingReader();
+        var metadata = new LateEntityMetadataService(gateSecondLoad: true, "CustCustomerV3");
+        var odata = new CountODataClient(42);
+        var vm = new DualWriteMapViewModel(reader, odata: odata, metadata: metadata, activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        var counting = vm.CountAllRowsCommand.ExecuteAsync(null);
+        await metadata.Entered.Task;                  // parked inside the catalogue load the count run added
+        env.Current = MapEnv("env2", "fabrikam");     // the shell switches while that load is in flight
+        metadata.Gate.SetResult();
+        await counting;
+
+        Assert.Equal(0, reader.CeCountCalls);
+        Assert.Equal(0, odata.Calls);
+        Assert.All(vm.CountRows, r => Assert.Null(r.CeCount));
+        Assert.Contains("reload maps", vm.LoadError, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Without_a_switch_the_catalogue_load_still_leads_to_counted_rows()
+    {
+        // The new re-check must not misfire on an unchanged environment: same gated load, no switch.
+        var env = new EnvSwitch();
+        var reader = new CallCountingReader();
+        var metadata = new LateEntityMetadataService(gateSecondLoad: true, "CustCustomerV3");
+        var odata = new CountODataClient(42);
+        var vm = new DualWriteMapViewModel(reader, odata: odata, metadata: metadata, activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        var counting = vm.CountAllRowsCommand.ExecuteAsync(null);
+        await metadata.Entered.Task;
+        metadata.Gate.SetResult();
+        await counting;
+
+        Assert.True(reader.CeCountCalls > 0);
+        Assert.All(vm.CountRows, r => Assert.NotNull(r.CeCount));
+        Assert.False(vm.HasLoadError);
+        Assert.Equal("CustCustomerV3", vm.CountRows[0].FoEntity);
+    }
+
+    // --- #210: a snapshot CE total reaches the row honestly labelled ----------------------------------
+
+    // Real maps, but every CE count comes back as the platform's ≤24h snapshot total (what the reader
+    // returns once it has upgraded a capped unfiltered count).
+    private sealed class SnapshotCeCountReader : IDualWriteMapReader
+    {
+        private readonly FakeDualWriteMapReader _inner = new();
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            _inner.GetMapsAsync(solutionUniqueName, ct);
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => _inner.GetSolutionsAsync(ct);
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) =>
+            Task.FromResult(DwCountResult.FromSnapshot(42_317));
+    }
+
+    [Fact]
+    public async Task A_snapshot_ce_total_is_compared_as_approximate_not_exact()
+    {
+        // The vendor map's leg is unfiltered on both sides, so the two numbers are comparable — but one of
+        // them is up to 24 hours old, and the verdict has to say so rather than claiming a flat Mismatch.
+        var vm = new DualWriteMapViewModel(new SnapshotCeCountReader(), odata: new CountODataClient(42_000));
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "vendorsv2_account");
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        var row = vm.CountRows.Single();
+        Assert.True(row.CeCountSnapshot);
+        Assert.False(row.CeCountCapped);        // a snapshot total is not a ceiling
+        Assert.Equal("≈42,317", row.CeCountLabel);
+        Assert.Equal("≈ Mismatch", row.ComparisonLabel);
+    }
 }

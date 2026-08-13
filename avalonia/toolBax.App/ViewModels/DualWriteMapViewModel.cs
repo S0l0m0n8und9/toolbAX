@@ -502,7 +502,29 @@ public partial class DualWriteMapViewModel : ObservableObject
             return;
         }
 
-        // Snapshot before any await: a map change rebuilds CountRows on the UI thread, which would
+        // #209: the F&O entity catalogue is loaded best-effort during Initialize, so the FIRST count run can
+        // find it empty (no F&O token yet, or a fetch that failed while Dataverse worked). Resolving against
+        // an empty catalogue yields nothing, the row falls back to the raw map schema — which can be a
+        // display-style string like "CDS released distinct products" — and the count fires at
+        // /data/CDS released distinct products, a guaranteed 404. Load it here first, then re-resolve.
+        if (_foEntityNames.Count == 0)
+        {
+            await LoadFoEntityNamesAsync(ct);
+
+            // An await this run's entry guard predates: the shell can switch environments during the
+            // catalogue fetch, and those names then describe a different environment than the displayed
+            // maps. Stop before anything is issued — the same answer the entry guard gives, and for the
+            // same reason: no request has gone out, so no row has a number that needs explaining.
+            if (EnvChangedSinceLoad())
+            {
+                LoadError = ReloadBeforeCounting;
+                return;
+            }
+
+            ResolveDefaultedFoEntities();
+        }
+
+        // Snapshot before any further await: a map change rebuilds CountRows on the UI thread, which would
         // otherwise invalidate a live enumerator mid-iteration.
         var rows = CountRows.ToList();
         try
@@ -547,6 +569,18 @@ public partial class DualWriteMapViewModel : ObservableObject
         }
     }
 
+    // Re-runs the F&O entity resolution for every row still holding the default it was built with, so a
+    // catalogue that arrived after the rows did actually sharpens them. A row the user corrected by hand is
+    // left exactly as typed (AdoptResolvedFoEntity owns that rule).
+    private void ResolveDefaultedFoEntities()
+    {
+        foreach (var row in CountRows)
+        {
+            row.AdoptResolvedFoEntity(
+                DualWriteFoEntityResolver.Resolve(row.SourceSchema, row.SourceSchemaDistinctName, _foEntityNames));
+        }
+    }
+
     // Reports a mid-run environment switch on the row whose count was about to be issued: banners the
     // reload message and marks the side(s) not yet taken as explicitly skipped, so a half-counted row reads
     // as abandoned rather than as a count of zero. Counts already taken keep their numbers — they were
@@ -578,9 +612,10 @@ public partial class DualWriteMapViewModel : ObservableObject
         var result = await _reader.GetCeRowCountAsync(row.DestinationSchema, filter, ct);
         if (result.IsSuccess)
         {
-            // Set the cap flag first so the count label/verdict never renders an uncapped-looking total
-            // for a capped count, not even transiently.
+            // Set the cap/snapshot flags first so the count label/verdict never renders an uncapped-looking
+            // total for a capped count — or an exact-looking one for a snapshot — not even transiently.
             row.CeCountCapped = result.Capped;
+            row.CeCountSnapshot = result.Snapshot;
             row.CeCount = result.Count;
             row.CeStatus = string.Empty;
         }
@@ -592,10 +627,13 @@ public partial class DualWriteMapViewModel : ObservableObject
 
     private async Task CountFoAsync(MapLegCountRow row, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(row.FoEntity))
+        if (!DualWriteFoEntityResolver.IsUsableEntityName(row.FoEntity))
         {
             // #204: without an entity the path would be "/data/?…" — the service document, which answers
             // 200 and carries no count at all, so the row silently showed nothing instead of a reason.
+            // #209: the same dead end, louder, when the entity is a display-style string with spaces or
+            // punctuation (the raw map schema a row falls back to before the catalogue loads) — that 404s.
+            // Neither can name an OData entity set, so both take this path instead of being requested.
             row.FoStatus = "F&O entity not resolved — set one to count.";
             return;
         }
