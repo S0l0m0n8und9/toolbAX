@@ -605,10 +605,12 @@ public partial class DualWriteMapViewModel : ObservableObject
 
         // #204: X++ source filters name fields in staging case (ISONETIMECUSTOMER) and F&O's OData property
         // lookup is case-sensitive PascalCase, so the converted filter has to be reconciled with the
-        // entity's real property names before the request goes out.
+        // entity's real property names before the request goes out. #207: a quoted string compared against
+        // an enum-typed property is also a 400 (F&O wants the qualified enum literal instead) — the same
+        // field metadata fixes both, so FoFilterFieldCaser upgrades that literal in the same pass.
         if (filter is not null)
         {
-            var fields = await FoFieldNamesAsync(row.FoEntity, ct);
+            var fields = await FoFieldsAsync(row.FoEntity, ct);
 
             // The environment can move DURING that fetch — an await which both the run's entry guard and
             // the caller's per-leg re-check predate, so neither covers it. Re-checked the instant it
@@ -622,7 +624,7 @@ public partial class DualWriteMapViewModel : ObservableObject
 
             if (fields is { Count: > 0 })
             {
-                var cased = FoFilterFieldCaser.Correct(filter, fields);
+                var cased = FoFilterFieldCaser.Correct(filter, fields, _metadata.GetEnumMembers);
                 if (cased.UnknownFields.Count > 0)
                 {
                     // A field the entity doesn't have is a guaranteed 400 whose message the user can't act
@@ -654,11 +656,13 @@ public partial class DualWriteMapViewModel : ObservableObject
         row.FoStatus = string.Empty;
     }
 
-    // The F&O property names of one entity, or null when they can't be had (no F&O auth, an entity the
-    // environment doesn't have, a fetch failure). Same cache-then-load discipline as
+    // The F&O fields of one entity, or null when they can't be had (no F&O auth, an entity the environment
+    // doesn't have, a fetch failure). Same cache-then-load discipline as
     // EntityCatalogLoader.EnsureFieldsAsync, and a failure is deliberately non-fatal: the count then goes
     // out with whatever the converter produced — better than before #204 for the enum half, never worse.
-    private async Task<IReadOnlyList<string>?> FoFieldNamesAsync(string entity, CancellationToken ct)
+    // #207: the full fields (not just names) are needed so FoFilterFieldCaser can also type a quoted
+    // literal against an enum property's qualified type.
+    private async Task<IReadOnlyList<EntityField>?> FoFieldsAsync(string entity, CancellationToken ct)
     {
         if (_metadata.GetFields(entity) is null)
         {
@@ -672,6 +676,6 @@ public partial class DualWriteMapViewModel : ObservableObject
             }
         }
 
-        return _metadata.GetFields(entity)?.Select(f => f.Name).ToList();
+        return _metadata.GetFields(entity);
     }
 }

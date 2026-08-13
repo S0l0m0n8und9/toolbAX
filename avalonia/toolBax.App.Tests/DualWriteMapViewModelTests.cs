@@ -1011,7 +1011,9 @@ public class DualWriteMapViewModelTests
     private sealed class FieldMetadataService : IMetadataService
     {
         private readonly string _entity;
-        private readonly IReadOnlyList<EntityField> _fields;
+        private readonly List<EntityField> _fields;
+        private readonly Dictionary<string, IReadOnlyList<string>> _enumMembers =
+            new(StringComparer.OrdinalIgnoreCase);
         private bool _loaded;
 
         public int FieldLoads { get; private set; }
@@ -1020,6 +1022,31 @@ public class DualWriteMapViewModelTests
         {
             _entity = entity;
             _fields = fieldNames.Select(n => new EntityField(n, "String", true)).ToList();
+        }
+
+        // Declares one of the entity's fields enum-typed, with the members the environment caches for it
+        // (none registered = the "members not cached yet" shape, where GetEnumMembers returns null).
+        public FieldMetadataService WithEnumField(
+            string name, string localEnumType, string qualifiedEnumType, params string[] members)
+        {
+            var enumField = new EntityField(
+                name, "Enum", true, EnumType: localEnumType, QualifiedEnumType: qualifiedEnumType);
+            var index = _fields.FindIndex(f => string.Equals(f.Name, name, StringComparison.Ordinal));
+            if (index >= 0)
+            {
+                _fields[index] = enumField; // replace in place — field order stays stable
+            }
+            else
+            {
+                _fields.Add(enumField);
+            }
+
+            if (members.Length > 0)
+            {
+                _enumMembers[localEnumType] = members;
+            }
+
+            return this;
         }
 
         public IReadOnlyList<EntitySet> GetEntities() =>
@@ -1036,6 +1063,9 @@ public class DualWriteMapViewModelTests
             _loaded |= string.Equals(entityName, _entity, StringComparison.Ordinal);
             return Task.FromResult(_loaded);
         }
+
+        public IReadOnlyList<string>? GetEnumMembers(string enumType) =>
+            _enumMembers.TryGetValue(enumType, out var members) ? members : null;
     }
 
     [Fact]
@@ -1060,6 +1090,54 @@ public class DualWriteMapViewModelTests
         Assert.Equal(42, row.FoCount);
         Assert.Empty(row.FoStatus);
         Assert.True(metadata.FieldLoads > 0); // the entity's fields were fetched to do the correcting
+    }
+
+    [Fact]
+    public async Task An_fo_count_is_issued_with_a_quoted_enum_member_upgraded_to_a_qualified_enum_literal()
+    {
+        // #207's live leg (RicohDev, 2026-08-13): TransferOrderLines.LineStatus is enum-typed, and 'None' is
+        // one of its cached members, so the quoted literal is upgraded in the same pass that fixes casing.
+        var reader = new FilterLegReader("TransferOrderLinesEntity", "(LINESTATUS != \"None\")");
+        var metadata = new FieldMetadataService("TransferOrderLines", "LineStatus", "TransferOrderStatus")
+            .WithEnumField("LineStatus", "InventTransferRemainStatus",
+                "Microsoft.Dynamics.DataEntities.InventTransferRemainStatus", "None", "Shipped", "Received");
+        var odata = new CountODataClient(42);
+        var vm = new DualWriteMapViewModel(reader, odata: odata, metadata: metadata);
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        var row = vm.CountRows.Single();
+        Assert.Equal("TransferOrderLines", row.FoEntity); // DualWriteFoEntityResolver + the fixture's GetEntities()
+        Assert.Equal(
+            "/data/TransferOrderLines?$top=1&$count=true&cross-company=true&$filter=" +
+            Uri.EscapeDataString(
+                "(LineStatus ne Microsoft.Dynamics.DataEntities.InventTransferRemainStatus'None')"),
+            odata.LastPath);
+        Assert.Equal(42, row.FoCount);
+        Assert.Empty(row.FoStatus);
+    }
+
+    [Fact]
+    public async Task An_enum_upgrade_is_skipped_when_the_enums_members_are_not_cached()
+    {
+        // Graceful skip, not a refusal: without cached members the literal can't be validated, so it goes
+        // out exactly as the converter produced it — still strictly better than before #204, never worse.
+        var reader = new FilterLegReader("TransferOrderLinesEntity", "(LINESTATUS != \"None\")");
+        var metadata = new FieldMetadataService("TransferOrderLines", "LineStatus", "TransferOrderStatus")
+            .WithEnumField("LineStatus", "InventTransferRemainStatus",
+                "Microsoft.Dynamics.DataEntities.InventTransferRemainStatus"); // no members cached
+        var odata = new CountODataClient(42);
+        var vm = new DualWriteMapViewModel(reader, odata: odata, metadata: metadata);
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        var row = vm.CountRows.Single();
+        Assert.Equal(1, odata.Calls);
+        Assert.Contains(Uri.EscapeDataString("(LineStatus ne 'None')"), odata.LastPath!);
+        Assert.Equal(42, row.FoCount);
+        Assert.Empty(row.FoStatus);
     }
 
     [Fact]
