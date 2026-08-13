@@ -136,19 +136,35 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
     // non-event for the user — the count they asked for is still displayed.
     private async Task<long?> TrySnapshotTotalAsync(string entitySet, CancellationToken ct)
     {
-        // Resolved once, before any await: the active environment can move mid-flight, and the entry this
-        // call reads has to be the entry it evicts — not one belonging to whatever became active since.
-        var cacheKey = CacheKey(entitySet);
-        if (await ResolveLogicalNameAsync(cacheKey, entitySet, ct).ConfigureAwait(false) is not { } logicalName)
+        // The environment generation this upgrade belongs to, captured before any await. Keying the cache by
+        // it is not enough on its own: the client resolves the ACTIVE environment per call, INSIDE both GETs
+        // below, so a switch landing mid-fetch means the logical name and/or the total was answered by a
+        // different environment than the count it would annotate. Same commit-generation discard as
+        // CoreMetadataService.IsStillCurrent (#170) — re-read the accessor after the fetches and, if the
+        // generation moved, write nothing and upgrade nothing.
+        var envId = _activeEnv()?.Id;
+        var cacheKey = CacheKey(entitySet, envId);
+        if (await ResolveLogicalNameAsync(cacheKey, entitySet, envId, ct).ConfigureAwait(false) is not { } logicalName)
         {
             return null;
         }
 
         var response = await _dataverse
             .GetAsync(DualWriteMapParser.TotalRecordCountPath(logicalName), ct).ConfigureAwait(false);
+
+        // The total may be the other environment's. Discard it whole rather than annotating this leg with it:
+        // the leg keeps the capped display it would have shown anyway, and the VM's per-leg guard stops the
+        // run at its next check. Deliberately ahead of the eviction below — after a switch the response is a
+        // verdict on the OTHER environment, so it says nothing about the entry cached for this one, and
+        // acting on it would throw away correct metadata.
+        if (!IsStillCurrent(envId))
+        {
+            return null;
+        }
+
         if (!response.IsSuccess)
         {
-            // Still worth evicting even though the key now carries the environment: within ONE environment a
+            // Still worth evicting even though the key carries the environment: within ONE environment a
             // table can be renamed or removed under a cached name, and repeating a dead request for the life
             // of the app is no better than re-asking once.
             _logicalNames.Remove(cacheKey);
@@ -158,16 +174,22 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         return DualWriteMapParser.ParseTotalRecordCount(response.Body, logicalName);
     }
 
-    // The cache key: the active environment's identity, then the entity set. Compared Ordinal because an
-    // environment id is an opaque profile id that must match exactly — the same comparison
+    // True while the active environment is still the one a fetch was started for — the commit gate for every
+    // cache write here, mirroring CoreMetadataService.IsStillCurrent (#170).
+    private bool IsStillCurrent(string? envId) =>
+        string.Equals(_activeEnv()?.Id, envId, StringComparison.Ordinal);
+
+    // The cache key: the environment identity a lookup was answered for, then the entity set. Compared
+    // Ordinal because an environment id is an opaque profile id that must match exactly — the same comparison
     // DualWriteMapViewModel's env-change guard uses. A differently-cased entity set therefore gets its own
     // entry, which is equally correct, just not shared.
-    private string CacheKey(string entitySet) => $"{_activeEnv()?.Id}|{entitySet}";
+    private static string CacheKey(string entitySet, string? envId) => $"{envId}|{entitySet}";
 
     // The logical name behind an entity-set name, cached per environment (see _logicalNames). A lookup that
     // resolves nothing is NOT cached: it may be an entity set this environment doesn't have, and a negative
     // answer is the one most likely to be wrong for the next environment.
-    private async Task<string?> ResolveLogicalNameAsync(string cacheKey, string entitySet, CancellationToken ct)
+    private async Task<string?> ResolveLogicalNameAsync(
+        string cacheKey, string entitySet, string? envId, CancellationToken ct)
     {
         if (_logicalNames.TryGetValue(cacheKey, out var cached))
         {
@@ -183,6 +205,15 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
 
         var logicalName = DualWriteMapParser.ParseEntityLogicalName(response.Body);
         if (string.IsNullOrWhiteSpace(logicalName))
+        {
+            return null;
+        }
+
+        // Whichever environment was active DURING that GET is the one that answered it. Caching its answer
+        // under the captured key would poison that key with another environment's metadata — and a poisoned
+        // entry outlives the switch, still answering when the user comes back. Discard instead; the caller
+        // then leaves the leg on its capped count.
+        if (!IsStillCurrent(envId))
         {
             return null;
         }

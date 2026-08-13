@@ -193,8 +193,8 @@ public class CoreDualWriteMapReaderTests
         "Count": 1, "IsReadOnly": false, "Keys": [ "account" ], "Values": [ 42317 ] } }
     """;
 
-    private static int EntityDefinitionRequests(FakeDataverseClient dv) =>
-        dv.Requested.Count(r => r.StartsWith("EntityDefinitions?", StringComparison.Ordinal));
+    private static int EntityDefinitionRequests(IEnumerable<string> requested) =>
+        requested.Count(r => r.StartsWith("EntityDefinitions?", StringComparison.Ordinal));
 
     [Fact]
     public async Task GetCeRowCount_upgrades_a_capped_unfiltered_count_to_the_snapshot_total()
@@ -329,7 +329,7 @@ public class CoreDualWriteMapReaderTests
         Assert.True(second.Snapshot);
         Assert.Equal(42_317, second.Count);
         Assert.Equal(5, dv.Requested.Count);
-        Assert.Equal(1, EntityDefinitionRequests(dv));
+        Assert.Equal(1, EntityDefinitionRequests(dv.Requested));
     }
 
     private static EnvProfile CountEnv(string id, string name) =>
@@ -360,7 +360,7 @@ public class CoreDualWriteMapReaderTests
         var afterSwitch = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
 
         Assert.True(afterSwitch.Snapshot);
-        Assert.Equal(2, EntityDefinitionRequests(dv));   // re-resolved for the environment now active
+        Assert.Equal(2, EntityDefinitionRequests(dv.Requested));   // re-resolved for the environment now active
     }
 
     [Fact]
@@ -379,7 +379,7 @@ public class CoreDualWriteMapReaderTests
 
         Assert.True(second.Snapshot);
         Assert.Equal(42_317, second.Count);
-        Assert.Equal(1, EntityDefinitionRequests(dv));
+        Assert.Equal(1, EntityDefinitionRequests(dv.Requested));
     }
 
     [Fact]
@@ -400,7 +400,142 @@ public class CoreDualWriteMapReaderTests
         var back = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
 
         Assert.True(back.Snapshot);
-        Assert.Equal(2, EntityDefinitionRequests(dv));   // two environments, two lookups — not three
+        Assert.Equal(2, EntityDefinitionRequests(dv.Requested));   // two environments, two lookups — not three
+    }
+
+    // As FakeDataverseClient, but parks the FIRST request whose path starts with a given prefix, so an
+    // environment switch can land INSIDE one of the two snapshot GETs — the window the cache key alone can't
+    // close, because the client resolves the active environment per call.
+    private sealed class GatedDataverseClient : IDataverseClient
+    {
+        private readonly Queue<ODataResponse> _responses;
+        private readonly string _parkOnPrefix;
+        private bool _parked;
+
+        public List<string> Requested { get; } = new();
+        public TaskCompletionSource Entered { get; } = new();
+        public TaskCompletionSource Gate { get; } = new();
+
+        public GatedDataverseClient(string parkOnPrefix, params ODataResponse[] responses)
+        {
+            _parkOnPrefix = parkOnPrefix;
+            _responses = new Queue<ODataResponse>(responses);
+        }
+
+        public async Task<ODataResponse> GetAsync(string pathOrUrl, CancellationToken ct = default)
+        {
+            Requested.Add(pathOrUrl);
+            if (!_parked && pathOrUrl.StartsWith(_parkOnPrefix, StringComparison.Ordinal))
+            {
+                _parked = true;
+                Entered.TrySetResult();
+                await Gate.Task;
+            }
+
+            return _responses.Dequeue();
+        }
+    }
+
+    [Fact]
+    public async Task A_switch_during_the_logical_name_fetch_discards_the_result_and_caches_nothing()
+    {
+        // #170's commit-generation discard. The client resolves the ACTIVE environment inside this GET, so
+        // the name coming back may be environment B's; caching it under A's key would poison that key for
+        // good, because the entry outlives the switch and still answers when the user returns to A.
+        var env = new EnvSwitch();
+        var dv = new GatedDataverseClient("EntityDefinitions?",
+            Ok(CappedCount), Ok(AccountLogicalName),                      // count on env1, then the parked lookup
+            Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal));  // back on env1: must resolve AGAIN
+        var reader = new CoreDualWriteMapReader(dv, env.Get);
+
+        var counting = reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+        await dv.Entered.Task;                        // parked inside the EntityDefinitions GET
+        env.Current = CountEnv("env2", "fabrikam");   // the shell switches while it is in flight
+        dv.Gate.SetResult();
+        var duringSwitch = await counting;
+
+        // The leg keeps exactly the display it would have had without the upgrade…
+        Assert.True(duringSwitch.IsSuccess);
+        Assert.Equal(5000, duringSwitch.Count);
+        Assert.True(duringSwitch.Capped);
+        Assert.False(duringSwitch.Snapshot);
+        Assert.Equal(2, dv.Requested.Count);          // the function was never called with a suspect name
+
+        // …and nothing was written under env1's key: counting there again re-resolves from scratch.
+        env.Current = CountEnv("env1", "contoso");
+        var backOnEnv1 = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.True(backOnEnv1.Snapshot);
+        Assert.Equal(42_317, backOnEnv1.Count);
+        Assert.Equal(2, EntityDefinitionRequests(dv.Requested)); // resolved again — no poisoned entry served
+    }
+
+    [Fact]
+    public async Task A_switch_during_the_snapshot_function_call_discards_the_total()
+    {
+        // The second GET carries the same exposure: the total coming back may be environment B's, and pairing
+        // it with environment A's leg is precisely the wrong-number outcome the capped display avoids.
+        var env = new EnvSwitch();
+        var dv = new GatedDataverseClient("RetrieveTotalRecordCount",
+            Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal));
+        var reader = new CoreDualWriteMapReader(dv, env.Get);
+
+        var counting = reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+        await dv.Entered.Task;
+        env.Current = CountEnv("env2", "fabrikam");
+        dv.Gate.SetResult();
+        var result = await counting;
+
+        Assert.Equal(5000, result.Count);
+        Assert.True(result.Capped);
+        Assert.False(result.Snapshot);   // no foreign total on this leg
+    }
+
+    [Fact]
+    public async Task A_rejection_that_arrives_after_a_switch_does_not_evict_the_previous_environments_entry()
+    {
+        // The eviction path takes the same discard: after a switch the rejection is a verdict on environment
+        // B, so it says nothing about the name cached for A. Acting on it would bin correct metadata.
+        var env = new EnvSwitch();
+        var dv = new GatedDataverseClient("RetrieveTotalRecordCount",
+            Ok(CappedCount), Ok(AccountLogicalName), new ODataResponse(404, "Not Found", "no such entity", 1),
+            Ok(CappedCount), Ok(SnapshotTotal));   // back on env1: the entry survived, so no second lookup
+        var reader = new CoreDualWriteMapReader(dv, env.Get);
+
+        var counting = reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+        await dv.Entered.Task;
+        env.Current = CountEnv("env2", "fabrikam");
+        dv.Gate.SetResult();
+        await counting;
+
+        env.Current = CountEnv("env1", "contoso");
+        var backOnEnv1 = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.True(backOnEnv1.Snapshot);
+        Assert.Equal(42_317, backOnEnv1.Count);
+        Assert.Equal(1, EntityDefinitionRequests(dv.Requested));  // env1's entry outlived the foreign rejection
+    }
+
+    [Fact]
+    public async Task Without_a_switch_a_gated_lookup_still_upgrades_and_caches()
+    {
+        // The discard must not misfire on an unchanged environment: same parked GET, no switch.
+        var env = new EnvSwitch();
+        var dv = new GatedDataverseClient("EntityDefinitions?",
+            Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal),
+            Ok(CappedCount), Ok(SnapshotTotal));
+        var reader = new CoreDualWriteMapReader(dv, env.Get);
+
+        var counting = reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+        await dv.Entered.Task;
+        dv.Gate.SetResult();
+        var first = await counting;
+        var second = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.True(first.Snapshot);
+        Assert.Equal(42_317, first.Count);
+        Assert.True(second.Snapshot);
+        Assert.Equal(1, EntityDefinitionRequests(dv.Requested));   // cached exactly as before
     }
 
     [Fact]
@@ -421,7 +556,7 @@ public class CoreDualWriteMapReaderTests
         Assert.False(first.Snapshot);
         Assert.True(second.Snapshot);
         Assert.Equal(42_317, second.Count);
-        Assert.Equal(2, EntityDefinitionRequests(dv));
+        Assert.Equal(2, EntityDefinitionRequests(dv.Requested));
     }
 
     [Fact]
