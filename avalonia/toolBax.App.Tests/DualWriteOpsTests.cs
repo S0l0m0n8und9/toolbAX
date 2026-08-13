@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using FoToolbox.Core.DualWrite;
@@ -728,6 +729,51 @@ public class DualWriteOpsTests
         await vm.LoadCommand.ExecuteAsync(null);
 
         Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Err && e.Text.Contains("no connection"));
+    }
+
+    // #168: the in-app log dies with the window, but a dual-write connection failure is exactly what a user
+    // reports after the fact — so the Warn/Err lines must also reach Trace, where the session log keeps them.
+    [Fact]
+    public async Task An_error_line_also_reaches_Trace_so_the_session_log_keeps_it()
+    {
+        using var trace = new TraceCapture();
+        var vm = MakeVm(FakeDualWriteConnector.ThatFails("no connection (cid) for this environment"));
+
+        await vm.LoadCommand.ExecuteAsync(null);
+
+        Assert.Contains("no connection (cid) for this environment", trace.Text);
+    }
+
+    // The session log's secrecy bar: a DualWriteGatewayException message embeds up to 500 characters of the
+    // gateway's raw response body. On screen that is the user reading about their own gateway; on disk it is
+    // a response body in a file people attach to bug reports.
+    [Fact]
+    public async Task A_gateway_failure_shows_the_response_body_on_screen_but_never_traces_it()
+    {
+        using var trace = new TraceCapture();
+        var vm = MakeVm(FakeDualWriteConnector.ThatFailsWithGatewayStatus(
+            HttpStatusCode.BadGateway, "{\"error\":\"GATEWAY-RESPONSE-BODY-MARKER\"}"));
+
+        await vm.LoadCommand.ExecuteAsync(null);
+
+        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Err && e.Text.Contains("GATEWAY-RESPONSE-BODY-MARKER"));
+        Assert.DoesNotContain("GATEWAY-RESPONSE-BODY-MARKER", trace.Text);
+        // The status still reaches the file, so the redacted line is still worth having.
+        Assert.Contains("the gateway returned 502", trace.Text);
+    }
+
+    [Fact]
+    public async Task The_successful_chatter_stays_on_screen_and_is_not_traced()
+    {
+        using var trace = new TraceCapture();
+        var vm = MakeVm(new FakeDualWriteConnector());
+
+        await vm.LoadCommand.ExecuteAsync(null);
+
+        // Info/Ok is live-diagnosis noise; only failures earn a line in the file.
+        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Ok && e.Text.Contains("fake-cid"));
+        Assert.DoesNotContain("fake-cid", trace.Text);
+        Assert.DoesNotContain("Connecting to", trace.Text);
     }
 
     // --- #167: a terminal request whose map states haven't propagated yet ---

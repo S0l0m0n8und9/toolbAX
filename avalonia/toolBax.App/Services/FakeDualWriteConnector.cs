@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
 using FoToolbox.Core.DualWrite;
@@ -58,6 +59,16 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
     /// <summary>A connector whose <see cref="ConnectAsync"/> always throws, to drive the error state.</summary>
     public static FakeDualWriteConnector ThatFails(string message) =>
         new(new InvalidOperationException(message));
+
+    /// <summary>
+    /// A connector that fails the way the live gateway does on a non-success status: a
+    /// <see cref="DualWriteGatewayException"/> whose message embeds the (trimmed but unredacted) response
+    /// body, exactly as <c>DualWriteGatewayClient</c> composes it. Drives the redaction that keeps a
+    /// response body out of the session log (#168).
+    /// </summary>
+    public static FakeDualWriteConnector ThatFailsWithGatewayStatus(HttpStatusCode status, string responseBody) =>
+        new(new DualWriteGatewayException(
+            $"Dual-write gateway request failed: {(int)status} {status}. {responseBody}", status));
 
     /// <summary>
     /// A connector that reports cancellation the way an HTTP/socket timeout does — an

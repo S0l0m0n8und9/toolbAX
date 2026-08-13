@@ -41,6 +41,23 @@ public sealed class CoreODataClient : IODataClient, IDisposable
     public async Task<ODataResponse> SendAsync(string method, string path, string? body,
         IReadOnlyDictionary<string, string>? headers, CancellationToken ct = default)
     {
+        var response = await SendCoreAsync(method, path, body, headers, ct).ConfigureAwait(false);
+
+        // Every failure below is returned rather than thrown, so it used to live only in a tool's status
+        // line. Mirror it to Trace for the session log (#168) — see RequestTrace for exactly how little a
+        // trace line is allowed to say. A cancelled request throws out of SendCoreAsync and never gets
+        // here: cancelling is not a failure.
+        if (!response.IsSuccess)
+        {
+            RequestTrace.Failure("F&O", method, path, response);
+        }
+
+        return response;
+    }
+
+    private async Task<ODataResponse> SendCoreAsync(string method, string path, string? body,
+        IReadOnlyDictionary<string, string>? headers, CancellationToken ct)
+    {
         var sw = Stopwatch.StartNew();
 
         var env = _activeEnv();

@@ -163,6 +163,27 @@ public class CoreDataverseClientTests
             handler.LastRequest!.RequestUri!.ToString());
     }
 
+    // #168: a Map Browser failure lived in the banner only, so closing the window took the evidence with it.
+    [Fact]
+    public async Task A_failed_request_is_traced_with_its_status_and_endpoint_but_no_token_or_body()
+    {
+        using var trace = new TraceCapture();
+        var handler = new StubHandler(HttpStatusCode.Forbidden, "{\"error\":\"DV-RESPONSE-BODY-MARKER\"}");
+        var client = new CoreDataverseClient(
+            new FakeAuthService(dataverseToken: _ => "DV-BEARER-TOKEN-MARKER"),
+            () => Env(dataverseUrl: "https://dv-marker-host.crm.dynamics.com"),
+            new HttpClient(handler));
+
+        await client.GetAsync("msdyn_dualwriteentitymaps?$select=DV-QUERY-MARKER", TestContext.Current.CancellationToken);
+
+        Assert.Contains("Dataverse request failed: 403", trace.Text);
+        Assert.Contains("GET msdyn_dualwriteentitymaps", trace.Text);
+        Assert.DoesNotContain("DV-BEARER-TOKEN-MARKER", trace.Text);
+        Assert.DoesNotContain("DV-RESPONSE-BODY-MARKER", trace.Text);
+        Assert.DoesNotContain("DV-QUERY-MARKER", trace.Text);
+        Assert.DoesNotContain("dv-marker-host", trace.Text);
+    }
+
     [Fact]
     public async Task Dispose_disposes_the_internally_created_HttpClient()
     {

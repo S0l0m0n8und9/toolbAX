@@ -24,12 +24,29 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            // Persistent per-session log (#168), started before anything else so a failure inside
+            // BuildServices below is already being written to file. The published exe had no trace
+            // listener at all, so every Trace.* report — the degraded-mode reason, the last-resort net's
+            // exception dumps, failed requests — evaporated and a user's error left nothing on disk.
+            // Scoped to the real desktop host exactly like the last-resort net further down: headless
+            // tests must not write log files. The handle is intentionally not stored — the listener lives
+            // for the process lifetime and flushes on every write, so a crash still keeps the tail.
+            _ = SessionTraceLog.Start();
+
             // Create the window first so the clipboard service can bind to its TopLevel, then hand it
             // to the shell. Profiles + secrets are real (the shared FoToolbox profile.db); the remaining
             // seams stay design-mode fakes pending live wiring. Building the stores synchronously here
             // is safe — it runs once at startup before the dispatcher loop begins.
             var window = new MainWindow();
             var (profileStore, secretStore, authService, odataFactory, metadataFactory, mapReaderFactory, virtualTableReaderFactory, degraded) = BuildServices();
+
+            // The shell shouts about degradation on screen (#164), but a user reporting "it showed me
+            // rows that don't exist" days later needs the reason on disk too. BuildServices only traces
+            // the exception case; this catches every reason, including the non-Windows one.
+            if (degraded is not null)
+            {
+                Trace.TraceWarning($"Starting in degraded mode ({degraded.Reason}) — data shown is offline sample data, not live.");
+            }
 
             // The OData client + metadata service resolve a token / $metadata for whichever environment
             // is active *at call time*, so they read the shell's ActiveEnvironment through a closure. The

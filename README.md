@@ -30,6 +30,10 @@ Download `toolbAX-win-x64.zip` from the assets, extract it anywhere, and run `to
 >
 > To verify your download while the release is unsigned, compare its hash against the published `toolbAX-win-x64.zip.sha256` asset: `Get-FileHash toolbAX-win-x64.zip -Algorithm SHA256`.
 
+### Logs
+
+Each run writes a log to `%LocalAppData%\FoToolbox\logs\toolbax-<date>-<time>.log` — one file per session, capped at the newest 20 and 14 days. It records warnings and errors (failed requests as status + endpoint path, dual-write gateway failures, degraded-mode reasons), and deliberately records no tokens, request/response bodies or headers. Attach the newest file when reporting a bug; the directory is safe to delete at any time.
+
 ## Requirements
 
 - Windows 10/11 to run the released build (the app itself is built on cross-platform Avalonia)

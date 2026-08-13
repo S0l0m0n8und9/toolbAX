@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -117,10 +118,46 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 
     public bool HasGatewayLog => GatewayLog.Count > 0;
 
-    // Appends one line to the in-app gateway log. Only ever called from VM operations that resume on the
-    // UI thread (each awaits without ConfigureAwait(false)), so the ObservableCollection is touched on it.
-    private void Log(string text, LogKind kind = LogKind.Info, string? note = null) =>
+    /// <summary>
+    /// Appends one line to the in-app gateway log. Only ever called from VM operations that resume on the
+    /// UI thread (each awaits without ConfigureAwait(false)), so the ObservableCollection is touched on it.
+    /// <paramref name="traceText"/> replaces <paramref name="text"/> in the session log for the lines whose
+    /// on-screen wording must not be persisted verbatim — see <see cref="Traceable"/>.
+    /// </summary>
+    private void Log(string text, LogKind kind = LogKind.Info, string? note = null, string? traceText = null)
+    {
         GatewayLog.Add(new GatewayLogEntry(text, note, kind));
+
+        // Warn/Err lines also go to Trace so the session log (#168) keeps them: the in-app log dies with
+        // the window, and a dual-write connection failure is exactly the thing a user reports after the
+        // fact. Info/Ok is live-diagnosis chatter and stays on screen only. What reaches the file carries
+        // gateway hosts, map names, connection ids, request ids and status text — never a token, and never
+        // a response body (which is what traceText exists to keep out).
+        switch (kind)
+        {
+            case LogKind.Warn:
+                Trace.TraceWarning($"Dual-write operations: {traceText ?? text}");
+                break;
+            case LogKind.Err:
+                Trace.TraceError($"Dual-write operations: {traceText ?? text}");
+                break;
+        }
+    }
+
+    /// <summary>
+    /// What a failed operation is allowed to say in the session log. A <see cref="DualWriteGatewayException"/>
+    /// message embeds up to 500 characters of the gateway's <b>raw response body</b> — which
+    /// <c>DualWriteGatewayClient</c> trims but does not redact. That is fine in a banner, where the user is
+    /// reading about their own gateway, but a response body must never be written to disk (#168), so the
+    /// persisted form keeps the status code and drops everything the gateway echoed back.
+    /// <para>
+    /// Matched on the exception <i>type</i> and not on the message text, so rewording Core's message cannot
+    /// silently un-redact this. Every other exception reaching these handlers carries one of our own messages.
+    /// </para>
+    /// </summary>
+    private static string Traceable(Exception ex) => ex is DualWriteGatewayException gateway
+        ? $"the gateway returned {(int)gateway.StatusCode} {gateway.StatusCode} (response body not logged)"
+        : Concise(ex);
 
     private bool CanLoad() => !IsBusy;
 
@@ -179,7 +216,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         {
             LoadError = ex.Message;
             ResetDisconnected("Connection failed.");
-            Log(ex.Message, LogKind.Err);
+            Log(ex.Message, LogKind.Err, traceText: Traceable(ex));
         }
         finally
         {
@@ -339,7 +376,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         catch (Exception ex)
         {
             Status = $"{action.Label} failed: {ex.Message}";
-            Log(Status, LogKind.Err);
+            Log(Status, LogKind.Err, traceText: $"{action.Label} failed: {Traceable(ex)}");
         }
         finally
         {
@@ -394,8 +431,9 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         // the filter so it keeps propagating to RunAction.
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Status = $"{action.Label} submitted — status check failed ({Concise(ex)}); refreshing the map list.";
-            Log(Status, LogKind.Warn);
+            var submitted = $"{action.Label} submitted — status check failed";
+            Status = $"{submitted} ({Concise(ex)}); refreshing the map list.";
+            Log(Status, LogKind.Warn, traceText: $"{submitted} ({Traceable(ex)}); refreshing the map list.");
             return;
         }
 
