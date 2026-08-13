@@ -606,18 +606,33 @@ public partial class DualWriteMapViewModel : ObservableObject
         // #204: X++ source filters name fields in staging case (ISONETIMECUSTOMER) and F&O's OData property
         // lookup is case-sensitive PascalCase, so the converted filter has to be reconciled with the
         // entity's real property names before the request goes out.
-        if (filter is not null && await FoFieldNamesAsync(row.FoEntity, ct) is { Count: > 0 } fields)
+        if (filter is not null)
         {
-            var cased = FoFilterFieldCaser.Correct(filter, fields);
-            if (cased.UnknownFields.Count > 0)
+            var fields = await FoFieldNamesAsync(row.FoEntity, ct);
+
+            // The environment can move DURING that fetch — an await which both the run's entry guard and
+            // the caller's per-leg re-check predate, so neither covers it. Re-checked the instant it
+            // returns, before any casing or request: the fetch resolves the ACTIVE environment, so
+            // continuing would case this map's filter against a different environment's field names and
+            // then count there, stamping environment B's number onto environment A's row.
+            if (StopCountIfEnvChanged(row, ceStillPending: false))
             {
-                // A field the entity doesn't have is a guaranteed 400 whose message the user can't act on
-                // (#159): name the fields instead of firing a known-doomed count.
-                row.FoStatus = $"field(s) not on {row.FoEntity}: {string.Join(", ", cased.UnknownFields)}";
                 return;
             }
 
-            filter = cased.Filter;
+            if (fields is { Count: > 0 })
+            {
+                var cased = FoFilterFieldCaser.Correct(filter, fields);
+                if (cased.UnknownFields.Count > 0)
+                {
+                    // A field the entity doesn't have is a guaranteed 400 whose message the user can't act
+                    // on (#159): name the fields instead of firing a known-doomed count.
+                    row.FoStatus = $"field(s) not on {row.FoEntity}: {string.Join(", ", cased.UnknownFields)}";
+                    return;
+                }
+
+                filter = cased.Filter;
+            }
         }
 
         var response = await _odata.SendAsync("GET", DualWriteMapParser.FoCountPath(row.FoEntity, filter), null, ct);

@@ -1102,6 +1102,95 @@ public class DualWriteMapViewModelTests
         Assert.Contains("not resolved", row.FoStatus, StringComparison.OrdinalIgnoreCase);
     }
 
+    // As FieldMetadataService, but the field fetch parks on a gate so an environment switch can land in the
+    // middle of it — the one await CountFoAsync gained in #204.
+    private sealed class GatedFieldMetadataService : IMetadataService
+    {
+        private readonly string _entity;
+        private readonly IReadOnlyList<EntityField> _fields;
+        private bool _loaded;
+
+        public TaskCompletionSource Entered { get; } = new();
+        public TaskCompletionSource Gate { get; } = new();
+
+        public GatedFieldMetadataService(string entity, params string[] fieldNames)
+        {
+            _entity = entity;
+            _fields = fieldNames.Select(n => new EntityField(n, "String", true)).ToList();
+        }
+
+        public IReadOnlyList<EntitySet> GetEntities() =>
+            new[] { new EntitySet(_entity, "Module", 0, "Id", false, "Table") };
+
+        public IReadOnlyList<EntityField>? GetFields(string entityName) =>
+            _loaded && string.Equals(entityName, _entity, StringComparison.Ordinal) ? _fields : null;
+
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+        public async Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default)
+        {
+            Entered.TrySetResult();
+            await Gate.Task;
+            _loaded |= string.Equals(entityName, _entity, StringComparison.Ordinal);
+            return _loaded;
+        }
+    }
+
+    [Fact]
+    public async Task A_switch_during_the_field_metadata_fetch_stops_the_count_before_it_is_issued()
+    {
+        // The count run's environment guard is re-checked before each leg, but #204 added an await INSIDE
+        // the F&O leg (the field fetch) — so the guard has to be re-checked when it returns too. Otherwise
+        // the new environment's field names get applied to the old environment's filter and the count is
+        // issued against an environment the displayed map doesn't belong to.
+        var env = new EnvSwitch();
+        var reader = new FilterLegReader("CustomerV3Entity", "(ISONETIMECUSTOMER != NoYes::Yes)");
+        var metadata = new GatedFieldMetadataService("CustomerV3", "IsOneTimeCustomer");
+        var odata = new CountODataClient(42);
+        var vm = new DualWriteMapViewModel(reader, odata: odata, metadata: metadata, activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        var counting = vm.CountAllRowsCommand.ExecuteAsync(null);
+        await metadata.Entered.Task;                  // parked in the field fetch, past the per-leg guard
+        env.Current = MapEnv("env2", "fabrikam");     // the shell switches while the fetch is in flight
+        metadata.Gate.SetResult();
+        await counting;
+
+        var row = vm.CountRows.Single();
+        Assert.Equal(0, odata.Calls);                 // no F&O count under the wrong environment
+        Assert.Null(odata.LastPath);
+        Assert.Null(row.FoCount);
+        Assert.Contains("Skipped", row.FoStatus);     // the abandoned side says why
+        Assert.Equal(7, row.CeCount);                 // the count already taken keeps its number
+        Assert.Contains("reload maps", vm.LoadError, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Without_a_switch_the_field_fetch_still_leads_to_a_corrected_count()
+    {
+        // The re-check above must not misfire on an unchanged environment: same gated fetch, no switch.
+        var env = new EnvSwitch();
+        var reader = new FilterLegReader("CustomerV3Entity", "(ISONETIMECUSTOMER != NoYes::Yes)");
+        var metadata = new GatedFieldMetadataService("CustomerV3", "IsOneTimeCustomer");
+        var odata = new CountODataClient(42);
+        var vm = new DualWriteMapViewModel(reader, odata: odata, metadata: metadata, activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        var counting = vm.CountAllRowsCommand.ExecuteAsync(null);
+        await metadata.Entered.Task;
+        metadata.Gate.SetResult();
+        await counting;
+
+        var row = vm.CountRows.Single();
+        Assert.Equal(1, odata.Calls);
+        Assert.Contains(
+            Uri.EscapeDataString("(IsOneTimeCustomer ne Microsoft.Dynamics.DataEntities.NoYes'Yes')"),
+            odata.LastPath!);
+        Assert.Equal(42, row.FoCount);
+        Assert.Empty(row.FoStatus);
+        Assert.False(vm.HasLoadError);
+    }
+
     [Fact]
     public async Task A_count_still_goes_out_when_the_entitys_fields_cannot_be_loaded()
     {
