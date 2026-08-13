@@ -18,19 +18,33 @@ namespace ToolBax.App.Services;
 public sealed class CoreDualWriteMapReader : IDualWriteMapReader
 {
     private readonly IDataverseClient _dataverse;
+    private readonly Func<EnvProfile?> _activeEnv;
 
     // #210: entity-set name → logical name, so the snapshot-total upgrade below costs one EntityDefinitions
     // GET per entity set rather than one per count run.
     //
-    // Ceiling: one short string pair per distinct CE entity set the user actually counts — the legs of the
-    // maps they inspect — so tens of entries at most; nothing evicts on size because nothing can grow it
-    // past the environment's dual-write map catalogue. The reader outlives an environment switch (the
-    // client resolves the active environment at call time), so an entry CAN go stale; a cached name the
-    // function call then rejects is dropped in TrySnapshotTotalAsync so the next run re-resolves, and until
-    // then the row simply shows today's capped count.
-    private readonly Dictionary<string, string> _logicalNames = new(StringComparer.OrdinalIgnoreCase);
+    // Keyed by ENVIRONMENT identity as well as entity set, because this reader is built once and outlives
+    // an environment switch (the client resolves the active environment at call time). The set → logical
+    // mapping is per-environment table metadata, so a single-keyed cache would let environment A's answer
+    // serve environment B — and eviction-on-rejection below cannot save that case: a logical name that also
+    // EXISTS in B is accepted and returns the WRONG TABLE'S total, silently. Environment identity is the
+    // only thing that makes the entry unambiguous.
+    //
+    // Ceiling: one short string pair per (environment, entity set) actually counted — the legs of the maps
+    // the user inspects, in the environments they visit — so tens of entries at most; nothing evicts on
+    // size because nothing can grow it past that.
+    private readonly Dictionary<string, string> _logicalNames = new(StringComparer.Ordinal);
 
-    public CoreDualWriteMapReader(IDataverseClient dataverse) => _dataverse = dataverse;
+    /// <param name="activeEnv">
+    /// The active environment at call time — the same accessor the <see cref="IDataverseClient"/> resolves
+    /// against, so the logical-name cache is keyed by the environment a lookup was actually answered for.
+    /// Defaults to "no environment", which is a single consistent bucket for hosts that don't have one.
+    /// </param>
+    public CoreDualWriteMapReader(IDataverseClient dataverse, Func<EnvProfile?>? activeEnv = null)
+    {
+        _dataverse = dataverse;
+        _activeEnv = activeEnv ?? (() => null);
+    }
 
     public async Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default)
     {
@@ -122,7 +136,10 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
     // non-event for the user — the count they asked for is still displayed.
     private async Task<long?> TrySnapshotTotalAsync(string entitySet, CancellationToken ct)
     {
-        if (await ResolveLogicalNameAsync(entitySet, ct).ConfigureAwait(false) is not { } logicalName)
+        // Resolved once, before any await: the active environment can move mid-flight, and the entry this
+        // call reads has to be the entry it evicts — not one belonging to whatever became active since.
+        var cacheKey = CacheKey(entitySet);
+        if (await ResolveLogicalNameAsync(cacheKey, entitySet, ct).ConfigureAwait(false) is not { } logicalName)
         {
             return null;
         }
@@ -131,22 +148,28 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
             .GetAsync(DualWriteMapParser.TotalRecordCountPath(logicalName), ct).ConfigureAwait(false);
         if (!response.IsSuccess)
         {
-            // A cached logical name the function rejects is what an environment switch looks like from here
-            // (the set → logical mapping is per-environment table metadata): drop it so the next run
-            // re-resolves instead of repeating a request that can no longer work.
-            _logicalNames.Remove(entitySet);
+            // Still worth evicting even though the key now carries the environment: within ONE environment a
+            // table can be renamed or removed under a cached name, and repeating a dead request for the life
+            // of the app is no better than re-asking once.
+            _logicalNames.Remove(cacheKey);
             return null;
         }
 
         return DualWriteMapParser.ParseTotalRecordCount(response.Body, logicalName);
     }
 
-    // The logical name behind an entity-set name, cached (see _logicalNames). A lookup that resolves
-    // nothing is NOT cached: it may be an entity set this environment doesn't have, and the answer changes
-    // when the active environment does.
-    private async Task<string?> ResolveLogicalNameAsync(string entitySet, CancellationToken ct)
+    // The cache key: the active environment's identity, then the entity set. Compared Ordinal because an
+    // environment id is an opaque profile id that must match exactly — the same comparison
+    // DualWriteMapViewModel's env-change guard uses. A differently-cased entity set therefore gets its own
+    // entry, which is equally correct, just not shared.
+    private string CacheKey(string entitySet) => $"{_activeEnv()?.Id}|{entitySet}";
+
+    // The logical name behind an entity-set name, cached per environment (see _logicalNames). A lookup that
+    // resolves nothing is NOT cached: it may be an entity set this environment doesn't have, and a negative
+    // answer is the one most likely to be wrong for the next environment.
+    private async Task<string?> ResolveLogicalNameAsync(string cacheKey, string entitySet, CancellationToken ct)
     {
-        if (_logicalNames.TryGetValue(entitySet, out var cached))
+        if (_logicalNames.TryGetValue(cacheKey, out var cached))
         {
             return cached;
         }
@@ -164,7 +187,7 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
             return null;
         }
 
-        _logicalNames[entitySet] = logicalName;
+        _logicalNames[cacheKey] = logicalName;
         return logicalName;
     }
 

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using ToolBax.App.Services;
+using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 using Xunit;
 
@@ -329,6 +330,77 @@ public class CoreDualWriteMapReaderTests
         Assert.Equal(42_317, second.Count);
         Assert.Equal(5, dv.Requested.Count);
         Assert.Equal(1, EntityDefinitionRequests(dv));
+    }
+
+    private static EnvProfile CountEnv(string id, string name) =>
+        new(id, name, $"https://{name}.operations.dynamics.com", "tenant", "AUMF", "Tier 2", EnvStatus.Connected);
+
+    // Mutable active-environment source: the shell switching environments under the app-lifetime reader.
+    private sealed class EnvSwitch
+    {
+        public EnvProfile? Current { get; set; } = CountEnv("env1", "contoso");
+        public EnvProfile? Get() => Current;
+    }
+
+    [Fact]
+    public async Task The_logical_name_cache_does_not_cross_environments()
+    {
+        // The #151 bug class: this reader is built once and outlives an environment switch, so a set →
+        // logical mapping cached for environment A must not answer for environment B. Eviction-on-rejection
+        // cannot cover this — a logical name that also EXISTS in B is accepted, and the row then shows the
+        // WRONG TABLE'S total with no failure anywhere to notice.
+        var env = new EnvSwitch();
+        var dv = new FakeDataverseClient(
+            Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal),
+            Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal));
+        var reader = new CoreDualWriteMapReader(dv, env.Get);
+
+        await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+        env.Current = CountEnv("env2", "fabrikam");
+        var afterSwitch = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.True(afterSwitch.Snapshot);
+        Assert.Equal(2, EntityDefinitionRequests(dv));   // re-resolved for the environment now active
+    }
+
+    [Fact]
+    public async Task The_logical_name_cache_still_serves_a_repeat_count_in_the_same_environment()
+    {
+        // The environment dimension must not defeat the cache it keys: an unchanged environment still gets
+        // one EntityDefinitions GET for the life of the reader.
+        var env = new EnvSwitch();
+        var dv = new FakeDataverseClient(
+            Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal),
+            Ok(CappedCount), Ok(SnapshotTotal));
+        var reader = new CoreDualWriteMapReader(dv, env.Get);
+
+        await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+        var second = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.True(second.Snapshot);
+        Assert.Equal(42_317, second.Count);
+        Assert.Equal(1, EntityDefinitionRequests(dv));
+    }
+
+    [Fact]
+    public async Task Returning_to_an_environment_reuses_the_name_cached_for_it()
+    {
+        // The key is the environment's identity, not "the last one seen": going back to A must hit A's entry.
+        var env = new EnvSwitch();
+        var dv = new FakeDataverseClient(
+            Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal),   // env1: resolves
+            Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal),   // env2: resolves separately
+            Ok(CappedCount), Ok(SnapshotTotal));                          // back on env1: cached
+        var reader = new CoreDualWriteMapReader(dv, env.Get);
+
+        await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+        env.Current = CountEnv("env2", "fabrikam");
+        await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+        env.Current = CountEnv("env1", "contoso");
+        var back = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.True(back.Snapshot);
+        Assert.Equal(2, EntityDefinitionRequests(dv));   // two environments, two lookups — not three
     }
 
     [Fact]
