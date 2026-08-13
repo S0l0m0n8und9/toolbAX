@@ -37,6 +37,21 @@ public sealed class CoreDataverseClient : IDataverseClient, IDisposable
 
     public async Task<ODataResponse> GetAsync(string pathOrUrl, CancellationToken ct = default)
     {
+        var response = await GetCoreAsync(pathOrUrl, ct).ConfigureAwait(false);
+
+        // Failures here are returned, not thrown, so they used to live only in the Map Browser's banner.
+        // Mirror them to Trace for the session log (#168) — RequestTrace defines exactly how little a
+        // trace line is allowed to say.
+        if (!response.IsSuccess)
+        {
+            RequestTrace.Failure("Dataverse", "GET", pathOrUrl, response);
+        }
+
+        return response;
+    }
+
+    private async Task<ODataResponse> GetCoreAsync(string pathOrUrl, CancellationToken ct)
+    {
         var sw = Stopwatch.StartNew();
 
         var env = _activeEnv();

@@ -60,6 +60,13 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
         new(new InvalidOperationException(message));
 
     /// <summary>
+    /// A connector whose <see cref="ConnectAsync"/> throws the supplied exception verbatim — for the tests
+    /// that need a specific exception <i>type</i> rather than a canned message, such as the real Core
+    /// gateway/parser failures whose messages quote the response body (#168).
+    /// </summary>
+    public static FakeDualWriteConnector ThatFailsWith(Exception failWith) => new(failWith);
+
+    /// <summary>
     /// A connector that reports cancellation the way an HTTP/socket timeout does — an
     /// <see cref="OperationCanceledException"/> raised while the caller's own token is still live. That is
     /// NOT a user cancel, so the screen must not report it as one (#166).

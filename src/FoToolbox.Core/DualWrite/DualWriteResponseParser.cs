@@ -342,6 +342,11 @@ public static class DualWriteResponseParser
     /// produces (a proxy/WAF interstitial, an HTML sign-in page) into a message that names the cause.
     /// The unwrapped exception read "'&lt;' is an invalid start of a value. LineNumber: 0 …", which
     /// mentions neither the gateway nor the fact that something answered in place of it.
+    /// <para>
+    /// Throws <see cref="DualWriteGatewayResponseException"/> — a distinct type precisely because the
+    /// message it carries quotes the response body, so a caller can recognise the case and keep that
+    /// fragment out of anywhere it must not go.
+    /// </para>
     /// </summary>
     internal static JsonDocument ParseGatewayJson(string? json)
     {
@@ -351,7 +356,7 @@ public static class DualWriteResponseParser
         }
         catch (JsonException ex)
         {
-            throw new InvalidOperationException(NonJsonMessage(json), ex);
+            throw new DualWriteGatewayResponseException(NonJsonMessage(json), ex);
         }
     }
 
@@ -433,5 +438,29 @@ public static class DualWriteResponseParser
 
         value = default;
         return false;
+    }
+}
+
+/// <summary>
+/// Raised when the gateway answers with something that is not JSON at all — an HTML sign-in page, a proxy
+/// or WAF interstitial. Distinct from <see cref="DualWriteGatewayException"/>, which reports a non-success
+/// status: this one arrives on a 2xx and so carries no status code of its own.
+/// <para>
+/// <b>Its message quotes the first line of the response body</b> (capped, see
+/// <c>DualWriteResponseParser</c>) because that fragment is what lets a user recognise the interstitial on
+/// screen. The type is therefore the signal a caller uses to keep that fragment out of anywhere a response
+/// body must not reach — a persisted log, for one. <b>Match on this type, never on the message text</b>: a
+/// text match would silently stop redacting the moment the wording changed.
+/// </para>
+/// <para>
+/// Derives from <see cref="InvalidOperationException"/>, which is what this used to throw, so every
+/// existing <c>catch</c> and every on-screen message behaves exactly as before.
+/// </para>
+/// </summary>
+public sealed class DualWriteGatewayResponseException : InvalidOperationException
+{
+    public DualWriteGatewayResponseException(string message, Exception? innerException)
+        : base(message, innerException)
+    {
     }
 }

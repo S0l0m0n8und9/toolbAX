@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -117,10 +118,54 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 
     public bool HasGatewayLog => GatewayLog.Count > 0;
 
-    // Appends one line to the in-app gateway log. Only ever called from VM operations that resume on the
-    // UI thread (each awaits without ConfigureAwait(false)), so the ObservableCollection is touched on it.
-    private void Log(string text, LogKind kind = LogKind.Info, string? note = null) =>
+    /// <summary>
+    /// Appends one line to the in-app gateway log. Only ever called from VM operations that resume on the
+    /// UI thread (each awaits without ConfigureAwait(false)), so the ObservableCollection is touched on it.
+    /// <paramref name="traceText"/> replaces <paramref name="text"/> in the session log for the lines whose
+    /// on-screen wording must not be persisted verbatim — see <see cref="Traceable"/>.
+    /// </summary>
+    private void Log(string text, LogKind kind = LogKind.Info, string? note = null, string? traceText = null)
+    {
         GatewayLog.Add(new GatewayLogEntry(text, note, kind));
+
+        // Warn/Err lines also go to Trace so the session log (#168) keeps them: the in-app log dies with
+        // the window, and a dual-write connection failure is exactly the thing a user reports after the
+        // fact. Info/Ok is live-diagnosis chatter and stays on screen only. What reaches the file carries
+        // gateway hosts, map names, connection ids, request ids and status text — never a token, and never
+        // a response body (which is what traceText exists to keep out).
+        switch (kind)
+        {
+            case LogKind.Warn:
+                Trace.TraceWarning($"Dual-write operations: {traceText ?? text}");
+                break;
+            case LogKind.Err:
+                Trace.TraceError($"Dual-write operations: {traceText ?? text}");
+                break;
+        }
+    }
+
+    /// <summary>
+    /// What a failed operation is allowed to say in the session log. Two Core exceptions quote the gateway's
+    /// <b>raw response body</b> in their message — <see cref="DualWriteGatewayException"/> up to 500
+    /// characters of it on a non-success status, and <see cref="DualWriteGatewayResponseException"/> the
+    /// first line of a non-JSON body (an HTML sign-in or proxy page). Both are fine in a banner, where the
+    /// user is reading about their own gateway; neither may be written to disk (#168). The persisted form
+    /// keeps the diagnosis — a status code, or the fact that the answer wasn't JSON — and drops everything
+    /// the gateway echoed back.
+    /// <para>
+    /// Matched on the exception <i>type</i> and never on the message text, so rewording Core cannot silently
+    /// un-redact this. <b>A new Core exception that quotes a response body needs a case here</b>; anything
+    /// unmatched falls through to <see cref="Concise"/>, which trusts the message.
+    /// </para>
+    /// </summary>
+    private static string Traceable(Exception ex) => ex switch
+    {
+        DualWriteGatewayException gateway =>
+            $"the gateway returned {(int)gateway.StatusCode} {gateway.StatusCode} (response body not logged)",
+        DualWriteGatewayResponseException =>
+            "the gateway returned a non-JSON response, e.g. an HTML sign-in or proxy page (response body not logged)",
+        _ => Concise(ex),
+    };
 
     private bool CanLoad() => !IsBusy;
 
@@ -179,7 +224,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         {
             LoadError = ex.Message;
             ResetDisconnected("Connection failed.");
-            Log(ex.Message, LogKind.Err);
+            Log(ex.Message, LogKind.Err, traceText: Traceable(ex));
         }
         finally
         {
@@ -339,7 +384,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         catch (Exception ex)
         {
             Status = $"{action.Label} failed: {ex.Message}";
-            Log(Status, LogKind.Err);
+            Log(Status, LogKind.Err, traceText: $"{action.Label} failed: {Traceable(ex)}");
         }
         finally
         {
@@ -394,8 +439,9 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         // the filter so it keeps propagating to RunAction.
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            Status = $"{action.Label} submitted — status check failed ({Concise(ex)}); refreshing the map list.";
-            Log(Status, LogKind.Warn);
+            var submitted = $"{action.Label} submitted — status check failed";
+            Status = $"{submitted} ({Concise(ex)}); refreshing the map list.";
+            Log(Status, LogKind.Warn, traceText: $"{submitted} ({Traceable(ex)}); refreshing the map list.");
             return;
         }
 
