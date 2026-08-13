@@ -751,8 +751,10 @@ public class DualWriteOpsTests
     public async Task A_gateway_failure_shows_the_response_body_on_screen_but_never_traces_it()
     {
         using var trace = new TraceCapture();
-        var vm = MakeVm(FakeDualWriteConnector.ThatFailsWithGatewayStatus(
-            HttpStatusCode.BadGateway, "{\"error\":\"GATEWAY-RESPONSE-BODY-MARKER\"}"));
+        var failure = new DualWriteGatewayException(
+            "Dual-write gateway request failed: 502 BadGateway. {\"error\":\"GATEWAY-RESPONSE-BODY-MARKER\"}",
+            HttpStatusCode.BadGateway);
+        var vm = MakeVm(FakeDualWriteConnector.ThatFailsWith(failure));
 
         await vm.LoadCommand.ExecuteAsync(null);
 
@@ -761,6 +763,35 @@ public class DualWriteOpsTests
         // The status still reaches the file, so the redacted line is still worth having.
         Assert.Contains("the gateway returned 502", trace.Text);
     }
+
+    /// <summary>
+    /// The other body-quoting Core exception: the #166 non-JSON guard, which puts the first line of an HTML
+    /// sign-in or proxy page into its message. Type-matched redaction has to cover this one too — matching
+    /// only <see cref="DualWriteGatewayException"/> let it through to the persisted log unredacted.
+    /// </summary>
+    [Fact]
+    public async Task A_non_json_gateway_response_is_explained_on_screen_but_its_body_is_never_traced()
+    {
+        using var trace = new TraceCapture();
+        var vm = MakeVm(FakeDualWriteConnector.ThatFailsWith(NonJsonFailure(
+            "<!DOCTYPE html><title>Sign in</title><body>NON-JSON-BODY-MARKER</body>")));
+
+        await vm.LoadCommand.ExecuteAsync(null);
+
+        // On screen the user still gets the fragment that identifies the interstitial...
+        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Err && e.Text.Contains("<!DOCTYPE html>"));
+        // ...but neither the body fragment nor the "first line:" excerpt that carries it reaches the file.
+        Assert.DoesNotContain("NON-JSON-BODY-MARKER", trace.Text);
+        Assert.DoesNotContain("<!DOCTYPE html>", trace.Text);
+        Assert.DoesNotContain("first line:", trace.Text);
+        // The diagnosis survives: a log reader still learns the gateway answered with something non-JSON.
+        Assert.Contains("non-JSON response", trace.Text);
+    }
+
+    // Mints the genuine Core exception by running the real parser over a non-JSON body, so the test asserts
+    // against Core's actual message rather than a hand-copied imitation that could drift out of step with it.
+    private static DualWriteGatewayResponseException NonJsonFailure(string responseBody) =>
+        Assert.Throws<DualWriteGatewayResponseException>(() => DualWriteResponseParser.ParseMaps(responseBody));
 
     [Fact]
     public async Task The_successful_chatter_stays_on_screen_and_is_not_traced()

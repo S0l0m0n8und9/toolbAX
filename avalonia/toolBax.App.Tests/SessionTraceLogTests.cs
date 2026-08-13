@@ -39,6 +39,9 @@ public class SessionTraceLogTests : IDisposable
         catch (IOException)
         {
         }
+        catch (UnauthorizedAccessException)
+        {
+        }
     }
 
     private string[] Logs() => Directory.Exists(_dir)
@@ -156,6 +159,48 @@ public class SessionTraceLogTests : IDisposable
         Assert.Null(SessionTraceLog.ActiveLogPath);
         handle.Dispose();
         handle.Dispose();   // a second dispose is a no-op, whether or not logging started
+    }
+
+    [Fact]
+    public void A_failure_after_the_file_is_created_leaks_no_handle_and_leaves_no_empty_log()
+    {
+        // The one failure window that runs holding an OS handle: the log file exists, and then writing its
+        // header fails — a full disk, in the field. Without cleanup the handle stays open for the process
+        // lifetime and keeps a zero-byte file locked, which the next run's retention sweep cannot clear
+        // either, and which counts against the newest-MaxFiles cap that keeps real logs.
+        string? created = null;
+        var handle = SessionTraceLog.Start(_dir, stream =>
+        {
+            created = ((FileStream)stream).Name;   // the file genuinely exists by this point
+            return new ThrowOnFlushWriter(stream);
+        });   // must not throw
+
+        Assert.NotNull(created);              // we really did get past creating the file
+        // The file being gone is itself the proof the handle was released: it was opened FileShare.Read and
+        // NOT FileShare.Delete, so Windows could not have deleted it while a handle was still open.
+        Assert.False(File.Exists(created!));
+        Assert.Empty(Logs());
+        Assert.Null(SessionTraceLog.ActiveLogPath);
+
+        handle.Dispose();
+
+        // And the directory is still usable — the failed attempt left nothing behind that blocks the next run.
+        using (SessionTraceLog.Start(_dir))
+        {
+            Assert.Single(Logs());
+        }
+    }
+
+    // A writer whose flush fails the way a full disk does. Extends StreamWriter so its Dispose still closes
+    // the underlying stream (StreamWriter disposes its stream in a finally, even when the final flush throws),
+    // which keeps the test honest: it fails on a leaked handle, not on a fake that never owned one.
+    private sealed class ThrowOnFlushWriter : StreamWriter
+    {
+        public ThrowOnFlushWriter(Stream stream) : base(stream)
+        {
+        }
+
+        public override void Flush() => throw new IOException("simulated: no space left on device");
     }
 
     [AvaloniaFact]

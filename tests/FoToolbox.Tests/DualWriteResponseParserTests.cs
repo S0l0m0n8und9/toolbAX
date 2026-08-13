@@ -369,7 +369,7 @@ public class DualWriteResponseParserNonJsonTests
     [Fact]
     public void ParseMaps_HtmlBody_ExplainsItIsNotJson_AndQuotesTheFirstLine()
     {
-        var ex = Assert.Throws<InvalidOperationException>(() => DualWriteResponseParser.ParseMaps(HtmlBody));
+        var ex = Assert.Throws<DualWriteGatewayResponseException>(() => DualWriteResponseParser.ParseMaps(HtmlBody));
 
         Assert.Contains("non-JSON", ex.Message);
         Assert.Contains("<!DOCTYPE html>", ex.Message);
@@ -381,7 +381,7 @@ public class DualWriteResponseParserNonJsonTests
     [Fact]
     public void ParseEnvironment_HtmlBody_ExplainsItIsNotJson()
     {
-        var ex = Assert.Throws<InvalidOperationException>(() => DualWriteResponseParser.ParseEnvironment(HtmlBody, "id"));
+        var ex = Assert.Throws<DualWriteGatewayResponseException>(() => DualWriteResponseParser.ParseEnvironment(HtmlBody, "id"));
         Assert.Contains("non-JSON", ex.Message);
     }
 
@@ -389,7 +389,7 @@ public class DualWriteResponseParserNonJsonTests
     [Fact]
     public void ParseStatus_HtmlBody_ExplainsItIsNotJson()
     {
-        var ex = Assert.Throws<InvalidOperationException>(() => DualWriteResponseParser.ParseStatus(HtmlBody));
+        var ex = Assert.Throws<DualWriteGatewayResponseException>(() => DualWriteResponseParser.ParseStatus(HtmlBody));
         Assert.Contains("non-JSON", ex.Message);
     }
 
@@ -397,7 +397,7 @@ public class DualWriteResponseParserNonJsonTests
     [Fact]
     public void ParseFieldMappings_HtmlBody_ExplainsItIsNotJson()
     {
-        var ex = Assert.Throws<InvalidOperationException>(() => DualWriteResponseParser.ParseFieldMappings(HtmlBody));
+        var ex = Assert.Throws<DualWriteGatewayResponseException>(() => DualWriteResponseParser.ParseFieldMappings(HtmlBody));
         Assert.Contains("non-JSON", ex.Message);
     }
 
@@ -405,7 +405,29 @@ public class DualWriteResponseParserNonJsonTests
     [Fact]
     public void ParseActionResponse_HtmlBody_ExplainsItIsNotJson()
     {
-        var ex = Assert.Throws<InvalidOperationException>(() => DualWriteResponseParser.ParseActionResponse(HtmlBody));
+        var ex = Assert.Throws<DualWriteGatewayResponseException>(() => DualWriteResponseParser.ParseActionResponse(HtmlBody));
+        Assert.Contains("non-JSON", ex.Message);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void NonJsonFailure_KeepsItsInvalidOperationExceptionShape()
+    {
+        // Callers and their catch blocks predate the dedicated type. Deriving from what this used to throw
+        // keeps every one of them behaving exactly as before, so the redaction hook is additive.
+        var ex = Assert.Throws<DualWriteGatewayResponseException>(() => DualWriteResponseParser.ParseMaps(HtmlBody));
+
+        Assert.IsAssignableFrom<InvalidOperationException>(ex);
+    }
+
+    [Trait("Category", "DualWrite")]
+    [Fact]
+    public void ConnectionSetParser_HtmlBody_ThrowsTheSameRedactableType()
+    {
+        // It shares ParseGatewayJson, so it must share the type callers redact on — otherwise a connection-set
+        // parse would quietly leak the body fragment the response parser's callers already protect.
+        var ex = Assert.Throws<DualWriteGatewayResponseException>(() => DualWriteConnectionSetParser.Parse(HtmlBody));
+
         Assert.Contains("non-JSON", ex.Message);
     }
 
@@ -413,7 +435,7 @@ public class DualWriteResponseParserNonJsonTests
     [Fact]
     public void NonJsonMessage_TruncatesALongFirstLine()
     {
-        var ex = Assert.Throws<InvalidOperationException>(
+        var ex = Assert.Throws<DualWriteGatewayResponseException>(
             () => DualWriteResponseParser.ParseMaps("<" + new string('x', 400)));
 
         Assert.Contains("…", ex.Message);

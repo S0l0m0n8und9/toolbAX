@@ -63,34 +63,98 @@ public static class SessionTraceLog
     /// <c>%LocalAppData%\FoToolbox\logs</c> or the process-wide
     /// <see cref="ProfilePaths.AppDataDirEnvVar"/> override (which another test class already owns, and
     /// which would cross-talk if two classes set it in parallel).
+    /// <para>
+    /// <paramref name="writerFactory"/> is likewise a test seam: it exists so a test can force the writer to
+    /// fail <i>after</i> the log file has been created, which is the one failure window that would otherwise
+    /// leak an open file handle. Production passes null and gets a plain <see cref="StreamWriter"/>.
+    /// </para>
     /// </summary>
-    public static IDisposable Start(string logDirectory)
+    public static IDisposable Start(string logDirectory, Func<Stream, TextWriter>? writerFactory = null)
     {
+        string? path = null;
+        TextWriter? writer = null;
+        TraceListener? listener = null;
+
         try
         {
             Directory.CreateDirectory(logDirectory);
             ApplyRetention(logDirectory);
 
             var stream = CreateSessionFile(logDirectory);
-            var writer = new StreamWriter(stream);
+            path = stream.Name;
+            // From here the writer owns the stream, so disposing the writer is what closes the file handle —
+            // which is exactly what DiscardPartialLog relies on below.
+            writer = writerFactory?.Invoke(stream) ?? new StreamWriter(stream);
             WriteHeader(writer);
 
-            var listener = new TextWriterTraceListener(writer, ListenerName);
+            listener = new TextWriterTraceListener(writer, ListenerName);
             var previousAutoFlush = Trace.AutoFlush;
+            var session = new Session(listener, previousAutoFlush);
+
+            // Global state is touched last, so a failure anywhere above leaves Trace exactly as it was and
+            // the catch has only this method's own resources to clean up.
             Trace.Listeners.Add(listener);
             // A crash must not lose the tail: the lines that matter are the last ones written before the
             // process died, so pay a flush per write rather than buffer them into oblivion.
             Trace.AutoFlush = true;
-            ActiveLogPath = stream.Name;
-            return new Session(listener, previousAutoFlush);
+            ActiveLogPath = path;
+            return session;
         }
         catch (Exception ex)
         {
             // A read-only or full disk, a locked directory, a redirected-profile failure: all cost the log
-            // and nothing else. Traced (to whatever listener a debugger-attached run has) rather than
-            // silently dropped, so "why is there no log?" is answerable.
+            // and nothing else. Every statement from CreateSessionFile onward runs holding an OS file handle,
+            // so returning without releasing it would leak the handle for the process lifetime AND leave the
+            // file locked — which the next run's retention sweep could then not clear either.
+            DiscardPartialLog(listener, writer, path);
+            // Traced (to whatever listener a debugger-attached run has) rather than silently dropped, so
+            // "why is there no log?" is answerable. Note ActiveLogPath is deliberately NOT reset here: a
+            // failed start must not clobber the path of a session that is already running.
             Trace.TraceWarning($"Session logging is unavailable; this run will not be logged to file. {ex.Message}");
             return NoSession.Instance;
+        }
+    }
+
+    /// <summary>
+    /// Undoes a partially-started log: detaches the listener if it ever got attached, closes the file handle,
+    /// and deletes the file that was just created. Deleting matters beyond tidiness — a zero-byte log left
+    /// behind by every failed start would count against the <see cref="MaxFiles"/> retention cap and push
+    /// real logs out of it. Each step is guarded on its own: cleanup running inside a catch must not throw.
+    /// </summary>
+    private static void DiscardPartialLog(TraceListener? listener, TextWriter? writer, string? path)
+    {
+        if (listener is not null)
+        {
+            Trace.Listeners.Remove(listener);   // a no-op when it was never added
+        }
+
+        try
+        {
+            // Disposing the writer disposes the FileStream underneath it, releasing the handle even when the
+            // final flush throws — StreamWriter closes its stream in a finally.
+            writer?.Dispose();
+        }
+        catch (IOException)
+        {
+        }
+        catch (ObjectDisposedException)
+        {
+        }
+
+        if (path is null)
+        {
+            return;   // the failure landed before the file existed; nothing to remove
+        }
+
+        try
+        {
+            File.Delete(path);
+        }
+        catch (IOException)
+        {
+        }
+        catch (UnauthorizedAccessException)
+        {
         }
     }
 
@@ -193,9 +257,9 @@ public static class SessionTraceLog
     private sealed class Session : IDisposable
     {
         private readonly bool _previousAutoFlush;
-        private TextWriterTraceListener? _listener;
+        private TraceListener? _listener;
 
-        public Session(TextWriterTraceListener listener, bool previousAutoFlush)
+        public Session(TraceListener listener, bool previousAutoFlush)
         {
             _listener = listener;
             _previousAutoFlush = previousAutoFlush;

@@ -32,7 +32,7 @@ Download `toolbAX-win-x64.zip` from the assets, extract it anywhere, and run `to
 
 ### Logs
 
-Each run writes a log to `%LocalAppData%\FoToolbox\logs\toolbax-<date>-<time>.log` — one file per session, capped at the newest 20 and 14 days. It records warnings and errors (failed requests as status + endpoint path, dual-write gateway failures, degraded-mode reasons), and deliberately records no tokens, request/response bodies or headers. Attach the newest file when reporting a bug; the directory is safe to delete at any time.
+Each run writes a log to `%LocalAppData%\FoToolbox\logs\toolbax-<date>-<time>.log` — one file per session, capped at the newest 20 and 14 days. It records warnings and errors (failed requests as status + endpoint path, dual-write gateway failures, degraded-mode reasons), and deliberately records no tokens, request/response bodies or headers — a gateway error that quotes its response body on screen is reduced to the status alone in the file. Attach the newest file when reporting a bug; the directory is safe to delete at any time.
 
 ## Requirements
 

@@ -145,19 +145,27 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// What a failed operation is allowed to say in the session log. A <see cref="DualWriteGatewayException"/>
-    /// message embeds up to 500 characters of the gateway's <b>raw response body</b> — which
-    /// <c>DualWriteGatewayClient</c> trims but does not redact. That is fine in a banner, where the user is
-    /// reading about their own gateway, but a response body must never be written to disk (#168), so the
-    /// persisted form keeps the status code and drops everything the gateway echoed back.
+    /// What a failed operation is allowed to say in the session log. Two Core exceptions quote the gateway's
+    /// <b>raw response body</b> in their message — <see cref="DualWriteGatewayException"/> up to 500
+    /// characters of it on a non-success status, and <see cref="DualWriteGatewayResponseException"/> the
+    /// first line of a non-JSON body (an HTML sign-in or proxy page). Both are fine in a banner, where the
+    /// user is reading about their own gateway; neither may be written to disk (#168). The persisted form
+    /// keeps the diagnosis — a status code, or the fact that the answer wasn't JSON — and drops everything
+    /// the gateway echoed back.
     /// <para>
-    /// Matched on the exception <i>type</i> and not on the message text, so rewording Core's message cannot
-    /// silently un-redact this. Every other exception reaching these handlers carries one of our own messages.
+    /// Matched on the exception <i>type</i> and never on the message text, so rewording Core cannot silently
+    /// un-redact this. <b>A new Core exception that quotes a response body needs a case here</b>; anything
+    /// unmatched falls through to <see cref="Concise"/>, which trusts the message.
     /// </para>
     /// </summary>
-    private static string Traceable(Exception ex) => ex is DualWriteGatewayException gateway
-        ? $"the gateway returned {(int)gateway.StatusCode} {gateway.StatusCode} (response body not logged)"
-        : Concise(ex);
+    private static string Traceable(Exception ex) => ex switch
+    {
+        DualWriteGatewayException gateway =>
+            $"the gateway returned {(int)gateway.StatusCode} {gateway.StatusCode} (response body not logged)",
+        DualWriteGatewayResponseException =>
+            "the gateway returned a non-JSON response, e.g. an HTML sign-in or proxy page (response body not logged)",
+        _ => Concise(ex),
+    };
 
     private bool CanLoad() => !IsBusy;
 
