@@ -218,7 +218,10 @@ public partial class App : Application
                 return (profileStore, new CoreSecretStore(profiles, vault), auth,
                     activeEnv => new CoreODataClient(auth, activeEnv),
                     activeEnv => CreateMetadataService(store, auth, activeEnv),
-                    activeEnv => new CoreDualWriteMapReader(new CoreDataverseClient(auth, activeEnv)),
+                    // The reader takes the SAME activeEnv accessor as its client: it caches entity-set →
+                    // logical-name metadata across calls, and that cache has to be keyed by the environment
+                    // the client will resolve at call time (#210).
+                    activeEnv => new CoreDualWriteMapReader(new CoreDataverseClient(auth, activeEnv), activeEnv),
                     activeEnv => new CoreVirtualTableReader(new CoreDataverseClient(auth, activeEnv)),
                     null);
             }

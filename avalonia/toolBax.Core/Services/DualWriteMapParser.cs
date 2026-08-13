@@ -117,6 +117,135 @@ public static class DualWriteMapParser
         return null;
     }
 
+    /// <summary>
+    /// The relative Web API path that resolves an entity-SET name to its logical name. Needed because
+    /// <see cref="TotalRecordCountPath"/> takes logical names (<c>account</c>) while a dual-write map leg
+    /// only carries the entity-set name (<c>accounts</c>), and the two differ by more than an "s" for a
+    /// custom table.
+    /// </summary>
+    public static string EntityLogicalNamePath(string entitySet) =>
+        "EntityDefinitions?$select=LogicalName&$filter=" +
+        Uri.EscapeDataString($"EntitySetName eq '{entitySet.Replace("'", "''", StringComparison.Ordinal)}'");
+
+    /// <summary>
+    /// The first <c>LogicalName</c> in an <see cref="EntityLogicalNamePath"/> response, or null when the
+    /// response named no entity (an unknown/renamed set) or can't be read.
+    /// </summary>
+    public static string? ParseEntityLogicalName(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Object ||
+                !document.RootElement.TryGetProperty("value", out var value) ||
+                value.ValueKind != JsonValueKind.Array)
+            {
+                return null;
+            }
+
+            foreach (var entity in value.EnumerateArray())
+            {
+                if (entity.ValueKind == JsonValueKind.Object &&
+                    entity.TryGetProperty("LogicalName", out var logicalName) &&
+                    logicalName.ValueKind == JsonValueKind.String &&
+                    !string.IsNullOrWhiteSpace(logicalName.GetString()))
+                {
+                    return logicalName.GetString();
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // fall through to null
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// The relative Web API path for the platform's uncapped total row count of <paramref name="logicalName"/>
+    /// — <c>RetrieveTotalRecordCount(EntityNames=@p1)?@p1=["account"]</c>. Unlike <c>$count=true</c> this
+    /// has no 5,000-row ceiling, but it takes no filter and answers from a snapshot less than 24 hours old.
+    /// See https://learn.microsoft.com/power-apps/developer/data-platform/webapi/reference/retrievetotalrecordcount.
+    /// </summary>
+    public static string TotalRecordCountPath(string logicalName) =>
+        "RetrieveTotalRecordCount(EntityNames=@p1)?@p1=" +
+        Uri.EscapeDataString($"[\"{JsonEncodedText.Encode(logicalName)}\"]");
+
+    /// <summary>
+    /// The snapshot total for <paramref name="logicalName"/> out of a <see cref="TotalRecordCountPath"/>
+    /// response, or null when the response doesn't carry one.
+    /// <para>
+    /// The documented body wraps an SDK <c>EntityRecordCountCollection</c>, whose data contract serializes
+    /// as parallel <c>Keys</c>/<c>Values</c> arrays. A key-value collection is equally serializable as a
+    /// plain object (<c>{"account": 42}</c>), and the whole feature is an optional upgrade over a capped
+    /// count, so both shapes are read rather than one being made a failure.
+    /// </para>
+    /// </summary>
+    public static long? ParseTotalRecordCount(string? json, string logicalName)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            if (document.RootElement.ValueKind != JsonValueKind.Object ||
+                !document.RootElement.TryGetProperty("EntityRecordCountCollection", out var collection) ||
+                collection.ValueKind != JsonValueKind.Object)
+            {
+                return null;
+            }
+
+            var hasKeys = collection.TryGetProperty("Keys", out var keys) && keys.ValueKind == JsonValueKind.Array;
+            var hasValues = collection.TryGetProperty("Values", out var values) && values.ValueKind == JsonValueKind.Array;
+            if (hasKeys && hasValues)
+            {
+                for (var i = 0; i < keys.GetArrayLength() && i < values.GetArrayLength(); i++)
+                {
+                    if (keys[i].ValueKind == JsonValueKind.String &&
+                        string.Equals(keys[i].GetString(), logicalName, StringComparison.OrdinalIgnoreCase))
+                    {
+                        return ReadCount(values[i]);
+                    }
+                }
+
+                // The documented shape was returned and it doesn't mention this table: a definite "no
+                // total", not a shape to keep guessing at.
+                return null;
+            }
+
+            foreach (var property in collection.EnumerateObject())
+            {
+                if (string.Equals(property.Name, logicalName, StringComparison.OrdinalIgnoreCase))
+                {
+                    return ReadCount(property.Value);
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            // fall through to null
+        }
+
+        return null;
+    }
+
+    // A row count as either a JSON number or a numeric string; anything else is no count at all.
+    private static long? ReadCount(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.Number when value.TryGetInt64(out var number) => number,
+        JsonValueKind.String when long.TryParse(value.GetString(), out var parsed) => parsed,
+        _ => null,
+    };
+
     // The cap annotation as a tri-state: true/false when Dataverse returned it, null when it is absent
     // (the Prefer header wasn't honoured, or this is an F&O response — F&O doesn't cap its counts).
     private static bool? ParseCapExceeded(JsonElement root) =>

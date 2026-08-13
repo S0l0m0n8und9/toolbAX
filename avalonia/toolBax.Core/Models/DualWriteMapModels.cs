@@ -182,11 +182,20 @@ public sealed record DwRowCount(long Count, bool? CapExceeded)
 /// True when <paramref name="Count"/> is the platform's count ceiling, not a total — the real number is
 /// "<paramref name="Count"/> or more". Callers must not treat a capped count as an exact figure.
 /// </param>
-public sealed record DwCountResult(long? Count, string? Error, bool Capped = false)
+/// <param name="Snapshot">
+/// True when <paramref name="Count"/> is a true total read from a platform snapshot rather than counted
+/// live: Dataverse's <c>RetrieveTotalRecordCount</c> answers from a snapshot less than 24 hours old
+/// (#210), so the number is uncapped but not exact as of this moment. Never set together with
+/// <paramref name="Capped"/> — a snapshot total <i>replaces</i> a capped count, it doesn't annotate one.
+/// </param>
+public sealed record DwCountResult(long? Count, string? Error, bool Capped = false, bool Snapshot = false)
 {
     public bool IsSuccess => Error is null;
 
     public static DwCountResult Ok(long count, bool capped = false) => new(count, null, capped);
+
+    /// <summary>A true total read from the platform's ≤24h snapshot (see <see cref="Snapshot"/>).</summary>
+    public static DwCountResult FromSnapshot(long total) => new(total, null, Capped: false, Snapshot: true);
 
     public static DwCountResult Fail(string error) => new(null, error);
 }

@@ -30,13 +30,44 @@ public static class DualWriteFoEntityResolver
         foreach (var schema in new[] { sourceSchema, sourceSchemaDistinctName })
         {
             var resolved = ResolveSingle(schema, entityNames);
-            if (!string.IsNullOrWhiteSpace(resolved))
+            // A catalogue entry that can't be an OData entity name is no answer at all: returning it would
+            // send a count to a URL that cannot resolve (#209). Empty already means "unresolved" to every
+            // caller, so that is what a shape-invalid match becomes.
+            if (IsUsableEntityName(resolved))
             {
                 return resolved;
             }
         }
 
         return string.Empty;
+    }
+
+    /// <summary>
+    /// True when <paramref name="entityName"/> could name an F&amp;O OData entity set: non-blank, and made
+    /// only of characters an OData identifier can carry (ASCII letters, digits, underscore).
+    /// <para>
+    /// A dual-write map's source schema is sometimes a display-style string — the live #209 case was
+    /// <c>"CDS released distinct products"</c> — which the count path would otherwise paste straight into
+    /// <c>/data/{entity}</c> for a guaranteed 404. Callers use this to send such a value down their
+    /// "entity not resolved" path instead of requesting it.
+    /// </para>
+    /// </summary>
+    public static bool IsUsableEntityName(string? entityName)
+    {
+        if (string.IsNullOrWhiteSpace(entityName))
+        {
+            return false;
+        }
+
+        foreach (var c in entityName)
+        {
+            if (!char.IsAsciiLetterOrDigit(c) && c != '_')
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private static string ResolveSingle(string? sourceSchema, IReadOnlyList<string> entityNames)
