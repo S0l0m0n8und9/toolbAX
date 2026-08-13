@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using ToolBax.App.Services;
@@ -968,5 +969,158 @@ public class DualWriteMapViewModelTests
 
         Assert.Contains("clipboard", vm.ExportStatus, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("clipboard is busy", vm.ExportStatus);
+    }
+
+    // --- #204: the F&O count leg goes out with a filter F&O can actually parse ---
+
+    // A single-leg map with a caller-supplied source schema and X++ source filter, so a test can drive the
+    // count path with the exact strings #204's live probe used.
+    private sealed class FilterLegReader : IDualWriteMapReader
+    {
+        private readonly string _sourceSchema;
+        private readonly string _sourceFilter;
+
+        public FilterLegReader(string sourceSchema, string sourceFilter)
+        {
+            _sourceSchema = sourceSchema;
+            _sourceFilter = sourceFilter;
+        }
+
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default)
+        {
+            var mapping =
+                $"{{\"id\":\"map-1\",\"legs\":[{{\"id\":\"leg-1\"," +
+                $"\"sourceSchema\":{JsonSerializer.Serialize(_sourceSchema)}," +
+                "\"destinationSchema\":\"accounts\"," +
+                $"\"sourceFilter\":{JsonSerializer.Serialize(_sourceFilter)}," +
+                "\"reversedSourceFilter\":\"\",\"fieldMappings\":[]}]}";
+            var page =
+                "{\"value\":[{\"msdyn_dualwriteentitymapid\":\"m1\",\"msdyn_name\":\"oneleg\"," +
+                $"\"msdyn_displayname\":\"One leg\",\"msdyn_mapping\":{JsonSerializer.Serialize(mapping)}}}]}}";
+            return Task.FromResult(DwMapLoadResult.Ok(DualWriteMapParser.ParsePage(page).Records));
+        }
+
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) => Task.FromResult(NoSolutions);
+
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) =>
+            Task.FromResult(DwCountResult.Ok(7));
+    }
+
+    // Metadata whose fields are NOT cached until they're loaded — the live shape, so the count path has to
+    // fetch them for the counted entity like it does against a real environment.
+    private sealed class FieldMetadataService : IMetadataService
+    {
+        private readonly string _entity;
+        private readonly IReadOnlyList<EntityField> _fields;
+        private bool _loaded;
+
+        public int FieldLoads { get; private set; }
+
+        public FieldMetadataService(string entity, params string[] fieldNames)
+        {
+            _entity = entity;
+            _fields = fieldNames.Select(n => new EntityField(n, "String", true)).ToList();
+        }
+
+        public IReadOnlyList<EntitySet> GetEntities() =>
+            new[] { new EntitySet(_entity, "Module", 0, "Id", false, "Table") };
+
+        public IReadOnlyList<EntityField>? GetFields(string entityName) =>
+            _loaded && string.Equals(entityName, _entity, StringComparison.Ordinal) ? _fields : null;
+
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => Task.CompletedTask;
+
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default)
+        {
+            FieldLoads++;
+            _loaded |= string.Equals(entityName, _entity, StringComparison.Ordinal);
+            return Task.FromResult(_loaded);
+        }
+    }
+
+    [Fact]
+    public async Task An_fo_count_is_issued_with_qualified_enum_literals_and_corrected_field_casing()
+    {
+        // #204's live matrix: this leg's converted filter 400s in every spelling except the one asserted
+        // below, so the count request has to carry that exact string.
+        var reader = new FilterLegReader("CustomerV3Entity", "(ISONETIMECUSTOMER != NoYes::Yes)");
+        var metadata = new FieldMetadataService("CustomerV3", "IsOneTimeCustomer", "CustomerAccount");
+        var odata = new CountODataClient(42);
+        var vm = new DualWriteMapViewModel(reader, odata: odata, metadata: metadata);
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        var row = vm.CountRows.Single();
+        Assert.Equal("CustomerV3", row.FoEntity);
+        Assert.Equal(
+            "/data/CustomerV3?$top=1&$count=true&cross-company=true&$filter=" +
+            Uri.EscapeDataString("(IsOneTimeCustomer ne Microsoft.Dynamics.DataEntities.NoYes'Yes')"),
+            odata.LastPath);
+        Assert.Equal(42, row.FoCount);
+        Assert.Empty(row.FoStatus);
+        Assert.True(metadata.FieldLoads > 0); // the entity's fields were fetched to do the correcting
+    }
+
+    [Fact]
+    public async Task A_leg_whose_filter_names_a_field_the_entity_lacks_is_reported_instead_of_counted()
+    {
+        // Honest-verdict doctrine (#159): a 400 the user can't act on is worse than naming the field.
+        var reader = new FilterLegReader("CustomerV3Entity", "(QUOTATIONNUMBER == 'Q-1')");
+        var metadata = new FieldMetadataService("CustomerV3", "IsOneTimeCustomer", "CustomerAccount");
+        var odata = new CountODataClient(42);
+        var vm = new DualWriteMapViewModel(reader, odata: odata, metadata: metadata);
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        var row = vm.CountRows.Single();
+        Assert.Equal(0, odata.Calls);      // no known-doomed request
+        Assert.Null(odata.LastPath);
+        Assert.Null(row.FoCount);
+        Assert.Contains("QUOTATIONNUMBER", row.FoStatus);
+        Assert.Contains("CustomerV3", row.FoStatus);
+        Assert.Equal(7, row.CeCount);      // the Dataverse side of the row still counted
+    }
+
+    [Fact]
+    public async Task A_leg_with_no_resolvable_fo_entity_is_reported_instead_of_counted()
+    {
+        // A blank resolved entity used to produce "/data/?…" — the service document, which answers 200 and
+        // yields no count at all, i.e. a silent null instead of a reason.
+        var reader = new FilterLegReader(string.Empty, string.Empty);
+        var odata = new CountODataClient(42);
+        var vm = new DualWriteMapViewModel(reader, odata: odata, metadata: new StubMetadataService());
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        var row = vm.CountRows.Single();
+        Assert.Equal(string.Empty, row.FoEntity);
+        Assert.Equal(0, odata.Calls);
+        Assert.Null(row.FoCount);
+        Assert.Contains("not resolved", row.FoStatus, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task A_count_still_goes_out_when_the_entitys_fields_cannot_be_loaded()
+    {
+        // No fields to case-correct against is not a reason to refuse the count: the enum token is already
+        // fixed by the converter, so the request is strictly better than before #204 — never worse.
+        var reader = new FilterLegReader("CustomerV3Entity", "(ISONETIMECUSTOMER != NoYes::Yes)");
+        var odata = new CountODataClient(42);
+        var vm = new DualWriteMapViewModel(reader, odata: odata,
+            metadata: new FieldMetadataService("SomeOtherEntity"));
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        var row = vm.CountRows.Single();
+        Assert.Equal(1, odata.Calls);
+        Assert.Contains(
+            Uri.EscapeDataString("(ISONETIMECUSTOMER ne Microsoft.Dynamics.DataEntities.NoYes'Yes')"),
+            odata.LastPath!);
+        Assert.Equal(42, row.FoCount);
+        Assert.Empty(row.FoStatus);
     }
 }

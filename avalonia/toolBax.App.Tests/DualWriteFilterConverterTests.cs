@@ -144,4 +144,63 @@ public class DualWriteFilterConverterTests
     {
         Assert.Equal("Note eq '!a != b'", DualWriteFilterConverter.XppToOData("Note == \"!a != b\""));
     }
+
+    // --- #204: X++ enum tokens must come out as qualified OData enum literals ---
+
+    [Fact]
+    public void An_enum_token_becomes_a_qualified_odata_enum_literal()
+    {
+        // #204's live matrix (RicohDev): the verbatim "NoYes::Yes" this used to emit is a 400 ("')' or
+        // operator expected"), and the qualified form below is the one that answers 200 with a count.
+        Assert.Equal("(ISONETIMECUSTOMER ne Microsoft.Dynamics.DataEntities.NoYes'Yes')",
+            DualWriteFilterConverter.XppToOData("(ISONETIMECUSTOMER != NoYes::Yes)"));
+    }
+
+    [Theory]
+    [InlineData("Status == SalesStatus::Invoiced",
+        "Status eq Microsoft.Dynamics.DataEntities.SalesStatus'Invoiced'")]
+    [InlineData("A == NoYes::Yes && B != NoYes::No",
+        "A eq Microsoft.Dynamics.DataEntities.NoYes'Yes' and B ne Microsoft.Dynamics.DataEntities.NoYes'No'")]
+    [InlineData("A==NoYes::Yes", "A eq Microsoft.Dynamics.DataEntities.NoYes'Yes'")]
+    [InlineData("!(Blocked == NoYes::Yes)", "not (Blocked eq Microsoft.Dynamics.DataEntities.NoYes'Yes')")]
+    [InlineData("_Field1 == My_Enum::Member_2",
+        "_Field1 eq Microsoft.Dynamics.DataEntities.My_Enum'Member_2'")]
+    public void Enum_tokens_are_qualified_wherever_they_appear(string input, string expected) =>
+        Assert.Equal(expected, DualWriteFilterConverter.XppToOData(input));
+
+    [Fact]
+    public void Enum_member_casing_is_preserved_as_written()
+    {
+        // The member is an F&O enum-element name, not a field: it is echoed exactly, never normalised.
+        Assert.Equal("A eq Microsoft.Dynamics.DataEntities.NoYes'yEs'",
+            DualWriteFilterConverter.XppToOData("A == NoYes::yEs"));
+    }
+
+    [Fact]
+    public void A_double_colon_inside_a_literal_is_not_rewritten()
+    {
+        // The whole reason this lives in the literal-aware walk (#162) rather than in a regex pass.
+        Assert.Equal("Note eq 'NoYes::Yes'", DualWriteFilterConverter.XppToOData("Note == \"NoYes::Yes\""));
+        Assert.Equal("Note eq 'NoYes::Yes'", DualWriteFilterConverter.XppToOData("Note == 'NoYes::Yes'"));
+    }
+
+    [Theory]
+    [InlineData("A == ::Yes", "A eq ::Yes")]
+    [InlineData("A == NoYes::", "A eq NoYes::")]
+    [InlineData("A == NoYes::1", "A eq NoYes::1")]
+    [InlineData("A == NoYes:Yes", "A eq NoYes:Yes")]
+    public void A_malformed_double_colon_passes_through_unchanged(string input, string expected) =>
+        // Anything that isn't identifier::identifier is left exactly as written, so it fails loudly at the
+        // server instead of being silently mangled into a different (and wrong) filter.
+        Assert.Equal(expected, DualWriteFilterConverter.XppToOData(input));
+
+    [Fact]
+    public void Enum_tokens_do_not_disturb_the_surrounding_translation()
+    {
+        Assert.Equal(
+            "Status eq Microsoft.Dynamics.DataEntities.SalesStatus'Invoiced' and Name eq 'ACME  Corp' " +
+            "and Amount ge 10",
+            DualWriteFilterConverter.XppToOData(
+                "Status == SalesStatus::Invoiced\n\t&& Name == \"ACME  Corp\"  &&  Amount >= 10"));
+    }
 }

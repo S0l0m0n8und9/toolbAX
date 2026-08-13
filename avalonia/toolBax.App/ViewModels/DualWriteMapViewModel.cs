@@ -594,12 +594,32 @@ public partial class DualWriteMapViewModel : ObservableObject
     {
         if (string.IsNullOrWhiteSpace(row.FoEntity))
         {
-            row.FoStatus = "Set an F&O entity to count.";
+            // #204: without an entity the path would be "/data/?…" — the service document, which answers
+            // 200 and carries no count at all, so the row silently showed nothing instead of a reason.
+            row.FoStatus = "F&O entity not resolved — set one to count.";
             return;
         }
 
         row.FoStatus = "Counting…";
         var filter = string.IsNullOrWhiteSpace(row.FoFilter) ? null : row.FoFilter;
+
+        // #204: X++ source filters name fields in staging case (ISONETIMECUSTOMER) and F&O's OData property
+        // lookup is case-sensitive PascalCase, so the converted filter has to be reconciled with the
+        // entity's real property names before the request goes out.
+        if (filter is not null && await FoFieldNamesAsync(row.FoEntity, ct) is { Count: > 0 } fields)
+        {
+            var cased = FoFilterFieldCaser.Correct(filter, fields);
+            if (cased.UnknownFields.Count > 0)
+            {
+                // A field the entity doesn't have is a guaranteed 400 whose message the user can't act on
+                // (#159): name the fields instead of firing a known-doomed count.
+                row.FoStatus = $"field(s) not on {row.FoEntity}: {string.Join(", ", cased.UnknownFields)}";
+                return;
+            }
+
+            filter = cased.Filter;
+        }
+
         var response = await _odata.SendAsync("GET", DualWriteMapParser.FoCountPath(row.FoEntity, filter), null, ct);
         if (!response.IsSuccess)
         {
@@ -617,5 +637,26 @@ public partial class DualWriteMapViewModel : ObservableObject
         // No cap flag on this side: F&O's $count is a true total (the 5,000 ceiling is a Dataverse limit).
         row.FoCount = count.Count;
         row.FoStatus = string.Empty;
+    }
+
+    // The F&O property names of one entity, or null when they can't be had (no F&O auth, an entity the
+    // environment doesn't have, a fetch failure). Same cache-then-load discipline as
+    // EntityCatalogLoader.EnsureFieldsAsync, and a failure is deliberately non-fatal: the count then goes
+    // out with whatever the converter produced — better than before #204 for the enum half, never worse.
+    private async Task<IReadOnlyList<string>?> FoFieldNamesAsync(string entity, CancellationToken ct)
+    {
+        if (_metadata.GetFields(entity) is null)
+        {
+            try
+            {
+                await _metadata.LoadFieldsAsync(entity, ct);
+            }
+            catch (Exception) when (!ct.IsCancellationRequested)
+            {
+                return null;
+            }
+        }
+
+        return _metadata.GetFields(entity)?.Select(f => f.Name).ToList();
     }
 }
