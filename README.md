@@ -34,6 +34,8 @@ Download `toolbAX-win-x64.zip` from the assets, extract it anywhere, and run `to
 
 Each run writes a log to `%LocalAppData%\FoToolbox\logs\toolbax-<date>-<time>.log` — one file per session, capped at the newest 20 and 14 days. It records warnings and errors (failed requests as status + endpoint path, dual-write gateway failures, degraded-mode reasons), and deliberately records no tokens, request/response bodies or headers — a gateway error that quotes its response body on screen is reduced to the status alone in the file. Attach the newest file when reporting a bug; the directory is safe to delete at any time.
 
+The header records which Windows composition backend the run asked for (requested, not negotiated); if the window ever freezes, set `TOOLBAX_COMPOSITION` to `dxgi` (the default), `surface` (maximum compatibility) or `winui` (Avalonia's own default, which deadlocked in [#212](https://github.com/S0l0m0n8und9/toolbAX/issues/212)) before launching to change it without a rebuild — an unrecognised value is ignored rather than fatal.
+
 ## Requirements
 
 - Windows 10/11 to run the released build (the app itself is built on cross-platform Avalonia)
