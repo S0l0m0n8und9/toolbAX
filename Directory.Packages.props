@@ -14,15 +14,17 @@
     <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.2792.45" />
 
     <!-- Avalonia (toolBax.App — alternate UI host spike, #35) -->
-    <PackageVersion Include="Avalonia" Version="12.0.4" />
-    <PackageVersion Include="Avalonia.Desktop" Version="12.0.4" />
-    <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.0.4" />
-    <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.0.4" />
+    <PackageVersion Include="Avalonia" Version="12.0.5" />
+    <PackageVersion Include="Avalonia.Desktop" Version="12.0.5" />
+    <PackageVersion Include="Avalonia.Themes.Fluent" Version="12.0.5" />
+    <PackageVersion Include="Avalonia.Fonts.Inter" Version="12.0.5" />
+    <!-- Avalonia.Controls.DataGrid has no 12.0.5 release (12.0.1 -> 12.1.0 directly on NuGet as of
+         2026-08-14); stays pinned at 12.0.0 until a matching patch build ships. -->
     <PackageVersion Include="Avalonia.Controls.DataGrid" Version="12.0.0" />
     <PackageVersion Include="CommunityToolkit.Mvvm" Version="8.4.2" />
 
     <!-- Test -->
-    <PackageVersion Include="Avalonia.Headless.XUnit" Version="12.0.4" />
+    <PackageVersion Include="Avalonia.Headless.XUnit" Version="12.0.5" />
     <!-- Avalonia 12's headless harness uses xunit v3; the Core test project (FoToolbox.Tests) stays on xunit v2. -->
     <PackageVersion Include="xunit.v3" Version="3.2.2" />
     <PackageVersion Include="coverlet.collector" Version="6.0.4" />
