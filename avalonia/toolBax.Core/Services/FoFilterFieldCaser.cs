@@ -23,6 +23,14 @@ public sealed record FoFilterCasing(string Filter, IReadOnlyList<string> Unknown
 /// (<c>Microsoft.Dynamics.DataEntities.NoYes'Yes'</c>) — its namespace, type name and member are not field
 /// references, and re-casing or reporting one of them would break a form that is live-proven good.
 /// </para>
+/// <para>
+/// <b>Known limit (#204):</b> a numeric literal compared against an enum property — e.g.
+/// <c>AssociatedContactType eq 0</c> — still fails server-side ("incompatible types … and 'Edm.Int32'"),
+/// and correcting the field's casing doesn't change that. Typing the literal needs per-property metadata
+/// (which property is an enum, and which member each ordinal is) that this seam deliberately doesn't have:
+/// it validates names, not types. Such a filter is therefore passed through and the server's own message
+/// is the honest failure.
+/// </para>
 /// </summary>
 public static class FoFilterFieldCaser
 {
