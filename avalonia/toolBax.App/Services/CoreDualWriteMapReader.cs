@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FoToolbox.Core.Auth;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 
@@ -23,12 +24,13 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
     // #210: entity-set name → logical name, so the snapshot-total upgrade below costs one EntityDefinitions
     // GET per entity set rather than one per count run.
     //
-    // Keyed by ENVIRONMENT identity as well as entity set, because this reader is built once and outlives
-    // an environment switch (the client resolves the active environment at call time). The set → logical
-    // mapping is per-environment table metadata, so a single-keyed cache would let environment A's answer
-    // serve environment B — and eviction-on-rejection below cannot save that case: a logical name that also
-    // EXISTS in B is accepted and returns the WRONG TABLE'S total, silently. Environment identity is the
-    // only thing that makes the entry unambiguous.
+    // Keyed by ENVIRONMENT IDENTITY — profile id AND normalized endpoint, see EnvIdentity — as well as
+    // entity set, because this reader is built once and outlives an environment switch (the client resolves
+    // the active environment at call time). The set → logical mapping is per-organisation table metadata, so
+    // a set-only key would let environment A's answer serve environment B, and eviction-on-rejection below
+    // cannot save that case: a logical name that also EXISTS in B is accepted and returns the WRONG TABLE'S
+    // total, silently. The endpoint belongs in the key for the same reason the id does — a profile can be
+    // repointed at a different organisation without its id changing (the #151 recipe).
     //
     // Ceiling: one short string pair per (environment, entity set) actually counted — the legs of the maps
     // the user inspects, in the environments they visit — so tens of entries at most; nothing evicts on
@@ -101,7 +103,22 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
             return DwCountResult.Fail("No Dataverse entity is set for this leg.");
         }
 
-        var response = await _dataverse.GetAsync(DualWriteMapParser.CountPath(entitySet, odataFilter), ct).ConfigureAwait(false);
+        // PIN the whole operation to one environment INSTANCE, captured before any await, and address every
+        // request below to THAT instance's endpoint. Re-checking an environment *id* afterwards cannot make a
+        // response trustworthy: an A→B→A switch spanning the fetches leaves the id equal to what was captured
+        // while the requests were answered by B, and a profile edited in place keeps its id while pointing at
+        // a different organisation. Both die to the same move — an absolute URL is adjudicated by
+        // CoreDataverseClient's origin guard against whichever environment is active when it goes out, so a
+        // request either reaches the pinned environment or is refused. The response then provably belongs to
+        // the pinned instance, and IsStillCurrent below decides only whether it may still be cached/shown.
+        //
+        // Pinned from HERE rather than from the upgrade alone: otherwise a switch landing between this count
+        // and the upgrade would pair environment A's count with environment B's total in one result.
+        var pinned = _activeEnv();
+        var apiBase = PinnedApiBase(pinned);
+
+        var response = await _dataverse
+            .GetAsync(Pinned(apiBase, DualWriteMapParser.CountPath(entitySet, odataFilter)), ct).ConfigureAwait(false);
         if (!response.IsSuccess)
         {
             return DwCountResult.Fail(DescribeFailure(response, $"the row count for '{entitySet}'"));
@@ -121,8 +138,8 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         // RetrieveTotalRecordCount, which has no ceiling — but accepts no filter, so a filtered leg keeps
         // its floor. The upgrade is strictly optional: every way it can go wrong returns null and the leg
         // falls back to the capped count it would have shown anyway, so this is never a new failure mode.
-        if (capped && string.IsNullOrWhiteSpace(odataFilter) &&
-            await TrySnapshotTotalAsync(entitySet, ct).ConfigureAwait(false) is { } total)
+        if (capped && string.IsNullOrWhiteSpace(odataFilter) && apiBase is not null &&
+            await TrySnapshotTotalAsync(pinned, apiBase, entitySet, ct).ConfigureAwait(false) is { } total)
         {
             return DwCountResult.FromSnapshot(total);
         }
@@ -130,43 +147,59 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         return DwCountResult.Ok(count.Count, capped);
     }
 
+    // A request addressed to the pinned environment's Dataverse endpoint. Falls back to the relative path
+    // only when the captured environment has no Dataverse URL at all: the client answers that with its own
+    // "No Dataverse URL" message, and fabricating an absolute URL from nothing would replace that clear
+    // diagnosis with an origin refusal.
+    private static string Pinned(string? apiBase, string path) =>
+        apiBase is null ? path : $"{apiBase}/{path}";
+
+    // The captured environment's Dataverse Web API base as an ABSOLUTE url, or null when it has no endpoint.
+    // Mirrors CoreDataverseClient.BuildUri including its scheme repair, so a pinned url is exactly the base
+    // that client would have resolved — and therefore passes its origin guard while, and only while, the
+    // pinned environment is the active one.
+    private static string? PinnedApiBase(EnvProfile? env)
+    {
+        if (string.IsNullOrWhiteSpace(env?.DataverseUrl))
+        {
+            return null;
+        }
+
+        var apiBase = ResourceUrlNormalizer.BuildDataverseApiBaseUrl(env.DataverseUrl);
+        return apiBase.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? apiBase : $"https://{apiBase}";
+    }
+
     // The platform's snapshot total for an entity set, or null when it can't be had (no logical name, a
     // failed request, a body that carries no total for this table). Deliberately quiet: CoreDataverseClient
     // already mirrors any non-2xx to the session log per the RequestTrace conventions, and a miss here is a
     // non-event for the user — the count they asked for is still displayed.
-    private async Task<long?> TrySnapshotTotalAsync(string entitySet, CancellationToken ct)
+    private async Task<long?> TrySnapshotTotalAsync(
+        EnvProfile? pinned, string apiBase, string entitySet, CancellationToken ct)
     {
-        // The environment generation this upgrade belongs to, captured before any await. Keying the cache by
-        // it is not enough on its own: the client resolves the ACTIVE environment per call, INSIDE both GETs
-        // below, so a switch landing mid-fetch means the logical name and/or the total was answered by a
-        // different environment than the count it would annotate. Same commit-generation discard as
-        // CoreMetadataService.IsStillCurrent (#170) — re-read the accessor after the fetches and, if the
-        // generation moved, write nothing and upgrade nothing.
-        var envId = _activeEnv()?.Id;
-        var cacheKey = CacheKey(entitySet, envId);
-        if (await ResolveLogicalNameAsync(cacheKey, entitySet, envId, ct).ConfigureAwait(false) is not { } logicalName)
+        var cacheKey = CacheKey(pinned, entitySet);
+        if (await ResolveLogicalNameAsync(pinned, apiBase, cacheKey, entitySet, ct).ConfigureAwait(false)
+            is not { } logicalName)
         {
             return null;
         }
 
         var response = await _dataverse
-            .GetAsync(DualWriteMapParser.TotalRecordCountPath(logicalName), ct).ConfigureAwait(false);
+            .GetAsync($"{apiBase}/{DualWriteMapParser.TotalRecordCountPath(logicalName)}", ct).ConfigureAwait(false);
 
-        // The total may be the other environment's. Discard it whole rather than annotating this leg with it:
-        // the leg keeps the capped display it would have shown anyway, and the VM's per-leg guard stops the
-        // run at its next check. Deliberately ahead of the eviction below — after a switch the response is a
-        // verdict on the OTHER environment, so it says nothing about the entry cached for this one, and
-        // acting on it would throw away correct metadata.
-        if (!IsStillCurrent(envId))
+        // Pinning already guarantees this total came from the pinned environment (or never came at all).
+        // What remains is whether it may still be CACHED and SHOWN: an answer for an environment the user has
+        // since left is not one to store or display. Deliberately ahead of the eviction below — after a
+        // switch the response is a verdict on a request the guard refused, so it says nothing about the entry
+        // cached for the pinned environment, and acting on it would throw away correct metadata.
+        if (!IsStillCurrent(pinned))
         {
             return null;
         }
 
         if (!response.IsSuccess)
         {
-            // Still worth evicting even though the key carries the environment: within ONE environment a
-            // table can be renamed or removed under a cached name, and repeating a dead request for the life
-            // of the app is no better than re-asking once.
+            // Within ONE environment a table can be renamed or removed under a cached name, and repeating a
+            // dead request for the life of the app is no better than re-asking once.
             _logicalNames.Remove(cacheKey);
             return null;
         }
@@ -174,22 +207,39 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         return DualWriteMapParser.ParseTotalRecordCount(response.Body, logicalName);
     }
 
-    // True while the active environment is still the one a fetch was started for — the commit gate for every
-    // cache write here, mirroring CoreMetadataService.IsStillCurrent (#170).
-    private bool IsStillCurrent(string? envId) =>
-        string.Equals(_activeEnv()?.Id, envId, StringComparison.Ordinal);
+    // True while the active environment is still the one this operation pinned. With the requests pinned the
+    // DATA is trustworthy either way, so this is purely the commit gate for caching/displaying it — the same
+    // role CoreMetadataService.IsStillCurrent (#170) plays for its catalogue writes.
+    private bool IsStillCurrent(EnvProfile? pinned) =>
+        string.Equals(EnvIdentity(_activeEnv()), EnvIdentity(pinned), StringComparison.Ordinal);
 
-    // The cache key: the environment identity a lookup was answered for, then the entity set. Compared
-    // Ordinal because an environment id is an opaque profile id that must match exactly — the same comparison
-    // DualWriteMapViewModel's env-change guard uses. A differently-cased entity set therefore gets its own
-    // entry, which is equally correct, just not shared.
-    private static string CacheKey(string entitySet, string? envId) => $"{envId}|{entitySet}";
+    /// <summary>
+    /// The identity a cached answer belongs to: profile id AND normalized Dataverse endpoint. Same recipe as
+    /// <c>CatalogService.CacheKey</c> (#151) — lower-invariant, scheme-defaulted, no trailing slash — and for
+    /// the same reason: a profile is editable in place, so the id can survive while the URL is repointed at a
+    /// different organisation, and an id-only key would then answer the new endpoint with the old one's
+    /// metadata. Compared Ordinal, after normalization has removed the differences that don't matter.
+    /// </summary>
+    private static string EnvIdentity(EnvProfile? env)
+    {
+        var url = (env?.DataverseUrl ?? string.Empty).Trim().ToLowerInvariant();
+        if (url.Length > 0 && !url.StartsWith("http", StringComparison.Ordinal))
+        {
+            url = "https://" + url;
+        }
+
+        return $"{env?.Id}|{url.TrimEnd('/')}";
+    }
+
+    // The cache key: the environment identity a lookup was answered for, then the entity set. Derived from
+    // the SAME captured instance the requests are addressed to, so the key and the endpoint cannot disagree.
+    private static string CacheKey(EnvProfile? env, string entitySet) => $"{EnvIdentity(env)}|{entitySet}";
 
     // The logical name behind an entity-set name, cached per environment (see _logicalNames). A lookup that
     // resolves nothing is NOT cached: it may be an entity set this environment doesn't have, and a negative
     // answer is the one most likely to be wrong for the next environment.
     private async Task<string?> ResolveLogicalNameAsync(
-        string cacheKey, string entitySet, string? envId, CancellationToken ct)
+        EnvProfile? pinned, string apiBase, string cacheKey, string entitySet, CancellationToken ct)
     {
         if (_logicalNames.TryGetValue(cacheKey, out var cached))
         {
@@ -197,7 +247,7 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         }
 
         var response = await _dataverse
-            .GetAsync(DualWriteMapParser.EntityLogicalNamePath(entitySet), ct).ConfigureAwait(false);
+            .GetAsync($"{apiBase}/{DualWriteMapParser.EntityLogicalNamePath(entitySet)}", ct).ConfigureAwait(false);
         if (!response.IsSuccess)
         {
             return null;
@@ -209,11 +259,9 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
             return null;
         }
 
-        // Whichever environment was active DURING that GET is the one that answered it. Caching its answer
-        // under the captured key would poison that key with another environment's metadata — and a poisoned
-        // entry outlives the switch, still answering when the user comes back. Discard instead; the caller
-        // then leaves the leg on its capped count.
-        if (!IsStillCurrent(envId))
+        // The name came from the pinned endpoint by construction; this only withholds the cache write when
+        // the user has since moved on, so an entry can't be created for an environment nobody is looking at.
+        if (!IsStillCurrent(pinned))
         {
             return null;
         }

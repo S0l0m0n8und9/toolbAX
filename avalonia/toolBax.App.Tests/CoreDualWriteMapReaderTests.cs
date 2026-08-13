@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FoToolbox.Core.Net;
 using ToolBax.App.Services;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
@@ -194,13 +195,13 @@ public class CoreDualWriteMapReaderTests
     """;
 
     private static int EntityDefinitionRequests(IEnumerable<string> requested) =>
-        requested.Count(r => r.StartsWith("EntityDefinitions?", StringComparison.Ordinal));
+        requested.Count(r => r.Contains("/EntityDefinitions?", StringComparison.Ordinal));
 
     [Fact]
     public async Task GetCeRowCount_upgrades_a_capped_unfiltered_count_to_the_snapshot_total()
     {
         var dv = new FakeDataverseClient(Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal));
-        var reader = new CoreDualWriteMapReader(dv);
+        var reader = new CoreDualWriteMapReader(dv, Env1);
 
         var result = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
 
@@ -211,7 +212,7 @@ public class CoreDualWriteMapReaderTests
         Assert.Equal(3, dv.Requested.Count);
         Assert.Contains("$select=LogicalName", dv.Requested[1]);
         Assert.Contains("EntitySetName eq 'accounts'", Uri.UnescapeDataString(dv.Requested[1]));
-        Assert.Equal("RetrieveTotalRecordCount(EntityNames=@p1)?@p1=[\"account\"]",
+        Assert.Equal(Env1Api + "RetrieveTotalRecordCount(EntityNames=@p1)?@p1=[\"account\"]",
             Uri.UnescapeDataString(dv.Requested[2]));
     }
 
@@ -254,7 +255,7 @@ public class CoreDualWriteMapReaderTests
         // count it asked for, exactly as before #210.
         var dv = new FakeDataverseClient(
             Ok(CappedCount), new ODataResponse(403, "Forbidden", "no metadata read", 1));
-        var reader = new CoreDualWriteMapReader(dv);
+        var reader = new CoreDualWriteMapReader(dv, Env1);
 
         var result = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
 
@@ -271,7 +272,7 @@ public class CoreDualWriteMapReaderTests
     {
         var dv = new FakeDataverseClient(
             Ok(CappedCount), Ok(AccountLogicalName), new ODataResponse(500, "Server Error", "boom", 1));
-        var reader = new CoreDualWriteMapReader(dv);
+        var reader = new CoreDualWriteMapReader(dv, Env1);
 
         var result = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
 
@@ -288,7 +289,7 @@ public class CoreDualWriteMapReaderTests
         var dv = new FakeDataverseClient(Ok(CappedCount), Ok(AccountLogicalName), Ok("""
             { "EntityRecordCountCollection": { "Count": 0, "IsReadOnly": false, "Keys": [], "Values": [] } }
             """));
-        var reader = new CoreDualWriteMapReader(dv);
+        var reader = new CoreDualWriteMapReader(dv, Env1);
 
         var result = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
 
@@ -305,7 +306,7 @@ public class CoreDualWriteMapReaderTests
         // and betting on one shape must not cost the upgrade — so both are read.
         var dv = new FakeDataverseClient(Ok(CappedCount), Ok(AccountLogicalName),
             Ok("""{ "EntityRecordCountCollection": { "account": 42317 } }"""));
-        var reader = new CoreDualWriteMapReader(dv);
+        var reader = new CoreDualWriteMapReader(dv, Env1);
 
         var result = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
 
@@ -321,7 +322,7 @@ public class CoreDualWriteMapReaderTests
         var dv = new FakeDataverseClient(
             Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal),
             Ok(CappedCount), Ok(SnapshotTotal));
-        var reader = new CoreDualWriteMapReader(dv);
+        var reader = new CoreDualWriteMapReader(dv, Env1);
 
         await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
         var second = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
@@ -332,8 +333,14 @@ public class CoreDualWriteMapReaderTests
         Assert.Equal(1, EntityDefinitionRequests(dv.Requested));
     }
 
-    private static EnvProfile CountEnv(string id, string name) =>
-        new(id, name, $"https://{name}.operations.dynamics.com", "tenant", "AUMF", "Tier 2", EnvStatus.Connected);
+    private static EnvProfile CountEnv(string id, string name, string? dataverseUrl = null) =>
+        new(id, name, $"https://{name}.operations.dynamics.com", "tenant", "AUMF", "Tier 2", EnvStatus.Connected,
+            DataverseUrl: dataverseUrl ?? $"https://{name}.crm.dynamics.com");
+
+    // The #210 snapshot upgrade addresses the PINNED environment's endpoint, so these tests need one.
+    private static EnvProfile? Env1() => CountEnv("env1", "contoso");
+
+    private const string Env1Api = "https://contoso.crm.dynamics.com/api/data/v9.2/";
 
     // Mutable active-environment source: the shell switching environments under the app-lifetime reader.
     private sealed class EnvSwitch
@@ -425,7 +432,9 @@ public class CoreDualWriteMapReaderTests
         public async Task<ODataResponse> GetAsync(string pathOrUrl, CancellationToken ct = default)
         {
             Requested.Add(pathOrUrl);
-            if (!_parked && pathOrUrl.StartsWith(_parkOnPrefix, StringComparison.Ordinal))
+            // Matched anywhere in the url, not just at the start: the snapshot lookups are absolute, rooted
+            // at the pinned environment's api base (#210).
+            if (!_parked && pathOrUrl.Contains(_parkOnPrefix, StringComparison.Ordinal))
             {
                 _parked = true;
                 Entered.TrySetResult();
@@ -538,6 +547,159 @@ public class CoreDualWriteMapReaderTests
         Assert.Equal(1, EntityDefinitionRequests(dv.Requested));   // cached exactly as before
     }
 
+    // ── #210: the operation is PINNED to one environment instance, not re-checked by id ────────────────
+
+    [Fact]
+    public async Task The_snapshot_lookups_are_addressed_to_the_pinned_environments_endpoint()
+    {
+        // The pinning contract this class owns: both lookups go out as ABSOLUTE urls rooted at the captured
+        // environment's Dataverse endpoint. That is what lets CoreDataverseClient's origin guard adjudicate
+        // them against whichever environment is active when they are actually issued.
+        var dv = new FakeDataverseClient(Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal));
+        var reader = new CoreDualWriteMapReader(dv, Env1);
+
+        await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.StartsWith(Env1Api + "accounts?", dv.Requested[0]);
+        Assert.StartsWith(Env1Api + "EntityDefinitions?", dv.Requested[1]);
+        Assert.StartsWith(Env1Api + "RetrieveTotalRecordCount", dv.Requested[2]);
+    }
+
+    // As GatedDataverseClient, but ALSO enforcing CoreDataverseClient's origin rule via the production
+    // RequestOriginGuard: an absolute request is refused unless it matches the ACTIVE environment's Dataverse
+    // origin, and the check runs when the request is issued (before the parked round-trip), exactly as the
+    // real client orders it. Without this the reader's pinning would be unobservable at this seam — the
+    // refusal is the client's behaviour, so the double reproduces that one rule and nothing else.
+    private sealed class OriginGuardingDataverseClient : IDataverseClient
+    {
+        private readonly Queue<ODataResponse> _responses;
+        private readonly Func<EnvProfile?> _activeEnv;
+        private readonly string _parkOn;
+        private bool _parked;
+
+        public List<string> Requested { get; } = new();
+        public TaskCompletionSource Entered { get; } = new();
+        public TaskCompletionSource Gate { get; } = new();
+
+        public OriginGuardingDataverseClient(Func<EnvProfile?> activeEnv, string parkOn, params ODataResponse[] responses)
+        {
+            _activeEnv = activeEnv;
+            _parkOn = parkOn;
+            _responses = new Queue<ODataResponse>(responses);
+        }
+
+        public async Task<ODataResponse> GetAsync(string pathOrUrl, CancellationToken ct = default)
+        {
+            Requested.Add(pathOrUrl);
+
+            if (pathOrUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) &&
+                !RequestOriginGuard.IsSameOrigin(_activeEnv()?.DataverseUrl, new Uri(pathOrUrl)))
+            {
+                return new ODataResponse(0, "Refused",
+                    "The paging link points to a different origin than the Dataverse environment.", 1);
+            }
+
+            if (!_parked && pathOrUrl.Contains(_parkOn, StringComparison.Ordinal))
+            {
+                _parked = true;
+                Entered.TrySetResult();
+                await Gate.Task;
+            }
+
+            return _responses.Dequeue();
+        }
+    }
+
+    [Fact]
+    public async Task An_A_to_B_to_A_switch_around_the_lookup_neither_upgrades_nor_caches()
+    {
+        // The ABA hole an id re-check cannot see: with the switch back in place by the time the operation
+        // ends, "is the active id still what I captured?" answers YES — while the lookup went out under
+        // env2. Pinning settles it earlier and elsewhere: the request carries env1's origin, env2 is active
+        // when it is issued, and the origin guard refuses it. Nothing is upgraded and nothing is cached.
+        var env = new EnvSwitch();
+        var dv = new OriginGuardingDataverseClient(env.Get, "accounts?",
+            Ok(CappedCount),                                       // run 1's count (env1 still active)
+            Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal));  // run 2, back on env1
+        var reader = new CoreDualWriteMapReader(dv, env.Get);
+
+        var counting = reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+        await dv.Entered.Task;                        // parked in the count GET; env1 is what got pinned
+        env.Current = CountEnv("env2", "fabrikam");   // A → B, so the lookup is issued under env2 …
+        dv.Gate.SetResult();
+        var duringAba = await counting;
+        env.Current = CountEnv("env1", "contoso");    // … B → A, which an id re-check would find unchanged
+
+        Assert.True(duringAba.IsSuccess);
+        Assert.Equal(5000, duringAba.Count);
+        Assert.True(duringAba.Capped);
+        Assert.False(duringAba.Snapshot);   // no total from an environment this count didn't come from
+
+        // And nothing was cached for env1: counting there again has to resolve from scratch.
+        var afterwards = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.True(afterwards.Snapshot);
+        Assert.Equal(42_317, afterwards.Count);
+        Assert.Equal(2, EntityDefinitionRequests(dv.Requested));  // the refused one, then a real one
+    }
+
+    [Fact]
+    public async Task A_profile_repointed_at_another_organisation_does_not_reuse_the_old_endpoints_name()
+    {
+        // Why the key carries the endpoint as well as the id — the same reason CatalogService.CacheKey (#151)
+        // does. A profile is editable in place: the id survives while the Dataverse URL moves to a different
+        // organisation, and an id-only key would answer the new endpoint with the old one's metadata.
+        var env = new EnvSwitch();
+        var dv = new FakeDataverseClient(
+            Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal),
+            Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal));
+        var reader = new CoreDualWriteMapReader(dv, env.Get);
+
+        await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+        env.Current = CountEnv("env1", "contoso", dataverseUrl: "https://contoso-uat.crm.dynamics.com");
+        var afterEdit = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.True(afterEdit.Snapshot);
+        Assert.Equal(2, EntityDefinitionRequests(dv.Requested));          // resolved afresh for the new org
+        Assert.StartsWith("https://contoso-uat.crm.dynamics.com/", dv.Requested[4]);  // and addressed there
+    }
+
+    [Fact]
+    public async Task A_cosmetic_url_difference_is_still_the_same_endpoint()
+    {
+        // The key normalizes like CatalogService.CacheKey — lower-invariant, scheme-defaulted, no trailing
+        // slash — so casing or a trailing slash is not mistaken for a different organisation and does not
+        // silently double the lookups.
+        var env = new EnvSwitch();
+        var dv = new FakeDataverseClient(
+            Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal),
+            Ok(CappedCount), Ok(SnapshotTotal));
+        var reader = new CoreDualWriteMapReader(dv, env.Get);
+
+        await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+        env.Current = CountEnv("env1", "contoso", dataverseUrl: "HTTPS://Contoso.crm.dynamics.com/");
+        var second = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.True(second.Snapshot);
+        Assert.Equal(1, EntityDefinitionRequests(dv.Requested));
+    }
+
+    [Fact]
+    public async Task A_leg_counted_without_a_dataverse_url_keeps_todays_relative_request_and_error()
+    {
+        // Nothing to pin to. The count still goes out exactly as it does today — a relative path, so the
+        // client answers with its own "No Dataverse URL" diagnosis — and the upgrade is simply not attempted.
+        var dv = new FakeDataverseClient(Ok(CappedCount));
+        var reader = new CoreDualWriteMapReader(dv, () => CountEnv("env1", "contoso", dataverseUrl: ""));
+
+        var result = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
+
+        Assert.StartsWith("accounts?", dv.Requested[0]);   // relative, never a fabricated absolute url
+        Assert.True(result.Capped);
+        Assert.False(result.Snapshot);
+        Assert.Single(dv.Requested);
+    }
+
     [Fact]
     public async Task A_cached_logical_name_the_function_rejects_is_re_resolved_next_time()
     {
@@ -547,7 +709,7 @@ public class CoreDualWriteMapReaderTests
         var dv = new FakeDataverseClient(
             Ok(CappedCount), Ok(AccountLogicalName), new ODataResponse(404, "Not Found", "no such entity", 1),
             Ok(CappedCount), Ok(AccountLogicalName), Ok(SnapshotTotal));
-        var reader = new CoreDualWriteMapReader(dv);
+        var reader = new CoreDualWriteMapReader(dv, Env1);
 
         var first = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
         var second = await reader.GetCeRowCountAsync("accounts", null, TestContext.Current.CancellationToken);
