@@ -248,6 +248,18 @@ public static class SessionTraceLog
         writer.WriteLine($"toolbAX session log · started {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}");
         writer.WriteLine($"version {version}");
         writer.WriteLine($"runtime {RuntimeInformation.FrameworkDescription} · {RuntimeInformation.OSDescription} ({RuntimeInformation.OSArchitecture})");
+
+        // Which composition backend this run asked for, and whether TOOLBAX_COMPOSITION picked it (#212) — the
+        // hang that motivated the change was invisible from inside the app, so the log has to say which
+        // backend the session was pointed at before anyone can tell whether the mitigation was even in force.
+        // Requested, not negotiated: Avalonia walks the list at startup and exposes no "and this is the one I
+        // got", so this line says what was asked for, not what the machine could provide. Windows-only because
+        // Win32PlatformOptions is inert everywhere else and a composition line would be pure noise there.
+        if (OperatingSystem.IsWindows())
+        {
+            writer.WriteLine($"composition {CompositionPreference.Current.Describe()} · requested, not negotiated");
+        }
+
         writer.WriteLine(new string('-', 72));
         writer.Flush();
     }

@@ -73,6 +73,19 @@ public class SessionTraceLogTests : IDisposable
             Assert.Contains(version, header);
             Assert.Contains(".NET", header);   // runtime line
 
+            // The composition backend this run asked Avalonia for (#212). The hang that motivated the change
+            // was invisible from inside the app, so a bug report needs the header to say which backend the
+            // session was pointed at. Windows-only: Win32PlatformOptions is inert everywhere else, and a
+            // composition line in a Linux CI log would claim something that was never in force.
+            if (OperatingSystem.IsWindows())
+            {
+                Assert.Contains($"composition {CompositionPreference.Current.Describe()}", header);
+            }
+            else
+            {
+                Assert.DoesNotContain("composition ", header);
+            }
+
             // Identity-free by design: whoever reads this file learns the build, not the user.
             Assert.DoesNotContain(Environment.UserName, header, StringComparison.OrdinalIgnoreCase);
             Assert.DoesNotContain(Environment.MachineName, header, StringComparison.OrdinalIgnoreCase);
