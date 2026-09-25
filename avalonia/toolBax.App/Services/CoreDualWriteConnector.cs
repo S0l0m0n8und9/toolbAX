@@ -68,7 +68,7 @@ public sealed class CoreDualWriteConnector : IDualWriteConnector
 
             // Stamped with the environment this connection was made for, so a later active-environment
             // switch can be detected by the Operations screen instead of acting on the wrong environment.
-            var session = new DualWriteSession(gateway, linkage.Cid, linkage.Cname, env.Id, result.GatewayBaseUrl);
+            var session = new DualWriteSession(gateway, linkage.Cid, linkage.Cname, env, result.GatewayBaseUrl);
             handedOff = true;
             return session;
         }

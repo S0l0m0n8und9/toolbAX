@@ -23,6 +23,7 @@ public class PostBuilderViewModelTests
     private sealed class CountingMetadata : IMetadataService
     {
         private readonly FakeMetadataService _inner = new();
+        public void Invalidate() => _inner.Invalidate();
         public int GetFieldsCalls { get; private set; }
         public IReadOnlyList<EntitySet> GetEntities() => _inner.GetEntities();
         public IReadOnlyList<EntityField>? GetFields(string entityName)
@@ -40,6 +41,8 @@ public class PostBuilderViewModelTests
     // FakeMetadataService can express neither — its entities and CustomersV3 fields are always there.
     private sealed class DeferredMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly EntityField[] Schema =
         {
             new("Id", "String", false, IsKey: true, Length: 10),
@@ -83,11 +86,35 @@ public class PostBuilderViewModelTests
         }
     }
 
+    private sealed class CancellationIgnoringCatalogueMetadata : IMetadataService
+    {
+        private readonly bool _fail;
+        private IReadOnlyList<EntitySet> _entities =
+            new[] { new EntitySet("Before", "M", 1, "Id", false, "odata") };
+        public CancellationIgnoringCatalogueMetadata(bool fail = false) => _fail = fail;
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public void Invalidate() { }
+        public IReadOnlyList<EntitySet> GetEntities() => _entities;
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => null;
+        public async Task LoadEntitiesAsync(CancellationToken ct = default)
+        {
+            Entered.TrySetResult();
+            await Release.Task; // intentionally ignores cancellation to model a late provider completion
+            if (_fail) throw new InvalidOperationException("late catalogue failure");
+            _entities = new[] { new EntitySet("After", "M", 1, "Id", false, "odata") };
+        }
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) =>
+            Task.FromResult(false);
+    }
+
     // Metadata carrying a date-only field, to prove an Edm.Date column reaches the payload builder's
     // date-only branch instead of being widened to a timestamp. FakeMetadataService has no Date field and
     // is app (not test) code, so the shape lives here.
     private sealed class DateFieldMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly IReadOnlyList<EntitySet> Sets =
             new[] { new EntitySet("WorkerV2", "HR", 2, "PersonnelNumber", false, "hr") };
 
@@ -111,6 +138,8 @@ public class PostBuilderViewModelTests
     // thing under test.
     private sealed class NumericKeyMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly IReadOnlyList<EntitySet> Sets =
             new[] { new EntitySet("Counters", "SYS", 2, "Id", false, "system") };
 
@@ -625,6 +654,8 @@ public class PostBuilderViewModelTests
     // An entity whose metadata declares NO key fields at all (some F&O services expose these unkeyed).
     private sealed class KeylessMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly IReadOnlyList<EntitySet> Sets =
             new[] { new EntitySet("LogEntries", "SYS", 1, string.Empty, false, "system") };
 
@@ -763,6 +794,8 @@ public class PostBuilderViewModelTests
     // real service's failure mode is), the way Initialize would encounter it.
     private sealed class FailingCatalogueMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         public IReadOnlyList<EntitySet> GetEntities() => Array.Empty<EntitySet>();
         public IReadOnlyList<EntityField>? GetFields(string entityName) => null;
         public Task LoadEntitiesAsync(CancellationToken ct = default) =>
@@ -775,6 +808,8 @@ public class PostBuilderViewModelTests
     // than Initialize's catalogue load.
     private sealed class FailingFieldMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly IReadOnlyList<EntitySet> Sets =
             new[] { new EntitySet("Widgets", "SYS", 1, "Id", false, "system") };
 
@@ -839,6 +874,8 @@ public class PostBuilderViewModelTests
     // selection can't be trusted to inherit anything from _loader.LastError.
     private sealed class MixedFieldMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly IReadOnlyList<EntitySet> Sets =
             new[]
             {
@@ -887,6 +924,8 @@ public class PostBuilderViewModelTests
     // is still in flight.
     private sealed class GatedFieldMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         public readonly TaskCompletionSource Gate = new();
 
         private static readonly IReadOnlyList<EntitySet> Sets =
@@ -937,6 +976,49 @@ public class PostBuilderViewModelTests
         await aFetch!;
 
         Assert.Null(vm.LoadError); // A's late failure must not overwrite B's (healthy) state
+    }
+
+    [Fact]
+    public async Task Catalogue_completion_after_same_id_identity_change_is_discarded()
+    {
+        var active = new EnvProfile("env", "Env", "https://first.operations.dynamics.com", "tenant", "USMF",
+            "Tier 1", EnvStatus.Connected);
+        var metadata = new CancellationIgnoringCatalogueMetadata();
+        var vm = new PostBuilderViewModel(new FakeODataClient(), metadata: metadata, activeEnv: () => active);
+        vm.LoadError = "current environment state";
+
+        var initialize = vm.InitializeCommand.ExecuteAsync(null);
+        await metadata.Entered.Task;
+        active = active with { Url = "https://second.operations.dynamics.com" };
+        metadata.Release.TrySetResult();
+        await initialize;
+
+        Assert.Equal(new[] { "Before" }, vm.Entities.Select(e => e.Name));
+        Assert.Equal("current environment state", vm.LoadError);
+    }
+
+    [Fact]
+    public async Task Disposed_field_failure_cannot_rewrite_payload_or_error()
+    {
+        var active = new EnvProfile("env", "Env", "https://first.operations.dynamics.com", "tenant", "USMF",
+            "Tier 1", EnvStatus.Connected);
+        var metadata = new GatedFieldMetadata();
+        var vm = new PostBuilderViewModel(new FakeODataClient(), metadata: metadata, activeEnv: () => active)
+        {
+            Method = "PATCH",
+        };
+        vm.UseFieldGrid = true;
+        var fetch = vm.EnsureFieldsCommand.ExecutionTask;
+        Assert.NotNull(fetch);
+        vm.LoadError = "preserve me";
+        vm.RequestBody = "{\"preserve\":true}";
+
+        vm.Dispose();
+        metadata.Gate.TrySetResult();
+        await fetch!;
+
+        Assert.Equal("preserve me", vm.LoadError);
+        Assert.Equal("{\"preserve\":true}", vm.RequestBody);
     }
 
     [Fact]
@@ -1099,6 +1181,43 @@ public class PostBuilderViewModelTests
         }
     }
 
+    private sealed class CallbackDialogs : IDialogService
+    {
+        private readonly Action _duringConfirmation;
+        public CallbackDialogs(Action duringConfirmation) => _duringConfirmation = duringConfirmation;
+        public Task<bool> ConfirmAsync(ConfirmRequest request)
+        {
+            _duringConfirmation();
+            return Task.FromResult(true);
+        }
+    }
+
+    private sealed class GatedConfirmationDialogs : IDialogService
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _answer = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Entered => _entered.Task;
+        public void Release(bool answer) => _answer.TrySetResult(answer);
+        public Task<bool> ConfirmAsync(ConfirmRequest request)
+        {
+            _entered.TrySetResult();
+            return _answer.Task;
+        }
+    }
+
+    private sealed class RequestSnapshotClient : IODataClient
+    {
+        public (string Method, string Path, string? Body, IReadOnlyDictionary<string, string>? Headers)? Last { get; private set; }
+        public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default) =>
+            SendAsync(method, path, body, null, ct);
+        public Task<ODataResponse> SendAsync(string method, string path, string? body,
+            IReadOnlyDictionary<string, string>? headers, CancellationToken ct = default)
+        {
+            Last = (method, path, body, headers);
+            return Task.FromResult(new ODataResponse(204, "No Content", string.Empty, 1));
+        }
+    }
+
     [Fact]
     public async Task Send_is_blocked_when_the_confirm_dialog_is_declined()
     {
@@ -1123,6 +1242,60 @@ public class PostBuilderViewModelTests
         await vm.SendCommand.ExecuteAsync(null);
 
         Assert.Equal("/data/E(1)", recorder.LastPath);
+    }
+
+    [Fact]
+    public async Task Send_uses_the_exact_request_snapshot_that_was_confirmed()
+    {
+        var client = new RequestSnapshotClient();
+        PostBuilderViewModel? vm = null;
+        var dialogs = new CallbackDialogs(() =>
+        {
+            vm!.Method = "DELETE";
+            vm.Path = "/data/Changed(2)";
+            vm.RequestBody = "{\"changed\":true}";
+            vm.IfMatch = "changed-etag";
+        });
+        vm = new PostBuilderViewModel(client, dialogs: dialogs)
+        {
+            Method = "PATCH",
+            Path = "/data/Original(1)",
+            RequestBody = "{\"original\":true}",
+            UseIfMatch = true,
+            IfMatch = "original-etag",
+        };
+
+        await vm.SendCommand.ExecuteAsync(null);
+
+        var sent = Assert.IsType<(string Method, string Path, string? Body,
+            IReadOnlyDictionary<string, string>? Headers)>(client.Last);
+        Assert.Equal("PATCH", sent.Method);
+        Assert.Equal("/data/Original(1)", sent.Path);
+        Assert.Equal("{\"original\":true}", sent.Body);
+        Assert.Equal("original-etag", sent.Headers!["If-Match"]);
+    }
+
+    [Fact]
+    public async Task Identity_change_during_confirmation_prevents_dispatch()
+    {
+        var active = new EnvProfile("env", "Env", "https://first.operations.dynamics.com", "tenant", "USMF",
+            "Tier 1", EnvStatus.Connected);
+        var client = new RequestSnapshotClient();
+        var dialogs = new GatedConfirmationDialogs();
+        var vm = new PostBuilderViewModel(client, dialogs: dialogs, activeEnv: () => active)
+        {
+            Method = "POST",
+            Path = "/data/CustomersV3",
+        };
+
+        var send = vm.SendCommand.ExecuteAsync(null);
+        await dialogs.Entered;
+        active = active with { Url = "https://second.operations.dynamics.com" };
+        dialogs.Release(true);
+        await send;
+
+        Assert.Null(client.Last);
+        Assert.Contains("environment changed", vm.StatusText, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -1393,6 +1566,17 @@ public class PostBuilderViewModelTests
         public Task SetTextAsync(string text) => throw new InvalidOperationException("clipboard is busy");
     }
 
+    private sealed class CancellationIgnoringClipboard : IClipboardService
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public async Task SetTextAsync(string text)
+        {
+            Entered.TrySetResult();
+            await Release.Task;
+        }
+    }
+
     [Fact]
     public async Task Copy_url_survives_a_failing_clipboard()
     {
@@ -1413,6 +1597,21 @@ public class PostBuilderViewModelTests
 
         Assert.Contains("clipboard", vm.StatusText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("clipboard is busy", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task Disposed_clipboard_completion_cannot_publish_status()
+    {
+        var clipboard = new CancellationIgnoringClipboard();
+        var vm = new PostBuilderViewModel(new FakeODataClient(), clipboard) { StatusText = "preserve me" };
+
+        var copy = vm.CopyUrlCommand.ExecuteAsync(null);
+        await clipboard.Entered.Task;
+        vm.Dispose();
+        clipboard.Release.TrySetResult();
+        await copy;
+
+        Assert.Equal("preserve me", vm.StatusText);
     }
 
     // --- A cancelled send is reported as cancelled, not a failure (issue #168) ---
@@ -1463,6 +1662,23 @@ public class PostBuilderViewModelTests
         Assert.Equal("Send cancelled.", vm.StatusText); // not "Request failed."
         Assert.False(vm.SendSucceeded);
         Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task Disposed_send_cancellation_does_not_publish_a_late_outcome()
+    {
+        var client = new GatedSendClient();
+        var vm = new PostBuilderViewModel(client) { Method = "POST" };
+
+        var send = vm.SendCommand.ExecuteAsync(null);
+        Assert.Equal("Sending…", vm.StatusText);
+        vm.Dispose();
+        client.Gate.TrySetResult();
+        await send;
+
+        Assert.Equal("Sending…", vm.StatusText);
+        Assert.False(vm.IsBusy);
+        Assert.False(vm.MutationInProgress);
     }
 
     [Fact]

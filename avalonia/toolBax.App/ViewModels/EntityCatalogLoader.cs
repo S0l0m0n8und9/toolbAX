@@ -14,12 +14,14 @@ namespace ToolBax.App.ViewModels;
 /// fields on demand. Load failures (token acquisition, unreachable endpoint, SQLite I/O) are captured
 /// into <see cref="LastError"/> so the VM can surface them instead of the fetch failing silently.
 /// </summary>
-public sealed class EntityCatalogLoader
+public sealed class EntityCatalogLoader : IDisposable
 {
     private readonly IMetadataService _metadata;
     // Cancels an in-flight field fetch when the user selects a different entity, so a rapid selection
     // change doesn't leave a redundant request running.
     private CancellationTokenSource? _fieldFetch;
+    private readonly CancellationTokenSource _lifetime = new();
+    private bool _disposed;
 
     public EntityCatalogLoader(IMetadataService metadata) => _metadata = metadata;
 
@@ -32,9 +34,12 @@ public sealed class EntityCatalogLoader
     /// </summary>
     public async Task<IReadOnlyList<EntitySet>?> LoadEntitiesAsync(IReadOnlyList<string> currentNames, CancellationToken ct)
     {
+        if (_disposed) return null;
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
         try
         {
-            await _metadata.LoadEntitiesAsync(ct).ConfigureAwait(true);
+            await _metadata.LoadEntitiesAsync(linked.Token).ConfigureAwait(true);
+            if (_disposed) return null;
             LastError = null;
             var loaded = _metadata.GetEntities();
             return loaded.Count > 0 && !currentNames.SequenceEqual(loaded.Select(e => e.Name))
@@ -47,6 +52,7 @@ public sealed class EntityCatalogLoader
         }
         catch (Exception ex)
         {
+            if (_disposed) return null;
             LastError = ex.Message;
             return null;
         }
@@ -58,17 +64,19 @@ public sealed class EntityCatalogLoader
     /// </summary>
     public async Task<bool> EnsureFieldsAsync(string entityName, CancellationToken ct)
     {
+        if (_disposed) return false;
         if (_metadata.GetFields(entityName) is not null)
         {
             return false;
         }
 
         _fieldFetch?.Cancel();
-        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
         _fieldFetch = cts;
         try
         {
             await _metadata.LoadFieldsAsync(entityName, cts.Token).ConfigureAwait(true);
+            if (_disposed) return false;
             LastError = null;
             return true;
         }
@@ -78,6 +86,7 @@ public sealed class EntityCatalogLoader
         }
         catch (Exception ex)
         {
+            if (_disposed) return false;
             LastError = ex.Message;
             return false;
         }
@@ -93,5 +102,14 @@ public sealed class EntityCatalogLoader
 
             cts.Dispose();
         }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        _lifetime.Cancel();
+        _fieldFetch?.Cancel();
+        _lifetime.Dispose();
     }
 }

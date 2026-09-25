@@ -67,9 +67,9 @@ public sealed class CoreProfileStore : IProfileStore
         get => _activeId;
         set
         {
-            _activeId = value;
             // Persist the cleared state too: an empty default-env id reads back as "none active".
             RunBlocking(() => _profiles.SetDefaultEnvironmentAsync(value ?? string.Empty));
+            _activeId = value;
         }
     }
 

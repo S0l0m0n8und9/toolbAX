@@ -55,6 +55,41 @@ public class DualWriteOpsTests
         }
     }
 
+    private sealed class GatedDialogs : IDialogService
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _answer = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Entered => _entered.Task;
+        public void Release(bool answer) => _answer.TrySetResult(answer);
+        public Task<bool> ConfirmAsync(ConfirmRequest request)
+        {
+            _entered.TrySetResult();
+            return _answer.Task;
+        }
+    }
+
+    private sealed class ThrowOnceDialogs : IDialogService
+    {
+        private int _calls;
+        public Task<bool> ConfirmAsync(ConfirmRequest request) =>
+            Interlocked.Increment(ref _calls) == 1
+                ? Task.FromException<bool>(new InvalidOperationException("dialog failed"))
+                : Task.FromResult(true);
+    }
+
+    private sealed class CountingConnector : IDualWriteConnector
+    {
+        private readonly FakeDualWriteConnector _inner = new();
+        public int Calls { get; private set; }
+        public FakeCoreDualWriteGateway? LastGateway => _inner.LastGateway;
+
+        public Task<DualWriteSession> ConnectAsync(EnvProfile env, CancellationToken ct = default)
+        {
+            Calls++;
+            return _inner.ConnectAsync(env, ct);
+        }
+    }
+
     // --- read-path ---
 
     [Fact]
@@ -237,6 +272,125 @@ public class DualWriteOpsTests
 
         Assert.Contains("completed", vm.Status, StringComparison.OrdinalIgnoreCase);
         Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task Mutation_flag_covers_the_confirmation_phase()
+    {
+        var connector = new FakeDualWriteConnector();
+        var dialogs = new GatedDialogs();
+        var vm = new DualWriteOpsViewModel(connector, Env, dialogs,
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5));
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.First().IsSelected = true;
+
+        var action = vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+        await dialogs.Entered;
+        Assert.True(vm.MutationInProgress);
+
+        dialogs.Release(false);
+        await action;
+
+        Assert.False(vm.MutationInProgress);
+        Assert.Equal(0, connector.LastGateway!.StartCount);
+    }
+
+    [Fact]
+    public async Task Held_lifecycle_confirmation_refuses_debug_and_reconnect_without_releasing_the_owner()
+    {
+        var connector = new CountingConnector();
+        var dialogs = new GatedDialogs();
+        var metadata = new CountingMetadata("DualWriteProjectConfigurations");
+        var odata = new ScriptedODataClient(DebugRecord);
+        var vm = new DualWriteOpsViewModel(connector, Env, dialogs,
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5),
+            odata: odata, metadata: metadata);
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.First().IsSelected = true;
+
+        var lifecycle = vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+        await dialogs.Entered;
+
+        await vm.EnableDebugForSelectedCommand.ExecuteAsync(null);
+        await vm.DisableDebugForSelectedCommand.ExecuteAsync(null);
+        await vm.LoadCommand.ExecuteAsync(null);
+        var stillOwned = vm.MutationInProgress;
+        var stillBusy = vm.IsBusy;
+        var metadataCalls = metadata.Calls;
+        var httpCalls = odata.Calls.Count;
+        var connectorCalls = connector.Calls;
+
+        dialogs.Release(false);
+        await lifecycle;
+
+        Assert.True(stillOwned);
+        Assert.True(stillBusy);
+        Assert.Equal(0, metadataCalls);
+        Assert.Equal(0, httpCalls);
+        Assert.Equal(1, connectorCalls);
+        Assert.False(vm.MutationInProgress);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task Held_debug_toggle_refuses_lifecycle_without_opening_confirmation_or_releasing_the_owner()
+    {
+        var connector = new FakeDualWriteConnector();
+        var dialogs = new FakeDialogs(confirm: true);
+        var odata = new GatedODataClient(DebugRecord);
+        var vm = new DualWriteOpsViewModel(connector, Env, dialogs,
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5),
+            odata: odata, metadata: new FixedMetadata("DualWriteProjectConfigurations"));
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.First().IsSelected = true;
+
+        var debug = vm.EnableDebugForSelectedCommand.ExecuteAsync(null);
+        await odata.Entered;
+
+        await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+        var stillOwned = vm.MutationInProgress;
+        var stillBusy = vm.IsBusy;
+
+        odata.Release();
+        await debug;
+
+        Assert.Equal(0, dialogs.Calls);
+        Assert.Equal(0, connector.LastGateway!.StartCount);
+        Assert.True(stillOwned);
+        Assert.True(stillBusy);
+        Assert.False(vm.MutationInProgress);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task Declined_or_failed_lifecycle_confirmation_releases_the_gate_for_a_later_debug_toggle()
+    {
+        foreach (var dialogs in new IDialogService[] { new FakeDialogs(confirm: false), new ThrowOnceDialogs() })
+        {
+            var connector = new FakeDualWriteConnector();
+            var odata = new ScriptedODataClient(DebugRecord);
+            var vm = new DualWriteOpsViewModel(connector, Env, dialogs,
+                pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5),
+                odata: odata, metadata: new FixedMetadata("DualWriteProjectConfigurations"));
+            await vm.LoadCommand.ExecuteAsync(null);
+            vm.Maps.First().IsSelected = true;
+
+            try
+            {
+                await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+            }
+            catch (InvalidOperationException ex) when (ex.Message == "dialog failed")
+            {
+                // The command propagates dialog failure; the lease still has to be released in finally.
+            }
+
+            Assert.True(vm.EnableDebugForSelectedCommand.CanExecute(null));
+            await vm.EnableDebugForSelectedCommand.ExecuteAsync(null);
+
+            Assert.Contains(odata.Calls, c => c.Method == "PATCH");
+            Assert.False(vm.MutationInProgress);
+            Assert.False(vm.IsBusy);
+        }
     }
 
     // --- #168: the gateway's per-map action eligibility (detail.actions) ---
@@ -493,6 +647,26 @@ public class DualWriteOpsTests
     }
 
     [Fact]
+    public async Task An_action_is_refused_after_the_same_profile_id_is_repointed()
+    {
+        var connector = new FakeDualWriteConnector();
+        var dialogs = new FakeDialogs(confirm: true);
+        var env = new EnvSwitch();
+        var vm = new DualWriteOpsViewModel(connector, env.Get, dialogs,
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5));
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+
+        env.Current = env.Current! with { Url = "https://replacement.operations.dynamics.com" };
+
+        Assert.False(vm.RunActionCommand.CanExecute(vm.StopAction));
+        await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+        Assert.Equal(0, connector.LastGateway!.StartCount);
+        Assert.Equal(0, dialogs.Calls);
+        Assert.Contains("reconnect", vm.Status, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task An_action_still_runs_while_the_active_environment_is_unchanged()
     {
         var connector = new FakeDualWriteConnector();
@@ -561,6 +735,8 @@ public class DualWriteOpsTests
 
     private sealed class FixedMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private readonly IReadOnlyList<EntitySet> _entities;
         public FixedMetadata(params string[] names) =>
             _entities = names.Select(n => new EntitySet(n, "DualWrite", 5, "Id", false, string.Empty)).ToList();
@@ -927,5 +1103,143 @@ public class DualWriteOpsTests
 
         // Exactly one "Connecting…" line — the prior attempt's entries were cleared, not appended to.
         Assert.Equal(1, vm2.GatewayLog.Count(e => e.Text.StartsWith("Connecting")));
+    }
+
+    private sealed class CountingMetadata : IMetadataService
+    {
+        private readonly IReadOnlyList<EntitySet> _entities;
+        public int Calls { get; private set; }
+        public CountingMetadata(params string[] names) =>
+            _entities = names.Select(n => new EntitySet(n, "DualWrite", 5, "Id", false, string.Empty)).ToList();
+        public void Invalidate() { }
+        public IReadOnlyList<EntitySet> GetEntities()
+        {
+            Calls++;
+            return _entities;
+        }
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default)
+        {
+            Calls++;
+            return Task.CompletedTask;
+        }
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) => Task.FromResult(false);
+    }
+
+    private sealed class GatedODataClient : IODataClient
+    {
+        private readonly string _body;
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Entered => _entered.Task;
+        public int Calls { get; private set; }
+        public GatedODataClient(string body) => _body = body;
+        public void Release() => _release.TrySetResult();
+        public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default) =>
+            SendAsync(method, path, body, null, ct);
+        public async Task<ODataResponse> SendAsync(string method, string path, string? body,
+            IReadOnlyDictionary<string, string>? headers, CancellationToken ct = default)
+        {
+            Calls++;
+            _entered.TrySetResult();
+            await _release.Task.WaitAsync(ct);
+            return method == "GET"
+                ? new ODataResponse(200, "OK", _body, 1)
+                : new ODataResponse(204, "No Content", string.Empty, 1);
+        }
+    }
+
+    [Fact]
+    public async Task Debug_toggle_is_refused_after_same_id_auth_edit()
+    {
+        const string record = "{\"value\":[{\"@odata.id\":\"https://contoso.operations.dynamics.com/data/DualWriteProjectConfigurations(1)\",\"IsDebugMode\":\"No\"}]}";
+        var odata = new ScriptedODataClient(record);
+        var env = new EnvSwitch();
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), env.Get, new FakeDialogs(false),
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5),
+            odata: odata, metadata: new FixedMetadata("DualWriteProjectConfigurations"));
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.First().IsSelected = true;
+
+        env.Current = env.Current! with { ClientId = "replacement-client", AuthMode = FoAuthMode.ClientSecret };
+        await vm.EnableDebugForSelectedCommand.ExecuteAsync(null);
+
+        Assert.Empty(odata.Calls);
+        Assert.Contains("reconnect", vm.DebugStatus, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task A_session_returned_after_dispose_is_disposed_and_never_assigned()
+    {
+        var connector = new GatedDisposableConnector();
+        var vm = MakeVm(connector);
+
+        var load = vm.LoadCommand.ExecuteAsync(null);
+        await connector.Entered;
+        vm.Dispose();
+        connector.Release(Env());
+        await load;
+
+        Assert.True(connector.Gateway.Disposed);
+        Assert.False(vm.IsConnected);
+        Assert.Empty(vm.Maps);
+    }
+
+    [Fact]
+    public async Task Disposed_operations_refuses_a_new_connect()
+    {
+        var connector = new FakeDualWriteConnector();
+        var vm = MakeVm(connector);
+        vm.Dispose();
+
+        await vm.LoadCommand.ExecuteAsync(null);
+
+        Assert.Null(connector.LastGateway);
+        Assert.False(vm.IsConnected);
+    }
+
+    private sealed class GatedDisposableConnector : IDualWriteConnector
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<DualWriteSession> _session =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Entered => _entered.Task;
+        public DisposableGateway Gateway { get; } = new();
+
+        public Task<DualWriteSession> ConnectAsync(EnvProfile env, CancellationToken ct = default)
+        {
+            _entered.TrySetResult();
+            return _session.Task;
+        }
+
+        public void Release(EnvProfile env) => _session.TrySetResult(
+            new DualWriteSession(Gateway, "cid", "Connection", env, "https://gateway.example"));
+    }
+
+    private sealed class DisposableGateway : IDualWriteGateway, IDisposable
+    {
+        private readonly FakeCoreDualWriteGateway _inner = new(FakeDualWriteConnector.SeedMaps());
+        public bool Disposed { get; private set; }
+        public void Dispose() => Disposed = true;
+        public Task<DualWriteEnvironment> GetEnvironmentAsync(string foIdentifier, CancellationToken cancellationToken = default) =>
+            _inner.GetEnvironmentAsync(foIdentifier, cancellationToken);
+        public Task<IReadOnlyList<DualWriteMap>> GetMapsAsync(string cid, CancellationToken cancellationToken = default) =>
+            _inner.GetMapsAsync(cid, cancellationToken);
+        public Task<DualWriteActionResponse> StartActionAsync(DualWriteActionType action, IReadOnlyList<DualWriteMap> maps, string cid, CancellationToken cancellationToken = default) =>
+            _inner.StartActionAsync(action, maps, cid, cancellationToken);
+        public Task<DualWriteRequestStatus> GetStatusAsync(string requestId, CancellationToken cancellationToken = default) =>
+            _inner.GetStatusAsync(requestId, cancellationToken);
+        public Task<DualWriteActionResponse> SwitchActiveTemplateAsync(string cid, string projectId, string templateId, CancellationToken cancellationToken = default) =>
+            _inner.SwitchActiveTemplateAsync(cid, projectId, templateId, cancellationToken);
+        public Task<IReadOnlyList<DualWriteFieldMapping>> GetFieldMappingsAsync(string projectId, CancellationToken cancellationToken = default) =>
+            _inner.GetFieldMappingsAsync(projectId, cancellationToken);
+        public Task RefreshTablesAsync(string fieldMappingName, CancellationToken cancellationToken = default) =>
+            _inner.RefreshTablesAsync(fieldMappingName, cancellationToken);
+        public Task<DualWriteConnectionSet> GetConnectionSetAsync(string cname, CancellationToken cancellationToken = default) =>
+            _inner.GetConnectionSetAsync(cname, cancellationToken);
+        public Task ResetLinksAsync(string cid, DualWriteConnectionSet connectionSet, IReadOnlyList<string> legalEntities, bool forceReset, CancellationToken cancellationToken = default) =>
+            _inner.ResetLinksAsync(cid, connectionSet, legalEntities, forceReset, cancellationToken);
+        public Task ApplyIntegrationKeysAsync(string datasetName, string ceEntityName, IReadOnlyList<string> keyFields, CancellationToken cancellationToken = default) =>
+            _inner.ApplyIntegrationKeysAsync(datasetName, ceEntityName, keyFields, cancellationToken);
     }
 }

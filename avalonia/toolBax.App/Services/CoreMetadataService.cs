@@ -37,7 +37,8 @@ public sealed class CoreMetadataService : IMetadataService
     // The environment the caches above belong to. This service is an app-lifetime singleton, so without
     // that dimension a profile switch keeps serving the previous environment's entities/fields forever
     // (callers treat a cache hit as "already loaded" and never refetch).
-    private string? _cacheEnvId;
+    private EnvironmentIdentity? _cacheIdentity;
+    private long _generation;
     private readonly object _envSync = new();
 
     public CoreMetadataService(ICatalogService catalog, Func<EnvProfile?> activeEnv)
@@ -70,28 +71,57 @@ public sealed class CoreMetadataService : IMetadataService
         return _enums.TryGetValue(enumType, out var members) ? members : null;
     }
 
-    // Empties every cache when the active environment changes, so the next read misses and the next load
-    // refetches. Cheap enough to sit on the synchronous getters: it compares one string per call.
+    /// <summary>Clears every environment-scoped value and invalidates all in-flight cache commits.</summary>
+    public void Invalidate()
+    {
+        var identity = EnvironmentIdentity.TryCreate(_activeEnv());
+        lock (_envSync)
+        {
+            ClearCachesLocked(identity);
+        }
+    }
+
+    // Empties every cache when the complete active identity changes, so the next read misses and the next
+    // load refetches. Cheap enough to sit on the synchronous getters.
     private void ResetIfEnvChanged()
     {
-        var envId = _activeEnv()?.Id;
-        if (string.Equals(envId, _cacheEnvId, StringComparison.Ordinal))
+        var identity = EnvironmentIdentity.TryCreate(_activeEnv());
+        if (Equals(identity, _cacheIdentity))
         {
             return;
         }
 
         lock (_envSync)
         {
-            if (string.Equals(envId, _cacheEnvId, StringComparison.Ordinal))
+            if (Equals(identity, _cacheIdentity))
             {
                 return;
             }
 
-            _fields.Clear();
-            _navigations.Clear();
-            _entities = Array.Empty<EntitySet>();
-            _enums = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
-            _cacheEnvId = envId;
+            ClearCachesLocked(identity);
+        }
+    }
+
+    private void ClearCachesLocked(EnvironmentIdentity? identity)
+    {
+        _fields.Clear();
+        _navigations.Clear();
+        _entities = Array.Empty<EntitySet>();
+        _enums = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+        _cacheIdentity = identity;
+        _generation++;
+    }
+
+    private long PrepareLoad(EnvironmentIdentity identity)
+    {
+        lock (_envSync)
+        {
+            if (!Equals(identity, _cacheIdentity))
+            {
+                ClearCachesLocked(identity);
+            }
+
+            return _generation;
         }
     }
 
@@ -99,15 +129,15 @@ public sealed class CoreMetadataService : IMetadataService
 
     public async Task LoadEntitiesAsync(bool forceRefresh, CancellationToken ct = default)
     {
-        ResetIfEnvChanged();
-        // The cache generation this fetch belongs to. ResetIfEnvChanged has just stamped _cacheEnvId with
-        // it, and the commit below only lands if it is still current — see IsStillCurrent.
-        var envId = _activeEnv()?.Id;
-        var env = ResolveEnv();
-        if (env is null)
+        var profile = _activeEnv();
+        if (profile is null)
         {
             return;
         }
+
+        var identity = EnvironmentIdentity.Create(profile);
+        var generation = PrepareLoad(identity);
+        var env = ResolveEnv(profile, identity);
 
         var index = await _catalog.GetODataEntityIndexAsync(env, RefreshMode(forceRefresh), ct).ConfigureAwait(false);
         var entities = index.Entities
@@ -125,7 +155,7 @@ public sealed class CoreMetadataService : IMetadataService
 
         lock (_envSync)
         {
-            if (!IsStillCurrent(envId))
+            if (!IsStillCurrent(identity, generation))
             {
                 return;
             }
@@ -143,14 +173,15 @@ public sealed class CoreMetadataService : IMetadataService
 
     public async Task<bool> LoadFieldsAsync(string entityName, bool forceRefresh, CancellationToken ct = default)
     {
-        ResetIfEnvChanged();
-        // See LoadEntitiesAsync: the generation this fetch is for, checked again before committing.
-        var envId = _activeEnv()?.Id;
-        var env = ResolveEnv();
-        if (env is null)
+        var profile = _activeEnv();
+        if (profile is null)
         {
             return false;
         }
+
+        var identity = EnvironmentIdentity.Create(profile);
+        var generation = PrepareLoad(identity);
+        var env = ResolveEnv(profile, identity);
 
         var entity = await _catalog.GetODataEntityDetailsAsync(env, entityName, RefreshMode(forceRefresh), ct).ConfigureAwait(false);
         if (entity is null)
@@ -168,7 +199,7 @@ public sealed class CoreMetadataService : IMetadataService
 
         lock (_envSync)
         {
-            if (!IsStillCurrent(envId))
+            if (!IsStillCurrent(identity, generation))
             {
                 // Report "not loaded" for the now-active environment; callers treat false as a miss and
                 // reload, which then fetches against the environment that is actually current.
@@ -188,24 +219,20 @@ public sealed class CoreMetadataService : IMetadataService
     // results are only ever committed to the cache generation they were fetched for; otherwise they are
     // discarded, never relabelled as the new environment's metadata. Callers hold _envSync — the same lock
     // ResetIfEnvChanged clears under — so the check and the commit can't be split by a switch.
-    private bool IsStillCurrent(string? envId) => string.Equals(envId, _cacheEnvId, StringComparison.Ordinal);
+    private bool IsStillCurrent(EnvironmentIdentity identity, long generation) =>
+        generation == _generation && Equals(identity, _cacheIdentity) && identity.IsCurrent(_activeEnv());
 
     // A forced refresh bypasses both the max-age check and the stored copy, so the Metadata Browser's
     // Refresh really goes back to the environment.
     private static CatalogRefreshMode RefreshMode(bool forceRefresh) =>
         forceRefresh ? CatalogRefreshMode.ForceRefresh : CatalogRefreshMode.UseCacheIfFresh;
 
-    private FoEnvironment? ResolveEnv()
-    {
-        var env = _activeEnv();
-        if (env is null)
+    private static FoEnvironment ResolveEnv(EnvProfile env, EnvironmentIdentity identity) =>
+        new(env.Id, env.Name, env.Url, env.Tenant,
+            string.IsNullOrWhiteSpace(env.Legal) ? null : env.Legal)
         {
-            return null;
-        }
-
-        return new FoEnvironment(env.Id, env.Name, env.Url, env.Tenant,
-            string.IsNullOrWhiteSpace(env.Legal) ? null : env.Legal);
-    }
+            MetadataCachePartition = identity.ToMetadataCachePartition(),
+        };
 
     // ODataProperty carries the raw EDM type ("Edm.String") or a fully-qualified enum/complex type
     // ("Microsoft.Dynamics.DataEntities.NoYes"); collapse it to the short form the UI's TypeDisplay

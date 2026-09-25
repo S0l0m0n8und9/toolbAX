@@ -35,6 +35,115 @@ public class CatalogServiceTests
         Assert.Equal(1, handler.Calls);
     }
 
+    [Fact]
+    public async Task Same_id_and_url_with_changed_tenant_does_not_reuse_persistent_metadata_after_restart()
+    {
+        var firstXml = await System.IO.File.ReadAllTextAsync(System.IO.Path.Combine("Resources", "SampleMetadata.xml"));
+        var secondXml = firstXml.Replace("CustomersV3", "SecondTenantCustomersV3", StringComparison.Ordinal)
+            .Replace("CustomerV3", "SecondTenantCustomerV3", StringComparison.Ordinal);
+        var handler = new ScriptedMetadataHandler((firstXml, "same-etag"), (secondXml, "same-etag"));
+        var profileDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db");
+        var catalogDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db");
+        var profileStore = new ProfileStore(profileDb);
+        await profileStore.EnsureCreatedAsync();
+        var envA = new FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com", "tenant-a", "USMF")
+        {
+            MetadataCachePartition = "tenant-a-context",
+        };
+        var envB = envA with { TenantId = "tenant-b", MetadataCachePartition = "tenant-b-context" };
+
+        var first = new CatalogService(new HttpClient(handler), profileStore, new CatalogStore(catalogDb),
+            new CatalogServiceOptions(TimeSpan.FromDays(1), TimeSpan.FromDays(1)));
+        var firstIndex = await first.GetODataEntityIndexAsync(envA, CatalogRefreshMode.UseCacheIfFresh);
+
+        var restarted = new CatalogService(new HttpClient(handler), profileStore, new CatalogStore(catalogDb),
+            new CatalogServiceOptions(TimeSpan.FromDays(1), TimeSpan.FromDays(1)));
+        var secondIndex = await restarted.GetODataEntityIndexAsync(envB, CatalogRefreshMode.UseCacheIfFresh);
+
+        Assert.Contains(firstIndex.Entities, entity => entity.Name == "CustomersV3");
+        Assert.Contains(secondIndex.Entities, entity => entity.Name == "SecondTenantCustomersV3");
+        Assert.Equal(2, handler.MetadataCalls);
+    }
+
+    [Fact]
+    public async Task Metadata_partition_isolates_full_index_details_and_warmed_XML_with_identical_etags()
+    {
+        var firstXml = await System.IO.File.ReadAllTextAsync(System.IO.Path.Combine("Resources", "SampleMetadata.xml"));
+        var secondXml = firstXml.Replace("AccountNumber", "SecondAccount", StringComparison.Ordinal);
+        var handler = new ScriptedMetadataHandler((firstXml, "same-etag"), (secondXml, "same-etag"));
+        var profiles = new ProfileStore(System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db"));
+        var db = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db");
+        var env = new FoEnvironment("exact-profile", "Env", "https://contoso.operations.dynamics.com", "tenant", "USMF");
+        var options = new CatalogServiceOptions(TimeSpan.FromDays(1), TimeSpan.FromDays(1));
+        var first = new CatalogService(new HttpClient(handler), profiles, new CatalogStore(db), options);
+        // Seed unpartitioned rows too: a partitioned caller must never fall back to them.
+        _ = await first.GetODataMetadataAsync(env, CatalogRefreshMode.UseCacheIfFresh);
+        _ = await first.GetODataEntityIndexAsync(env, CatalogRefreshMode.UseCacheIfFresh);
+        _ = await first.GetODataEntityDetailsAsync(env, "CustomersV3", CatalogRefreshMode.UseCacheIfFresh);
+        var partitioned = env with { MetadataCachePartition = "context-b" };
+
+        var full = await first.GetODataMetadataAsync(partitioned, CatalogRefreshMode.UseCacheIfFresh);
+        var index = await first.GetODataEntityIndexAsync(partitioned, CatalogRefreshMode.UseCacheIfFresh);
+        var details = await first.GetODataEntityDetailsAsync(partitioned, "CustomersV3", CatalogRefreshMode.UseCacheIfFresh);
+        Assert.Contains(full.Entities.Single(e => e.Name == "CustomersV3").Properties, p => p.Name == "SecondAccount");
+        Assert.Contains(index.Entities, e => e.Name == "CustomersV3");
+        Assert.Contains(details!.Properties, p => p.Name == "SecondAccount");
+        Assert.Equal(2, handler.MetadataCalls);
+
+        var restarted = new CatalogService(new HttpClient(handler), profiles, new CatalogStore(db), options);
+        var again = await restarted.GetODataMetadataAsync(partitioned, CatalogRefreshMode.UseCacheIfFresh);
+        _ = await restarted.GetODataEntityIndexAsync(partitioned, CatalogRefreshMode.UseCacheIfFresh);
+        var againDetails = await restarted.GetODataEntityDetailsAsync(partitioned, "CustomersV3", CatalogRefreshMode.UseCacheIfFresh);
+        Assert.Contains(again.Entities.Single(e => e.Name == "CustomersV3").Properties, p => p.Name == "SecondAccount");
+        Assert.Contains(againDetails!.Properties, p => p.Name == "SecondAccount");
+        Assert.Equal(2, handler.MetadataCalls);
+
+        var json = System.Text.Json.JsonSerializer.Serialize(partitioned);
+        Assert.DoesNotContain("MetadataCachePartition", json);
+        Assert.Equal("exact-profile", partitioned.Id);
+    }
+
+    [Fact]
+    public async Task Metadata_partition_tags_all_request_sites_without_rewriting_profile_or_URI()
+    {
+        var xml = await System.IO.File.ReadAllTextAsync(System.IO.Path.Combine("Resources", "SampleMetadata.xml"));
+        var handler = new PartitionRecordingHandler(xml);
+        var profiles = new ProfileStore(System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db"));
+        var store = new CatalogStore(System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db"));
+        var env = new FoEnvironment("exact-profile", "Env", "https://contoso.operations.dynamics.com", "tenant", "USMF")
+        {
+            MetadataCachePartition = "captured-context",
+        };
+        var service = new CatalogService(new HttpClient(handler), profiles, store);
+        _ = await service.GetODataEntityDetailsAsync(env, "CustomersV3", CatalogRefreshMode.UseCacheIfFresh);
+
+        Assert.Equal("exact-profile", env.Id);
+        Assert.Contains(handler.Requests, r => r.Path == "/data/$metadata");
+        Assert.Contains(handler.Requests, r => r.Path == "/metadata/PublicEntities");
+        Assert.Contains(handler.Requests, r => r.Path == "/data/DataManagementTargetMapEntities");
+        Assert.All(handler.Requests, r => Assert.Equal("captured-context", r.Partition));
+        Assert.All(handler.Requests, r => Assert.Equal("contoso.operations.dynamics.com", r.Host));
+
+        // The discriminator is irrelevant to imported user data; both scopes see the same table import.
+        await service.ImportTableCatalogAsync(env, TableCatalogJson("UserTable", "UserImport"));
+        var tables = await service.GetTablesAsync(env with { MetadataCachePartition = "another-context" }, CatalogRefreshMode.ForceRefresh);
+        Assert.Contains(tables.Tables, t => t.Name == "UserTable");
+    }
+
+    private sealed class PartitionRecordingHandler(string xml) : HttpMessageHandler
+    {
+        public List<(string Path, string Host, string? Partition)> Requests { get; } = new();
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            request.Options.TryGetValue(CatalogRequestContext.MetadataCachePartition, out var partition);
+            Requests.Add((request.RequestUri!.AbsolutePath, request.RequestUri.Host, partition));
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(request.RequestUri.AbsolutePath.EndsWith("$metadata", StringComparison.Ordinal) ? xml : "{}"),
+            });
+        }
+    }
+
     [Theory]
     [InlineData("contoso.operations.dynamics.com")]
     [InlineData("https://contoso.operations.dynamics.com/")]

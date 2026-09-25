@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using ToolBax.App.Services;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 
@@ -15,10 +16,13 @@ namespace ToolBax.App.ViewModels;
 /// Metadata Browser (control-map §6): entity-set master list + the selected entity's property table.
 /// When an entity's fields aren't cached, shows a "fetch via Query Builder" hint instead.
 /// </summary>
-public partial class MetadataViewModel : ObservableObject
+public partial class MetadataViewModel : ObservableObject, IDisposable
 {
     private readonly IMetadataService _metadata;
     private readonly EntityCatalogLoader _loader;
+    private readonly Func<EnvProfile?>? _activeEnvironment;
+    private bool _disposed;
+    private int _lifecycleGeneration;
 
     // Identifies the newest field fetch, so only it may lower IsLoadingFields. Interlocked/Volatile because
     // a superseded fetch can unwind on a pool thread while the newest one is being started.
@@ -66,10 +70,11 @@ public partial class MetadataViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
     private bool _isBusy;
 
-    public MetadataViewModel(IMetadataService metadata)
+    public MetadataViewModel(IMetadataService metadata, Func<EnvProfile?>? activeEnvironment = null)
     {
         _metadata = metadata;
         _loader = new EntityCatalogLoader(metadata);
+        _activeEnvironment = activeEnvironment;
         // The fake seeds its catalogue synchronously, so this populates immediately; the real service
         // starts empty and fills in via InitializeAsync (triggered by the view on load).
         Entities = new ObservableCollection<EntitySet>(metadata.GetEntities());
@@ -77,12 +82,58 @@ public partial class MetadataViewModel : ObservableObject
         LoadFields();
     }
 
+    private bool TryCaptureLifecycle(out EnvironmentIdentity? identity, out int generation)
+    {
+        generation = _lifecycleGeneration;
+        identity = null;
+        if (_disposed)
+        {
+            return false;
+        }
+
+        if (_activeEnvironment is null)
+        {
+            return true;
+        }
+
+        var profile = _activeEnvironment();
+        if (profile is null)
+        {
+            return false;
+        }
+
+        identity = EnvironmentIdentity.Create(profile);
+        return true;
+    }
+
+    private bool IsLifecycleCurrent(EnvironmentIdentity? identity, int generation) =>
+        !_disposed
+        && generation == _lifecycleGeneration
+        && (_activeEnvironment is null || identity is not null && identity.IsCurrent(_activeEnvironment()));
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        Interlocked.Increment(ref _lifecycleGeneration);
+        InitializeCommand.Cancel();
+        RefreshCommand.Cancel();
+        LoadSelectedFieldsCommand.Cancel();
+        _loader.Dispose();
+    }
+
     // Fetches the entity list (and the selected entity's fields) from the active environment's live
     // $metadata. The view calls this on load; with the fake it's a no-op over already-seeded data.
-    [RelayCommand]
+    [RelayCommand(IncludeCancelCommand = true)]
     private async Task Initialize(CancellationToken ct)
     {
+        if (!TryCaptureLifecycle(out var identity, out var lifecycleGeneration)) return;
         var loaded = await _loader.LoadEntitiesAsync(Entities.Select(e => e.Name).ToList(), ct);
+        if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
         LoadError = _loader.LastError;
         if (loaded is not null)
         {
@@ -104,13 +155,15 @@ public partial class MetadataViewModel : ObservableObject
     // bypassing the cached copies. The escape hatch for metadata that changed since it was cached (a
     // deployed entity, or a profile repointed at another environment) — Initialize alone would keep
     // serving the cache.
-    [RelayCommand(CanExecute = nameof(CanRefresh))]
+    [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanRefresh))]
     private async Task Refresh(CancellationToken ct)
     {
+        if (!TryCaptureLifecycle(out var identity, out var lifecycleGeneration)) return;
         IsBusy = true;
         try
         {
             await _metadata.LoadEntitiesAsync(forceRefresh: true, ct);
+            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             LoadError = null;
 
             // Rebuilt unconditionally: an empty result is a legitimate answer (an environment with no
@@ -132,6 +185,7 @@ public partial class MetadataViewModel : ObservableObject
             if (Selected is { } entity)
             {
                 await _metadata.LoadFieldsAsync(entity.Name, forceRefresh: true, ct);
+                if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
                 if (Selected == entity)
                 {
                     LoadFields();
@@ -140,26 +194,32 @@ public partial class MetadataViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
+            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             // A cancelled refresh leaves the previously loaded list and fields in place.
         }
         catch (Exception ex)
         {
+            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             LoadError = ex.Message;
         }
         finally
         {
-            IsBusy = false;
+            if (IsLifecycleCurrent(identity, lifecycleGeneration))
+            {
+                IsBusy = false;
+            }
         }
     }
 
-    private bool CanRefresh() => !IsBusy;
+    private bool CanRefresh() => !_disposed && !IsBusy && (_activeEnvironment is null || _activeEnvironment() is not null);
 
     // Fetches the selected entity's fields if they aren't cached yet, then refreshes the grid.
-    [RelayCommand]
+    [RelayCommand(IncludeCancelCommand = true)]
     private Task LoadSelectedFields(CancellationToken ct) => LoadSelectedFieldsAsync(ct);
 
     private async Task LoadSelectedFieldsAsync(CancellationToken ct)
     {
+        if (!TryCaptureLifecycle(out var identity, out var lifecycleGeneration)) return;
         var entity = Selected;
         if (entity is null)
         {
@@ -174,6 +234,7 @@ public partial class MetadataViewModel : ObservableObject
         try
         {
             var fetched = await _loader.EnsureFieldsAsync(entity.Name, ct);
+            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             LoadError = _loader.LastError;
             if (fetched && Selected == entity)
             {
@@ -191,7 +252,8 @@ public partial class MetadataViewModel : ObservableObject
             // when the environment comes back with no entities — would otherwise leave nobody willing to
             // lower the flag, and the pane would spin forever. Nothing newer claimed the indicator, so this
             // fetch still owns it and still clears it.
-            if (Volatile.Read(ref _fieldsFetchSequence) == fetchId)
+            if (IsLifecycleCurrent(identity, lifecycleGeneration)
+                && Volatile.Read(ref _fieldsFetchSequence) == fetchId)
             {
                 IsLoadingFields = false;
             }
@@ -223,6 +285,10 @@ public partial class MetadataViewModel : ObservableObject
 
     partial void OnSelectedChanged(EntitySet? value)
     {
+        if (_disposed)
+        {
+            return;
+        }
         LoadFields();                              // show what's cached immediately
         LoadSelectedFieldsCommand.Execute(null);   // then fetch from $metadata if not cached yet
     }

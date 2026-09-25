@@ -21,21 +21,24 @@ namespace ToolBax.App.ViewModels;
 /// No mutations — acting on a map is the Operations screen's job. Maps load on first view (Initialize)
 /// and reload on filter change / Refresh. A load/auth failure surfaces in <see cref="LoadError"/>.
 /// </summary>
-public partial class DualWriteMapViewModel : ObservableObject
+public partial class DualWriteMapViewModel : ObservableObject, IDisposable
 {
     private readonly IDualWriteMapReader _reader;
     private readonly IFileSaveService _fileSave;
     private readonly IODataClient _odata;
     private readonly IMetadataService _metadata;
     private readonly Func<EnvProfile?> _activeEnv;
+    private readonly bool _environmentBound;
     private readonly IClipboardService _clipboard;
     private readonly IUrlLauncher _launcher;
     private IReadOnlyList<string> _foEntityNames = Array.Empty<string>();
-    // The environment the currently-displayed maps were loaded from. The shell can switch the active
-    // environment under this cached VM (the "Refresh open tools?" prompt is declinable), and the count
-    // clients resolve the ACTIVE environment at call time — so counting after a switch would fill
-    // environment A's maps with environment B's numbers. Re-stamped by each successful load.
-    private string? _loadedEnvId;
+    // The immutable profile/identity the displayed maps were loaded from. Counts resolve the active
+    // environment at call time, so every count is refused once that complete identity diverges. Re-stamped
+    // by each successful load and retained for correctly attributed links.
+    private EnvProfile? _loadedProfile;
+    private EnvironmentIdentity? _loadedIdentity;
+    private int _generation;
+    private bool _disposed;
     private bool _loaded;
     private bool _suppressReload;          // guards the initial selection setup from triggering reloads
     private int _activeLoads;              // overlapping reloads in flight; the last to finish clears IsLoading
@@ -108,6 +111,7 @@ public partial class DualWriteMapViewModel : ObservableObject
         _fileSave = fileSave ?? new FakeFileSaveService();
         _odata = odata ?? new FakeODataClient();
         _metadata = metadata ?? new FakeMetadataService();
+        _environmentBound = activeEnv is not null;
         _activeEnv = activeEnv ?? (() => null);
         _clipboard = clipboard ?? new FakeClipboardService();
         _launcher = launcher ?? new FakeUrlLauncher();
@@ -143,7 +147,7 @@ public partial class DualWriteMapViewModel : ObservableObject
     [RelayCommand]
     private async Task Initialize(CancellationToken ct)
     {
-        if (_loaded)
+        if (_disposed || _loaded)
         {
             return;
         }
@@ -151,7 +155,9 @@ public partial class DualWriteMapViewModel : ObservableObject
         try
         {
             await LoadSolutionsAsync(ct);
+            if (_disposed) return;
             await LoadFoEntityNamesAsync(ct);
+            if (_disposed) return;
             await LoadMapsAsync(ct);
         }
         catch (OperationCanceledException)
@@ -161,12 +167,17 @@ public partial class DualWriteMapViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            LoadError = $"Couldn't load the dual-write catalogue: {ex.Message}";
+            if (!_disposed)
+            {
+                LoadError = $"Couldn't load the dual-write catalogue: {ex.Message}";
+            }
         }
     }
 
     private async Task LoadFoEntityNamesAsync(CancellationToken ct)
     {
+        if (_disposed) return;
+        var generation = Volatile.Read(ref _generation);
         // Best-effort: the F&O entity catalogue only sharpens the auto-guessed count entity. If it can't
         // be loaded (e.g. no F&O auth while Dataverse works), the Row counts tab still works with the
         // simple fallback guess + manual edit, so a failure here is non-fatal.
@@ -179,18 +190,24 @@ public partial class DualWriteMapViewModel : ObservableObject
             // keep whatever entity names are already cached
         }
 
+        if (_disposed || generation != Volatile.Read(ref _generation)) return;
         _foEntityNames = _metadata.GetEntities().Select(e => e.Name).ToList();
     }
 
     // Reloads the maps for the current solution filter. Triggered by Refresh and by filter changes;
     // concurrent + cancellable so a newer filter selection isn't gated by an in-flight load.
     [RelayCommand(IncludeCancelCommand = true, AllowConcurrentExecutions = true)]
-    private async Task ReloadMaps(CancellationToken ct) => await LoadMapsAsync(ct);
+    private async Task ReloadMaps(CancellationToken ct)
+    {
+        if (_disposed) return;
+        await LoadMapsAsync(ct);
+    }
 
     // Exports the inspected map to a Markdown file (the screen's one "write" — to disk, not Dataverse).
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task ExportMarkdown(CancellationToken ct)
     {
+        if (_disposed) return;
         var map = DetailMap;
         if (map is null)
         {
@@ -201,7 +218,9 @@ public partial class DualWriteMapViewModel : ObservableObject
         var fileName = DualWriteMapMarkdownExporter.SuggestedFileName(map);
         try
         {
+            var generation = Volatile.Read(ref _generation);
             var path = await _fileSave.SaveTextAsync(fileName, markdown, SaveFileType.Markdown, ct);
+            if (_disposed || generation != Volatile.Read(ref _generation)) return;
             ExportStatus = path is null ? "Export cancelled." : $"Exported to {path}";
         }
         catch (OperationCanceledException)
@@ -220,7 +239,7 @@ public partial class DualWriteMapViewModel : ObservableObject
     /// no/invalid map id).
     /// </summary>
     public string? MapRecordUrl =>
-        DualWriteMapLink.BuildMapRecordUrl(_activeEnv()?.DataverseUrl, DetailMap?.Id);
+        DualWriteMapLink.BuildMapRecordUrl(_loadedProfile?.DataverseUrl, DetailMap?.Id);
 
     /// <summary>True when the inspected map has an openable/copyable Dataverse record link.</summary>
     public bool HasMapLink => MapRecordUrl is not null;
@@ -248,6 +267,7 @@ public partial class DualWriteMapViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(HasMapLink))]
     private async Task OpenMapLink()
     {
+        if (_disposed) return;
         try
         {
             await _launcher.OpenAsync(MapRecordUrl);
@@ -262,6 +282,7 @@ public partial class DualWriteMapViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(HasMapLink))]
     private async Task CopyMapLink()
     {
+        if (_disposed) return;
         if (MapRecordUrl is not { } url)
         {
             return;
@@ -280,7 +301,10 @@ public partial class DualWriteMapViewModel : ObservableObject
 
     private async Task LoadSolutionsAsync(CancellationToken ct)
     {
+        if (_disposed) return;
+        var generation = Volatile.Read(ref _generation);
         var result = await _reader.GetSolutionsAsync(ct);
+        if (_disposed || generation != Volatile.Read(ref _generation)) return;
         // A solutions failure shouldn't block the maps; just leave the picker with only "All".
         _allSolutions = result.IsSuccess ? result.Solutions.ToList() : new List<DwSolution>();
 
@@ -294,6 +318,7 @@ public partial class DualWriteMapViewModel : ObservableObject
 
     private async Task LoadMapsAsync(CancellationToken ct)
     {
+        if (_disposed) return;
         var solutionName = CurrentSolutionFilter();
         // Captured BEFORE the call, not read again after it: the reader resolves the active environment
         // internally at call time, so a switch landing mid-load would otherwise stamp environment B onto
@@ -302,12 +327,19 @@ public partial class DualWriteMapViewModel : ObservableObject
         // window is the microseconds between this line and the reader resolving the environment — and it
         // now errs the safe way: a mid-load switch leaves stamp = A while active = B, so counting is
         // blocked until an explicit reload.
-        var envId = _activeEnv()?.Id;
+        var profile = _activeEnv();
+        var identity = EnvironmentIdentity.TryCreate(profile);
+        var generation = Interlocked.Increment(ref _generation);
         _activeLoads++;
         IsLoading = true;
         try
         {
             var result = await _reader.GetMapsAsync(solutionName, ct);
+
+            if (!CanCommit(identity, generation))
+            {
+                return;
+            }
 
             // Drop a stale result if the solution filter moved on while this load was in flight.
             if (CurrentSolutionFilter() != solutionName)
@@ -331,7 +363,8 @@ public partial class DualWriteMapViewModel : ObservableObject
                 // Stamp what these maps belong to — the environment captured before the read, not whatever
                 // is active now (a failed load keeps the previous stamp along with the stale-but-useful
                 // catalogue, so counting stays blocked until a load actually succeeds).
-                _loadedEnvId = envId;
+                _loadedProfile = profile;
+                _loadedIdentity = identity;
                 OnPropertyChanged(nameof(Filtered));
                 OnPropertyChanged(nameof(HasMaps));
 
@@ -353,13 +386,16 @@ public partial class DualWriteMapViewModel : ObservableObject
         {
             // Also the shared body behind ReloadMaps: a reader that throws (rather than returning a failure
             // result) must banner, not fault the command task — that lands on the dispatcher and kills the app.
-            LoadError = $"Couldn't load dual-write maps: {ex.Message}";
+            if (CanCommit(identity, generation))
+            {
+                LoadError = $"Couldn't load dual-write maps: {ex.Message}";
+            }
         }
         finally
         {
             // Only the last overlapping load clears the indicator, so a cancelled/stale load finishing
             // first doesn't switch it off while a newer load is still running.
-            if (--_activeLoads == 0)
+            if (--_activeLoads == 0 && !_disposed)
             {
                 IsLoading = false;
             }
@@ -461,6 +497,11 @@ public partial class DualWriteMapViewModel : ObservableObject
 
     partial void OnDetailMapChanged(DwMapRecord? value)
     {
+        if (value is not null && _loadedProfile is null)
+        {
+            _loadedProfile = _activeEnv();
+            _loadedIdentity = EnvironmentIdentity.TryCreate(_loadedProfile);
+        }
         // A stale "Exported to …" message shouldn't linger once a different map is inspected.
         ExportStatus = string.Empty;
 
@@ -486,13 +527,18 @@ public partial class DualWriteMapViewModel : ObservableObject
 
     // True when the displayed maps came from a different environment than the one now active.
     private bool EnvChangedSinceLoad() =>
-        !string.Equals(_activeEnv()?.Id, _loadedEnvId, StringComparison.Ordinal);
+        _environmentBound && !Equals(_loadedIdentity, EnvironmentIdentity.TryCreate(_activeEnv()));
+
+    private bool CanCommit(EnvironmentIdentity? identity, int generation) =>
+        !_disposed && generation == Volatile.Read(ref _generation) &&
+        (!_environmentBound || Equals(identity, EnvironmentIdentity.TryCreate(_activeEnv())));
 
     // Counts the F&O and Dataverse (CE) rows for each leg (applying the leg's source / reversed-source
     // filters) and compares them. Concurrent-safe via the cancel command.
     [RelayCommand(IncludeCancelCommand = true)]
     private async Task CountAllRows(CancellationToken ct)
     {
+        if (_disposed) return;
         // Checked up front so a run that is already stale never starts, then re-checked before every
         // single request below. Bails before any request so no row is filled with another environment's
         // numbers.
@@ -510,6 +556,7 @@ public partial class DualWriteMapViewModel : ObservableObject
         if (_foEntityNames.Count == 0)
         {
             await LoadFoEntityNamesAsync(ct);
+            if (_disposed) return;
 
             // An await this run's entry guard predates: the shell can switch environments during the
             // catalogue fetch, and those names then describe a different environment than the displayed
@@ -531,6 +578,7 @@ public partial class DualWriteMapViewModel : ObservableObject
         {
             foreach (var row in rows)
             {
+                if (_disposed) return;
                 // Re-checked immediately before EACH count: the environment can move between rows and even
                 // between one row's two legs (they are separate awaits, and _reader / _odata each resolve
                 // the active environment at call time). Tripping stops the run instead of letting the rest
@@ -543,16 +591,20 @@ public partial class DualWriteMapViewModel : ObservableObject
 
                 await CountCeAsync(row, ct);
 
+                if (_disposed) return;
+
                 if (StopCountIfEnvChanged(row, ceStillPending: false))
                 {
                     return;
                 }
 
                 await CountFoAsync(row, ct);
+                if (_disposed) return;
             }
         }
         catch (OperationCanceledException)
         {
+            if (_disposed) return;
             // Clear any "Counting…" placeholders left on rows that hadn't finished.
             foreach (var row in rows)
             {
@@ -587,6 +639,11 @@ public partial class DualWriteMapViewModel : ObservableObject
     // consistent with the loaded environment at the moment they were read.
     private bool StopCountIfEnvChanged(MapLegCountRow row, bool ceStillPending)
     {
+        if (_disposed)
+        {
+            return true;
+        }
+
         if (!EnvChangedSinceLoad())
         {
             return false;
@@ -607,9 +664,11 @@ public partial class DualWriteMapViewModel : ObservableObject
     // active environment at call time and would otherwise count a different environment than is displayed.
     private async Task CountCeAsync(MapLegCountRow row, CancellationToken ct)
     {
+        if (_disposed) return;
         row.CeStatus = "Counting…";
         var filter = string.IsNullOrWhiteSpace(row.CeFilter) ? null : row.CeFilter;
         var result = await _reader.GetCeRowCountAsync(row.DestinationSchema, filter, ct);
+        if (_disposed) return;
         if (result.IsSuccess)
         {
             // Set the cap/snapshot flags first so the count label/verdict never renders an uncapped-looking
@@ -627,6 +686,7 @@ public partial class DualWriteMapViewModel : ObservableObject
 
     private async Task CountFoAsync(MapLegCountRow row, CancellationToken ct)
     {
+        if (_disposed) return;
         if (!DualWriteFoEntityResolver.IsUsableEntityName(row.FoEntity))
         {
             // #204: without an entity the path would be "/data/?…" — the service document, which answers
@@ -676,6 +736,7 @@ public partial class DualWriteMapViewModel : ObservableObject
         }
 
         var response = await _odata.SendAsync("GET", DualWriteMapParser.FoCountPath(row.FoEntity, filter), null, ct);
+        if (_disposed) return;
         if (!response.IsSuccess)
         {
             row.FoStatus = $"{response.StatusCode} {response.ReasonPhrase}";
@@ -702,11 +763,13 @@ public partial class DualWriteMapViewModel : ObservableObject
     // literal against an enum property's qualified type.
     private async Task<IReadOnlyList<EntityField>?> FoFieldsAsync(string entity, CancellationToken ct)
     {
+        if (_disposed) return null;
         if (_metadata.GetFields(entity) is null)
         {
             try
             {
                 await _metadata.LoadFieldsAsync(entity, ct);
+                if (_disposed) return null;
             }
             catch (Exception) when (!ct.IsCancellationRequested)
             {
@@ -714,6 +777,18 @@ public partial class DualWriteMapViewModel : ObservableObject
             }
         }
 
+        if (_disposed) return null;
         return _metadata.GetFields(entity);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Interlocked.Increment(ref _generation);
+        InitializeCommand.Cancel();
+        ReloadMapsCommand.Cancel();
+        CountAllRowsCommand.Cancel();
+        ExportMarkdownCommand.Cancel();
     }
 }

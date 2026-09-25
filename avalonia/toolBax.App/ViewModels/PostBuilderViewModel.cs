@@ -25,13 +25,17 @@ namespace ToolBax.App.ViewModels;
 /// entity's metadata — pick an entity, include/value its fields, and a validated, type-coerced payload
 /// is generated via the shared <see cref="ODataPayloadBuilder"/> (the same engine the WPF plugin uses).
 /// </summary>
-public partial class PostBuilderViewModel : ObservableObject
+public partial class PostBuilderViewModel : ObservableObject, IDisposable
 {
     private readonly IODataClient _client;
     private readonly IClipboardService _clipboard;
     private readonly IMetadataService _metadata;
     private readonly EntityCatalogLoader _loader;
     private readonly IDialogService _dialogs;
+    private readonly Func<EnvProfile?> _activeEnv;
+    private readonly bool _environmentBound;
+    private int _generation;
+    private bool _disposed;
 
     // True only while RefreshEntityFilter is rebuilding FilteredEntities, so the transient selection
     // null a bound ComboBox emits during Clear() doesn't run OnSelectedEntityChanged's side-effects.
@@ -91,6 +95,9 @@ public partial class PostBuilderViewModel : ObservableObject
     [ObservableProperty]
     private bool _isBusy;
 
+    [ObservableProperty]
+    private bool _mutationInProgress;
+
     // Surfaces an entity-catalogue/field load failure regardless of mode. Grid mode already names the
     // load failure as the cause of its own block (see BlockPayload); raw mode had no signal at all for
     // the same Initialize/EnsureFields failure, since the picker (and its issue panel) is hidden there.
@@ -146,13 +153,15 @@ public partial class PostBuilderViewModel : ObservableObject
     public ObservableCollection<PostFieldRow> Fields { get; } = new();
 
     public PostBuilderViewModel(IODataClient client, IClipboardService? clipboard = null,
-        IMetadataService? metadata = null, IDialogService? dialogs = null)
+        IMetadataService? metadata = null, IDialogService? dialogs = null, Func<EnvProfile?>? activeEnv = null)
     {
         _client = client;
         _clipboard = clipboard ?? new FakeClipboardService();
         _metadata = metadata ?? new FakeMetadataService();
         _loader = new EntityCatalogLoader(_metadata);
         _dialogs = dialogs ?? new AutoConfirmDialogs();
+        _environmentBound = activeEnv is not null;
+        _activeEnv = activeEnv ?? (() => null);
         // The fake seeds its catalogue synchronously; the real service starts empty and fills in via
         // Initialize (triggered by the view on load) — so this snapshot is a starting point, not the load.
         Entities = new ObservableCollection<EntitySet>(_metadata.GetEntities());
@@ -168,7 +177,13 @@ public partial class PostBuilderViewModel : ObservableObject
     [RelayCommand]
     private async Task Initialize(CancellationToken ct)
     {
+        if (_disposed) return;
+        var identity = EnvironmentIdentity.TryCreate(_activeEnv());
+        var generation = Volatile.Read(ref _generation);
+        if (_environmentBound && identity is null) return;
+
         var loaded = await _loader.LoadEntitiesAsync(Entities.Select(e => e.Name).ToList(), ct);
+        if (!CanCommit(identity, generation)) return;
         LoadError = _loader.LastError;
         if (loaded is not null)
         {
@@ -189,6 +204,7 @@ public partial class PostBuilderViewModel : ObservableObject
         }
 
         await EnsureFieldsAsync(ct);
+        if (!CanCommit(identity, generation)) return;
         if (UseFieldGrid && SelectedEntity is null)
         {
             // Grid mode with nothing to select (the catalogue is empty, or the load failed): state that
@@ -199,12 +215,17 @@ public partial class PostBuilderViewModel : ObservableObject
 
     // Fetches the selected entity's fields if they aren't cached yet, then rebuilds the grid + payload.
     [RelayCommand]
-    private Task EnsureFields(CancellationToken ct) => EnsureFieldsAsync(ct);
+    private Task EnsureFields(CancellationToken ct) =>
+        _disposed ? Task.CompletedTask : EnsureFieldsAsync(ct);
 
     // Deliberately rebuilds via LoadFields/RebuildPayload rather than ReloadGrid: a fetch that yields no
     // fields must settle on the "hasn't loaded" block, not re-enter the fetch and loop.
     private async Task EnsureFieldsAsync(CancellationToken ct)
     {
+        if (_disposed) return;
+        var identity = EnvironmentIdentity.TryCreate(_activeEnv());
+        var generation = Volatile.Read(ref _generation);
+        if (_environmentBound && identity is null) return;
         var entity = SelectedEntity;
         if (!UseFieldGrid || entity is null || Fields.Count > 0)
         {
@@ -212,7 +233,7 @@ public partial class PostBuilderViewModel : ObservableObject
         }
 
         var fetched = await _loader.EnsureFieldsAsync(entity.Name, ct);
-        if (SelectedEntity != entity)
+        if (!CanCommit(identity, generation) || SelectedEntity != entity)
         {
             // The user moved on; that selection's own load (ReloadGrid/EnsureFieldsAsync) owns the grid
             // AND the LoadError banner now — this fetch's outcome, success or failure, belongs to
@@ -343,6 +364,7 @@ public partial class PostBuilderViewModel : ObservableObject
 
     partial void OnUseFieldGridChanged(bool value)
     {
+        if (_disposed) return;
         if (!value)
         {
             // Back to raw mode: the editor owns the body again, so drop the grid's validation state instead
@@ -370,7 +392,7 @@ public partial class PostBuilderViewModel : ObservableObject
 
     partial void OnSelectedEntityChanged(EntitySet? value)
     {
-        if (_refreshingEntities)
+        if (_disposed || _refreshingEntities)
         {
             return; // a transient null/restore from rebuilding the filtered list — not a real selection change
         }
@@ -390,6 +412,7 @@ public partial class PostBuilderViewModel : ObservableObject
     // weren't cached) so the "hasn't loaded" block clears once they arrive.
     private void ReloadGrid()
     {
+        if (_disposed) return;
         // A fresh selection starts with a clean slate for the load-error banner — whatever this reload
         // finds (a cache hit needing no fetch, or the fetch EnsureFieldsAsync is about to run) owns
         // LoadError from here. Without this, switching away from an entity whose fields failed to load
@@ -633,29 +656,30 @@ public partial class PostBuilderViewModel : ObservableObject
     private bool CanSend() => !(UseFieldGrid && HasPayloadIssues);
 
     // The If-Match header for a PATCH/DELETE when enabled (optimistic concurrency); null otherwise.
-    private IReadOnlyDictionary<string, string>? BuildHeaders() =>
-        UseIfMatch && IsKeyedMethod(Method) && !string.IsNullOrWhiteSpace(IfMatch)
-            ? new Dictionary<string, string> { ["If-Match"] = IfMatch.Trim() }
+    private static IReadOnlyDictionary<string, string>? BuildHeaders(
+        string method, bool useIfMatch, string ifMatch) =>
+        useIfMatch && IsKeyedMethod(method) && !string.IsNullOrWhiteSpace(ifMatch)
+            ? new Dictionary<string, string> { ["If-Match"] = ifMatch.Trim() }
             : null;
 
     // IncludeCancelCommand: surfaces SendCancelCommand and lets the generated AsyncRelayCommand carry
     // the token's lifecycle, so an in-flight send can be cancelled on navigate-away/shutdown.
     // Confirm-on-mutation: every send is a live write, so gate it behind a confirm dialog (PATCH/DELETE
     // are styled destructive, with a caveat). Mirrors the Operations screen's confirm-on-mutation rule.
-    private Task<bool> ConfirmSendAsync()
+    private Task<bool> ConfirmSendAsync(string method, string path)
     {
-        var danger = IsKeyedMethod(Method);
-        var caveat = string.Equals(Method, "DELETE", StringComparison.OrdinalIgnoreCase)
+        var danger = IsKeyedMethod(method);
+        var caveat = string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase)
             ? "Delete is permanent — the targeted record will be removed."
-            : string.Equals(Method, "PATCH", StringComparison.OrdinalIgnoreCase)
+            : string.Equals(method, "PATCH", StringComparison.OrdinalIgnoreCase)
                 ? "Patch overwrites the targeted record's fields."
                 : null;
 
         return _dialogs.ConfirmAsync(new ConfirmRequest(
-            Title: $"Send {Method}?",
-            Message: $"Sends a live {Method} request to the selected environment.",
-            Targets: new[] { EffectivePath() },
-            ConfirmLabel: $"Send {Method}",
+            Title: $"Send {method}?",
+            Message: $"Sends a live {method} request to the selected environment.",
+            Targets: new[] { path },
+            ConfirmLabel: $"Send {method}",
             IsDanger: danger,
             Caveat: caveat));
     }
@@ -663,26 +687,46 @@ public partial class PostBuilderViewModel : ObservableObject
     [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanSend))]
     private async Task Send(CancellationToken ct)
     {
-        if (!await ConfirmSendAsync())
+        if (_disposed) return;
+        var method = Method;
+        var path = EffectivePath();
+        var body = string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase) ? null : RequestBody;
+        var headers = BuildHeaders(method, UseIfMatch, IfMatch);
+        var identity = EnvironmentIdentity.TryCreate(_activeEnv());
+        var generation = Volatile.Read(ref _generation);
+        if (_environmentBound && identity is null)
         {
-            StatusText = "Send cancelled.";
+            StatusText = "Select an environment first.";
             return;
         }
 
+        MutationInProgress = true;
         IsBusy = true;
-        StatusText = "Sending…";
-        // Clear the PREVIOUS send's outcome up front — a cancellation never gets a real response to
-        // overwrite these with, so without this reset its "Send cancelled." status was left sitting over
-        // an unrelated earlier send's badge/body/headers, misreadable as this send's own result
-        // (PR #196 review).
-        SendSucceeded = false;
-        StatusBadge = string.Empty;
-        ResponseBody = string.Empty;
-        ResponseHeaders = string.Empty;
         try
         {
-            var body = string.Equals(Method, "DELETE", StringComparison.OrdinalIgnoreCase) ? null : RequestBody;
-            var response = await _client.SendAsync(Method, EffectivePath(), body, BuildHeaders(), ct);
+            if (!await ConfirmSendAsync(method, path))
+            {
+                StatusText = "Send cancelled.";
+                return;
+            }
+
+            if (!CanCommit(identity, generation))
+            {
+                StatusText = "Send cancelled — the active environment changed.";
+                return;
+            }
+
+            StatusText = "Sending…";
+            // Clear the PREVIOUS send's outcome up front — a cancellation never gets a real response to
+            // overwrite these with, so without this reset its "Send cancelled." status was left sitting over
+            // an unrelated earlier send's badge/body/headers, misreadable as this send's own result
+            // (PR #196 review).
+            SendSucceeded = false;
+            StatusBadge = string.Empty;
+            ResponseBody = string.Empty;
+            ResponseHeaders = string.Empty;
+            var response = await _client.SendAsync(method, path, body, headers, ct);
+            if (!CanCommit(identity, generation)) return;
             StatusText = response.StatusLine;
             StatusBadge = $"{response.StatusCode} {response.ReasonPhrase}";
             SendSucceeded = response.IsSuccess;
@@ -697,22 +741,33 @@ public partial class PostBuilderViewModel : ObservableObject
         // timeout falls through to the general handler and is reported as the failure it is (#168).
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            SendSucceeded = false;
-            StatusText = "Send cancelled.";
+            if (CanCommit(identity, generation))
+            {
+                SendSucceeded = false;
+                StatusText = "Send cancelled.";
+            }
         }
         catch (Exception ex)
         {
-            StatusText = "Request failed.";
-            SendSucceeded = false;
-            StatusBadge = string.Empty;
-            ResponseBody = ex.Message;
-            ResponseHeaders = string.Empty;
+            if (CanCommit(identity, generation))
+            {
+                StatusText = "Request failed.";
+                SendSucceeded = false;
+                StatusBadge = string.Empty;
+                ResponseBody = ex.Message;
+                ResponseHeaders = string.Empty;
+            }
         }
         finally
         {
             IsBusy = false;
+            MutationInProgress = false;
         }
     }
+
+    private bool CanCommit(EnvironmentIdentity? identity, int generation) =>
+        !_disposed && generation == Volatile.Read(ref _generation) &&
+        (!_environmentBound || Equals(identity, EnvironmentIdentity.TryCreate(_activeEnv())));
 
     // Renders response headers as "Name: value" lines, sorted for stable display.
     private static string FormatHeaders(IReadOnlyDictionary<string, string>? headers) =>
@@ -722,23 +777,41 @@ public partial class PostBuilderViewModel : ObservableObject
                 .Select(h => $"{h.Key}: {h.Value}"));
 
     [RelayCommand]
-    private Task CopyUrl() => CopyToClipboardAsync(EffectivePath(), "Request URL copied to the clipboard.");
+    private Task CopyUrl() => _disposed
+        ? Task.CompletedTask
+        : CopyToClipboardAsync(EffectivePath(), "Request URL copied to the clipboard.");
 
     [RelayCommand]
-    private Task CopyPayload() => CopyToClipboardAsync(RequestBody, "Payload copied to the clipboard.");
+    private Task CopyPayload() => _disposed
+        ? Task.CompletedTask
+        : CopyToClipboardAsync(RequestBody, "Payload copied to the clipboard.");
 
     // A contended clipboard throws (COMException on Windows) and an AsyncRelayCommand rethrows that on the
     // dispatcher, so a failed copy has to end as a status line, not a dead app (#163).
     private async Task CopyToClipboardAsync(string text, string success)
     {
+        var generation = Volatile.Read(ref _generation);
         try
         {
             await _clipboard.SetTextAsync(text);
+            if (_disposed || generation != Volatile.Read(ref _generation)) return;
             StatusText = success;
         }
         catch (Exception ex)
         {
+            if (_disposed || generation != Volatile.Read(ref _generation)) return;
             StatusText = $"Couldn't copy to the clipboard: {ex.Message}";
         }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Interlocked.Increment(ref _generation);
+        InitializeCommand.Cancel();
+        EnsureFieldsCommand.Cancel();
+        SendCommand.Cancel();
+        _loader.Dispose();
     }
 }

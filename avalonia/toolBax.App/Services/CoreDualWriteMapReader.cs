@@ -35,7 +35,7 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
     // Ceiling: one short string pair per (environment, entity set) actually counted — the legs of the maps
     // the user inspects, in the environments they visit — so tens of entries at most; nothing evicts on
     // size because nothing can grow it past that.
-    private readonly Dictionary<string, string> _logicalNames = new(StringComparer.Ordinal);
+    private readonly Dictionary<(EnvironmentIdentity? Environment, string EntitySet), string> _logicalNames = new();
 
     /// <param name="activeEnv">
     /// The active environment at call time — the same accessor the <see cref="IDataverseClient"/> resolves
@@ -50,6 +50,9 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
 
     public async Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default)
     {
+        var pinned = _activeEnv();
+        var identity = EnvironmentIdentity.TryCreate(pinned);
+        var apiBase = PinnedApiBase(pinned);
         HashSet<Guid>? solutionComponentIds = null;
         if (!string.IsNullOrWhiteSpace(solutionUniqueName))
         {
@@ -61,7 +64,7 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
                     var page = DualWriteMapParser.ParseComponentIdPage(body);
                     return (page.ObjectIds, page.NextLink);
                 },
-                componentIds, "solution components", ct).ConfigureAwait(false);
+                componentIds, "solution components", identity, apiBase, ct).ConfigureAwait(false);
 
             if (componentError is not null)
             {
@@ -79,7 +82,7 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
                 var page = DualWriteMapParser.ParsePage(body);
                 return (page.Records, page.NextLink);
             },
-            maps, "dual-write maps", ct).ConfigureAwait(false);
+            maps, "dual-write maps", identity, apiBase, ct).ConfigureAwait(false);
 
         if (error is not null)
         {
@@ -115,6 +118,7 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         // Pinned from HERE rather than from the upgrade alone: otherwise a switch landing between this count
         // and the upgrade would pair environment A's count with environment B's total in one result.
         var pinned = _activeEnv();
+        var identity = EnvironmentIdentity.TryCreate(pinned);
         var apiBase = PinnedApiBase(pinned);
 
         var response = await _dataverse
@@ -139,7 +143,7 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         // its floor. The upgrade is strictly optional: every way it can go wrong returns null and the leg
         // falls back to the capped count it would have shown anyway, so this is never a new failure mode.
         if (capped && string.IsNullOrWhiteSpace(odataFilter) && apiBase is not null &&
-            await TrySnapshotTotalAsync(pinned, apiBase, entitySet, ct).ConfigureAwait(false) is { } total)
+            await TrySnapshotTotalAsync(pinned, identity, apiBase, entitySet, ct).ConfigureAwait(false) is { } total)
         {
             return DwCountResult.FromSnapshot(total);
         }
@@ -174,9 +178,9 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
     // already mirrors any non-2xx to the session log per the RequestTrace conventions, and a miss here is a
     // non-event for the user — the count they asked for is still displayed.
     private async Task<long?> TrySnapshotTotalAsync(
-        EnvProfile? pinned, string apiBase, string entitySet, CancellationToken ct)
+        EnvProfile? pinned, EnvironmentIdentity? identity, string apiBase, string entitySet, CancellationToken ct)
     {
-        var cacheKey = CacheKey(pinned, entitySet);
+        var cacheKey = CacheKey(identity, entitySet);
         if (await ResolveLogicalNameAsync(pinned, apiBase, cacheKey, entitySet, ct).ConfigureAwait(false)
             is not { } logicalName)
         {
@@ -211,35 +215,19 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
     // DATA is trustworthy either way, so this is purely the commit gate for caching/displaying it — the same
     // role CoreMetadataService.IsStillCurrent (#170) plays for its catalogue writes.
     private bool IsStillCurrent(EnvProfile? pinned) =>
-        string.Equals(EnvIdentity(_activeEnv()), EnvIdentity(pinned), StringComparison.Ordinal);
-
-    /// <summary>
-    /// The identity a cached answer belongs to: profile id AND normalized Dataverse endpoint. Same recipe as
-    /// <c>CatalogService.CacheKey</c> (#151) — lower-invariant, scheme-defaulted, no trailing slash — and for
-    /// the same reason: a profile is editable in place, so the id can survive while the URL is repointed at a
-    /// different organisation, and an id-only key would then answer the new endpoint with the old one's
-    /// metadata. Compared Ordinal, after normalization has removed the differences that don't matter.
-    /// </summary>
-    private static string EnvIdentity(EnvProfile? env)
-    {
-        var url = (env?.DataverseUrl ?? string.Empty).Trim().ToLowerInvariant();
-        if (url.Length > 0 && !url.StartsWith("http", StringComparison.Ordinal))
-        {
-            url = "https://" + url;
-        }
-
-        return $"{env?.Id}|{url.TrimEnd('/')}";
-    }
+        Equals(EnvironmentIdentity.TryCreate(pinned), EnvironmentIdentity.TryCreate(_activeEnv()));
 
     // The cache key: the environment identity a lookup was answered for, then the entity set. Derived from
     // the SAME captured instance the requests are addressed to, so the key and the endpoint cannot disagree.
-    private static string CacheKey(EnvProfile? env, string entitySet) => $"{EnvIdentity(env)}|{entitySet}";
+    private static (EnvironmentIdentity? Environment, string EntitySet) CacheKey(
+        EnvironmentIdentity? identity, string entitySet) => (identity, entitySet);
 
     // The logical name behind an entity-set name, cached per environment (see _logicalNames). A lookup that
     // resolves nothing is NOT cached: it may be an entity set this environment doesn't have, and a negative
     // answer is the one most likely to be wrong for the next environment.
     private async Task<string?> ResolveLogicalNameAsync(
-        EnvProfile? pinned, string apiBase, string cacheKey, string entitySet, CancellationToken ct)
+        EnvProfile? pinned, string apiBase,
+        (EnvironmentIdentity? Environment, string EntitySet) cacheKey, string entitySet, CancellationToken ct)
     {
         if (_logicalNames.TryGetValue(cacheKey, out var cached))
         {
@@ -272,6 +260,9 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
 
     public async Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default)
     {
+        var pinned = _activeEnv();
+        var identity = EnvironmentIdentity.TryCreate(pinned);
+        var apiBase = PinnedApiBase(pinned);
         var solutions = new List<DwSolution>();
         var error = await PageAllAsync(
             DualWriteMapParser.SolutionsPath(),
@@ -280,7 +271,7 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
                 var page = DualWriteMapParser.ParseSolutionPage(body);
                 return (page.Solutions, page.NextLink);
             },
-            solutions, "solutions", ct).ConfigureAwait(false);
+            solutions, "solutions", identity, apiBase, ct).ConfigureAwait(false);
 
         return error is not null ? DwSolutionLoadResult.Fail(error) : DwSolutionLoadResult.Ok(solutions);
     }
@@ -292,12 +283,24 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         Func<string, (IReadOnlyList<T> Items, string? NextLink)> parse,
         List<T> sink,
         string subject,
+        EnvironmentIdentity? identity,
+        string? apiBase,
         CancellationToken ct)
     {
-        string? pathOrUrl = firstPath;
+        string? pathOrUrl = Pinned(apiBase, firstPath);
         while (pathOrUrl is not null)
         {
+            if (identity is not null && !identity.IsCurrent(_activeEnv()))
+            {
+                return $"Couldn't load {subject} — the active environment changed.";
+            }
+
             var response = await _dataverse.GetAsync(pathOrUrl, ct).ConfigureAwait(false);
+            if (identity is not null && !identity.IsCurrent(_activeEnv()))
+            {
+                return $"Couldn't load {subject} — the active environment changed.";
+            }
+
             if (!response.IsSuccess)
             {
                 return DescribeFailure(response, subject);

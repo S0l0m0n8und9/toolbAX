@@ -469,6 +469,8 @@ public class DualWriteMapViewModelTests
     // Metadata service exposing a fixed entity catalogue for F&O-entity resolution.
     private sealed class StubMetadataService : IMetadataService
     {
+        public void Invalidate() { }
+
         private readonly List<EntitySet> _entities;
         public StubMetadataService(params string[] names) =>
             _entities = names.Select(n => new EntitySet(n, "Module", 0, "Id", false, "Table")).ToList();
@@ -585,6 +587,7 @@ public class DualWriteMapViewModelTests
     private sealed class GatedLoadReader : IDualWriteMapReader
     {
         private readonly FakeDualWriteMapReader _inner = new();
+        public Exception? Failure { get; init; }
         public TaskCompletionSource Entered { get; } = new();
         public TaskCompletionSource Gate { get; } = new();
         public int CeCountCalls { get; private set; }
@@ -593,6 +596,7 @@ public class DualWriteMapViewModelTests
         {
             Entered.TrySetResult();
             await Gate.Task;
+            if (Failure is not null) throw Failure;
             return await _inner.GetMapsAsync(solutionUniqueName, ct);
         }
 
@@ -707,7 +711,7 @@ public class DualWriteMapViewModelTests
     // The guards above are entry-only; these cover a switch that lands ACROSS the awaits of one operation.
 
     [Fact]
-    public async Task A_mid_load_switch_stamps_the_environment_the_maps_were_read_for()
+    public async Task A_mid_load_switch_discards_maps_read_for_the_previous_environment()
     {
         var env = new EnvSwitch();
         var reader = new GatedLoadReader();
@@ -720,17 +724,15 @@ public class DualWriteMapViewModelTests
         reader.Gate.SetResult();
         await loading;
 
-        // The load itself still succeeds — a switch mid-load is not an error…
-        Assert.NotEmpty(vm.Maps);
+        // The old environment's completion is not an error, but it no longer belongs on this screen.
+        Assert.Empty(vm.Maps);
         Assert.False(vm.HasLoadError);
 
-        // …but these maps are stamped with the environment they were READ for (env1), not whatever became
-        // active while the read was in flight — so counting them under env2 is refused until a reload.
+        // With no stale maps committed, neither count client can be reached.
         await vm.CountAllRowsCommand.ExecuteAsync(null);
 
         Assert.Equal(0, reader.CeCountCalls);
         Assert.Equal(0, odata.Calls);
-        Assert.Contains("reload maps", vm.LoadError, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -841,6 +843,202 @@ public class DualWriteMapViewModelTests
 
         await vm.CopyMapLinkCommand.ExecuteAsync(null);
         Assert.Equal(url, clipboard.LastText);
+    }
+
+    private sealed class GatedSolutionFailureReader : IDualWriteMapReader
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            Task.FromResult(DwMapLoadResult.Ok(Array.Empty<DwMapRecord>()));
+        public async Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default)
+        {
+            Entered.TrySetResult();
+            await Release.Task;
+            throw new InvalidOperationException("late solution failure");
+        }
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) =>
+            Task.FromResult(DwCountResult.Ok(0));
+    }
+
+    private sealed class GatedSolutionSuccessReader : IDualWriteMapReader
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int MapCalls { get; private set; }
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default)
+        {
+            MapCalls++;
+            return Task.FromResult(DwMapLoadResult.Ok(Array.Empty<DwMapRecord>()));
+        }
+        public async Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default)
+        {
+            Entered.TrySetResult();
+            await Release.Task;
+            return DwSolutionLoadResult.Ok(Array.Empty<DwSolution>());
+        }
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) =>
+            Task.FromResult(DwCountResult.Ok(0));
+    }
+
+    private sealed class CountingLoadMetadata : IMetadataService
+    {
+        public int LoadCalls { get; private set; }
+        public void Invalidate() { }
+        public IReadOnlyList<EntitySet> GetEntities() => Array.Empty<EntitySet>();
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default)
+        {
+            LoadCalls++;
+            return Task.CompletedTask;
+        }
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) => Task.FromResult(false);
+    }
+
+    private sealed class DisposalGatedCountReader : IDualWriteMapReader
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int CeCountCalls { get; private set; }
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            Task.FromResult(DwMapLoadResult.Ok(ThreeLegMap()));
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) =>
+            Task.FromResult(NoSolutions);
+        public async Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default)
+        {
+            if (++CeCountCalls == 1)
+            {
+                Entered.TrySetResult();
+                await Release.Task;
+            }
+            return DwCountResult.Ok(123);
+        }
+    }
+
+    [Fact]
+    public async Task A_stale_map_load_failure_cannot_overwrite_current_environment_state()
+    {
+        var env = new EnvSwitch();
+        var reader = new GatedLoadReader { Failure = new InvalidOperationException("old environment failed") };
+        var vm = new DualWriteMapViewModel(reader, activeEnv: env.Get) { LoadError = "current environment state" };
+
+        var loading = vm.ReloadMapsCommand.ExecuteAsync(null);
+        await reader.Entered.Task;
+        env.Current = MapEnv("env2", "fabrikam");
+        reader.Gate.TrySetResult();
+        await loading;
+
+        Assert.Equal("current environment state", vm.LoadError);
+    }
+
+    [Fact]
+    public async Task Disposed_initialize_failure_cannot_publish_error()
+    {
+        var reader = new GatedSolutionFailureReader();
+        var vm = new DualWriteMapViewModel(reader) { LoadError = "preserve me" };
+
+        var initialize = vm.InitializeCommand.ExecuteAsync(null);
+        await reader.Entered.Task;
+        vm.Dispose();
+        reader.Release.TrySetResult();
+        await initialize;
+
+        Assert.Equal("preserve me", vm.LoadError);
+    }
+
+    [Fact]
+    public async Task Disposed_after_successful_solutions_load_starts_no_metadata_or_map_read()
+    {
+        var reader = new GatedSolutionSuccessReader();
+        var metadata = new CountingLoadMetadata();
+        var vm = new DualWriteMapViewModel(reader, metadata: metadata);
+
+        var initialize = vm.InitializeCommand.ExecuteAsync(null);
+        await reader.Entered.Task;
+        vm.Dispose();
+        reader.Release.TrySetResult();
+        await initialize;
+
+        Assert.Equal(0, metadata.LoadCalls);
+        Assert.Equal(0, reader.MapCalls);
+    }
+
+    [Fact]
+    public async Task Disposed_reload_starts_no_map_read()
+    {
+        var reader = new GatedSolutionSuccessReader();
+        var vm = new DualWriteMapViewModel(reader);
+        vm.Dispose();
+
+        await vm.ReloadMapsCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, reader.MapCalls);
+    }
+
+    [Fact]
+    public async Task Disposed_count_completion_cannot_publish_row_values()
+    {
+        var reader = new DisposalGatedCountReader();
+        var odata = new CountODataClient(500);
+        var vm = new DualWriteMapViewModel(reader, odata: odata, activeEnv: () => MapEnv("env1", "contoso"));
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        var count = vm.CountAllRowsCommand.ExecuteAsync(null);
+        await reader.Entered.Task;
+        vm.Dispose();
+        reader.Release.TrySetResult();
+        await count;
+
+        Assert.Equal(1, reader.CeCountCalls);
+        Assert.Equal(0, odata.Calls);
+        Assert.All(vm.CountRows, row => Assert.Null(row.CeCount));
+    }
+
+    [Fact]
+    public async Task Counting_after_same_id_endpoint_edit_is_refused_until_maps_reload()
+    {
+        var reader = new CallCountingReader();
+        var env = new EnvSwitch();
+        var vm = new DualWriteMapViewModel(reader, odata: new CountODataClient(250), activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        env.Current = env.Current! with { Url = "https://replacement.operations.dynamics.com" };
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, reader.CeCountCalls);
+        Assert.Contains("reload maps", vm.LoadError, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void Map_link_stays_attributed_to_the_profile_that_supplied_the_selected_map()
+    {
+        var active = EnvWithDataverse("https://first.crm.dynamics.com");
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(), activeEnv: () => active);
+        vm.SelectedMap = MapWithId("11111111-1111-1111-1111-111111111111");
+
+        active = active with { DataverseUrl = "https://second.crm.dynamics.com" };
+
+        Assert.Contains("first.crm.dynamics.com", vm.MapRecordUrl);
+        Assert.DoesNotContain("second.crm.dynamics.com", vm.MapRecordUrl);
+    }
+
+    [Fact]
+    public async Task Disposed_map_link_commands_do_not_launch_or_copy()
+    {
+        var launcher = new FakeUrlLauncher();
+        var clipboard = new FakeClipboardService();
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(),
+            activeEnv: () => EnvWithDataverse("https://contoso.crm.dynamics.com"),
+            clipboard: clipboard, launcher: launcher);
+        vm.SelectedMap = MapWithId("11111111-1111-1111-1111-111111111111");
+        vm.Dispose();
+
+        await vm.OpenMapLinkCommand.ExecuteAsync(null);
+        await vm.CopyMapLinkCommand.ExecuteAsync(null);
+
+        Assert.Null(launcher.LastUrl);
+        Assert.Null(clipboard.LastText);
     }
 
     [Fact]
@@ -1010,6 +1208,8 @@ public class DualWriteMapViewModelTests
     // fetch them for the counted entity like it does against a real environment.
     private sealed class FieldMetadataService : IMetadataService
     {
+        public void Invalidate() { }
+
         private readonly string _entity;
         private readonly List<EntityField> _fields;
         private readonly Dictionary<string, IReadOnlyList<string>> _enumMembers =
@@ -1184,6 +1384,8 @@ public class DualWriteMapViewModelTests
     // middle of it — the one await CountFoAsync gained in #204.
     private sealed class GatedFieldMetadataService : IMetadataService
     {
+        public void Invalidate() { }
+
         private readonly string _entity;
         private readonly IReadOnlyList<EntityField> _fields;
         private bool _loaded;
@@ -1244,6 +1446,28 @@ public class DualWriteMapViewModelTests
     }
 
     [Fact]
+    public async Task Dispose_during_successful_field_fetch_stops_before_FO_dispatch()
+    {
+        var env = new EnvSwitch();
+        var reader = new FilterLegReader("CustomerV3Entity", "(ISONETIMECUSTOMER != NoYes::Yes)");
+        var metadata = new GatedFieldMetadataService("CustomerV3", "IsOneTimeCustomer");
+        var odata = new CountODataClient(42);
+        var vm = new DualWriteMapViewModel(reader, odata: odata, metadata: metadata, activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        var counting = vm.CountAllRowsCommand.ExecuteAsync(null);
+        await metadata.Entered.Task;
+        vm.Dispose();
+        metadata.Gate.TrySetResult();
+        await counting;
+
+        var row = vm.CountRows.Single();
+        Assert.Equal(0, odata.Calls);
+        Assert.Null(odata.LastPath);
+        Assert.Null(row.FoCount);
+    }
+
+    [Fact]
     public async Task Without_a_switch_the_field_fetch_still_leads_to_a_corrected_count()
     {
         // The re-check above must not misfire on an unchanged environment: same gated fetch, no switch.
@@ -1299,6 +1523,8 @@ public class DualWriteMapViewModelTests
     // load on a gate, so an environment switch can land inside the load the count run now performs.
     private sealed class LateEntityMetadataService : IMetadataService
     {
+        public void Invalidate() { }
+
         private readonly string[] _names;
         private readonly bool _gateSecondLoad;
         private bool _loaded;
