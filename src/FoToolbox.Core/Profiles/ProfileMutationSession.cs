@@ -12,6 +12,7 @@ public sealed class ProfileMutationSession
     private readonly SqliteConnection _connection;
     private readonly SqliteTransaction _transaction;
     private readonly CancellationToken _cancellationToken;
+    private readonly int _ownerThreadId;
     private bool _active = true;
 
     internal ProfileMutationSession(
@@ -22,6 +23,7 @@ public sealed class ProfileMutationSession
         _connection = connection;
         _transaction = transaction;
         _cancellationToken = cancellationToken;
+        _ownerThreadId = Environment.CurrentManagedThreadId;
     }
 
     public FoEnvironment? GetEnvironment(string id)
@@ -196,6 +198,8 @@ UNION ALL SELECT 1 FROM Settings WHERE Value=$id)") )
     private void EnsureActive()
     {
         if (!_active) throw new InvalidOperationException("This profile mutation session is no longer active.");
+        if (Environment.CurrentManagedThreadId != _ownerThreadId)
+            throw new InvalidOperationException("Profile mutation sessions may only be used by their owning synchronous callback thread.");
     }
 
     private static FoEnvironment ReadEnvironment(SqliteDataReader reader) => new(

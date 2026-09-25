@@ -236,6 +236,68 @@ public sealed class ProfileMutationSessionTests
     }
 
     [Fact]
+    public async Task Task_returning_callback_is_rejected_without_invocation_or_writes()
+    {
+        var (_, store, _) = await NewStoreAsync();
+        var invoked = false;
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            store.RunProfileMutationAsync(session =>
+            {
+                invoked = true;
+                session.UpsertEnvironment(Environment());
+                return Task.FromResult(1);
+            }, CancellationToken.None));
+
+        Assert.Contains("synchronous", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(invoked);
+        Assert.Empty(await store.GetEnvironmentsAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task ValueTask_returning_callback_is_rejected_without_invocation()
+    {
+        var (_, store, _) = await NewStoreAsync();
+        var invoked = false;
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            store.RunProfileMutationAsync(session =>
+            {
+                invoked = true;
+                return ValueTask.FromResult(1);
+            }, CancellationToken.None));
+
+        Assert.Contains("synchronous", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.False(invoked);
+    }
+
+    [Fact]
+    public async Task Session_accepts_owner_thread_and_refuses_concurrent_cross_thread_use()
+    {
+        var (_, store, _) = await NewStoreAsync();
+        await store.RunProfileMutationAsync(session =>
+        {
+            session.UpsertEnvironment(Environment());
+            Assert.Equal("Original", session.GetEnvironment("env-1")!.Name);
+
+            Exception? crossThreadError = null;
+            using var finished = new ManualResetEventSlim(false);
+            var thread = new Thread(() =>
+            {
+                try { session.SetSetting("CrossThread", "forbidden"); }
+                catch (Exception ex) { crossThreadError = ex; }
+                finally { finished.Set(); }
+            });
+            thread.Start();
+            Assert.True(finished.Wait(TimeSpan.FromSeconds(5)));
+            Assert.True(thread.Join(TimeSpan.FromSeconds(5)));
+            Assert.IsType<InvalidOperationException>(crossThreadError);
+            Assert.Null(session.GetSetting("CrossThread"));
+            return 0;
+        }, CancellationToken.None);
+    }
+
+    [Fact]
     public async Task Cancellation_immediately_before_commit_rolls_back_every_change()
     {
         var (_, store, _) = await NewStoreAsync();
@@ -251,6 +313,29 @@ public sealed class ProfileMutationSessionTests
 
         Assert.Empty(await store.GetEnvironmentsAsync(CancellationToken.None));
         Assert.Null(await store.GetSettingAsync("Marker", CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task SQLite_automatic_rollback_does_not_mask_the_original_trigger_failure()
+    {
+        var (_, store, _) = await NewStoreAsync();
+        await using (var connection = new SqliteConnection(store.ConnectionString))
+        {
+            await connection.OpenAsync(CancellationToken.None);
+            await using var trigger = connection.CreateCommand();
+            trigger.CommandText = "CREATE TRIGGER ForceRollback BEFORE INSERT ON Settings WHEN NEW.Key='RollbackNow' BEGIN SELECT RAISE(ROLLBACK,'original rollback marker'); END;";
+            await trigger.ExecuteNonQueryAsync(CancellationToken.None);
+        }
+
+        var error = await Assert.ThrowsAsync<SqliteException>(() => store.RunProfileMutationAsync(session =>
+        {
+            session.UpsertEnvironment(Environment());
+            session.SetSetting("RollbackNow", "value");
+            return 0;
+        }, CancellationToken.None));
+
+        Assert.Contains("original rollback marker", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(await store.GetEnvironmentsAsync(CancellationToken.None));
     }
 
     [Fact]
