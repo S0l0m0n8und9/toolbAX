@@ -104,7 +104,7 @@ internal static class WriteUiEvidence
     private static string Bound(string? value)
     {
         if (string.IsNullOrWhiteSpace(value)) return "No additional detail.";
-        var builder = new StringBuilder(value.Length);
+        var builder = new StringBuilder(Math.Min(value.Length, MaximumLength));
         var previousSpace = false;
         foreach (var character in value)
         {

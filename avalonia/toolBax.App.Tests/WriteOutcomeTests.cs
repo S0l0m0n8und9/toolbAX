@@ -629,9 +629,10 @@ public sealed class WriteOutcomeTests
 
     [Theory]
     [InlineData("http", "HTTP 401")]
-    [InlineData("missing", "record was not returned")]
+    [InlineData("missing", "no usable project configuration record")]
     [InlineData("transport", "HttpRequestException")]
-    [InlineData("cancel", "cancelled")]
+    [InlineData("timeout", "timed out")]
+    [InlineData("typed-timeout", "timed out")]
     public async Task Debug_project_read_failures_remain_distinct_from_the_not_sent_write(
         string mode,
         string expectedDiagnostic)
@@ -644,6 +645,11 @@ public sealed class WriteOutcomeTests
                 "http" => Task.FromResult(new ODataResponse(401, "Unauthorized", "UNBOUNDED-BODY", 12)),
                 "missing" => Task.FromResult(new ODataResponse(200, "OK", "{\"value\":[]}", 8)),
                 "transport" => throw new HttpRequestException("socket reset while reading project configuration"),
+                "typed-timeout" => throw new ODataWriteCanceledException(
+                    true,
+                    new ODataResponse(202, "Accepted", "", 17) { DispatchStarted = true, BodyComplete = false },
+                    new OperationCanceledException(),
+                    CancellationToken.None),
                 _ => throw new OperationCanceledException(ct)
             };
         });
@@ -660,6 +666,34 @@ public sealed class WriteOutcomeTests
         Assert.Contains("Not sent", project.Summary);
         Assert.Contains(expectedDiagnostic, project.Summary, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("UNBOUNDED-BODY", project.Summary);
+        Assert.DoesNotContain(client.Calls, call => call.Method == "PATCH");
+    }
+
+    [Fact]
+    public async Task Caller_cancelled_debug_read_is_recorded_even_when_GET_ignores_cancellation()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource<ODataResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var client = new Client(async (verb, _, _) =>
+        {
+            if (verb == "PATCH") throw new InvalidOperationException("PATCH must not run after cancellation.");
+            entered.TrySetResult();
+            return await release.Task;
+        });
+        using var vm = new DualWriteOpsViewModel(
+            new FakeDualWriteConnector(), Env, new Dialogs(), odata: client, metadata: new Metadata());
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps[0].IsSelected = true;
+
+        var operation = vm.EnableDebugForSelectedCommand.ExecuteAsync(null);
+        await entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        vm.EnableDebugForSelectedCommand.Cancel();
+        release.SetResult(new ODataResponse(200, "OK", "{\"value\":[{\"@odata.id\":\"https://fo.example/data/Config(1)\"}]}", 9));
+        await operation.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        var project = Assert.Single(vm.LastDebugReceipt!.Projects);
+        Assert.False(project.Observation!.DispatchStarted);
+        Assert.Contains("Read cancelled", project.Summary, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain(client.Calls, call => call.Method == "PATCH");
     }
 

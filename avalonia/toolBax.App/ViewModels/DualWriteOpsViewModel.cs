@@ -772,6 +772,13 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
                 patchInvoked = false;
                 if (Stop()) return;
                 var get = await _odata.SendAsync("GET", DebugReadPath(set, projectIds[i]), null, getHeaders, ct);
+                if (ct.IsCancellationRequested)
+                {
+                    Leg(i, new WriteObservation(false), stage: "Read cancelled",
+                        diagnostic: "Read cancelled before any write was sent.");
+                    Stop();
+                    return;
+                }
                 if (Stop()) return;
                 if (!get.IsSuccess)
                 {
@@ -783,7 +790,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
                 if (record is null)
                 {
                     Leg(i, new WriteObservation(false), stage: "Record missing",
-                        diagnostic: "Read succeeded but the project configuration record was not returned.");
+                        diagnostic: "Read succeeded but no usable project configuration record was returned.");
                     continue;
                 }
                 if (Stop()) return;
@@ -802,14 +809,17 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             if (_disposed || !ReferenceEquals(session, _session)) return;
             if (activeIndex >= 0)
             {
-                var observation = ex is ODataWriteCanceledException cancelled
+                var observation = !patchInvoked ? new WriteObservation(false) : ex is ODataWriteCanceledException cancelled
                     ? cancelled.ObservedResponse is { } observed ? WriteObservation.From(observed) : new WriteObservation(cancelled.DispatchStarted)
-                    : new WriteObservation(patchInvoked ? null : false);
-                var diagnostic = patchInvoked ? null : ex is OperationCanceledException
+                    : new WriteObservation(null);
+                var callerCancelled = ex is OperationCanceledException && ct.IsCancellationRequested;
+                var diagnostic = patchInvoked ? null : callerCancelled
                     ? "Read cancelled before any write was sent."
-                    : $"Read failed before any write was sent: {WriteUiEvidence.FromException(ex)}";
+                    : ex is OperationCanceledException
+                        ? "Read timed out or was interrupted before any write was sent."
+                        : $"Read failed before any write was sent: {WriteUiEvidence.FromException(ex)}";
                 Leg(activeIndex, observation,
-                    stage: patchInvoked ? "Observed" : ex is OperationCanceledException ? "Read cancelled" : "Read failed",
+                    stage: patchInvoked ? "Observed" : callerCancelled ? "Read cancelled" : "Read failed",
                     diagnostic: diagnostic);
             }
             if (!Current(session)) { Stop(); return; }
