@@ -1,8 +1,8 @@
 # Metadata response integrity (H06a proposal)
 
-## Status and verified baseline
+## Status: accepted; implementation not started
 
-This is a proposal only. It changes no parser, reader, VM, test, tracker, or remote state.
+This design is accepted. Implementation, tests, tracker, and remote state changes have not started.
 
 `ToolBax.Core` `DualWriteMapParser.ParsePage`, `ParseSolutionPage`, and `ParseComponentIdPage`, plus `VirtualTableMetadataParser.Parse`, currently convert malformed/missing envelopes to empty and skip scalar array members. `CoreDualWriteMapReader.PageAll` can then report success/partial earlier pages; `CoreVirtualTableReader` wraps this as `Ok`. `FoToolbox.Core` `DualWriteResponseParser.ParseMaps` accepts bare arrays and `value`/`entities`/`items` aliases, but missing/wrong envelopes become empty and nonobject members are skipped. Map VM ignores solution lookup failure and later map success clears `LoadError`.
 
@@ -12,15 +12,17 @@ Each parser must distinguish a valid empty collection from an invalid response. 
 
 Reader page loads fail as a whole on a malformed first or later page: they must not return successful accumulated pages. Map/virtual failures use existing error result/banner paths; cancellation remains cancellation. Diagnostics name structural location only, never payloads, record IDs, or secrets. Valid empty collections remain success.
 
-## Nested embedded JSON
+## Nested embedded JSON: accepted decision
 
-Nonempty malformed embedded `msdyn_mapping`/`msdyn_properties` JSON must not present as confidently complete detail. Propose a safe explicit diagnostic retaining raw text for the existing detail path. The implementation decision remains open: all-or-nothing map load versus a row-level warning. This is the narrow source/UX choice requiring parent review; no redesign is proposed here.
+Keep the valid row/header/raw text and attach an explicit structural per-row warning when nonempty `msdyn_mapping` or `msdyn_properties` cannot parse as JSON. Never present those detail sections as complete. Missing, null, and blank optional fields remain tolerated; parse the healthy counterpart normally. Preserve raw mapping/properties for the existing inspection path.
+
+Show a load-level count of rows with incomplete details and a selected-row diagnostic. Warnings name field/location only, never raw snippets. A valid refresh clears these warnings. Add a minimal equivalent warning to the existing Markdown map export so an exported row cannot lose the known limitation; this extends ownership only to `DualWriteMapMarkdownExporter` and its tests, without changing H11 streaming/memory design.
 
 Solution-list failure may leave readable maps, but it requires an independent visible nonfatal warning. Only a successful solution reload clears it; successful map loads must not.
 
 ## Scope and ownership
 
-Proposed production ownership is the named parsers/readers, a smallest domain parse-error helper/type if needed, Map VM/view warning, and corresponding parser/reader/VM/render tests. Do not change auth/trust, paging retry/cycle policy, export, or Compare matching.
+Proposed production ownership is the named parsers/readers, a smallest domain parse-error helper/type if needed, Map VM/view warning, `DualWriteMapMarkdownExporter` warning, and corresponding parser/reader/VM/render/export tests. Do not change auth/trust, paging retry/cycle policy, H11 streaming/memory design, or Compare matching.
 
 ## Pre-mortem
 
@@ -32,4 +34,4 @@ Proposed production ownership is the named parsers/readers, a smallest domain pa
 
 ## Acceptance matrix
 
-Cover valid empty and supported aliases; malformed first/later pages; mixed arrays; optional missing fields; normal virtual filtering; malformed nested JSON diagnostic; no partial success; visible solution warning; and no live calls.
+Cover valid empty and supported aliases; malformed first/later pages; mixed arrays; optional missing fields; normal virtual filtering; nested warning/raw preservation/healthy counterpart; UI/export warning; warning clearing on valid refresh; no partial success; visible solution warning; cancellation; and no live calls.
