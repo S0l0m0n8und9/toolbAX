@@ -1,7 +1,7 @@
 {
   "name": "dualwrite-profiler",
   "version": "1.0.0",
-  "description": "Dual-write configuration and risk profiler CLI for Dynamics 365",
+  "description": "Experimental Dual-write capture metadata CLI for Dynamics 365",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc",
