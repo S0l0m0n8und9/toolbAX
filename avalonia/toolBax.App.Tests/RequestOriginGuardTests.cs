@@ -15,6 +15,7 @@ public class RequestOriginGuardTests
     [InlineData("contoso.crm.dynamics.com", "https://contoso.crm.dynamics.com/api/data/v9.2/x")] // bare host ⇒ https
     [InlineData("https://contoso.crm.dynamics.com/api/data", "https://contoso.crm.dynamics.com/anything")] // path ignored
     [InlineData("https://contoso.crm.dynamics.com:443", "https://contoso.crm.dynamics.com/x")] // explicit default port
+    [InlineData("  contoso.crm.dynamics.com/api/data  ", "https://contoso.crm.dynamics.com/api/data/v9.2/x")] // profile whitespace is not part of its origin
     public void Same_origin_is_allowed(string expected, string candidate)
         => Assert.True(RequestOriginGuard.IsSameOrigin(expected, new Uri(candidate)));
 

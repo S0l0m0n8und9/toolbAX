@@ -35,6 +35,73 @@ public class CatalogServiceTests
         Assert.Equal(1, handler.Calls);
     }
 
+    [Theory]
+    [InlineData("contoso.operations.dynamics.com")]
+    [InlineData("https://contoso.operations.dynamics.com/")]
+    [InlineData("https://contoso.operations.dynamics.com/data")]
+    public async Task Catalog_requests_use_the_same_normalized_fo_base_as_connection_testing(string baseUrl)
+    {
+        var xml = await System.IO.File.ReadAllTextAsync(System.IO.Path.Combine("Resources", "SampleMetadata.xml"));
+        var handler = new RecordingMetadataHandler(xml);
+        var profileStore = new ProfileStore(System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db"));
+        await profileStore.EnsureCreatedAsync();
+        var service = new CatalogService(new HttpClient(handler), profileStore,
+            new CatalogStore(System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db")));
+
+        _ = await service.GetODataMetadataAsync(new FoEnvironment("env", "Env", baseUrl, "tenant", "USMF"), CatalogRefreshMode.ForceRefresh, default);
+
+        Assert.Equal(new[] { "https://contoso.operations.dynamics.com/data/$metadata" }, handler.RequestUris.ToArray());
+    }
+
+    [Fact]
+    public async Task Catalog_cache_reuses_authority_aliases_but_not_path_case_or_legacy_lowercased_keys()
+    {
+        var xml = await System.IO.File.ReadAllTextAsync(System.IO.Path.Combine("Resources", "SampleMetadata.xml"));
+        var lowerPathXml = xml.Replace("CustomersV3", "TenantLowersV3", StringComparison.Ordinal)
+            .Replace("CustomerV3", "TenantLowerV3", StringComparison.Ordinal);
+        var handler = new RecordingMetadataHandler(uri =>
+            uri.AbsolutePath.Contains("/tenanta/", StringComparison.Ordinal) ? lowerPathXml : xml);
+        var profileStore = new ProfileStore(System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db"));
+        await profileStore.EnsureCreatedAsync();
+        var catalogStore = new CatalogStore(System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db"));
+        await catalogStore.EnsureCreatedAsync();
+        // This is a still-fresh row written by the former lower-cased key. It must be invisible after the
+        // namespace change or a profile path differing only by case can receive another path's metadata.
+        await catalogStore.SaveAsync("env|https://contoso.operations.dynamics.com/tenanta", "ODataMetadataXml",
+            "metadata-xml-v1", xml, "legacy", DateTime.UtcNow);
+        var service = new CatalogService(new HttpClient(handler), profileStore, catalogStore,
+            new CatalogServiceOptions(TimeSpan.FromDays(1), TimeSpan.FromDays(1)));
+
+        var tenantA = new FoEnvironment("env", "Env", "https://CONTOSO.operations.dynamics.com:443/TenantA/data", "tenant", "USMF");
+        var tenantAAlias = new FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com/TenantA", "tenant", "USMF");
+        var tenantLower = new FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com/tenanta/data", "tenant", "USMF");
+
+        var tenantAMetadata = await service.GetODataMetadataAsync(tenantA, CatalogRefreshMode.UseCacheIfFresh, default);
+        var tenantAAliasMetadata = await service.GetODataMetadataAsync(tenantAAlias, CatalogRefreshMode.UseCacheIfFresh, default);
+        var tenantLowerMetadata = await service.GetODataMetadataAsync(tenantLower, CatalogRefreshMode.UseCacheIfFresh, default);
+
+        Assert.Equal(new[]
+        {
+            "https://contoso.operations.dynamics.com/TenantA/data/$metadata",
+            "https://contoso.operations.dynamics.com/tenanta/data/$metadata"
+        }, handler.RequestUris.ToArray());
+        Assert.Contains(tenantAMetadata.Entities, entity => entity.Name == "CustomersV3");
+        Assert.Contains(tenantAAliasMetadata.Entities, entity => entity.Name == "CustomersV3");
+        Assert.Contains(tenantLowerMetadata.Entities, entity => entity.Name == "TenantLowersV3");
+    }
+
+    [Fact]
+    public void Catalog_generated_links_use_the_normalized_fo_base()
+    {
+        var service = new CatalogService(new HttpClient(new CountingMetadataHandler("<root />")),
+            new ProfileStore(System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db")),
+            new CatalogStore(System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db")));
+        var env = new FoEnvironment("env", "Env", "http://contoso.operations.dynamics.com:8080/TenantA/data", "tenant", "USMF");
+
+        Assert.Equal("http://contoso.operations.dynamics.com:8080/TenantA/data/CustomersV3", service.BuildODataEntityUrl(env, "CustomersV3"));
+        Assert.Equal("http://contoso.operations.dynamics.com:8080/TenantA/?mi=SysTableBrowser&table=CustTable", service.BuildTableBrowserUrl(env, "CustTable"));
+    }
+
     [Fact]
     public async Task GetODataEntityIndexAsync_Refetches_When_The_Same_Profile_Id_Points_At_A_New_Url()
     {
@@ -512,6 +579,24 @@ public class CatalogServiceTests
             {
                 Content = new StringContent(_content)
             };
+            response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue("\"etag\"");
+            return Task.FromResult(response);
+        }
+    }
+
+    private sealed class RecordingMetadataHandler : HttpMessageHandler
+    {
+        private readonly Func<Uri, string> _content;
+        public List<string> RequestUris { get; } = new();
+
+        public RecordingMetadataHandler(string content) : this(_ => content) { }
+
+        public RecordingMetadataHandler(Func<Uri, string> content) => _content = content;
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            RequestUris.Add(request.RequestUri!.ToString());
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(_content(request.RequestUri!)) };
             response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue("\"etag\"");
             return Task.FromResult(response);
         }
