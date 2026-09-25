@@ -1,0 +1,43 @@
+# Support and capabilities
+
+## Runtime prerequisites
+
+The product targets Windows 10 or Windows 11 (x64), using an edition/build listed by both [.NET 10 support guidance](https://github.com/dotnet/core/blob/main/release-notes/10.0/supported-os.md) and [WebView2 supported Windows versions](https://learn.microsoft.com/en-us/microsoft-edge/webview2/#supported-windows-versions). This is a vendor-qualified prerequisite, not a per-build toolbAX certification claim. The published `toolbAX-win-x64.zip` is self-contained: it bundles its .NET runtime. The SDK in [`global.json`](../global.json) is for building source, not normal release use.
+
+WebView2 is compiled for Windows but its Runtime is separate. Confirm availability through [Microsoft's WebView2 distribution guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution); follow organisation policy for installation and security prompts. A bundled .NET runtime does not imply WebView2 Runtime availability.
+
+Releases are unsigned. The published SHA256 checks downloaded bytes against the published checksum; it is not a publisher signature. Follow organisation policy for download approval and SmartScreen.
+
+## App capabilities
+
+| Surface | Current App capability | Boundary |
+|---|---|---|
+| Profiles | Interactive and Client secret authentication | Legacy Certificate values are preserved as unsupported until explicitly replaced. Dual-write uses portal-only sign-in; unused legacy DI ROPC settings are preserved with explicit legacy-password clearing. |
+| Query Builder | OData query composition and CSV export | Live outcome depends on environment permissions. |
+| POST Builder | POST/PATCH/DELETE with confirmation | `If-Match: *` checks existence; a specific ETag requests a version check where supported. |
+| Metadata | Entity, field, navigation, enum and key inspection | Live metadata depends on environment access. |
+| Map Browser | Map bindings, counts, and field details | Counts can be capped, snapshot-derived, or not-comparable. |
+| Operations | Lifecycle actions and project debug flags | Actions are live writes and require confirmation. |
+| Compare | Map presence and reported version/state | Includes Unknown/Ambiguous; it is not row-count or configuration-parity certification. |
+| Virtual Tables | Inspect F&O-backed virtual tables | The App does not generate virtual tables. |
+| Profiler | [Experimental CLI](../profiler/README.md) | Not shipped in the supported desktop release. |
+
+The visible catalog is defined in [`BuiltInToolCatalog.cs`](../avalonia/toolBax.App/Services/BuiltInToolCatalog.cs). App startup uses real composition on Windows; non-Windows or unavailable profile-store startup enters explicit degraded/fake mode ([`App.axaml.cs`](../avalonia/toolBax.App/App.axaml.cs)). This does not imply every Windows startup succeeds.
+
+## Core-only APIs
+
+The following Core capabilities have no current App UI: saved queries/API requests, template switching, table refresh, link reset, and integration-key application. They remain implementation APIs, not advertised product screens. Profile persistence is in [`ProfileStore.cs`](../src/FoToolbox.Core/Profiles/ProfileStore.cs); gateway client behavior is in [`DualWriteGatewayClient.cs`](../src/FoToolbox.Core/DualWrite/DualWriteGatewayClient.cs).
+
+## Data, logs, and evidence limits
+
+User data is usually under `%LocalAppData%\FoToolbox`; portable-base handling can place `profile.db` differently ([`ProfilePaths.cs`](../src/FoToolbox.Core/Profiles/ProfilePaths.cs)). Secrets use CurrentUser DPAPI ([`SecretVaultService.cs`](../src/FoToolbox.Core/Profiles/SecretVaultService.cs)), so moving a zip/database is not cross-user credential migration.
+
+Logs omit tokens, request/response bodies, and headers, but may contain endpoint paths or business identifiers. Review/redact before sharing.
+
+Deterministic CI and packaging evidence does not prove live authentication, portal behavior, tenant policy, permissions, or every feature. See the [hardening tracker](production-readiness/2026-09-25-hardening.md) for current delivery evidence.
+
+Microsoft does not support the referenced [Dual-write automations](https://github.com/microsoft/Dual-write-automations) project; it is provided as-is and warns API changes may break it. This statement applies to that project, not all Dataverse APIs.
+
+Two live unknowns remain in [issue #168](https://github.com/S0l0m0n8und9/toolbAX/issues/168): Resume `skipInitialSync` behavior and `reversedSourceFilter` format. They are not validated claims.
+
+For security reporting see [`SECURITY.md`](../SECURITY.md); contribution guidance is in [`CONTRIBUTING.md`](../CONTRIBUTING.md).
