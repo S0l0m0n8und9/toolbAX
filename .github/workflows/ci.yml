@@ -2,20 +2,41 @@ name: ci
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [main]
   pull_request:
-    branches: [ "main" ]
+    branches: [main]
+  workflow_call:
+    inputs:
+      source_sha:
+        description: Immutable source commit resolved by release
+        required: true
+        type: string
+      package_version:
+        required: true
+        type: string
+      file_version:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+env:
+  CI: 'true'
+  SOURCE_SHA: ${{ inputs.source_sha || github.sha }}
+  PACKAGE_VERSION: ${{ inputs.package_version || '0.0.0-ci' }}
+  FILE_VERSION: ${{ inputs.file_version || '0.0.0.0' }}
+defaults:
+  run:
+    shell: pwsh
 
 jobs:
   build-test:
     runs-on: windows-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, node24
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0, node24
         with:
           global-json-file: global.json
           cache: true
@@ -23,49 +44,43 @@ jobs:
             **/*.csproj
             Directory.Build.props
             Directory.Packages.props
-
-      - name: Restore
-        run: dotnet restore .\FoToolbox.sln
-
-      - name: Build
-        run: dotnet build .\FoToolbox.sln -c Release --no-restore
-
-      # FoToolbox.sln is now just the shared Core library + its xUnit tests (the deprecated WPF host,
-      # SDK, plugins, and the UI/E2E test projects were removed). The Avalonia app is covered by the
-      # avalonia-tests job below.
-      - name: Test
-        run: dotnet test .\tests\FoToolbox.Tests\FoToolbox.Tests.csproj -c Release --no-build --collect:"XPlat Code Coverage" --blame-hang --blame-hang-timeout 150s --blame-hang-dump-type mini --results-directory ${{ github.workspace }}\TestResults
-
-      - name: Upload test results
+      - name: Validate source and release helpers
+        run: |
+          . ./scripts/ci/ReleaseTools.ps1
+          Assert-BuildInputs $env:SOURCE_SHA $env:PACKAGE_VERSION $env:FILE_VERSION
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $head -cne $env:SOURCE_SHA) { throw 'Wrong source checkout.' }
+          ./scripts/ci/Test-ReleaseTools.ps1
+      - name: Restore and build Core Release
+        run: |
+          dotnet restore ./FoToolbox.sln
+          if ($LASTEXITCODE -ne 0) { throw 'Core restore failed.' }
+          dotnet build ./FoToolbox.sln -c Release --no-restore
+          if ($LASTEXITCODE -ne 0) { throw 'Core build failed.' }
+      - name: Test Core on Windows
+        run: |
+          dotnet test ./tests/FoToolbox.Tests/FoToolbox.Tests.csproj -c Release --no-build --logger trx --collect:"XPlat Code Coverage" --blame-hang --blame-hang-timeout 150s --results-directory artifacts/core-tests
+          if ($LASTEXITCODE -ne 0) { throw 'Core tests failed.' }
+      - name: Audit Core solution including test dependencies
+        run: ./scripts/ci/Assert-PackageAudit.ps1 -Project ./FoToolbox.sln -OutputPath artifacts/core-solution-audit.json
+      - name: Upload Core results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, node24
         with:
-          name: test-results
-          path: ${{ github.workspace }}\TestResults
+          name: core-test-results
+          path: |
+            artifacts/core-tests
+            artifacts/core-solution-audit.json*
+          archive: true
           if-no-files-found: ignore
 
-      - name: Vulnerable packages
-        shell: pwsh
-        run: |
-          # `dotnet list package --vulnerable` exits 0 even when it finds advisories, so parse the
-          # output and fail the build when any project reports a vulnerable package.
-          $out = dotnet list .\FoToolbox.sln package --vulnerable --include-transitive 2>&1 | Out-String
-          Write-Host $out
-          if ($out -match 'has the following vulnerable packages') {
-            throw "Vulnerable NuGet packages detected (see the list above)."
-          }
-
-  # The shipped product: the toolBax Avalonia app + its headless UI tests. Runs on ubuntu-latest with
-  # NO display server (the reason Avalonia was chosen over WPF/WinUI) — no xvfb, no virtual desktop.
   avalonia-tests:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, node24
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0, node24
         with:
           global-json-file: global.json
           cache: true
@@ -73,32 +88,111 @@ jobs:
             **/*.csproj
             Directory.Build.props
             Directory.Packages.props
-
-      - name: Restore
-        run: dotnet restore ./avalonia/toolBax.slnx
-
-      - name: Build
-        run: dotnet build ./avalonia/toolBax.slnx -c Release --no-restore
-
-      # The shipped artifact is the Avalonia app, so its dependency graph is the one that matters most.
-      # `dotnet list package --vulnerable` exits 0 even on a hit, so parse and fail explicitly.
-      - name: Vulnerable packages (shipping graph)
-        shell: bash
+      - name: Build and test supported Linux headless path
         run: |
-          out=$(dotnet list ./avalonia/toolBax.slnx package --vulnerable --include-transitive 2>&1)
-          echo "$out"
-          if echo "$out" | grep -q 'has the following vulnerable packages'; then
-            echo "::error::Vulnerable NuGet packages detected in the shipping graph (see the list above)."
-            exit 1
-          fi
-
-      - name: Run Avalonia headless tests (no display server)
-        run: dotnet test ./avalonia/toolBax.App.Tests/toolBax.App.Tests.csproj -c Release --no-build --blame-hang --blame-hang-timeout 90s --blame-hang-dump-type mini --results-directory ${{ github.workspace }}/AvaloniaTestResults
-
-      - name: Upload Avalonia test results
+          . ./scripts/ci/ReleaseTools.ps1
+          Assert-BuildInputs $env:SOURCE_SHA $env:PACKAGE_VERSION $env:FILE_VERSION
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $head -cne $env:SOURCE_SHA) { throw 'Wrong source checkout.' }
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          dotnet restore ./avalonia/toolBax.slnx -p:EnableWebView2=false
+          if ($LASTEXITCODE -ne 0) { throw 'Linux restore failed.' }
+          dotnet build ./avalonia/toolBax.slnx -c Release --no-restore -p:EnableWebView2=false 2>&1 | Tee-Object artifacts/app-build.log
+          if ($LASTEXITCODE -ne 0) { throw 'Linux App build failed.' }
+          if (-not (Select-String -Path artifacts/app-build.log -Pattern 'FoToolbox.Core -> .*[/\\]Release[/\\]net10.0[/\\]FoToolbox.Core.dll')) { throw 'Shared Core was not built in Release.' }
+          if (Select-String -Path artifacts/app-build.log -Pattern 'FoToolbox.Core -> .*[/\\]Debug[/\\]') { throw 'Debug Core leaked into Release solution.' }
+          dotnet test ./avalonia/toolBax.App.Tests/toolBax.App.Tests.csproj -c Release --no-build -p:EnableWebView2=false --logger trx --blame-hang --blame-hang-timeout 90s --results-directory artifacts/app-tests
+          if ($LASTEXITCODE -ne 0) { throw 'Linux App tests failed.' }
+      - name: Audit Linux App solution including test dependencies
+        run: ./scripts/ci/Assert-PackageAudit.ps1 -Project ./avalonia/toolBax.slnx -OutputPath artifacts/app-solution-audit.json
+      - name: Upload Linux results
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, node24
         with:
           name: avalonia-test-results
-          path: ${{ github.workspace }}/AvaloniaTestResults
+          path: |
+            artifacts/app-tests
+            artifacts/app-build.log
+            artifacts/app-solution-audit.json*
+          archive: true
+          if-no-files-found: ignore
+
+  windows-app:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, node24
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0, node24
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: |
+            **/*.csproj
+            Directory.Build.props
+            Directory.Packages.props
+      - name: Build and test Windows App with WebView2
+        run: |
+          . ./scripts/ci/ReleaseTools.ps1
+          Assert-BuildInputs $env:SOURCE_SHA $env:PACKAGE_VERSION $env:FILE_VERSION
+          $head = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0 -or $head -cne $env:SOURCE_SHA) { throw 'Wrong source checkout.' }
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          dotnet restore ./avalonia/toolBax.slnx -p:EnableWebView2=true
+          if ($LASTEXITCODE -ne 0) { throw 'Windows restore failed.' }
+          dotnet build ./avalonia/toolBax.slnx -c Release --no-restore -p:EnableWebView2=true 2>&1 | Tee-Object artifacts/app-build.log
+          if ($LASTEXITCODE -ne 0) { throw 'Windows App build failed.' }
+          if (-not (Select-String -Path artifacts/app-build.log -Pattern 'FoToolbox.Core -> .*[/\\]Release[/\\]net10.0[/\\]FoToolbox.Core.dll')) { throw 'Shared Core was not built in Release.' }
+          if (Select-String -Path artifacts/app-build.log -Pattern 'FoToolbox.Core -> .*[/\\]Debug[/\\]') { throw 'Debug Core leaked into Release solution.' }
+          dotnet test ./avalonia/toolBax.App.Tests/toolBax.App.Tests.csproj -c Release --no-build -p:EnableWebView2=true --logger trx --blame-hang --blame-hang-timeout 90s --results-directory artifacts/app-tests
+          if ($LASTEXITCODE -ne 0) { throw 'Windows App tests failed.' }
+      - name: Audit Windows App solution including test dependencies
+        run: ./scripts/ci/Assert-PackageAudit.ps1 -Project ./avalonia/toolBax.slnx -OutputPath artifacts/app-solution-audit.json
+      - name: Audit shipping dependency graph
+        run: ./scripts/ci/Assert-PackageAudit.ps1
+      - name: Upload Windows results and audit
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, node24
+        with:
+          name: windows-app-results
+          path: |
+            artifacts/app-tests
+            artifacts/app-build.log
+            artifacts/app-solution-audit.json*
+            artifacts/package-audit.json*
+          archive: true
+          if-no-files-found: ignore
+
+  package-smoke:
+    needs: [build-test, avalonia-tests, windows-app]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, node24
+        with:
+          ref: ${{ inputs.source_sha || github.sha }}
+      - uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0, node24
+        with:
+          global-json-file: global.json
+      - name: Publish, archive, extract and smoke the real Windows application
+        run: ./scripts/ci/Build-SmokePackage.ps1 -SourceSha $env:SOURCE_SHA -PackageVersion $env:PACKAGE_VERSION -FileVersion $env:FILE_VERSION
+      - name: Upload only the archive and checksum that passed smoke
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, node24
+        with:
+          name: tested-package-${{ inputs.source_sha || github.sha }}
+          path: |
+            artifacts/package/toolbAX-win-x64.zip
+            artifacts/package/toolbAX-win-x64.zip.sha256
+          archive: true
+          if-no-files-found: error
+      - name: Upload package smoke diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1, node24
+        with:
+          name: package-smoke-evidence
+          path: |
+            artifacts/package/publish.log
+            artifacts/package/smoke-*/report.json
+            artifacts/package/smoke-*/stdout.log
+            artifacts/package/smoke-*/stderr.log
+          archive: true
           if-no-files-found: ignore
