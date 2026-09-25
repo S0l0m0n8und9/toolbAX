@@ -5,6 +5,7 @@ using FoToolbox.Core.DualWrite.Auth;
 
 namespace FoToolbox.Tests;
 
+[Trait("Category", "DualWrite")]
 public sealed class DualWriteEndpointTrustRegressionTests
 {
     private const string GatewayRoot =
@@ -120,6 +121,7 @@ public sealed class DualWriteEndpointTrustRegressionTests
     [InlineData("https://login.microsoftonline.com:444/common/oauth2/v2.0/token")]
     [InlineData("https://login.microsoftonline.com/common%2Fother/oauth2/v2.0/token")]
     [InlineData("https://login.microsoftonline.com/common%5Cother/oauth2/v2.0/token")]
+    [InlineData("https://login.microsoftonline.com/tenant\\oauth2/v2.0/token")]
     [InlineData("https://login.microsoftonline.com//oauth2/v2.0/token")]
     [InlineData("http://login.microsoftonline.com/common/oauth2/v2.0/token")]
     public void Token_endpoint_detection_rejects_component_and_path_bait(string url)
@@ -168,6 +170,8 @@ public sealed class DualWriteEndpointTrustRegressionTests
     [InlineData("https://evil.example/api/DualWriteManagement/1.0/Version")]
     [InlineData("http://projectmanagementservice.weu-il107.gateway.prod.island.powerapps.com/api/DualWriteManagement/1.0/Version")]
     [InlineData("https://projectmanagementservice.weu-il107.gateway.prod.island.powerapps.com:444/api/DualWriteManagement/1.0/Version")]
+    [InlineData("https://user@projectmanagementservice.weu-il107.gateway.prod.island.powerapps.com/api/DualWriteManagement/1.0/Version")]
+    [InlineData("https://projectmanagementservice.weu-il107.gateway.prod.island.powerapps.com/api/DualWriteManagement/1.0/Version#fragment")]
     public async Task Static_bearer_rejects_unbound_request_before_attaching_credentials(string requestUrl)
     {
         var inner = new RecordingHandler();
@@ -202,6 +206,8 @@ public sealed class DualWriteEndpointTrustRegressionTests
     [InlineData("https://evil.example/api/DualWriteManagement/1.0/Version")]
     [InlineData("http://projectmanagementservice.weu-il107.gateway.prod.island.powerapps.com/api/DualWriteManagement/1.0/Version")]
     [InlineData("https://projectmanagementservice.weu-il107.gateway.prod.island.powerapps.com:444/api/DualWriteManagement/1.0/Version")]
+    [InlineData("https://user@projectmanagementservice.weu-il107.gateway.prod.island.powerapps.com/api/DualWriteManagement/1.0/Version")]
+    [InlineData("https://projectmanagementservice.weu-il107.gateway.prod.island.powerapps.com/api/DualWriteManagement/1.0/Version#fragment")]
     public async Task Refreshing_bearer_rejects_unbound_request_before_refresh_or_persistence(string requestUrl)
     {
         var now = new DateTimeOffset(2026, 9, 26, 0, 0, 0, TimeSpan.Zero);

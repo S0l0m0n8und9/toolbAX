@@ -86,6 +86,7 @@ public static class DualWriteEndpointPolicy
     public static bool IsTokenEndpoint(Uri? candidate)
     {
         if (candidate is null || !candidate.IsAbsoluteUri ||
+            candidate.OriginalString.Contains('\\') ||
             !string.Equals(candidate.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
             candidate.Port != 443 ||
             !string.IsNullOrEmpty(candidate.UserInfo) ||
@@ -121,6 +122,8 @@ public static class DualWriteEndpointPolicy
     {
         ArgumentNullException.ThrowIfNull(trustedGatewayOrigin);
         return requestUri is not null && requestUri.IsAbsoluteUri &&
+               string.IsNullOrEmpty(requestUri.UserInfo) &&
+               string.IsNullOrEmpty(requestUri.Fragment) &&
                string.Equals(trustedGatewayOrigin.Scheme, requestUri.Scheme, StringComparison.OrdinalIgnoreCase) &&
                string.Equals(trustedGatewayOrigin.IdnHost, requestUri.IdnHost, StringComparison.OrdinalIgnoreCase) &&
                trustedGatewayOrigin.Port == requestUri.Port;
