@@ -25,12 +25,14 @@ public sealed class WriteOutcomeTests
         public List<ConfirmRequest> Requests { get; } = new();
         public Task<bool> ConfirmAsync(ConfirmRequest request) { Requests.Add(request); return Gate?.Task ?? Task.FromResult(true); }
     }
+
     private sealed class Client(Func<string, string, CancellationToken, Task<ODataResponse>> send) : IODataClient
     {
         public List<(string Method, string Path)> Calls { get; } = new();
         public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
         { Calls.Add((method, path)); return send(method, path, ct); }
     }
+
     [Fact]
     public async Task Post_lost_reply_after_server_change_is_unknown_not_failed_or_unsent()
     {
@@ -42,6 +44,7 @@ public sealed class WriteOutcomeTests
         Assert.Contains("unknown", vm.StatusText, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("not sent", vm.StatusText, StringComparison.OrdinalIgnoreCase);
     }
+
     [Fact]
     public async Task Post_confirmation_cancel_finishes_without_answer_and_cannot_send_later()
     {
@@ -59,6 +62,7 @@ public sealed class WriteOutcomeTests
         finally { gate.TrySetResult(true); await send; }
         Assert.Empty(client.Calls);
     }
+
     [Fact]
     public async Task Post_incomplete_2xx_is_acknowledged_but_unconfirmed()
     {
@@ -70,6 +74,7 @@ public sealed class WriteOutcomeTests
         Assert.Contains("unconfirmed", vm.StatusText, StringComparison.OrdinalIgnoreCase);
         Assert.False(vm.SendSucceeded);
     }
+
     [Fact]
     public async Task Ops_poll_cancel_keeps_submitted_evidence()
     {
@@ -84,6 +89,7 @@ public sealed class WriteOutcomeTests
         Assert.Contains("submitted", vm.Status, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("stopped waiting", vm.Status, StringComparison.OrdinalIgnoreCase);
     }
+
     [Theory]
     [InlineData("PATCH")]
     [InlineData("DELETE")]
@@ -102,6 +108,7 @@ public sealed class WriteOutcomeTests
         Assert.Contains("does not prove", vm.ReadbackText);
         Assert.Equal(2, client.Calls.Count);
     }
+
     [Theory]
     [InlineData("https://foreign.example/data/X(1)")]
     [InlineData("https://user@fo.example/data/X(1)")]
@@ -118,6 +125,7 @@ public sealed class WriteOutcomeTests
         Assert.Single(client.Calls);
         Assert.Contains("Query Builder", vm.ReconcileReason);
     }
+
     [Fact]
     public async Task Post_relative_server_locator_is_resolved_to_captured_origin()
     {
@@ -128,6 +136,7 @@ public sealed class WriteOutcomeTests
         await vm.ReconcileCommand.ExecuteAsync(null);
         Assert.Equal(("GET", "https://fo.example/data/X(42)"), client.Calls.Last());
     }
+
     [Fact]
     public async Task Rejected_direct_send_and_readback_do_not_steal_owner_cancellation_or_receipt()
     {
@@ -149,6 +158,7 @@ public sealed class WriteOutcomeTests
         Assert.Contains("unknown", vm.StatusText);
         Assert.False(vm.IsBusy);
     }
+
     [Fact]
     public async Task Post_readback_drift_blocks_dispatch_and_discards_held_result()
     {
@@ -168,6 +178,7 @@ public sealed class WriteOutcomeTests
         await read;
         Assert.DoesNotContain("STALE", vm.ReadbackText);
     }
+
     [Fact]
     public async Task A_new_confirmation_names_an_unconfirmed_prior_attempt()
     {
@@ -179,6 +190,7 @@ public sealed class WriteOutcomeTests
         Assert.Contains("prior", dialogs.Requests[1].Message);
         Assert.Contains("unconfirmed", dialogs.Requests[1].Message);
     }
+
     private sealed class Metadata : IMetadataService
     {
         public void Invalidate() { }
@@ -187,6 +199,7 @@ public sealed class WriteOutcomeTests
         public Task LoadEntitiesAsync(CancellationToken ct = default) => Task.CompletedTask;
         public Task<bool> LoadFieldsAsync(string name, CancellationToken ct = default) => Task.FromResult(false);
     }
+
     [Fact]
     public async Task Debug_partial_progress_and_readback_preserve_ack_unknown_and_unattempted_legs()
     {
@@ -216,6 +229,7 @@ public sealed class WriteOutcomeTests
         Assert.Contains("flag unknown", vm.ReadbackText);
         Assert.Contains("Original", vm.ReadbackText);
     }
+
     [Fact]
     public async Task Ops_poll_cancel_retains_id_and_reconcile_reads_it_without_resubmitting()
     {
@@ -238,6 +252,7 @@ public sealed class WriteOutcomeTests
         Assert.Contains(vm.LastLifecycleReceipt.RequestId!, vm.ReadbackText);
         Assert.Contains("unchanged", vm.ReadbackText);
     }
+
     [Fact]
     public async Task Ops_no_request_id_reconciles_captured_maps_without_starting_again()
     {
@@ -254,6 +269,7 @@ public sealed class WriteOutcomeTests
         Assert.Contains(name, vm.ReadbackText);
         Assert.Contains("not proof", vm.ReadbackText);
     }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -271,6 +287,7 @@ public sealed class WriteOutcomeTests
         Assert.DoesNotContain("STALE", vm.ReadbackText);
         Assert.False(vm.IsBusy);
     }
+
     [AvaloniaFact]
     public async Task Attached_post_receipt_and_readback_remain_visible_in_separate_measured_panels()
     {
@@ -297,6 +314,7 @@ public sealed class WriteOutcomeTests
         }
         finally { window.Close(); }
     }
+
     [AvaloniaFact]
     public async Task Attached_ops_receipt_and_readback_do_not_replace_each_other()
     {
@@ -321,7 +339,9 @@ public sealed class WriteOutcomeTests
             Assert.Equal("Read latest write state", reconcile.Content);
         }
         finally { window.Close(); }
-    }    private sealed class Gateway : IDualWriteGateway
+    }
+
+    private sealed class Gateway : IDualWriteGateway
     {
         public Func<CancellationToken, Task<DualWriteActionResponse>> Start { get; set; } = _ => Task.FromResult(new DualWriteActionResponse("r1", null));
         public Func<CancellationToken, Task<DualWriteRequestStatus>> Status { get; set; } = _ => Task.FromResult(new DualWriteRequestStatus("r1", "Completed", true, true, null));
@@ -339,10 +359,12 @@ public sealed class WriteOutcomeTests
         public Task ResetLinksAsync(string c, DualWriteConnectionSet s, IReadOnlyList<string> l, bool f, CancellationToken ct = default) => throw new NotSupportedException();
         public Task ApplyIntegrationKeysAsync(string d, string c, IReadOnlyList<string> k, CancellationToken ct = default) => throw new NotSupportedException();
     }
+
     private sealed class Connector(Gateway gateway) : IDualWriteConnector
     {
         public Task<DualWriteSession> ConnectAsync(EnvProfile env, CancellationToken ct = default) => Task.FromResult(new DualWriteSession(gateway, "captured-cid", "captured-name", env));
     }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -370,6 +392,7 @@ public sealed class WriteOutcomeTests
         await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
         Assert.Contains("unconfirmed", dialogs.Requests.Last().Message);
     }
+
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
@@ -394,6 +417,7 @@ public sealed class WriteOutcomeTests
         Assert.Contains("disabled", vm.ReconcileReason);
         Assert.Equal(1, gateway.Starts);
     }
+
     [Fact]
     public async Task Ops_preconfirmation_cancel_and_direct_overlap_never_submit_or_steal_cancel()
     {
@@ -418,6 +442,7 @@ public sealed class WriteOutcomeTests
         finally { gate.TrySetResult(true); await run; }
         Assert.Equal(0, gateway.Starts);
     }
+
     [Fact]
     public async Task Debug_cancel_after_applied_patch_leaves_remaining_projects_not_attempted()
     {
@@ -442,7 +467,9 @@ public sealed class WriteOutcomeTests
         Assert.True(vm.LastDebugReceipt!.Projects[0].Observation!.Unconfirmed);
         Assert.Null(vm.LastDebugReceipt.Projects[1].Observation);
         Assert.Single(client.Calls, c => c.Method == "PATCH");
-    }    [Theory]
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Ops_explicit_readback_discards_late_state_after_disposal_or_session_drift(bool dispose)
@@ -463,6 +490,7 @@ public sealed class WriteOutcomeTests
         Assert.Equal(1, gateway.Starts);
         Assert.False(vm.IsBusy);
     }
+
     [Theory]
     [InlineData(500, true)]
     [InlineData(201, false)]
@@ -477,7 +505,9 @@ public sealed class WriteOutcomeTests
         Assert.Same(receipt, vm.LastReceipt);
         Assert.True(vm.LastReceipt!.Observation.Unconfirmed);
         Assert.Contains("unconfirmed", vm.WriteReceiptText);
-    }    [Fact]
+    }
+
+    [Fact]
     public async Task Patch_readback_preserves_captured_endpoint_path_prefix()
     {
         var env = Env() with { Url = "https://fo.example/ProxyPath" };
@@ -486,7 +516,9 @@ public sealed class WriteOutcomeTests
         await vm.SendCommand.ExecuteAsync(null);
         await vm.ReconcileCommand.ExecuteAsync(null);
         Assert.Equal(("GET", "https://fo.example/ProxyPath/data/X(1)"), client.Calls.Last());
-    }    [Theory]
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Drift_after_post_dispatch_retains_only_captured_acknowledgment_not_current_response(bool dispose)
@@ -509,6 +541,7 @@ public sealed class WriteOutcomeTests
         await vm.ReconcileCommand.ExecuteAsync(null);
         Assert.Single(client.Calls);
     }
+
     [Fact]
     public async Task Drift_after_debug_patch_preserves_ack_and_stops_before_next_project()
     {
@@ -527,7 +560,9 @@ public sealed class WriteOutcomeTests
         Assert.Null(vm.LastDebugReceipt.Projects[1].Observation);
         Assert.Equal(2, client.Calls.Count);
         Assert.Contains("disabled", vm.ReconcileReason);
-    }    [Theory]
+    }
+
+    [Theory]
     [InlineData(false)]
     [InlineData(true)]
     public async Task Lifecycle_ack_after_drift_retains_old_scope_without_polling_and_disposal_never_settles(bool dispose)
@@ -550,6 +585,7 @@ public sealed class WriteOutcomeTests
         Assert.Equal(1, gateway.MapReads);
         if (!dispose) Assert.Contains("Context changed", vm.Status);
     }
+
     [Fact]
     public async Task A_readback_owner_rejects_writes_without_losing_cancellation_or_receipt()
     {
@@ -574,7 +610,9 @@ public sealed class WriteOutcomeTests
         Assert.Single(dialogs.Requests);
         Assert.Equal(2, client.Calls.Count);
         Assert.Contains("cancelled", vm.ReadbackText);
-    }    [Fact]
+    }
+
+    [Fact]
     public async Task Known_local_auth_refusal_does_not_invent_an_observed_http_status()
     {
         var client = new Client((_, _, _) => Task.FromResult(new ODataResponse(401,"Unauthorized","auth refused locally",0) { DispatchStarted = false }));
@@ -583,4 +621,5 @@ public sealed class WriteOutcomeTests
         Assert.False(vm.LastReceipt!.Observation.DispatchStarted);
         Assert.Null(vm.LastReceipt.Observation.StatusCode);
         Assert.Contains("Not sent", vm.StatusText);
-    }}
+    }
+}
