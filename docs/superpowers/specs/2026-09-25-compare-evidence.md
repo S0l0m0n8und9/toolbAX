@@ -1,6 +1,6 @@
 # Compare evidence and scope
 
-Status: Implemented and focused validation passed; full gates, PR/review and merge pending. Campaign H06b, 2026-09-25.
+Status: Implemented, locally reviewed and fully validated; PR/review and merge pending. Campaign H06b, 2026-09-25.
 
 Append `DualWriteComparisonVerdict.Unknown` without changing existing enum values. Pairing remains
 unchanged: ambiguous identities and one-sided presence keep their existing verdicts. For a confidently
@@ -34,7 +34,7 @@ Compare selection/result attribution remains H06c and malformed response parsing
 
 Use fake data and local Core/headless tests only, with meaningful RED/GREEN and no sleeps or live calls.
 Focused `CI=true` Release Core comparer and App compare/fake/render results go under ignored
-`artifacts/h06b`. Parent controls full solution gates after source freeze and base integration.
+`artifacts/h06b`. Full solution gates below were run after source freeze and base integration.
 
 Focused evidence: clean baseline passed 18 Core comparer and 36 App compare/fake/render tests.
 Before production changes, missing-evidence regressions produced 20 Core failures (24 controls passed),
@@ -42,3 +42,9 @@ and new presentation expectations produced 10 App failures (30 controls passed).
 Release focused runs pass 47/47 Core and 40/40 App, with zero failed/skipped. The final Core suite adds
 explicit matching-null/empty/whitespace controls on both sides. Saved logs/TRX are
 `baseline-{core,app}`, `unknown-{core,app}-red`, and `unknown-{core,app}-green` under `artifacts/h06b`.
+
+Full `CI=true` Release gates passed at integrated source `1a0c6d524c5fbbf81ef125be0e437310360cdb27`:
+both solution builds had 0 warnings/errors; App tests passed 1,161/1,161 and Core tests passed 432/432,
+with 0 failed/skipped. Saved evidence is `artifacts/h06b/full-{app,core}-{build,test}.log` and
+`artifacts/h06b/full-{app,core}.trx`. Local source/test review and RED/GREEN/full-result read-back are
+accepted. These establish local completion; the separate PR, Greptile review and merge remain pending.
