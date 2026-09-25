@@ -254,6 +254,33 @@ public class MetadataViewModelTests
     }
 
     [Fact]
+    public async Task Disposed_metadata_does_not_commit_a_late_fields_response()
+    {
+        var metadata = new BlockingFieldsMetadata();
+        var vm = new MetadataViewModel(metadata);
+
+        var fetch = vm.LoadSelectedFieldsCommand.ExecuteAsync(null);
+        vm.Dispose();
+        metadata.Gate.SetResult(true);
+        await fetch;
+
+        Assert.Empty(vm.Fields);
+        Assert.False(vm.IsCached);
+    }
+
+    [Fact]
+    public async Task A_configured_missing_active_profile_blocks_metadata_field_dispatch()
+    {
+        var metadata = new BlockingFieldsMetadata();
+        var vm = new MetadataViewModel(metadata, activeEnvironment: () => null);
+
+        await vm.LoadSelectedFieldsCommand.ExecuteAsync(null);
+
+        Assert.False(vm.IsLoadingFields);
+        Assert.False(metadata.Gate.Task.IsCompleted);
+    }
+
+    [Fact]
     public async Task A_failed_fields_fetch_clears_the_indicator_and_restores_the_not_cached_hint()
     {
         var metadata = new BlockingFieldsMetadata();
