@@ -729,7 +729,11 @@ public class ShellViewModelTests
     public void Shell_wires_its_secret_store_into_profiles()
     {
         var secrets = new FakeSecretStore();
-        var shell = new ShellViewModel(secretStore: secrets);
+        var profile = new EnvProfile("saved", "Saved", "https://saved.operations.dynamics.com", "tenant",
+            "USMF", "Tier 1", EnvStatus.Disconnected, ClientId: "fo-client",
+            AuthMode: FoAuthMode.ClientSecret);
+        var store = new FakeProfileStore(new[] { profile }) { ActiveId = profile.Id };
+        var shell = new ShellViewModel(profileStore: store, secretStore: secrets);
         shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
         var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
 

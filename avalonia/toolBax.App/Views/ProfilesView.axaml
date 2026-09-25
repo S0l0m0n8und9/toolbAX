@@ -172,11 +172,16 @@
                 <!-- Client secret only applies to the app-only ClientSecret mode. -->
                 <Grid IsVisible="{Binding IsFoClientSecretMode}" ColumnDefinitions="130,*,Auto,Auto" ColumnSpacing="8">
                   <TextBlock Grid.Column="0" Text="Client secret" Foreground="{StaticResource Text2Brush}" VerticalAlignment="Center" />
-                  <TextBox Grid.Column="1" Text="{Binding SecretInput, Mode=TwoWay}" PasswordChar="●"
+                  <TextBox x:Name="FoSecretInput" Grid.Column="1" Text="{Binding SecretInput, Mode=TwoWay}" PasswordChar="●"
+                           IsEnabled="{Binding CanStoreFoClientSecret}"
                            PlaceholderText="Enter a new secret to store" FontFamily="{StaticResource MonoFontFamily}" />
-                  <Button Grid.Column="2" Content="Store" Command="{Binding SaveSecretCommand}" />
+                  <Button x:Name="FoSecretStoreButton" Grid.Column="2" Content="Store" Command="{Binding SaveSecretCommand}"
+                          IsEnabled="{Binding CanStoreFoClientSecret}" />
                   <Button Grid.Column="3" Content="Clear" Command="{Binding ClearSecretCommand}" />
                 </Grid>
+                <TextBlock x:Name="FoSecretSaveFirstHint" IsVisible="{Binding ShowFoSecretSaveFirstHint}"
+                           Text="Save authentication changes before entering a client secret." FontSize="11"
+                           Foreground="{StaticResource WarnBrush}" />
 
                 <!-- Tab-specific connection test stays in the FO tab. -->
                 <StackPanel Orientation="Horizontal" Spacing="8">
@@ -241,11 +246,16 @@
                       <TextBlock Text="set" FontSize="11" Foreground="{StaticResource OkBrush}" />
                     </Border>
                   </StackPanel>
-                  <TextBox Grid.Column="1" Text="{Binding DataverseSecretInput, Mode=TwoWay}" PasswordChar="●"
+                  <TextBox x:Name="DataverseSecretInput" Grid.Column="1" Text="{Binding DataverseSecretInput, Mode=TwoWay}" PasswordChar="●"
+                           IsEnabled="{Binding CanStoreDataverseClientSecret}"
                            PlaceholderText="Enter a new Dataverse secret to store" FontFamily="{StaticResource MonoFontFamily}" />
-                  <Button Grid.Column="2" Content="Store" Command="{Binding SaveDataverseSecretCommand}" />
+                  <Button x:Name="DataverseSecretStoreButton" Grid.Column="2" Content="Store" Command="{Binding SaveDataverseSecretCommand}"
+                          IsEnabled="{Binding CanStoreDataverseClientSecret}" />
                   <Button Grid.Column="3" Content="Clear" Command="{Binding ClearDataverseSecretCommand}" />
                 </Grid>
+                <TextBlock x:Name="DataverseSecretSaveFirstHint" IsVisible="{Binding ShowDataverseSecretSaveFirstHint}"
+                           Text="Save authentication changes before entering a client secret." FontSize="11"
+                           Foreground="{StaticResource WarnBrush}" />
 
                 <StackPanel Orientation="Horizontal" Spacing="10">
                   <Button Content="Test Dataverse connection" Command="{Binding TestDataverseConnectionCommand}" />

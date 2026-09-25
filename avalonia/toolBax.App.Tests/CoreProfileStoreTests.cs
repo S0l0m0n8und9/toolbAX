@@ -6,7 +6,9 @@ using FoToolbox.Core.Models;
 using FoToolbox.Core.Profiles;
 using Microsoft.Data.Sqlite;
 using ToolBax.App.Services;
+using ToolBax.App.ViewModels;
 using ToolBax.Core.Models;
+using ToolBax.Core.Services;
 using Xunit;
 
 namespace ToolBax.App.Tests;
@@ -454,6 +456,68 @@ public sealed class CoreProfileStoreTests : IDisposable
         Assert.Equal("old-row", preserved.SecretRef);
         Assert.Equal("OLD-CERT", preserved.CertThumbprint);
         Assert.Equal(1, CountVaultRows("old-row"));
+    }
+
+    [Theory]
+    [InlineData(AuthTarget.Fo)]
+    [InlineData(AuthTarget.Dataverse)]
+    public async Task Real_vault_secret_is_blocked_until_legacy_replacement_is_saved_then_survives_rename(AuthTarget target)
+    {
+        if (!OperatingSystem.IsWindows()) return;
+        var ct = TestContext.Current.CancellationToken;
+        var seed = NewService();
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "Legacy", "https://legacy", "tenant", "USMF"), ct);
+        await seed.UpsertDataverseEnvironmentAsync(new DataverseEnvironment("env1", "https://legacy.crm.dynamics.com", "tenant"), ct);
+        var clientId = target == AuthTarget.Fo ? "fo-client" : "dv-client";
+        await seed.SetSettingAsync(target == AuthTarget.Fo ? "fo.authMode:env1" : "dv.authMode:env1",
+            nameof(FoAuthMode.Certificate), ct);
+        await seed.UpsertServicePrincipalAsync(new ServicePrincipal(
+            target == AuthTarget.Fo ? "legacy-fo" : "legacy-dv", "env1", clientId,
+            AuthMode.Certificate, null, "OLD-CERT", target), ct);
+        var profileStore = await CoreProfileStore.CreateAsync(NewService(), ct);
+        var secretStore = new CoreSecretStore(NewService(), new SecretVaultService(ConnectionString));
+        var secretTarget = target == AuthTarget.Fo ? SecretTarget.Fo : SecretTarget.Dataverse;
+        secretStore.SetSecret("env1", "legacy-secret", secretTarget);
+        var oldRef = (await NewService().GetServicePrincipalAsync("env1", target, ct))!.SecretRef!;
+        var vm = new ProfilesViewModel(profileStore, secretStore);
+        if (target == AuthTarget.Fo)
+        {
+            vm.SelectedFoAuthMode = FoAuthMode.ClientSecret;
+            vm.SecretInput = "new-secret";
+            vm.SaveSecretCommand.Execute(null);
+        }
+        else
+        {
+            vm.SelectedDataverseAuthMode = FoAuthMode.ClientSecret;
+            vm.DataverseSecretInput = "new-secret";
+            vm.SaveDataverseSecretCommand.Execute(null);
+        }
+
+        Assert.Equal(oldRef, (await NewService().GetServicePrincipalAsync("env1", target, ct))!.SecretRef);
+        Assert.Equal(1, CountVaultRows(oldRef));
+
+        await vm.SaveCommand.ExecuteAsync(null);
+        if (target == AuthTarget.Fo)
+        {
+            vm.SecretInput = "new-secret";
+            vm.SaveSecretCommand.Execute(null);
+        }
+        else
+        {
+            vm.DataverseSecretInput = "new-secret";
+            vm.SaveDataverseSecretCommand.Execute(null);
+        }
+        var newRef = (await NewService().GetServicePrincipalAsync("env1", target, ct))!.SecretRef!;
+        Assert.NotEqual(oldRef, newRef);
+        Assert.Equal(0, CountVaultRows(oldRef));
+        Assert.Equal(1, CountVaultRows(newRef));
+
+        vm.DraftName = "Renamed";
+        await vm.SaveCommand.ExecuteAsync(null);
+
+        Assert.Equal(newRef, (await NewService().GetServicePrincipalAsync("env1", target, ct))!.SecretRef);
+        Assert.Equal(1, CountVaultRows(newRef));
     }
 
     [Fact]

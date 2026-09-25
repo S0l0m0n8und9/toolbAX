@@ -40,6 +40,10 @@ public partial class ProfilesViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(HasSecret))]
     [NotifyPropertyChangedFor(nameof(HasDataverseSecret))]
     [NotifyPropertyChangedFor(nameof(HasLegacyDiConfiguration))]
+    [NotifyPropertyChangedFor(nameof(CanStoreFoClientSecret))]
+    [NotifyPropertyChangedFor(nameof(CanStoreDataverseClientSecret))]
+    [NotifyPropertyChangedFor(nameof(ShowFoSecretSaveFirstHint))]
+    [NotifyPropertyChangedFor(nameof(ShowDataverseSecretSaveFirstHint))]
     private EnvProfile? _selected;
 
     /// <summary>The Auth-tab client-secret entry. Write-only: stored on save, never loaded back.</summary>
@@ -72,6 +76,10 @@ public partial class ProfilesViewModel : ObservableObject
     private string _draftUrl = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanStoreFoClientSecret))]
+    [NotifyPropertyChangedFor(nameof(CanStoreDataverseClientSecret))]
+    [NotifyPropertyChangedFor(nameof(ShowFoSecretSaveFirstHint))]
+    [NotifyPropertyChangedFor(nameof(ShowDataverseSecretSaveFirstHint))]
     private string _draftTenant = string.Empty;
 
     [ObservableProperty]
@@ -92,11 +100,15 @@ public partial class ProfilesViewModel : ObservableObject
     // Dataverse drafts — a separate app reg from F&O.
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowDataverseDefaultClientIdNote))]
+    [NotifyPropertyChangedFor(nameof(CanStoreDataverseClientSecret))]
+    [NotifyPropertyChangedFor(nameof(ShowDataverseSecretSaveFirstHint))]
     private string _draftDataverseClientId = string.Empty;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowDataverseDefaultClientIdNote))]
     [NotifyPropertyChangedFor(nameof(IsDataverseClientSecretMode))]
+    [NotifyPropertyChangedFor(nameof(CanStoreDataverseClientSecret))]
+    [NotifyPropertyChangedFor(nameof(ShowDataverseSecretSaveFirstHint))]
     private FoAuthMode _draftDataverseAuthMode = FoAuthMode.Interactive;
 
     /// <summary>The Dataverse client-secret entry. Write-only, like the F&amp;O secret.</summary>
@@ -106,11 +118,15 @@ public partial class ProfilesViewModel : ObservableObject
     // F&O drafts.
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowFoDefaultClientIdNote))]
+    [NotifyPropertyChangedFor(nameof(CanStoreFoClientSecret))]
+    [NotifyPropertyChangedFor(nameof(ShowFoSecretSaveFirstHint))]
     private string _draftClientId = string.Empty;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowFoDefaultClientIdNote))]
     [NotifyPropertyChangedFor(nameof(IsFoClientSecretMode))]
+    [NotifyPropertyChangedFor(nameof(CanStoreFoClientSecret))]
+    [NotifyPropertyChangedFor(nameof(ShowFoSecretSaveFirstHint))]
     private FoAuthMode _draftAuthMode = FoAuthMode.Interactive;
 
     public FoAuthMode[] AuthModes { get; } = { FoAuthMode.Interactive, FoAuthMode.ClientSecret };
@@ -153,6 +169,28 @@ public partial class ProfilesViewModel : ObservableObject
     public bool IsFoClientSecretMode => DraftAuthMode == FoAuthMode.ClientSecret;
 
     public bool IsDataverseClientSecretMode => DraftDataverseAuthMode == FoAuthMode.ClientSecret;
+
+    public bool CanStoreFoClientSecret => SavedClientSecretContextMatches(
+        Selected?.AuthMode, Selected?.ClientId, DraftAuthMode, DraftClientId, Selected?.Tenant, DraftTenant);
+
+    public bool CanStoreDataverseClientSecret => SavedClientSecretContextMatches(
+        Selected?.DataverseAuthMode, Selected?.DataverseClientId, DraftDataverseAuthMode,
+        DraftDataverseClientId, Selected?.Tenant, DraftTenant);
+
+    public bool ShowFoSecretSaveFirstHint => IsFoClientSecretMode && !CanStoreFoClientSecret;
+
+    public bool ShowDataverseSecretSaveFirstHint =>
+        IsDataverseClientSecretMode && !CanStoreDataverseClientSecret;
+
+    private static bool SavedClientSecretContextMatches(FoAuthMode? savedMode, string? savedClientId,
+        FoAuthMode draftMode, string? draftClientId, string? savedTenant, string? draftTenant)
+    {
+        var effectiveDraftClient = string.IsNullOrWhiteSpace(draftClientId) ? null : draftClientId;
+        return savedMode == FoAuthMode.ClientSecret && draftMode == FoAuthMode.ClientSecret
+            && !string.IsNullOrWhiteSpace(savedClientId)
+            && string.Equals(effectiveDraftClient, savedClientId, StringComparison.Ordinal)
+            && string.Equals(draftTenant, savedTenant, StringComparison.Ordinal);
+    }
 
     [ObservableProperty]
     private bool _isTestingGateway;
@@ -438,10 +476,16 @@ public partial class ProfilesViewModel : ObservableObject
     [RelayCommand]
     private void SaveSecret()
     {
-        if (Selected is null || string.IsNullOrEmpty(SecretInput))
+        if (Selected is null)
         {
             return;
         }
+        if (!CanStoreFoClientSecret)
+        {
+            Status = "Save authentication changes before entering a client secret.";
+            return;
+        }
+        if (string.IsNullOrEmpty(SecretInput)) return;
 
         var error = TryStoreSecret(Selected.Id, SecretInput);
         OnPropertyChanged(nameof(HasSecret));
@@ -479,10 +523,16 @@ public partial class ProfilesViewModel : ObservableObject
     [RelayCommand]
     private void SaveDataverseSecret()
     {
-        if (Selected is null || string.IsNullOrEmpty(DataverseSecretInput))
+        if (Selected is null)
         {
             return;
         }
+        if (!CanStoreDataverseClientSecret)
+        {
+            Status = "Save authentication changes before entering a client secret.";
+            return;
+        }
+        if (string.IsNullOrEmpty(DataverseSecretInput)) return;
 
         var error = TryStoreSecret(Selected.Id, DataverseSecretInput, SecretTarget.Dataverse);
         OnPropertyChanged(nameof(HasDataverseSecret));

@@ -94,6 +94,58 @@ public sealed class ProfilesAuthWithdrawalRenderTests
     }
 
     [AvaloniaFact]
+    public void Pending_legacy_FO_replacement_disables_secret_entry_and_store_with_save_first_hint()
+    {
+        var view = RenderLegacyProfile(FoAuthMode.Certificate, FoAuthMode.Interactive, out var window);
+        try
+        {
+            SelectTab(view, window, "FO Environment");
+            var vm = Assert.IsType<ProfilesViewModel>(view.DataContext);
+            vm.SelectedFoAuthMode = FoAuthMode.ClientSecret;
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+
+            var input = view.FindControl<TextBox>("FoSecretInput");
+            var store = view.FindControl<Button>("FoSecretStoreButton");
+            var hint = view.FindControl<TextBlock>("FoSecretSaveFirstHint");
+            Assert.Contains(input!, window.GetVisualDescendants());
+            Assert.False(input!.IsEnabled);
+            Assert.False(store!.IsEnabled);
+            Assert.True(hint!.IsEffectivelyVisible);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void Pending_legacy_Dataverse_replacement_disables_secret_entry_and_store_with_save_first_hint()
+    {
+        var view = RenderLegacyProfile(FoAuthMode.Interactive, FoAuthMode.Certificate, out var window);
+        try
+        {
+            SelectTab(view, window, "CE · Dataverse");
+            var vm = Assert.IsType<ProfilesViewModel>(view.DataContext);
+            vm.SelectedDataverseAuthMode = FoAuthMode.ClientSecret;
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+
+            var input = view.FindControl<TextBox>("DataverseSecretInput");
+            var store = view.FindControl<Button>("DataverseSecretStoreButton");
+            var hint = view.FindControl<TextBlock>("DataverseSecretSaveFirstHint");
+            Assert.Contains(input!, window.GetVisualDescendants());
+            Assert.False(input!.IsEnabled);
+            Assert.False(store!.IsEnabled);
+            Assert.True(hint!.IsEffectivelyVisible);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
     public void Data_Integrator_tab_offers_portal_test_and_explicit_legacy_password_clear_only()
     {
         var profile = new EnvProfile("legacy", "Legacy", "https://legacy.operations.dynamics.com", "tenant",
