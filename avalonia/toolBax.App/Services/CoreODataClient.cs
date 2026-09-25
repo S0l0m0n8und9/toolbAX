@@ -16,8 +16,8 @@ namespace ToolBax.App.Services;
 /// <summary>
 /// Real <see cref="IODataClient"/>: issues the request against the active environment's F&amp;O OData
 /// endpoint with a bearer token from <see cref="IAuthService"/>. Failures (no active env, auth error,
-/// HTTP error) are returned as a non-2xx <see cref="ODataResponse"/> rather than thrown, so the POST
-/// Builder / Query Builder surface them in their status line.
+/// HTTP error) are returned as an <see cref="ODataResponse"/>. Mutation cancellation carries dispatch
+/// and observed response evidence; a failed body read can retain a 2xx acknowledgment without success.
 /// </summary>
 public sealed class CoreODataClient : IODataClient, IDisposable
 {
@@ -60,23 +60,30 @@ public sealed class CoreODataClient : IODataClient, IDisposable
         IReadOnlyDictionary<string, string>? headers, CancellationToken ct)
     {
         var sw = Stopwatch.StartNew();
+        var mutation = method.Trim().ToUpperInvariant() is "POST" or "PATCH" or "PUT" or "DELETE";
+        ODataResponse LocalFailure(int status, string reason, string detail) =>
+            new(status, reason, detail, (int)sw.ElapsedMilliseconds) { DispatchStarted = mutation ? false : null };
+        if (mutation && ct.IsCancellationRequested)
+            throw new ODataWriteCanceledException(false, null, new OperationCanceledException(ct), ct);
 
         var env = _activeEnv();
         if (env is null)
         {
-            return new ODataResponse(0, "No active environment", "Select an environment first.", (int)sw.ElapsedMilliseconds);
+            return LocalFailure(0, "No active environment", "Select an environment first.");
         }
 
         var identity = EnvironmentIdentity.Create(env);
         var normalizedBaseUrl = ResourceUrlNormalizer.NormalizeFoBaseUrl(env.Url);
-        var uri = BuildUri(normalizedBaseUrl, path);
+        Uri uri;
+        try { uri = BuildUri(normalizedBaseUrl, path); }
+        catch (Exception ex) when (mutation && ex is ArgumentException or UriFormatException)
+        { return LocalFailure(0, "Invalid request", ex.GetType().Name); }
 
         // A server-driven paging link is used verbatim, but only if it stays on the captured environment's
         // origin. Decide this from the same immutable profile snapshot used for auth and dispatch.
         if (path.StartsWith("http", StringComparison.OrdinalIgnoreCase) && !RequestOriginGuard.IsSameOrigin(normalizedBaseUrl, uri))
         {
-            return new ODataResponse(0, "Refused",
-                "The paging link points to a different origin than the environment.", (int)sw.ElapsedMilliseconds);
+            return LocalFailure(0, "Refused", "The paging link points to a different origin than the environment.");
         }
 
         string token;
@@ -87,21 +94,23 @@ public sealed class CoreODataClient : IODataClient, IDisposable
         // Cancelling mid-sign-in is not an authentication failure: reporting "401 Unauthorized" told the
         // user their credentials had been rejected when in fact they pressed Cancel. Rethrow so the
         // caller's cancellation path runs — see the note on the send handler below (#168).
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (OperationCanceledException ex) when (ct.IsCancellationRequested)
         {
+            if (mutation) throw new ODataWriteCanceledException(false, null, ex, ct);
             throw;
         }
         catch (Exception ex)
         {
-            return new ODataResponse(401, "Unauthorized", ex.Message, (int)sw.ElapsedMilliseconds);
+            return LocalFailure(401, "Unauthorized", ex.Message);
         }
 
         if (!identity.IsCurrent(_activeEnv()))
         {
-            return new ODataResponse(0, "Environment changed",
-                "The active environment changed before the request was sent.", (int)sw.ElapsedMilliseconds);
+            return LocalFailure(0, "Environment changed", "The active environment changed before the request was sent.");
         }
 
+        var dispatchStarted = false;
+        ODataResponse? observed = null;
         try
         {
             using var request = new HttpRequestMessage(new HttpMethod(method), uri);
@@ -124,25 +133,49 @@ public sealed class CoreODataClient : IODataClient, IDisposable
                 request.Content = new StringContent(body, Encoding.UTF8, "application/json");
             }
 
-            using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
-            var responseBody = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            // Headers-first mutation reads must retain HttpClient's original total deadline and buffer limit.
+            using var deadline = mutation ? CancellationTokenSource.CreateLinkedTokenSource(ct) : null;
+            if (deadline is not null && _http.Timeout != Timeout.InfiniteTimeSpan) deadline.CancelAfter(_http.Timeout);
+            var exchangeToken = deadline?.Token ?? ct;
+            exchangeToken.ThrowIfCancellationRequested();
+            dispatchStarted = true; // The injected handler pipeline is opaque; this never proves delivery.
+            using var response = await _http.SendAsync(request,
+                mutation ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead,
+                exchangeToken).ConfigureAwait(false);
+            if (mutation)
+            {
+                observed = new ODataResponse((int)response.StatusCode, response.ReasonPhrase ?? string.Empty,
+                    string.Empty, (int)sw.ElapsedMilliseconds, CollectHeaders(response))
+                    { DispatchStarted = true, BodyComplete = false };
+                await response.Content.LoadIntoBufferAsync(_http.MaxResponseContentBufferSize, exchangeToken).ConfigureAwait(false);
+            }
+            var responseBody = await response.Content.ReadAsStringAsync(exchangeToken).ConfigureAwait(false);
             sw.Stop();
             return new ODataResponse((int)response.StatusCode, response.ReasonPhrase ?? string.Empty,
-                responseBody, (int)sw.ElapsedMilliseconds, CollectHeaders(response));
+                responseBody, (int)sw.ElapsedMilliseconds, observed?.Headers ?? CollectHeaders(response))
+                { DispatchStarted = mutation ? true : null };
         }
         // A cancelled request is not a failed request. Reporting it as one meant the view models' own
         // `catch (OperationCanceledException)` handlers — the Query Builder's clean "Export cancelled.",
         // for one — could never run in production, and the user was told the request had failed instead.
-        // An HTTP/socket timeout also surfaces as an OperationCanceledException but with the caller's
-        // token still live, so gate on the token: only that means the caller asked to stop. A timeout
-        // falls through and keeps its non-success response.
+        // Mutations retain cancellation/timeout evidence in an OCE-compatible exception. Reads keep
+        // the existing distinction: caller cancellation propagates; an HTTP timeout becomes a failure result.
+        catch (OperationCanceledException ex) when (mutation)
+        {
+            throw new ODataWriteCanceledException(dispatchStarted,
+                observed is null ? null : observed with { BodyReadError = ex.GetType().Name, ElapsedMs = (int)sw.ElapsedMilliseconds },
+                ex, ct.IsCancellationRequested ? ct : ex.CancellationToken);
+        }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
         }
         catch (Exception ex)
         {
-            return new ODataResponse(0, "Request failed", ex.Message, (int)sw.ElapsedMilliseconds);
+            if (observed is not null)
+                return observed with { BodyReadError = ex.GetType().Name, ElapsedMs = (int)sw.ElapsedMilliseconds };
+            return new ODataResponse(0, "Request failed", mutation ? ex.GetType().Name : ex.Message, (int)sw.ElapsedMilliseconds)
+                { DispatchStarted = mutation ? dispatchStarted : null, BodyComplete = !mutation };
         }
     }
 

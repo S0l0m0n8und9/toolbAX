@@ -23,6 +23,15 @@ public static class DualWriteMapMarkdownExporter
         var builder = new StringBuilder();
         builder.AppendLine($"# {MarkdownEscape(ValueOrPlaceholder(EffectiveTitle(record)))}");
         builder.AppendLine();
+        if (record.HasIncompleteDetails)
+        {
+            builder.AppendLine("> **Warning:** Some embedded map details could not be parsed and are incomplete.");
+            foreach (var warning in record.DetailWarnings)
+            {
+                builder.AppendLine($"> - {MarkdownEscape(warning)}");
+            }
+            builder.AppendLine();
+        }
         builder.AppendLine("## Map Details");
         builder.AppendLine();
         AppendKeyValue(builder, "Display Name", record.DisplayName);

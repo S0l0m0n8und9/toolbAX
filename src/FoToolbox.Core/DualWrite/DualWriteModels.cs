@@ -84,7 +84,10 @@ public sealed record DualWriteMap(
 public sealed record DualWriteFieldMapping(string Name);
 
 /// <summary>Result of a <c>POST Start</c> action: carries the request id to poll.</summary>
-public sealed record DualWriteActionResponse(string RequestId, string? State);
+public sealed record DualWriteActionResponse(string RequestId, string? State)
+{
+    public DualWriteMutationEvidence? Acknowledgment { get; init; }
+}
 
 /// <summary>Result of a <c>GET Status/{requestId}</c> poll.</summary>
 public sealed record DualWriteRequestStatus(string RequestId, string State, bool IsTerminal, bool IsSuccess, string? Message);

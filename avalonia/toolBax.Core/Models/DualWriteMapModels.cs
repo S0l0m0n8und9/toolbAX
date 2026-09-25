@@ -28,6 +28,9 @@ public sealed record DwMapRecord(
     string? RawMapping,
     string? RawProperties)
 {
+    public IReadOnlyList<string> DetailWarnings { get; init; } = System.Array.Empty<string>();
+
+    public bool HasIncompleteDetails => DetailWarnings.Count > 0;
     /// <summary>Master-list label: the display name, falling back to the logical name, then the id.</summary>
     public string Title =>
         !string.IsNullOrWhiteSpace(DisplayName) ? DisplayName
