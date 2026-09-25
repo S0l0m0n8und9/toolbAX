@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using FoToolbox.Core.DualWrite;
 using ToolBax.App.Models;
 using ToolBax.App.Services;
 using ToolBax.App.ViewModels;
@@ -211,6 +212,49 @@ public class ShellViewModelTests
             _entered.TrySetResult();
             return _answer.Task;
         }
+    }
+
+    private sealed class GatedActionConnector : IDualWriteConnector
+    {
+        public GatedActionGateway Gateway { get; } = new();
+        public Task<DualWriteSession> ConnectAsync(EnvProfile env, CancellationToken ct = default) =>
+            Task.FromResult(new DualWriteSession(Gateway, "cid", "Connection", env, "https://gateway.example"));
+    }
+
+    private sealed class GatedActionGateway : IDualWriteGateway
+    {
+        private readonly FakeCoreDualWriteGateway _inner = new(FakeDualWriteConnector.SeedMaps());
+        private readonly TaskCompletionSource _startEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _releaseStart = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task StartEntered => _startEntered.Task;
+        public void ReleaseStart() => _releaseStart.TrySetResult();
+        public Task<DualWriteEnvironment> GetEnvironmentAsync(string foIdentifier, CancellationToken cancellationToken = default) =>
+            _inner.GetEnvironmentAsync(foIdentifier, cancellationToken);
+        public Task<IReadOnlyList<DualWriteMap>> GetMapsAsync(string cid, CancellationToken cancellationToken = default) =>
+            _inner.GetMapsAsync(cid, cancellationToken);
+        public async Task<DualWriteActionResponse> StartActionAsync(DualWriteActionType action,
+            IReadOnlyList<DualWriteMap> maps, string cid, CancellationToken cancellationToken = default)
+        {
+            _startEntered.TrySetResult();
+            await _releaseStart.Task.WaitAsync(cancellationToken);
+            return await _inner.StartActionAsync(action, maps, cid, cancellationToken);
+        }
+        public Task<DualWriteRequestStatus> GetStatusAsync(string requestId, CancellationToken cancellationToken = default) =>
+            _inner.GetStatusAsync(requestId, cancellationToken);
+        public Task<DualWriteActionResponse> SwitchActiveTemplateAsync(string cid, string projectId, string templateId, CancellationToken cancellationToken = default) =>
+            _inner.SwitchActiveTemplateAsync(cid, projectId, templateId, cancellationToken);
+        public Task<IReadOnlyList<DualWriteFieldMapping>> GetFieldMappingsAsync(string projectId, CancellationToken cancellationToken = default) =>
+            _inner.GetFieldMappingsAsync(projectId, cancellationToken);
+        public Task RefreshTablesAsync(string fieldMappingName, CancellationToken cancellationToken = default) =>
+            _inner.RefreshTablesAsync(fieldMappingName, cancellationToken);
+        public Task<DualWriteConnectionSet> GetConnectionSetAsync(string cname, CancellationToken cancellationToken = default) =>
+            _inner.GetConnectionSetAsync(cname, cancellationToken);
+        public Task ResetLinksAsync(string cid, DualWriteConnectionSet connectionSet, IReadOnlyList<string> legalEntities,
+            bool forceReset, CancellationToken cancellationToken = default) =>
+            _inner.ResetLinksAsync(cid, connectionSet, legalEntities, forceReset, cancellationToken);
+        public Task ApplyIntegrationKeysAsync(string datasetName, string ceEntityName,
+            IReadOnlyList<string> keyFields, CancellationToken cancellationToken = default) =>
+            _inner.ApplyIntegrationKeysAsync(datasetName, ceEntityName, keyFields, cancellationToken);
     }
 
     private sealed class StartPostDuringSwitchDialogs : IDialogService
@@ -576,6 +620,47 @@ public class ShellViewModelTests
         dialogs.ReleasePost(false);
         await dialogs.PostTask!;
         Assert.False(post.MutationInProgress);
+    }
+
+    [Fact]
+    public async Task Submitted_operations_action_keeps_shell_switch_blocked_after_competing_debug_is_refused()
+    {
+        var dialogs = new RecordingDialogs(answer: true);
+        var connector = new GatedActionConnector();
+        var odata = new RecordingODataClient();
+        ShellViewModel? shell = null;
+        var operations = new DualWriteOpsViewModel(connector, () => shell?.ActiveEnvironment, dialogs,
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5),
+            odata: odata, metadata: new OneEntityMetadata());
+        shell = new ShellViewModel(operationsContentFactory: () => operations, dialogs: dialogs);
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "ops");
+        await operations.LoadCommand.ExecuteAsync(null);
+        operations.Maps.First(m => m.State == "Running").IsSelected = true;
+        var previous = shell.ActiveEnvironment!;
+        var target = shell.Environments.First(e => e.Id != previous.Id);
+
+        var action = operations.RunActionCommand.ExecuteAsync(operations.StopAction);
+        await connector.Gateway.StartEntered;
+
+        await operations.EnableDebugForSelectedCommand.ExecuteAsync(null);
+        await shell.SetActiveEnvironmentCommand.ExecuteAsync(target);
+        var stillOwned = operations.MutationInProgress;
+        var stillBusy = operations.IsBusy;
+        var activeAfterAttempt = shell.ActiveEnvironment;
+        var dialogCalls = dialogs.Calls;
+        var odataMethod = odata.LastMethod;
+
+        connector.Gateway.ReleaseStart();
+        await action;
+
+        Assert.True(stillOwned);
+        Assert.True(stillBusy);
+        Assert.Same(previous, activeAfterAttempt);
+        Assert.Equal(1, dialogCalls);
+        Assert.Null(odataMethod);
+        Assert.Contains("live write", shell.BackgroundError, StringComparison.OrdinalIgnoreCase);
+        Assert.False(operations.MutationInProgress);
+        Assert.False(operations.IsBusy);
     }
 
     [Fact]

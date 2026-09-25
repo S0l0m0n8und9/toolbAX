@@ -40,6 +40,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     private readonly IMetadataService _metadata;
     private DualWriteSession? _session;
     private int _generation;
+    private int _operationLeaseHeld;
     private bool _disposed;
 
     public ObservableCollection<MapRowViewModel> Maps { get; } = new();
@@ -173,11 +174,24 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         _ => Concise(ex),
     };
 
-    private bool CanLoad() => !_disposed && !IsBusy;
+    private bool CanLoad() => !_disposed && !IsBusy && Volatile.Read(ref _operationLeaseHeld) == 0;
 
     /// <summary>Connects to the gateway for the active environment and loads its maps.</summary>
     [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanLoad))]
     private async Task Load(CancellationToken ct)
+    {
+        if (!TryBeginOperation(isMutation: false)) return;
+        try
+        {
+            await LoadExclusive(ct);
+        }
+        finally
+        {
+            EndOperation(isMutation: false);
+        }
+    }
+
+    private async Task LoadExclusive(CancellationToken ct)
     {
         if (_disposed) return;
         var env = _activeEnv();
@@ -191,7 +205,6 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         var identity = EnvironmentIdentity.Create(env);
         var generation = Volatile.Read(ref _generation);
 
-        IsBusy = true;
         LoadError = null;
         Status = "Connecting…";
         // Scope the log to this attempt: a retry after a failure starts clean rather than interleaving
@@ -254,10 +267,6 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             ResetDisconnected("Connection failed.");
             Log(ex.Message, LogKind.Err, traceText: Traceable(ex));
         }
-        finally
-        {
-            IsBusy = false;
-        }
     }
 
     /// <summary>Message shown (and logged) when the session and the active environment have diverged.</summary>
@@ -298,11 +307,25 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     // ineligible, the confirm dialog lists only the ones actually being sent, and the skipped ones are
     // named in the status line and the gateway log.
     private bool CanRunAction(OpsAction? action) =>
-        action is not null && !IsBusy && _session is not null && !SessionEnvMismatch() && SelectedCount > 0;
+        action is not null && !IsBusy && Volatile.Read(ref _operationLeaseHeld) == 0
+        && _session is not null && !SessionEnvMismatch() && SelectedCount > 0;
 
     // Opens the confirm dialog; mutates nothing until the user accepts, then submits + polls to terminal.
     [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanRunAction))]
     private async Task RunAction(OpsAction action, CancellationToken ct)
+    {
+        if (!TryBeginOperation(isMutation: true)) return;
+        try
+        {
+            await RunActionExclusive(action, ct);
+        }
+        finally
+        {
+            EndOperation(isMutation: true);
+        }
+    }
+
+    private async Task RunActionExclusive(OpsAction action, CancellationToken ct)
     {
         var session = _session;
         if (session is null)
@@ -359,7 +382,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             IsDanger: action.Danger,
             Caveat: action.Caveat);
 
-        if (!await BeginMutationAsync(request))
+        if (!await _dialogs.ConfirmAsync(request))
         {
             return;
         }
@@ -367,11 +390,9 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         // Confirmation is an await: an external profile edit can land while the dialog is open.
         if (BlockedByEnvMismatch())
         {
-            MutationInProgress = false;
             return;
         }
 
-        IsBusy = true;
         Status = $"{action.Label}…";
         Log($"{action.Label}: {targets.Count} map(s) (cid {session.Cid})…");
         try
@@ -433,29 +454,34 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
                 Status = $"{Status} {skipNote}";
             }
 
-            IsBusy = false;
-            MutationInProgress = false;
         }
     }
 
-    private async Task<bool> BeginMutationAsync(ConfirmRequest request)
+    private bool TryBeginOperation(bool isMutation)
     {
-        MutationInProgress = true;
-        try
+        if (_disposed || Interlocked.CompareExchange(ref _operationLeaseHeld, 1, 0) != 0)
         {
-            if (await _dialogs.ConfirmAsync(request))
-            {
-                return true;
-            }
-
-            MutationInProgress = false;
             return false;
         }
-        catch
+
+        if (_disposed || IsBusy)
         {
-            MutationInProgress = false;
-            throw;
+            Volatile.Write(ref _operationLeaseHeld, 0);
+            return false;
         }
+
+        if (isMutation) MutationInProgress = true;
+        IsBusy = true;
+        return true;
+    }
+
+    private void EndOperation(bool isMutation)
+    {
+        if (isMutation) MutationInProgress = false;
+        Volatile.Write(ref _operationLeaseHeld, 0);
+        // IsBusy drives the generated CanExecuteChanged notifications. Release first so handlers that
+        // immediately re-query CanExecute observe the available lease rather than leaving buttons stale.
+        IsBusy = false;
     }
 
     // Polls a submitted request to a terminal state and reports the outcome. Neither our own polling budget
@@ -525,7 +551,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     }
 
     private bool CanToggleDebug() =>
-        !IsBusy && _session is not null && !SessionEnvMismatch() && SelectedCount > 0;
+        !IsBusy && Volatile.Read(ref _operationLeaseHeld) == 0
+        && _session is not null && !SessionEnvMismatch() && SelectedCount > 0;
 
     // Enable dual-write debug mode for the selected map(s); scoped to the selection, never all maps.
     [RelayCommand(CanExecute = nameof(CanToggleDebug))]
@@ -541,6 +568,19 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     // resolved from live $metadata (it varies per environment); every step degrades to a clear,
     // non-sensitive message rather than throwing, and no token is ever surfaced.
     private async Task SetDebugForSelectedAsync(bool enabled, CancellationToken ct)
+    {
+        if (!TryBeginOperation(isMutation: true)) return;
+        try
+        {
+            await SetDebugForSelectedExclusiveAsync(enabled, ct);
+        }
+        finally
+        {
+            EndOperation(isMutation: true);
+        }
+    }
+
+    private async Task SetDebugForSelectedExclusiveAsync(bool enabled, CancellationToken ct)
     {
         if (_session is null)
         {
@@ -584,8 +624,6 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             return;
         }
 
-        MutationInProgress = true;
-        IsBusy = true;
         DebugStatus = enabled ? "Enabling debug mode…" : "Disabling debug mode…";
         try
         {
@@ -685,11 +723,6 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         catch (Exception ex)
         {
             DebugStatus = $"Debug-mode toggle failed: {ex.Message}";
-        }
-        finally
-        {
-            IsBusy = false;
-            MutationInProgress = false;
         }
     }
 
