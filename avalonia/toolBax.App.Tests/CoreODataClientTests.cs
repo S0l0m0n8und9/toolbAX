@@ -110,6 +110,32 @@ public class CoreODataClientTests
         Assert.Equal("https://demo.dynamics.com/data/Foo", handler.LastRequest!.RequestUri!.ToString());
     }
 
+    [Theory]
+    [InlineData("contoso.operations.dynamics.com")]
+    [InlineData("https://contoso.operations.dynamics.com/")]
+    [InlineData("https://contoso.operations.dynamics.com/data")]
+    public async Task Relative_requests_use_the_same_normalized_fo_base_as_connection_testing(string environmentUrl)
+    {
+        var handler = new StubHandler(HttpStatusCode.OK, "{}");
+        var client = new CoreODataClient(new FakeAuthService(), () => Env(environmentUrl), new HttpClient(handler));
+
+        await client.SendAsync("GET", "/data/Foo", null, TestContext.Current.CancellationToken);
+
+        Assert.Equal("https://contoso.operations.dynamics.com/data/Foo", handler.LastRequest!.RequestUri!.ToString());
+    }
+
+    [Fact]
+    public async Task Relative_requests_preserve_an_explicit_http_scheme_and_non_default_port()
+    {
+        var handler = new StubHandler(HttpStatusCode.OK, "{}");
+        var client = new CoreODataClient(new FakeAuthService(),
+            () => Env("http://contoso.operations.dynamics.com:8080/data"), new HttpClient(handler));
+
+        await client.SendAsync("GET", "/data/Foo", null, TestContext.Current.CancellationToken);
+
+        Assert.Equal("http://contoso.operations.dynamics.com:8080/data/Foo", handler.LastRequest!.RequestUri!.ToString());
+    }
+
     [Fact]
     public async Task An_absolute_path_is_used_verbatim_for_paging()
     {

@@ -1,4 +1,5 @@
 using FoToolbox.Core.Models;
+using FoToolbox.Core.Auth;
 using FoToolbox.Core.OData;
 using FoToolbox.Core.Profiles;
 using System;
@@ -72,6 +73,25 @@ public sealed class CatalogService : ICatalogService
         try
         {
             var cached = await _store.GetAsync(key, TablesKind, ct).ConfigureAwait(false);
+            if (cached is null)
+            {
+                // H08b changed every live cache key to a case-preserving namespace. Imported table
+                // catalogs are user data, however, so recover only a valid import from the precise former
+                // Tables key. Metadata and ordinary embedded catalogs are intentionally never migrated.
+                var legacy = await _store.GetAsync(LegacyCacheKey(env), TablesKind, ct).ConfigureAwait(false);
+                if (legacy is not null && IsUserImport(legacy))
+                {
+                    if (!CanRecoverLegacyTableCatalog(env))
+                    {
+                        throw new LegacyTableCatalogRecoveryRequiredException(legacy.PayloadJson);
+                    }
+
+                    await _store.InsertIfAbsentAsync(key, TablesKind, legacy.Version, legacy.PayloadJson,
+                        legacy.ETag, legacy.UpdatedUtc, ct).ConfigureAwait(false);
+                    cached = await _store.GetAsync(key, TablesKind, ct).ConfigureAwait(false);
+                }
+            }
+
             if (cached is not null)
             {
                 var cachedCatalog = DeserializeTableCatalog(cached.PayloadJson);
@@ -320,20 +340,26 @@ public sealed class CatalogService : ICatalogService
     {
         var template = _tableBrowserUrlTemplate ?? DefaultTableBrowserUrlTemplate;
         return template
-            .Replace("{BaseUrl}", env.BaseUrl.TrimEnd('/'), StringComparison.OrdinalIgnoreCase)
+            .Replace("{BaseUrl}", NormalizedBaseUrl(env), StringComparison.OrdinalIgnoreCase)
             .Replace("{TableName}", Uri.EscapeDataString(tableName), StringComparison.OrdinalIgnoreCase);
     }
 
     public string BuildODataEntityUrl(FoEnvironment env, string entityName)
     {
-        return $"{env.BaseUrl.TrimEnd('/')}/data/{Uri.EscapeDataString(entityName)}";
+        return $"{NormalizedBaseUrl(env)}/data/{Uri.EscapeDataString(entityName)}";
     }
 
-    // Cache rows (and the per-environment locks) are keyed by profile id *and* normalized base URL, not
-    // by id alone: repointing a profile at another environment keeps its id, so a bare-id key would keep
-    // serving the previous host's $metadata until the row aged out. Normalization mirrors the request
-    // path (lower-invariant, implicit https, no trailing slash) so cosmetic URL edits don't split the key.
+    // Cache rows (and the per-environment locks) are keyed by profile id *and* normalized request base,
+    // not by id alone: repointing a profile at another environment keeps its id. The versioned JSON
+    // namespace deliberately prevents old lower-cased keys from being reused for a case-sensitive path.
     private static string CacheKey(FoEnvironment env)
+    {
+        return "catalog-v2:" + JsonSerializer.Serialize(new[] { env.Id, NormalizedBaseUrl(env) });
+    }
+
+    private static string NormalizedBaseUrl(FoEnvironment env) => ResourceUrlNormalizer.NormalizeFoBaseUrl(env.BaseUrl);
+
+    private static string LegacyCacheKey(FoEnvironment env)
     {
         var url = env.BaseUrl.Trim().ToLowerInvariant();
         if (url.Length > 0 && !url.StartsWith("http", StringComparison.Ordinal))
@@ -342,6 +368,30 @@ public sealed class CatalogService : ICatalogService
         }
 
         return $"{env.Id}|{url.TrimEnd('/')}";
+    }
+
+    private static bool IsUserImport(CatalogRecord record)
+    {
+        try
+        {
+            return string.Equals(DeserializeTableCatalog(record.PayloadJson).Source, "UserImport", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    private static bool CanRecoverLegacyTableCatalog(FoEnvironment env)
+    {
+        var normalized = ResourceUrlNormalizer.NormalizeFoBaseUrl(env.BaseUrl);
+        return Uri.TryCreate(normalized, UriKind.Absolute, out var uri)
+            && (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            && string.IsNullOrEmpty(uri.UserInfo)
+            && uri.AbsolutePath == "/"
+            && string.IsNullOrEmpty(uri.Query)
+            && string.IsNullOrEmpty(uri.Fragment);
     }
 
     // Whether a cached per-entity details row may be served for this refresh mode, given the metadata ETag
@@ -466,7 +516,7 @@ public sealed class CatalogService : ICatalogService
             return (cached!.PayloadJson, cached!.ETag, cached!.UpdatedUtc);
         }
 
-        var request = new HttpRequestMessage(HttpMethod.Get, $"{env.BaseUrl.TrimEnd('/')}/data/$metadata");
+        var request = new HttpRequestMessage(HttpMethod.Get, $"{NormalizedBaseUrl(env)}/data/$metadata");
         request.Headers.Accept.ParseAdd("application/xml");
         if (cachedValid && !string.IsNullOrWhiteSpace(cached!.ETag))
         {
@@ -598,7 +648,7 @@ public sealed class CatalogService : ICatalogService
         //   /metadata/PublicEntities?$filter=EntitySetName%20eq%20%27CDSParties%27
         var escapedLiteral = entitySetName.Replace("'", "''", StringComparison.Ordinal);
         var filter = Uri.EscapeDataString($"EntitySetName eq '{escapedLiteral}'");
-        var url = $"{env.BaseUrl.TrimEnd('/')}/metadata/PublicEntities?$filter={filter}";
+        var url = $"{NormalizedBaseUrl(env)}/metadata/PublicEntities?$filter={filter}";
 
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
         req.Headers.Accept.ParseAdd("application/json");
@@ -667,7 +717,7 @@ public sealed class CatalogService : ICatalogService
         var escapedLiteral = entityName.Replace("'", "''", StringComparison.Ordinal);
         var filter = Uri.EscapeDataString($"Entity eq '{escapedLiteral}'");
         var select = Uri.EscapeDataString("StagingField,ShortStagingField,TargetField,FieldAOTName,DataSourceField,FieldLength");
-        var nextUrl = $"{env.BaseUrl.TrimEnd('/')}/data/DataManagementTargetMapEntities?$filter={filter}&$select={select}&$top=1000&$count=true&cross-company=true";
+        var nextUrl = $"{NormalizedBaseUrl(env)}/data/DataManagementTargetMapEntities?$filter={filter}&$select={select}&$top=1000&$count=true&cross-company=true";
         var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         while (!string.IsNullOrWhiteSpace(nextUrl) && visited.Add(nextUrl))
@@ -716,7 +766,7 @@ public sealed class CatalogService : ICatalogService
             }
             else
             {
-                nextUrl = $"{env.BaseUrl.TrimEnd('/')}/{nextLink.TrimStart('/')}";
+                nextUrl = $"{NormalizedBaseUrl(env)}/{nextLink.TrimStart('/')}";
             }
         }
 

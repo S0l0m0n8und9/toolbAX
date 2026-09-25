@@ -406,4 +406,14 @@ public class DualWriteSignInCaptureTests
         Assert.StartsWith("https://dataintegrator.trafficmanager.net/dualWrite?axenv=", url);
         Assert.Contains("https%3A%2F%2Fuat.operations.dynamics.com", url);
     }
+
+    [Theory]
+    [InlineData("uat.operations.dynamics.com")]
+    [InlineData("https://uat.operations.dynamics.com/data")]
+    public void BuildSignInUrl_uses_the_normalized_fo_identifier(string foIdentifier)
+    {
+        var url = DualWriteAuthConstants.BuildSignInUrl(foIdentifier);
+
+        Assert.Equal("https://dataintegrator.trafficmanager.net/dualWrite?axenv=https%3A%2F%2Fuat.operations.dynamics.com", url);
+    }
 }

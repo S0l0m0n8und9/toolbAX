@@ -79,6 +79,29 @@ ON CONFLICT(EnvId, Kind) DO UPDATE SET
         await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Inserts a catalog row only when no row exists for the same environment and kind. Callers use the
+    /// boolean result to re-read the winner rather than overwriting a concurrent writer's newer payload.
+    /// </summary>
+    public async Task<bool> InsertIfAbsentAsync(string envId, string kind, string version, string payloadJson,
+        string? etag, DateTime updatedUtc, CancellationToken cancellationToken = default)
+    {
+        await using var conn = new SqliteConnection(_connectionString);
+        await conn.OpenAsync(cancellationToken).ConfigureAwait(false);
+        await using var cmd = conn.CreateCommand();
+        cmd.CommandText = @"
+INSERT INTO CatalogData(EnvId, Kind, Version, PayloadJson, ETag, UpdatedUtc)
+VALUES($env, $kind, $version, $json, $etag, $updated)
+ON CONFLICT(EnvId, Kind) DO NOTHING;";
+        cmd.Parameters.AddWithValue("$env", envId);
+        cmd.Parameters.AddWithValue("$kind", kind);
+        cmd.Parameters.AddWithValue("$version", version);
+        cmd.Parameters.AddWithValue("$json", payloadJson);
+        cmd.Parameters.AddWithValue("$etag", (object?)etag ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$updated", updatedUtc.ToString("o"));
+        return await cmd.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false) == 1;
+    }
+
     public async Task<DateTime> TouchAsync(string envId, string kind, CancellationToken cancellationToken = default)
     {
         var updatedUtc = DateTime.UtcNow;

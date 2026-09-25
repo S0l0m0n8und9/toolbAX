@@ -22,9 +22,10 @@ public static class RequestOriginGuard
             return false;
         }
 
-        var normalized = expectedBaseUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)
-            ? expectedBaseUrl
-            : $"https://{expectedBaseUrl}";
+        var baseUrl = expectedBaseUrl.Trim();
+        var normalized = baseUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)
+            ? baseUrl
+            : $"https://{baseUrl}";
 
         return Uri.TryCreate(normalized, UriKind.Absolute, out var expected) && IsSameOrigin(expected, candidate);
     }

@@ -54,7 +54,16 @@ public class ResourceUrlNormalizerTests
     public void NormalizeFoBaseUrl_defaults_a_scheme_less_host_to_https(string input)
         // Symmetry: F&O accepted the scheme-less form only because every consumer repaired it locally.
         => Assert.Equal("https://contoso.operations.dynamics.com",
-            ResourceUrlNormalizer.NormalizeFoBaseUrl(input));
+             ResourceUrlNormalizer.NormalizeFoBaseUrl(input));
+
+    [Theory]
+    [InlineData("HTTPS://CONTOSO.operations.dynamics.com:443/TenantA/data", "https://contoso.operations.dynamics.com/TenantA")]
+    [InlineData("http://CONTOSO.operations.dynamics.com:8080/TenantA/data", "http://contoso.operations.dynamics.com:8080/TenantA")]
+    [InlineData("HTTPS://CONTOSO.operations.dynamics.com:443/TenantA?Query=Case#FragmentCase", "https://contoso.operations.dynamics.com/TenantA?Query=Case#FragmentCase")]
+    public void NormalizeFoBaseUrl_canonicalizes_the_authority_without_changing_the_path_case(string input, string expected)
+        // A cache/request base must treat authority spelling aliases as one origin, but TenantA and tenanta
+        // can be distinct reverse-proxy paths and must never be folded together.
+        => Assert.Equal(expected, ResourceUrlNormalizer.NormalizeFoBaseUrl(input));
 
     [Fact]
     public void Scheme_less_input_produces_a_parseable_absolute_dataverse_api_base()
