@@ -1,6 +1,6 @@
 # Unsupported App authentication withdrawal
 
-Status: Secret-transition correction implemented and focused-validated; updated full gates, PR, remote review and merge pending.
+Status: Source-reviewed and fully validated locally; PR, remote review and merge pending.
 
 ## Objective
 
@@ -60,4 +60,4 @@ When a loaded profile has legacy DI settings, unknown raw mode text, or a stored
 
 Focused validation now passes 205/205 Release tests across Profiles view/model, active-pane headless rendering, Shell integration, real `CoreProfileStore` SQLite/vault round trips, `CoreAuthService` snapshot guards, converters, and retained legacy labels. The secret-transition RED proved both targets could overwrite a still-legacy credential before profile Save; the corrected UI/commands require the saved and draft ClientSecret context to match, retain rejected input, and preserve decline behavior. Accepted replacement then permits storage that survives unrelated Save. Evidence is under ignored `artifacts/h07/secret-transition/`.
 
-The earlier source `b701702149f9bfac5937eb4a02bb9ec17b7c1379` passed both CI-strict Release solution builds with 0 warnings/errors, App 1,170/1,170 and Core 403/403. That evidence predates the secret-transition code and remains historical only; updated full gates are pending. H07's own PR, remote review and merge remain pending. H09 aggregate persistence and D02 casing-only client-ID changes remain out of scope.
+The earlier source `b701702149f9bfac5937eb4a02bb9ec17b7c1379` passed App 1,170/Core 403 before the secret-transition correction and remains historical. At corrected source `977d2684e6f75c06ff3c60d862c9f1932ea5f309`, both CI-strict Release solution builds completed with 0 warnings/errors; App passed 1,182/1,182 and Core 432/432, with no failures or skips. The later PR222 merge integration `e3875d024810a8ca2a7785088d0b75671c192544` has an empty content diff, so the validated content is unchanged. H07's own PR, remote review and merge remain pending. H09 aggregate persistence and D02 casing-only client-ID changes remain out of scope.
