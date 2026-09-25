@@ -112,8 +112,10 @@ public sealed class ProfilesAuthWithdrawalRenderTests
             var warning = view.FindControl<Border>("LegacyDiWarning");
             var gateway = view.FindControl<Button>("PortalGatewayTestButton");
             var clear = view.FindControl<Button>("ClearLegacyDiPasswordButton");
+            var content = Assert.IsAssignableFrom<Control>(tab.Content);
 
             Assert.True(warning!.IsEffectivelyVisible);
+            Assert.Contains(content, window.GetVisualDescendants());
             Assert.Contains(warning, window.GetVisualDescendants());
             Assert.Contains(gateway!, window.GetVisualDescendants());
             Assert.Contains(clear!, window.GetVisualDescendants());
@@ -121,8 +123,8 @@ public sealed class ProfilesAuthWithdrawalRenderTests
             Assert.True(gateway.IsEffectivelyVisible);
             Assert.Equal("Clear legacy password", clear!.Content);
             Assert.True(clear.IsEffectivelyVisible);
-            Assert.Empty(tab.GetVisualDescendants().OfType<ComboBox>());
-            Assert.Empty(tab.GetVisualDescendants().OfType<TextBox>());
+            Assert.Empty(content.GetVisualDescendants().OfType<ComboBox>());
+            Assert.Empty(content.GetVisualDescendants().OfType<TextBox>());
         }
         finally
         {
