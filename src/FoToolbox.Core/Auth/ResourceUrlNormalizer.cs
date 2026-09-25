@@ -63,7 +63,20 @@ public static class ResourceUrlNormalizer
         // not a usable resource identifier: it yields the scope "org.crm.dynamics.com/.default", which
         // AAD rejects with "resource principal not found", and an unparseable absolute request URI.
         // Default it to https so the scheme-less form the UI invites actually works.
-        return HasScheme(normalized) ? normalized : $"https://{normalized}";
+        normalized = HasScheme(normalized) ? normalized : $"https://{normalized}";
+
+        // URI canonicalization stabilizes spelling of the authority (scheme, host, and default port) for
+        // requests and cache keys. Uri leaves path, query, and fragment casing intact, which matters for
+        // proxy-mounted F&O paths and opaque server values.
+        if (!Uri.TryCreate(normalized, UriKind.Absolute, out var uri))
+        {
+            return normalized;
+        }
+
+        var canonical = uri.AbsoluteUri;
+        return uri.AbsolutePath == "/" && string.IsNullOrEmpty(uri.Query) && string.IsNullOrEmpty(uri.Fragment)
+            ? canonical.TrimEnd('/')
+            : canonical;
     }
 
     private static bool HasScheme(string url) => url.Contains("://", StringComparison.Ordinal);

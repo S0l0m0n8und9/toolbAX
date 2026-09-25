@@ -17,8 +17,8 @@ namespace ToolBax.App.Tests;
 /// </summary>
 public class AuthenticatedHttpHandlerTests
 {
-    private static EnvProfile Env() =>
-        new("env1", "Env", "contoso.operations.dynamics.com", "tenant", "USMF", "Tier 1", EnvStatus.Connected);
+    private static EnvProfile Env(string url = "contoso.operations.dynamics.com") =>
+        new("env1", "Env", url, "tenant", "USMF", "Tier 1", EnvStatus.Connected);
 
     private sealed class CapturingHandler : HttpMessageHandler
     {
@@ -47,6 +47,19 @@ public class AuthenticatedHttpHandlerTests
 
         Assert.Equal("Bearer", inner.LastRequest!.Headers.Authorization!.Scheme);
         Assert.Equal("tok-xyz", inner.LastRequest.Headers.Authorization.Parameter);
+    }
+
+    [Fact]
+    public async Task Adds_a_bearer_token_when_the_active_profile_url_has_whitespace()
+    {
+        var inner = new CapturingHandler();
+        var handler = new AuthenticatedHttpHandler(new FakeAuthService(_ => "tok-xyz"),
+            () => Env("  contoso.operations.dynamics.com/data  "));
+        var http = Client(handler, inner);
+
+        await http.GetAsync("https://contoso.operations.dynamics.com/data/$metadata", TestContext.Current.CancellationToken);
+
+        Assert.Equal("tok-xyz", inner.LastRequest!.Headers.Authorization!.Parameter);
     }
 
     [Fact]

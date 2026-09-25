@@ -1,4 +1,5 @@
 using System;
+using FoToolbox.Core.Auth;
 
 namespace FoToolbox.Core.DualWrite.Auth;
 
@@ -42,5 +43,5 @@ public static class DualWriteAuthConstants
 
     /// <summary>Builds the portal sign-in URL for the given F&amp;O environment identifier.</summary>
     public static string BuildSignInUrl(string foIdentifier) =>
-        $"{DataIntegratorBaseUrl}/dualWrite?axenv={Uri.EscapeDataString(foIdentifier ?? string.Empty)}";
+        $"{DataIntegratorBaseUrl}/dualWrite?axenv={Uri.EscapeDataString(ResourceUrlNormalizer.NormalizeFoBaseUrl(foIdentifier))}";
 }

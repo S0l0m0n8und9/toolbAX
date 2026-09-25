@@ -6,6 +6,7 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using FoToolbox.Core.Auth;
 using FoToolbox.Core.Net;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
@@ -67,11 +68,12 @@ public sealed class CoreODataClient : IODataClient, IDisposable
         }
 
         var identity = EnvironmentIdentity.Create(env);
-        var uri = BuildUri(env.Url, path);
+        var normalizedBaseUrl = ResourceUrlNormalizer.NormalizeFoBaseUrl(env.Url);
+        var uri = BuildUri(normalizedBaseUrl, path);
 
         // A server-driven paging link is used verbatim, but only if it stays on the captured environment's
         // origin. Decide this from the same immutable profile snapshot used for auth and dispatch.
-        if (path.StartsWith("http", StringComparison.OrdinalIgnoreCase) && !RequestOriginGuard.IsSameOrigin(env.Url, uri))
+        if (path.StartsWith("http", StringComparison.OrdinalIgnoreCase) && !RequestOriginGuard.IsSameOrigin(normalizedBaseUrl, uri))
         {
             return new ODataResponse(0, "Refused",
                 "The paging link points to a different origin than the environment.", (int)sw.ElapsedMilliseconds);
@@ -164,15 +166,14 @@ public sealed class CoreODataClient : IODataClient, IDisposable
 
     // env.Url may be a bare host ("contoso.operations.dynamics.com") or a full URL; path is "/data/…".
     // An absolute path (a server-driven @odata.nextLink) is used verbatim for paging.
-    private static Uri BuildUri(string envUrl, string path)
+    private static Uri BuildUri(string normalizedBaseUrl, string path)
     {
         if (path.StartsWith("http", StringComparison.OrdinalIgnoreCase))
         {
             return new Uri(path);
         }
 
-        var baseUrl = envUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? envUrl : $"https://{envUrl}";
-        return new Uri($"{baseUrl.TrimEnd('/')}/{path.TrimStart('/')}");
+        return new Uri($"{normalizedBaseUrl.TrimEnd('/')}/{path.TrimStart('/')}");
     }
 
     public void Dispose()
