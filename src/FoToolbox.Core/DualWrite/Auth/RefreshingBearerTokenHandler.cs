@@ -91,7 +91,7 @@ public sealed class RefreshingBearerTokenHandler : DelegatingHandler
                 return true;
             }
 
-            var refreshed = await _refresher.RefreshAsync(_token.RefreshToken!, cancellationToken).ConfigureAwait(false);
+            var refreshed = await _refresher.RefreshAsync(_token, cancellationToken).ConfigureAwait(false);
             _token = refreshed;
             if (_onRefreshed is not null)
             {
@@ -126,7 +126,7 @@ public sealed class RefreshingBearerTokenHandler : DelegatingHandler
                 return;
             }
 
-            var refreshed = await _refresher.RefreshAsync(_token.RefreshToken!, cancellationToken).ConfigureAwait(false);
+            var refreshed = await _refresher.RefreshAsync(_token, cancellationToken).ConfigureAwait(false);
             _token = refreshed;
             if (_onRefreshed is not null)
             {

@@ -48,6 +48,16 @@ public class DualWriteTokenParserTests
 
 public class DualWriteRefreshTokenProviderTests
 {
+    private static readonly DateTimeOffset Now = new(2026, 5, 29, 0, 0, 0, TimeSpan.Zero);
+    private static readonly DualWriteDelegatedBinding Binding = new(
+        Guid.Parse("55555555-5555-5555-5555-555555555555"),
+        DualWriteAuthConstants.ClientId,
+        DualWriteAuthConstants.ResourceBaseUrl,
+        DualWriteAuthConstants.Scope);
+
+    private static DualWriteToken Current(string refreshToken = "r1") =>
+        new("old", refreshToken, Now.AddMinutes(-1)) { Binding = Binding };
+
     private sealed class CapturingHandler : HttpMessageHandler
     {
         private readonly HttpResponseMessage _response;
@@ -73,16 +83,16 @@ public class DualWriteRefreshTokenProviderTests
     {
         var handler = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
         {
-            Content = new StringContent("{\"access_token\":\"new\",\"refresh_token\":\"r2\",\"expires_in\":3600}")
+            Content = new StringContent("{\"access_token\":\"new\",\"refresh_token\":\"r2\",\"token_type\":\"Bearer\",\"expires_in\":3600}")
         });
         var provider = new DualWriteRefreshTokenProvider(new HttpClient(handler))
         {
-            Clock = () => new DateTimeOffset(2026, 5, 29, 0, 0, 0, TimeSpan.Zero)
+            Clock = () => Now
         };
 
-        var token = await provider.RefreshAsync("r1", CancellationToken.None);
+        var token = await provider.RefreshAsync(Current(), CancellationToken.None);
 
-        Assert.Equal("https://login.microsoftonline.com/common/oauth2/v2.0/token", handler.LastUri!.ToString());
+        Assert.Equal($"https://login.microsoftonline.com/{Binding.TenantId:D}/oauth2/v2.0/token", handler.LastUri!.ToString());
         Assert.Contains("client_id=2e49aa60-1bd3-43b6-8ab6-03ada3d9f08b", handler.LastBody);
         Assert.Contains("grant_type=refresh_token", handler.LastBody);
         Assert.Contains("refresh_token=r1", handler.LastBody);
@@ -97,11 +107,11 @@ public class DualWriteRefreshTokenProviderTests
     {
         var handler = new CapturingHandler(new HttpResponseMessage(HttpStatusCode.OK)
         {
-            Content = new StringContent("{\"access_token\":\"new\",\"expires_in\":3600}")
+            Content = new StringContent("{\"access_token\":\"new\",\"token_type\":\"Bearer\",\"expires_in\":3600}")
         });
         var provider = new DualWriteRefreshTokenProvider(new HttpClient(handler));
 
-        var token = await provider.RefreshAsync("r1", CancellationToken.None);
+        var token = await provider.RefreshAsync(Current(), CancellationToken.None);
 
         Assert.Equal("r1", token.RefreshToken);
     }
@@ -116,7 +126,7 @@ public class DualWriteRefreshTokenProviderTests
         });
         var provider = new DualWriteRefreshTokenProvider(new HttpClient(handler));
 
-        await Assert.ThrowsAsync<DualWriteAuthException>(() => provider.RefreshAsync("r1", CancellationToken.None));
+        await Assert.ThrowsAsync<DualWriteAuthException>(() => provider.RefreshAsync(Current(), CancellationToken.None));
     }
 }
 
@@ -124,6 +134,13 @@ public class RefreshingBearerTokenHandlerTests
 {
     private static readonly Uri GatewayOrigin =
         new("https://projectmanagementservice.weu.gateway.prod.island.powerapps.com/");
+    private static readonly DualWriteDelegatedBinding Binding = new(
+        Guid.Parse("66666666-6666-6666-6666-666666666666"),
+        DualWriteAuthConstants.ClientId,
+        DualWriteAuthConstants.ResourceBaseUrl,
+        DualWriteAuthConstants.Scope);
+    private static DualWriteToken Bound(string access, string? refresh, DateTimeOffset expiry) =>
+        new(access, refresh, expiry) { Binding = Binding };
 
     private sealed class StubInner : HttpMessageHandler
     {
@@ -140,7 +157,7 @@ public class RefreshingBearerTokenHandlerTests
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) =>
             Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent("{\"access_token\":\"fresh\",\"refresh_token\":\"r2\",\"expires_in\":3600}")
+                Content = new StringContent("{\"access_token\":\"fresh\",\"refresh_token\":\"r2\",\"token_type\":\"Bearer\",\"expires_in\":3600}")
             });
     }
 
@@ -155,7 +172,7 @@ public class RefreshingBearerTokenHandlerTests
     public async Task ExpiredToken_RefreshesAndAttachesNewToken_AndPersists()
     {
         var now = new DateTimeOffset(2026, 5, 29, 0, 0, 0, TimeSpan.Zero);
-        var expired = new DualWriteToken("old", "r1", now.AddMinutes(-5));
+        var expired = Bound("old", "r1", now.AddMinutes(-5));
         var refresher = new DualWriteRefreshTokenProvider(new HttpClient(new TokenEndpointHandler())) { Clock = () => now };
         DualWriteToken? persisted = null;
         var inner = new StubInner();
@@ -177,7 +194,7 @@ public class RefreshingBearerTokenHandlerTests
     public async Task FreshToken_DoesNotRefresh()
     {
         var now = new DateTimeOffset(2026, 5, 29, 0, 0, 0, TimeSpan.Zero);
-        var fresh = new DualWriteToken("good", "r1", now.AddHours(1));
+        var fresh = Bound("good", "r1", now.AddHours(1));
         var refresher = new DualWriteRefreshTokenProvider(new HttpClient(new TokenEndpointHandler())) { Clock = () => now };
         var persisted = false;
         var inner = new StubInner();
@@ -224,7 +241,7 @@ public class RefreshingBearerTokenHandlerTests
             Calls++;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
             {
-                Content = new StringContent($"{{\"access_token\":\"fresh{Calls}\",\"refresh_token\":\"r{Calls + 1}\",\"expires_in\":3600}}")
+                Content = new StringContent($"{{\"access_token\":\"fresh{Calls}\",\"refresh_token\":\"r{Calls + 1}\",\"token_type\":\"Bearer\",\"expires_in\":3600}}")
             });
         }
     }
@@ -235,7 +252,7 @@ public class RefreshingBearerTokenHandlerTests
     {
         var now = new DateTimeOffset(2026, 5, 29, 0, 0, 0, TimeSpan.Zero);
         // Deliberately NOT expired: the 401, not the clock, has to be what triggers the refresh.
-        var live = new DualWriteToken("stale-but-unexpired", "r1", now.AddHours(1));
+        var live = Bound("stale-but-unexpired", "r1", now.AddHours(1));
         var tokenEndpoint = new CountingTokenEndpointHandler();
         var refresher = new DualWriteRefreshTokenProvider(new HttpClient(tokenEndpoint)) { Clock = () => now };
         DualWriteToken? persisted = null;
@@ -260,7 +277,7 @@ public class RefreshingBearerTokenHandlerTests
     public async Task Unauthorized_Twice_SurfacesThe401_WithoutLooping()
     {
         var now = new DateTimeOffset(2026, 5, 29, 0, 0, 0, TimeSpan.Zero);
-        var live = new DualWriteToken("old", "r1", now.AddHours(1));
+        var live = Bound("old", "r1", now.AddHours(1));
         var tokenEndpoint = new CountingTokenEndpointHandler();
         var refresher = new DualWriteRefreshTokenProvider(new HttpClient(tokenEndpoint)) { Clock = () => now };
         var inner = new UnauthorizedThenOkHandler(unauthorizedCount: int.MaxValue);
@@ -282,7 +299,7 @@ public class RefreshingBearerTokenHandlerTests
     public async Task Unauthorized_WithNoRefreshToken_SurfacesImmediately()
     {
         var now = new DateTimeOffset(2026, 5, 29, 0, 0, 0, TimeSpan.Zero);
-        var pasted = new DualWriteToken("pasted", null, now.AddHours(1));
+        var pasted = Bound("pasted", null, now.AddHours(1));
         var tokenEndpoint = new CountingTokenEndpointHandler();
         var refresher = new DualWriteRefreshTokenProvider(new HttpClient(tokenEndpoint)) { Clock = () => now };
         var inner = new UnauthorizedThenOkHandler(unauthorizedCount: 1);
@@ -304,7 +321,7 @@ public class RefreshingBearerTokenHandlerTests
     public async Task Unauthorized_WhenTheRefreshItselfFails_SurfacesTheOriginal401()
     {
         var now = new DateTimeOffset(2026, 5, 29, 0, 0, 0, TimeSpan.Zero);
-        var live = new DualWriteToken("old", "revoked", now.AddHours(1));
+        var live = Bound("old", "revoked", now.AddHours(1));
         var refresher = new DualWriteRefreshTokenProvider(
             new HttpClient(new FailingTokenEndpointHandler())) { Clock = () => now };
         var inner = new UnauthorizedThenOkHandler(unauthorizedCount: 1);
@@ -338,20 +355,19 @@ public class DualWriteSignInCaptureTests
 
     [Trait("Category", "DualWrite")]
     [Fact]
-    public void Capture_CompletesWhenTokenAndGatewaySeen()
+    public void Legacy_body_and_url_observation_cannot_complete_trusted_capture()
     {
         var capture = new DualWriteSignInCapture(Clock);
         Assert.False(capture.IsComplete);
 
-        Assert.True(capture.ObserveTokenResponseBody("{\"access_token\":\"abc\",\"refresh_token\":\"r\",\"expires_in\":3600}"));
+        Assert.False(capture.ObserveTokenResponseBody("{\"access_token\":\"abc\",\"refresh_token\":\"r\",\"expires_in\":3600}"));
+        Assert.Null(capture.Token);
         Assert.False(capture.IsComplete);
 
-        Assert.True(capture.ObserveUrl("https://projectmanagementservice.weu-il107.gateway.prod.island.powerapps.com/api/DualWriteManagement/1.0/Version"));
-        Assert.True(capture.IsComplete);
-
-        var result = capture.Result!;
-        Assert.Equal("abc", result.Token.AccessToken);
-        Assert.Equal("https://projectmanagementservice.weu-il107.gateway.prod.island.powerapps.com/", result.GatewayBaseUrl);
+        Assert.False(capture.ObserveUrl("https://projectmanagementservice.weu-il107.gateway.prod.island.powerapps.com/api/DualWriteManagement/1.0/Version"));
+        Assert.False(capture.IsComplete);
+        Assert.Null(capture.Result);
+        Assert.Null(capture.BestEffortResult);
     }
 
     [Trait("Category", "DualWrite")]
@@ -386,9 +402,9 @@ public class DualWriteSignInCaptureTests
         Assert.False(capture.ObserveUrl("https://login.microsoftonline.com/common/oauth2/v2.0/token"));
         Assert.Null(capture.GatewayBaseUrl);
 
-        Assert.True(capture.ObserveTokenResponseBody("{\"access_token\":\"first\",\"expires_in\":60}"));
+        Assert.False(capture.ObserveTokenResponseBody("{\"access_token\":\"first\",\"expires_in\":60}"));
         Assert.False(capture.ObserveTokenResponseBody("{\"access_token\":\"second\",\"expires_in\":60}"));
-        Assert.Equal("first", capture.Token!.AccessToken);
+        Assert.Null(capture.Token);
     }
 
     [Trait("Category", "DualWrite")]

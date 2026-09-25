@@ -50,11 +50,18 @@ public sealed class DualWriteGatewayFactory : IDualWriteGatewayFactory
         {
             return Create(settings);
         }
+        if (settings.DelegatedBinding is null || !settings.DelegatedBinding.IsTrusted)
+        {
+            throw new InvalidOperationException("This Dual-write session has no trusted refresh context; sign in again.");
+        }
 
         var token = new DualWriteToken(
             settings.BearerToken ?? string.Empty,
             settings.RefreshToken,
-            settings.AccessTokenExpiryUtc ?? DateTimeOffset.UtcNow);
+            settings.AccessTokenExpiryUtc ?? DateTimeOffset.UtcNow)
+        {
+            Binding = settings.DelegatedBinding
+        };
         var refresher = new DualWriteRefreshTokenProvider(RefreshHttpClient);
         var http = new HttpClient(new RefreshingBearerTokenHandler(token, refresher, gatewayOrigin, onRefreshed))
         {

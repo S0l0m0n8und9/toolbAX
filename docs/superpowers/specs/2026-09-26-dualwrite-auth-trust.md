@@ -1,6 +1,6 @@
 # Dual-write Authentication Trust Boundary
 
-**Status:** Phase 1 implemented and locally validated, pending parent review. Overall H05 remains incomplete until phase 2 binds token-response provenance, resource and tenant.
+**Status:** Core phases 1 and 2a implemented and locally validated, pending parent review. Overall H05 remains incomplete until the native App adapter supplies committed exchange/gateway evidence in phase 2b.
 **Scope:** Offline endpoint and credential-origin enforcement for the Core dual-write sign-in capture, gateway factory and bearer handlers.
 
 ## Problem
@@ -41,7 +41,7 @@ Factory-owned gateway and refresh transports use `HttpClientHandler.AllowAutoRed
 
 ## Phase boundary
 
-Phase 1 does not decode access JWTs, require JWT-shaped access tokens, validate signatures, change MSAL auth, or decide token audience/tenant provenance. Phase 2 must bind the refresh response and captured sign-in response to the expected resource, tenant and request context using trusted response metadata and provider behavior. It must not treat client-side JWT decoding as signature validation.
+Phase 1 does not decode access JWTs, require JWT-shaped access tokens, validate signatures or change MSAL auth. Phase 2a binds Core capture and refresh to committed request/response provenance while keeping access tokens opaque. Phase 2b must supply that evidence from the native browser adapter; it must not weaken the Core boundary or treat client-side JWT decoding as signature validation.
 
 ## Failure pre-mortem
 
@@ -62,3 +62,37 @@ Phase 1 does not decode access JWTs, require JWT-shaped access tokens, validate 
 ## Local validation
 
 The original implementation produced a completed behavioral RED with 19/19 failures: every malicious endpoint and both unbound bearer paths reached the old permissive behavior. After the phase-one change, the endpoint/capture/refresh-handler set passed 59/59 and the then-existing Core `Category=DualWrite` set passed 135/135 under `CI=true` Release. Parent review added literal-backslash and user-information/fragment consistency cases: 5/45 failed before the correction and the endpoint-policy class passed 45/45 afterward. With that class included in the category, the final Core DualWrite set passed 180/180. Evidence is retained under `artifacts/h05/`. All transports were fake; no live sign-in or endpoint was contacted.
+
+## Phase 2a: accepted Core provenance and binding design
+
+Phase 2a adds a small immutable delegated binding containing the actual tenant GUID, exact first-party client ID, IntegratorApp resource and canonical requested scope context. The access token remains opaque. Neither capture nor refresh requires or decodes access-token JWT claims. Optional binding metadata travels with `DualWriteToken` and `DualWriteConnectionSettings`; a legacy refresh token without that provenance fails before network access with re-sign-in guidance.
+
+Trusted sign-in capture consumes one committed HTTPS token-exchange observation: actual request URI, method, content type and form plus response status and body. It accepts only a form-urlencoded POST to a phase-one trusted endpoint with a 2xx response, the exact `DualWriteAuthConstants.ClientId`, an `authorization_code` or `refresh_token` grant carrying its required credential, and at least one scope under exact `https://IntegratorApp.com/`. Only `openid`, `profile` and `offline_access` may accompany the IntegratorApp scopes. Duplicate security-critical form fields, mixed or foreign resource scopes, a conflicting response scope, non-Bearer token type, nonpositive expiry, malformed JSON and failed responses are rejected with static diagnostics that contain no codes, refresh tokens, access tokens, bodies or identifiers. The old body-only capture method remains source-compatible but never accepts a token; the native App adapter must supply committed request/response evidence in phase 2b.
+
+The tenant constraint accepts an explicit GUID or the intentional organizational aliases blank, `common` and `organizations`. A DNS domain constraint is resolved only through `https://login.microsoftonline.com/{escaped-domain}/v2.0/.well-known/openid-configuration`, using a fixed host, no redirects in the owned transport, bounded timeout and response size, cancellation, and an exact Entra issuer that yields a concrete tenant GUID. Domain input is validated as DNS labels and never controls the authority host.
+
+For an explicit GUID endpoint, that committed exchange context is authoritative. Alias and domain endpoints require tenant evidence from the ID token returned in the same trusted response. If an ID token is present for any constraint, its payload must be a well-formed object whose `tid`, issuer, audience/authorized-party and time claims agree with the expected client, direct exchange endpoint and clock. The target `tid` and issuer drive the binding; `client_info.utid` is ignored because a guest user's home tenant can differ. This is consistency validation of metadata received directly over the trusted TLS response, not independent JWT signature validation, arbitrary-token authentication, or a claim of complete portal nonce/signature validation.
+
+Capture completes only after the same opaque bearer is observed in an Authorization header on a 2xx response from a phase-one trusted DualWriteManagement API request. Token exchanges and gateway responses may arrive in either order. Small bounded pending sets correlate them without letting unrelated portal traffic or an invalid first token poison a later valid exchange. The canonical gateway origin is pinned only by the correlated response. URL-only observation and manual close never produce a best-effort result.
+
+Refresh uses the captured actual tenant GUID endpoint plus the immutable client, resource, scope and known redirect context. It never falls back to `common` and never upgrades an unprovenanced legacy refresh token. The response may omit scope and ID-token metadata because the request is already pinned; when either is present it must remain consistent. A failed or inconsistent refresh does not replace the token, invoke persistence, or trigger replay. Legitimately omitted rotated refresh tokens retain the prior one. The existing one-401 replay, concurrency guard and no-extra-mutation-retry behavior remain unchanged.
+
+The native WebView2 adapter is outside phase 2a. Its pinned XML event provides the committed network request/response needed by the new Core observation, but extracting request form, response status/body and gateway response Authorization remains phase 2b. Until that is wired, interactive App sign-in deliberately cannot complete through the legacy body/URL methods. Overall H05 remains incomplete.
+
+### Phase 2a failure pre-mortem
+
+1. **An unrelated first portal token poisons capture.** Validate trusted request provenance, exact client/grant/resource scope and response metadata before adding a bounded candidate; invalid candidates do not replace or block later valid ones.
+2. **A guest user's home tenant is mistaken for the target tenant.** Bind `tid` and the exact issuer from the direct token response, ignore `client_info.utid`, and compare explicit/domain constraints to the target tenant.
+3. **Network events arrive in the opposite order or body reading is delayed.** Maintain bounded token and gateway observations and correlate the exact opaque bearer in either arrival order.
+4. **Manual close or cached URL state bypasses binding.** URL-only observation never completes capture and `BestEffortResult` is null until full bearer/gateway correlation succeeds.
+5. **Refresh widens authority after capture.** Build the refresh endpoint from the immutable actual tenant GUID and require the captured client/resource/scope binding; missing legacy context fails before network or persistence.
+
+### Phase 2a evidence boundary
+
+Tests must cover opaque-token success, invalid-before-valid capture, both event orders, bearer mismatch, failed/malformed/duplicate exchanges, explicit/domain/alias tenant constraints, guest target-versus-home metadata, malformed/expired/wrong tenant/client/issuer ID metadata, bounded pending state, no close fallback, pinned refresh, invalid-refresh zero callback/replay, legacy zero-network refusal, cancellation and redirect controls. All tests use fake HTTP handlers. No tenant discovery, sign-in, browser, gateway or public endpoint is contacted.
+
+Sources: [Microsoft access-token guidance](https://learn.microsoft.com/en-us/entra/identity-platform/access-tokens), [Microsoft OIDC protocol](https://learn.microsoft.com/en-us/entra/identity-platform/v2-protocols-oidc), [OpenID Connect Core ID Token validation](https://openid.net/specs/openid-connect-core-1_0.html#IDTokenValidation).
+
+### Phase 2a local validation
+
+The legacy body/URL trust path produced a completed behavioral RED with 2/2 failures before implementation. After the Core binding work, the focused trust/capture/resolver/provider/handler set passed 106/106 and the broader Core `Category=DualWrite` set passed 219/219 under `CI=true` Release. Both Core target frameworks and the source-compatible App project built with zero warnings and errors. Evidence is retained as `h05-phase2a-legacy-red`, `h05-phase2a-focused-green`, `h05-phase2a-dualwrite-green`, `h05-phase2a-core-build` and `h05-phase2a-app-compat-build` under `artifacts/h05/`. All HTTP transports were fake; no live tenant discovery, browser, sign-in, gateway or public endpoint was used.

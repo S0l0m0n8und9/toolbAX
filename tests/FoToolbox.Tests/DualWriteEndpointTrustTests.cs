@@ -76,7 +76,6 @@ public sealed class DualWriteEndpointTrustRegressionTests
     public void Capture_rejects_gateway_lookalikes(string url)
     {
         var capture = new DualWriteSignInCapture();
-        Assert.True(capture.ObserveTokenResponseBody("{\"access_token\":\"secret\",\"expires_in\":3600}"));
 
         Assert.False(capture.ObserveUrl(url));
         Assert.Null(capture.GatewayBaseUrl);
@@ -87,29 +86,22 @@ public sealed class DualWriteEndpointTrustRegressionTests
     public void Capture_does_not_pin_a_trusted_host_when_the_management_path_is_only_a_substring()
     {
         var capture = new DualWriteSignInCapture();
-        Assert.True(capture.ObserveTokenResponseBody("{\"access_token\":\"secret\",\"expires_in\":3600}"));
 
         Assert.False(capture.ObserveUrl(
             "https://projectmanagementservice.weu.gateway.prod.island.powerapps.com/api/NotDualWriteManagement/1.0/Version"));
 
         Assert.Null(capture.GatewayBaseUrl);
-        Assert.Equal(
-            "https://projectmanagementservice.weu.gateway.prod.island.powerapps.com/",
-            capture.BestEffortResult?.GatewayBaseUrl);
+        Assert.Null(capture.BestEffortResult);
     }
 
     [Fact]
-    public void Capture_uses_only_a_trusted_canonical_gateway_as_its_fallback()
+    public void Url_only_observation_never_creates_a_manual_close_fallback()
     {
         var capture = new DualWriteSignInCapture();
-        Assert.True(capture.ObserveTokenResponseBody("{\"access_token\":\"secret\",\"expires_in\":3600}"));
-
         Assert.False(capture.ObserveUrl(
             "HTTPS://PROJECTMANAGEMENTSERVICE.ROUTING.GATEWAY.PROD.ISLAND.POWERAPPS.COM:443/portal?x=1"));
 
-        Assert.Equal(
-            "https://projectmanagementservice.routing.gateway.prod.island.powerapps.com/",
-            capture.BestEffortResult?.GatewayBaseUrl);
+        Assert.Null(capture.BestEffortResult);
     }
 
     [Theory]

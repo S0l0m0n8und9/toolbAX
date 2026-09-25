@@ -117,6 +117,20 @@ public static class DualWriteEndpointPolicy
                tenant.IndexOfAny(['/', '\\']) < 0;
     }
 
+    /// <summary>Returns the single decoded tenant segment from a trusted token endpoint.</summary>
+    public static bool TryGetTokenTenant(Uri? candidate, out string tenant)
+    {
+        tenant = string.Empty;
+        if (!IsTokenEndpoint(candidate))
+        {
+            return false;
+        }
+
+        var path = candidate!.GetComponents(UriComponents.Path, UriFormat.UriEscaped);
+        tenant = Uri.UnescapeDataString(path.Split('/', StringSplitOptions.None)[0]);
+        return !string.IsNullOrWhiteSpace(tenant);
+    }
+
     /// <summary>True when a request is absolute and stays on the validated gateway origin.</summary>
     public static bool IsSameOrigin(Uri trustedGatewayOrigin, Uri? requestUri)
     {
