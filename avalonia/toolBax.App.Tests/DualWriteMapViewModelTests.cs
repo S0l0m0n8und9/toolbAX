@@ -844,6 +844,22 @@ public class DualWriteMapViewModelTests
     }
 
     [Fact]
+    public async Task Counting_after_same_id_endpoint_edit_is_refused_until_maps_reload()
+    {
+        var reader = new CallCountingReader();
+        var env = new EnvSwitch();
+        var vm = new DualWriteMapViewModel(reader, odata: new CountODataClient(250), activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedMap = vm.Maps.Single(m => m.Name == "customersv3_account");
+
+        env.Current = env.Current! with { Url = "https://replacement.operations.dynamics.com" };
+        await vm.CountAllRowsCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, reader.CeCountCalls);
+        Assert.Contains("reload maps", vm.LoadError, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Map_link_stays_attributed_to_the_profile_that_supplied_the_selected_map()
     {
         var active = EnvWithDataverse("https://first.crm.dynamics.com");
@@ -854,6 +870,24 @@ public class DualWriteMapViewModelTests
 
         Assert.Contains("first.crm.dynamics.com", vm.MapRecordUrl);
         Assert.DoesNotContain("second.crm.dynamics.com", vm.MapRecordUrl);
+    }
+
+    [Fact]
+    public async Task Disposed_map_link_commands_do_not_launch_or_copy()
+    {
+        var launcher = new FakeUrlLauncher();
+        var clipboard = new FakeClipboardService();
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(),
+            activeEnv: () => EnvWithDataverse("https://contoso.crm.dynamics.com"),
+            clipboard: clipboard, launcher: launcher);
+        vm.SelectedMap = MapWithId("11111111-1111-1111-1111-111111111111");
+        vm.Dispose();
+
+        await vm.OpenMapLinkCommand.ExecuteAsync(null);
+        await vm.CopyMapLinkCommand.ExecuteAsync(null);
+
+        Assert.Null(launcher.LastUrl);
+        Assert.Null(clipboard.LastText);
     }
 
     [Fact]

@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-25-environment-consistency-design.md`
 
+**Status:** Accepted for implementation; H01 in progress.
+
 ## Global Constraints
 
 - Work only in `C:\Users\ben.jones\.codex\worktrees\toolbax-production-hardening\toolbAX` on `codex/fix-environment-consistency`; do not touch the main checkout or other worktrees.

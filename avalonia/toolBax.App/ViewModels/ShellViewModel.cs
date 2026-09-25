@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -56,6 +57,7 @@ public partial class ShellViewModel : ObservableObject
     private object? _compareContent;
     private object? _virtualTablesContent;
     private object? _homeContent;
+    private readonly SemaphoreSlim _environmentTransition = new(1, 1);
 
     [ObservableProperty]
     private NavTool _currentTool;
@@ -180,6 +182,11 @@ public partial class ShellViewModel : ObservableObject
         {
             home.EnvName = value?.Name;
         }
+
+        if (_profilesContent is ProfilesViewModel profiles)
+        {
+            profiles.ActiveId = value?.Id;
+        }
     }
 
     private object ResolveContent(NavTool tool) => tool.Id switch
@@ -189,7 +196,8 @@ public partial class ShellViewModel : ObservableObject
         "profiles" => _profilesContent ??= CreateProfilesContent(),
         "metadata" => _metadataContent ??= new MetadataViewModel(_metadataService),
         "virtualtables" => _virtualTablesContent ??= new VirtualTablesViewModel(_virtualTableReader, () => ActiveEnvironment, _launcher),
-        "post" => _postContent ??= new PostBuilderViewModel(_odataClient, _clipboard, _metadataService, _dialogs),
+        "post" => _postContent ??= new PostBuilderViewModel(
+            _odataClient, _clipboard, _metadataService, _dialogs, () => ActiveEnvironment),
         "query" => _queryContent ??= new QueryBuilderViewModel(_metadataService, _odataClient, _clipboard, _fileSave),
         "mapbrowser" => _mapBrowserContent ??= new DualWriteMapViewModel(_mapReader, _fileSave, _odataClient, _metadataService, () => ActiveEnvironment, _clipboard, _launcher),
         "compare" => _compareContent ??= new DualWriteCompareViewModel(_profileStore, _compareService),
@@ -200,15 +208,11 @@ public partial class ShellViewModel : ObservableObject
     // the shell's environment switcher in sync.
     private ProfilesViewModel CreateProfilesContent()
     {
-        var profiles = new ProfilesViewModel(_profileStore, _secretStore, _authBroker, _authService, _gatewayTester, _connectionTester);
-        profiles.ActiveChanged += id =>
-        {
-            var match = Environments.FirstOrDefault(e => e.Id == id);
-            if (match is not null)
-            {
-                _ = ApplyActiveEnvironmentSwitchAsync(match);
-            }
-        };
+        var profiles = new ProfilesViewModel(
+            _profileStore, _secretStore, _authBroker, _authService, _gatewayTester, _connectionTester,
+            requestActivation: ApplyActiveEnvironmentSwitchAsync,
+            commitActiveIdentitySave: CommitActiveIdentitySaveAsync,
+            mutationBlockReason: MutationBlockReason);
         profiles.ProfileSaved += updated =>
         {
             var existing = Environments.FirstOrDefault(e => e.Id == updated.Id);
@@ -253,6 +257,7 @@ public partial class ShellViewModel : ObservableObject
             // A deliberate switch asks before discarding open tool state; a deletion does not. Whatever
             // those tools are showing belongs to an environment that no longer exists, so there is no
             // unsaved input worth protecting — rebuild them unconditionally against the replacement.
+            _metadataService.Invalidate();
             InvalidateToolContent();
         };
         return profiles;
@@ -275,7 +280,8 @@ public partial class ShellViewModel : ObservableObject
     private void CloseCommandPalette() => IsCommandPaletteOpen = false;
 
     [RelayCommand]
-    private Task SetActiveEnvironment(EnvProfile? env) => ApplyActiveEnvironmentSwitchAsync(env);
+    private async Task SetActiveEnvironment(EnvProfile? env) =>
+        _ = await ApplyActiveEnvironmentSwitchAsync(env);
 
     // The single funnel for a deliberate active-environment switch (header switcher OR Profiles' "Set
     // active"). Profile rename/delete update ActiveEnvironment directly and intentionally bypass this —
@@ -284,64 +290,186 @@ public partial class ShellViewModel : ObservableObject
     // all-or-nothing: it moves the shell AND persists the choice, or it moves neither and reports why.
     // Only once it has committed is refreshing the open tools (which discards their unsaved input)
     // offered, gated behind a confirm prompt.
-    private async Task ApplyActiveEnvironmentSwitchAsync(EnvProfile? target)
+    private async Task<string?> ApplyActiveEnvironmentSwitchAsync(EnvProfile? target)
     {
         if (target is null)
         {
-            return;
+            return "Select an environment first.";
         }
 
-        var previous = ActiveEnvironment;
-
-        // Persisting the active id is part of the switch, not a side effect of it: either the shell and the
-        // store both move to the target or neither does. A store that rejects the write (a locked
-        // profile.db) previously left the header on the new environment, the tools on the old one and
-        // nothing persisted — a half-switched shell that lies about where it is pointing, with only a trace
-        // line to show for it. Roll the in-memory switch back and say so instead.
-        ActiveEnvironment = target;
+        await _environmentTransition.WaitAsync();
         try
         {
-            _profileStore.ActiveId = target.Id;
-        }
-        catch (Exception ex)
-        {
-            ActiveEnvironment = previous;
-            ReportBackgroundFailure(
-                $"Couldn't switch environment — the profile store rejected the write: {ex.Message}");
-            System.Diagnostics.Trace.TraceWarning(
-                $"Switching to '{target.Name}' was rolled back: the profile store rejected the active-id write: {ex}");
-            return; // no prompt, no invalidate — the switch did not happen.
-        }
-
-        if (previous is null || previous.Id == target.Id)
-        {
-            return; // first selection, or re-selecting the current one — nothing to refresh.
-        }
-
-        // Best-effort from here on: this also runs from the fire-and-forget ActiveChanged handler, so a
-        // dialog dying with the window mid-prompt must surface as a trace warning, not an unobserved
-        // exception the dispatcher later rethrows. The switch itself is already committed at both levels,
-        // so losing the prompt only costs the tool refresh.
-        try
-        {
-            var refresh = await _dialogs.ConfirmAsync(new ConfirmRequest(
-                Title: "Active environment changed",
-                Message: $"Switched to '{target.Name}'. Refresh open tools so they use this environment? Unsaved input in those tools will be discarded.",
-                Targets: Array.Empty<string>(),
-                ConfirmLabel: "Refresh tools",
-                IsDanger: false));
-
-            if (refresh)
+            var previous = ActiveEnvironment;
+            var previousIdentity = EnvironmentIdentity.TryCreate(previous);
+            var targetIdentity = EnvironmentIdentity.Create(target);
+            if (Equals(previousIdentity, targetIdentity))
             {
-                // Rebuild the open data tool so its cached entities/metadata/results reflect the new environment.
-                InvalidateToolContent();
+                if (!ReferenceEquals(previous, target)) ActiveEnvironment = target;
+                return null;
             }
+
+            if (MutationBlockReason() is { } blocked)
+            {
+                return RejectEnvironmentChange(blocked);
+            }
+
+            if (HasOpenDataTools())
+            {
+                bool discard;
+                try
+                {
+                    discard = await _dialogs.ConfirmAsync(new ConfirmRequest(
+                        Title: "Switch active environment?",
+                        Message: $"Switch to '{target.Name}' and discard open data-tool state?",
+                        Targets: Array.Empty<string>(),
+                        ConfirmLabel: "Switch and discard",
+                        IsDanger: false));
+                }
+                catch (Exception ex)
+                {
+                    return RejectEnvironmentChange($"Couldn't confirm the environment switch: {ex.Message}");
+                }
+
+                if (!discard)
+                {
+                    return RejectEnvironmentChange("Environment switch cancelled.");
+                }
+
+                if (!Equals(previousIdentity, EnvironmentIdentity.TryCreate(ActiveEnvironment)))
+                {
+                    return RejectEnvironmentChange("The active environment changed while confirmation was open.");
+                }
+
+                if (MutationBlockReason() is { } afterConfirmation)
+                {
+                    return RejectEnvironmentChange(afterConfirmation);
+                }
+            }
+
+            // The target can be edited or deleted from Profiles while confirmation is open. Re-resolve it
+            // from the store and require the captured connection identity to survive; a cosmetic replacement
+            // is safe and becomes the record shown after the switch.
+            var currentTarget = _profileStore.GetAll().FirstOrDefault(p => p.Id == target.Id);
+            if (currentTarget is null)
+            {
+                return RejectEnvironmentChange("The selected environment was deleted while confirmation was open.");
+            }
+
+            if (!Equals(targetIdentity, EnvironmentIdentity.Create(currentTarget)))
+            {
+                return RejectEnvironmentChange("The selected environment changed while confirmation was open. Review it and try again.");
+            }
+
+            try
+            {
+                _profileStore.ActiveId = currentTarget.Id;
+            }
+            catch (Exception ex)
+            {
+                return RejectEnvironmentChange(
+                    $"Couldn't switch environment — the profile store rejected the write: {ex.Message}");
+            }
+
+            ReplaceEnvironment(currentTarget);
+            ActiveEnvironment = currentTarget;
+            BackgroundError = string.Empty;
+            _metadataService.Invalidate();
+            InvalidateToolContent();
+            return null;
         }
-        catch (Exception ex)
+        finally
         {
-            System.Diagnostics.Trace.TraceWarning(
-                $"Switched to '{target.Name}', but the refresh prompt did not complete cleanly: {ex}");
+            _environmentTransition.Release();
         }
+    }
+
+    private async Task<string?> CommitActiveIdentitySaveAsync(EnvProfile before, EnvProfile after)
+    {
+        await _environmentTransition.WaitAsync();
+        try
+        {
+            var beforeIdentity = EnvironmentIdentity.Create(before);
+            if (!Equals(beforeIdentity, EnvironmentIdentity.TryCreate(ActiveEnvironment)))
+            {
+                return "The active environment changed before the profile could be saved.";
+            }
+
+            if (MutationBlockReason() is { } blocked) return blocked;
+
+            if (HasOpenDataTools())
+            {
+                bool discard;
+                try
+                {
+                    discard = await _dialogs.ConfirmAsync(new ConfirmRequest(
+                        Title: "Save active environment changes?",
+                        Message: $"Save connection changes for '{after.Name}' and discard open data-tool state?",
+                        Targets: Array.Empty<string>(),
+                        ConfirmLabel: "Save and discard",
+                        IsDanger: false));
+                }
+                catch (Exception ex)
+                {
+                    return $"Couldn't confirm the profile save: {ex.Message}";
+                }
+
+                if (!discard) return "Profile save cancelled.";
+                if (!Equals(beforeIdentity, EnvironmentIdentity.TryCreate(ActiveEnvironment)))
+                    return "The active environment changed while confirmation was open.";
+                if (MutationBlockReason() is { } afterConfirmation) return afterConfirmation;
+            }
+
+            try
+            {
+                _profileStore.Save(after);
+            }
+            catch (Exception ex)
+            {
+                return $"Couldn't save '{after.Name}': {ex.Message}";
+            }
+
+            ReplaceEnvironment(after);
+            ActiveEnvironment = after;
+            BackgroundError = string.Empty;
+            _metadataService.Invalidate();
+            InvalidateToolContent();
+            return null;
+        }
+        finally
+        {
+            _environmentTransition.Release();
+        }
+    }
+
+    private void ReplaceEnvironment(EnvProfile updated)
+    {
+        var existing = Environments.FirstOrDefault(e => e.Id == updated.Id);
+        if (existing is not null) Environments[Environments.IndexOf(existing)] = updated;
+        else Environments.Add(updated);
+    }
+
+    private bool HasOpenDataTools() =>
+        _operationsContent is not null || _metadataContent is not null || _postContent is not null ||
+        _queryContent is not null || _mapBrowserContent is not null || _compareContent is not null ||
+        _virtualTablesContent is not null;
+
+    private string? MutationBlockReason()
+    {
+        if ((_postContent as PostBuilderViewModel)?.MutationInProgress == true ||
+            (_operationsContent as DualWriteOpsViewModel)?.MutationInProgress == true)
+        {
+            return "Finish or cancel the live write before changing the active environment.";
+        }
+
+        return null;
+    }
+
+    private string RejectEnvironmentChange(string message)
+    {
+        BackgroundError = message;
+        OnPropertyChanged(nameof(ActiveEnvironment));
+        return message;
     }
 
     // Drops the cached data-tool view-models so they rebuild against the active environment on next view.

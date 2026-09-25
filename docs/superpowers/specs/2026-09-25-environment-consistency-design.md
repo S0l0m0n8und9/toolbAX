@@ -1,7 +1,7 @@
 # Environment Consistency — Design
 
 Date: 2026-09-25  
-Status: Proposed for parent review  
+Status: Accepted for implementation; H01 in progress  
 Campaign item: H01, with the `CoreProfileStore.ActiveId` ordering portion of H09
 
 ## Problem
@@ -149,6 +149,7 @@ This applies to Query, POST read initialization, Metadata, Map Browser, Virtual 
 - Same-id F&O URL, Dataverse URL, tenant, F&O client/mode, Dataverse client/mode, and company changes are identity changes.
 - Rename, status, latency, and tier changes preserve identity and open tool instances.
 - Declined header switch, Profiles switch, and active-profile save change neither header, persisted choice/profile, drafts, nor tools; the rendered ComboBox visibly rolls back.
+- A pending switch re-resolves its exact target id after confirmation; target deletion or connection-identity edits refuse the switch, while a cosmetic same-identity replacement may supply the latest display record.
 - Active-id persistence failure keeps Shell and store on the previous environment.
 - Header and Profiles activation invoke the same awaited shell funnel.
 - A query started under A cannot commit after an accepted switch.

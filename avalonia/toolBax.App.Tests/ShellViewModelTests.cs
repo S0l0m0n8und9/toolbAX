@@ -152,20 +152,21 @@ public class ShellViewModelTests
     }
 
     [Fact]
-    public async Task Switching_environment_survives_a_refresh_prompt_failure()
+    public async Task A_switch_confirmation_failure_keeps_the_previous_environment_and_tool()
     {
-        // The ActiveChanged path is fire-and-forget, so a dialog failure must be handled, not left as an
-        // unobserved/faulting task. The environment switch is committed regardless; only the refresh is skipped.
+        // Confirmation happens before persistence/header state. A dialog failure is handled and leaves the
+        // previous environment and tool intact.
         var shell = new ShellViewModel(dialogs: new ThrowingDialogs());
         shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
         var before = shell.CurrentContent;
+        var previous = shell.ActiveEnvironment!;
         var other = shell.Environments.First(e => e.Id != shell.ActiveEnvironment!.Id);
 
         shell.SetActiveEnvironmentCommand.Execute(other);
         await shell.SetActiveEnvironmentCommand.ExecutionTask!; // must complete, not fault
 
-        Assert.Equal(other.Id, shell.ActiveEnvironment!.Id); // switch committed
-        Assert.Same(before, shell.CurrentContent);           // refresh skipped on failure
+        Assert.Equal(previous.Id, shell.ActiveEnvironment!.Id);
+        Assert.Same(before, shell.CurrentContent);
     }
 
     // Records confirm requests so a test can prove the refresh prompt is shown, and returns a fixed answer.
@@ -180,6 +181,44 @@ public class ShellViewModelTests
             Calls++;
             Last = request;
             return Task.FromResult(_answer);
+        }
+    }
+
+    private sealed class GatedDialogs : IDialogService
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _answer = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Entered => _entered.Task;
+        public void Release(bool answer) => _answer.TrySetResult(answer);
+        public Task<bool> ConfirmAsync(ConfirmRequest request)
+        {
+            _entered.TrySetResult();
+            return _answer.Task;
+        }
+    }
+
+    private sealed class StartPostDuringSwitchDialogs : IDialogService
+    {
+        private readonly TaskCompletionSource _postConfirmationEntered =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _postAnswer =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private int _calls;
+        public PostBuilderViewModel? Post { get; set; }
+        public Task? PostTask { get; private set; }
+        public void ReleasePost(bool answer) => _postAnswer.TrySetResult(answer);
+
+        public async Task<bool> ConfirmAsync(ConfirmRequest request)
+        {
+            if (Interlocked.Increment(ref _calls) == 1)
+            {
+                PostTask = Post!.SendCommand.ExecuteAsync(null);
+                await _postConfirmationEntered.Task;
+                return true;
+            }
+
+            _postConfirmationEntered.TrySetResult();
+            return await _postAnswer.Task;
         }
     }
 
@@ -199,30 +238,81 @@ public class ShellViewModelTests
     }
 
     [Fact]
-    public void Declining_the_refresh_prompt_keeps_the_open_tool()
+    public async Task Declining_the_switch_keeps_the_environment_store_and_open_tool()
     {
-        var shell = new ShellViewModel(dialogs: new StubDialogs()); // declines
+        var store = new FakeProfileStore();
+        var shell = new ShellViewModel(profileStore: store, dialogs: new StubDialogs()); // declines
         shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
         var before = shell.CurrentContent;
+        var previous = shell.ActiveEnvironment!;
         var other = shell.Environments.First(e => e.Id != shell.ActiveEnvironment!.Id);
 
         shell.SetActiveEnvironmentCommand.Execute(other);
+        await shell.SetActiveEnvironmentCommand.ExecutionTask!;
 
-        Assert.Same(before, shell.CurrentContent); // declined → unsaved tool state is preserved
-        Assert.Equal(other.Id, shell.ActiveEnvironment!.Id); // …but the active environment still switched
+        Assert.Same(before, shell.CurrentContent);
+        Assert.Same(previous, shell.ActiveEnvironment);
+        Assert.Equal(previous.Id, store.ActiveId);
     }
 
     [Fact]
-    public void Switching_environment_prompts_before_refreshing_tools()
+    public void Switching_environment_prompts_before_changing_environment_or_tools()
     {
         var dialogs = new RecordingDialogs(answer: false);
         var shell = new ShellViewModel(dialogs: dialogs);
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
         var other = shell.Environments.First(e => e.Id != shell.ActiveEnvironment!.Id);
 
         shell.SetActiveEnvironmentCommand.Execute(other);
 
         Assert.Equal(1, dialogs.Calls);
         Assert.Contains(other.Name, dialogs.Last!.Message);
+    }
+
+    [Fact]
+    public async Task Edited_target_during_confirmation_is_not_activated_or_persisted()
+    {
+        var store = new FakeProfileStore();
+        var dialogs = new GatedDialogs();
+        var shell = new ShellViewModel(profileStore: store, dialogs: dialogs);
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var beforeTool = shell.CurrentContent;
+        var previous = shell.ActiveEnvironment!;
+        var target = shell.Environments.First(e => e.Id != previous.Id);
+
+        var switching = shell.SetActiveEnvironmentCommand.ExecuteAsync(target);
+        await dialogs.Entered;
+        store.Save(target with { Url = "https://edited.operations.dynamics.com" });
+        dialogs.Release(true);
+        await switching;
+
+        Assert.Same(previous, shell.ActiveEnvironment);
+        Assert.Equal(previous.Id, store.ActiveId);
+        Assert.Same(beforeTool, shell.CurrentContent);
+        Assert.Contains("changed while confirmation", shell.BackgroundError);
+    }
+
+    [Fact]
+    public async Task Deleted_target_during_confirmation_is_not_activated_or_persisted()
+    {
+        var store = new FakeProfileStore();
+        var dialogs = new GatedDialogs();
+        var shell = new ShellViewModel(profileStore: store, dialogs: dialogs);
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var beforeTool = shell.CurrentContent;
+        var previous = shell.ActiveEnvironment!;
+        var target = shell.Environments.First(e => e.Id != previous.Id);
+
+        var switching = shell.SetActiveEnvironmentCommand.ExecuteAsync(target);
+        await dialogs.Entered;
+        store.Delete(target.Id);
+        dialogs.Release(true);
+        await switching;
+
+        Assert.Same(previous, shell.ActiveEnvironment);
+        Assert.Equal(previous.Id, store.ActiveId);
+        Assert.Same(beforeTool, shell.CurrentContent);
+        Assert.Contains("deleted while confirmation", shell.BackgroundError);
     }
 
     [Fact]
@@ -289,6 +379,106 @@ public class ShellViewModelTests
         profiles.SetActiveCommand.Execute(null);
 
         Assert.Equal("uat-eur", shell.ActiveEnvironment!.Id);
+    }
+
+    [Fact]
+    public async Task Header_switch_updates_an_already_open_profiles_active_id()
+    {
+        var shell = new ShellViewModel(dialogs: new AutoConfirmDialogs());
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
+        var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
+        var target = shell.Environments.First(e => e.Id != shell.ActiveEnvironment!.Id);
+
+        await shell.SetActiveEnvironmentCommand.ExecuteAsync(target);
+        profiles.Selected = profiles.Profiles.Single(p => p.Id == target.Id);
+
+        Assert.Equal(target.Id, profiles.ActiveId);
+        Assert.True(profiles.IsSelectedActive);
+    }
+
+    [Fact]
+    public async Task Declining_active_identity_save_preserves_profile_and_drafts()
+    {
+        var store = new FakeProfileStore();
+        var shell = new ShellViewModel(profileStore: store, dialogs: new RecordingDialogs(answer: false));
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
+        var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
+        var active = shell.ActiveEnvironment!;
+        profiles.Selected = profiles.Profiles.Single(p => p.Id == active.Id);
+        profiles.DraftUrl = "https://edited.operations.dynamics.com";
+
+        await profiles.SaveCommand.ExecuteAsync(null);
+
+        Assert.Equal(active.Url, store.GetAll().Single(p => p.Id == active.Id).Url);
+        Assert.Equal(active.Url, shell.ActiveEnvironment!.Url);
+        Assert.Equal("https://edited.operations.dynamics.com", profiles.DraftUrl);
+        Assert.Equal(active.Url, profiles.Profiles.Single(p => p.Id == active.Id).Url);
+        Assert.Contains("cancelled", profiles.Status, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Pending_POST_confirmation_blocks_switch_active_save_and_active_delete()
+    {
+        var store = new FakeProfileStore();
+        var dialogs = new GatedDialogs();
+        var shell = new ShellViewModel(profileStore: store, dialogs: dialogs);
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "post");
+        var post = Assert.IsType<PostBuilderViewModel>(shell.CurrentContent);
+        post.Method = "DELETE";
+        post.Path = "/data/CustomersV3(dataAreaId='USMF',CustomerAccount='US-1')";
+
+        var send = post.SendCommand.ExecuteAsync(null);
+        await dialogs.Entered;
+        Assert.True(post.MutationInProgress);
+        var active = shell.ActiveEnvironment!;
+        var other = shell.Environments.First(e => e.Id != active.Id);
+
+        await shell.SetActiveEnvironmentCommand.ExecuteAsync(other);
+        Assert.Same(active, shell.ActiveEnvironment);
+        Assert.Equal(active.Id, store.ActiveId);
+
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
+        var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
+        profiles.Selected = profiles.Profiles.Single(p => p.Id == active.Id);
+        profiles.DraftUrl = "https://edited.operations.dynamics.com";
+        await profiles.SaveCommand.ExecuteAsync(null);
+        Assert.Equal(active.Url, store.GetAll().Single(p => p.Id == active.Id).Url);
+
+        profiles.DeleteProfileCommand.Execute(null);
+        Assert.Contains(store.GetAll(), p => p.Id == active.Id);
+        Assert.Contains("live write", profiles.Status, StringComparison.OrdinalIgnoreCase);
+
+        dialogs.Release(false);
+        await send;
+        Assert.False(post.MutationInProgress);
+    }
+
+    [Fact]
+    public async Task Mutation_starting_while_switch_confirmation_is_open_blocks_the_commit()
+    {
+        var store = new FakeProfileStore();
+        var dialogs = new StartPostDuringSwitchDialogs();
+        var shell = new ShellViewModel(profileStore: store, dialogs: dialogs);
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "post");
+        var post = Assert.IsType<PostBuilderViewModel>(shell.CurrentContent);
+        post.Method = "DELETE";
+        post.Path = "/data/CustomersV3(dataAreaId='USMF',CustomerAccount='US-1')";
+        dialogs.Post = post;
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var previous = shell.ActiveEnvironment!;
+        var target = shell.Environments.First(e => e.Id != previous.Id);
+
+        await shell.SetActiveEnvironmentCommand.ExecuteAsync(target);
+
+        Assert.True(post.MutationInProgress);
+        Assert.Same(previous, shell.ActiveEnvironment);
+        Assert.Equal(previous.Id, store.ActiveId);
+        Assert.Contains("live write", shell.BackgroundError, StringComparison.OrdinalIgnoreCase);
+
+        dialogs.ReleasePost(false);
+        await dialogs.PostTask!;
+        Assert.False(post.MutationInProgress);
     }
 
     [Fact]
@@ -518,7 +708,7 @@ public class ShellViewModelTests
         Assert.Equal(previous.Id, shell.ActiveEnvironment!.Id);      // rolled back: the switch didn't happen
         Assert.Contains("Couldn't switch environment", shell.BackgroundError);
         Assert.Contains("profile.db is locked", shell.BackgroundError); // …with the store's own reason
-        Assert.Equal(0, dialogs.Calls);             // nothing switched, so nothing to offer refreshing for
+        Assert.Equal(1, dialogs.Calls);             // discard approved before persistence was attempted
         Assert.Same(before, shell.CurrentContent);  // …and the open tool keeps the environment it has
     }
 

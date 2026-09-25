@@ -159,6 +159,21 @@ public class VirtualTablesViewModelTests
     }
 
     [Fact]
+    public async Task Disposed_table_link_command_does_not_launch()
+    {
+        var launcher = new FakeUrlLauncher();
+        var vm = new VirtualTablesViewModel(new FakeVirtualTableReader(),
+            activeEnv: () => EnvWith("https://contoso.crm.dynamics.com"), launcher: launcher);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedTable = vm.Tables.First();
+        vm.Dispose();
+
+        await vm.OpenInDataverseCommand.ExecuteAsync(null);
+
+        Assert.Null(launcher.LastUrl);
+    }
+
+    [Fact]
     public async Task Without_a_dataverse_url_the_open_link_is_unavailable()
     {
         var vm = new VirtualTablesViewModel(new FakeVirtualTableReader(), activeEnv: () => EnvWith(null));
@@ -228,6 +243,20 @@ public class VirtualTablesViewModelTests
         Assert.Equal("fabrikam", vm.LoadedEnvName);
         vm.SelectedTable = vm.Tables.First();
         Assert.Contains("fabrikam.crm.dynamics.com", vm.SelectedTableUrl!);
+    }
+
+    [Fact]
+    public async Task Re_initializing_after_same_id_endpoint_edit_reloads()
+    {
+        var reader = new CountingReader();
+        var env = new EnvSwitch();
+        var vm = new VirtualTablesViewModel(reader, activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        env.Current = env.Current! with { DataverseUrl = "https://replacement.crm.dynamics.com" };
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, reader.Calls);
     }
 
     [Fact]
