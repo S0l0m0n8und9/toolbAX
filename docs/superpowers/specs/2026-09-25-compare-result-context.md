@@ -1,8 +1,8 @@
 # Compare result context (H06c proposal)
 
-## Status: accepted for implementation
+## Status: implemented and focused-validated; parent review, full gates, PR and merge pending
 
-This design is accepted. The next stage starts with baseline-failing behavioral tests; production implementation remains separate.
+The accepted design is implemented in `DualWriteCompareViewModel` and its Compare view. Result rows carry immutable captured attribution and completion time; meaningful selection/store changes invalidate immediately with monotonic generation and owned cancellation; batched cosmetic refresh preserves valid results.
 
 `DualWriteCompareViewModel` snapshots source/target for service invocation but commits by lifecycle generation only. Selector changes do not invalidate prior/in-flight results. `RefreshEnvironments` reloads/rebinds immutable profiles by ID on activation but explicitly leaves results untouched, and Shell caches the VM. Core comparison already retains H02 sequential UI-context sign-in and H06b Unknown/scope behavior; preserve both.
 
@@ -35,3 +35,5 @@ Keep matching/verdict/scope behavior and same-host eligibility. Do not change ga
 ## Acceptance before implementation completion
 
 Use gated-service tests for clearing and late result/error rejection after source/target edits, A/B/A, same-ID store edits, deletion, disposal, cancellation, and rejected overlap. Prove unchanged refresh preserves results, invalid entry makes zero service calls and never falls back, and attached headless selectors/result attribution show the captured pair. No sleeps or live calls.
+
+The repaired complete baseline class executed 15 tests: 13 behavioral failures and 2 controls passed, with bounded cleanup and no orphaned tasks. Parent-review additions separately failed 3/3 for Toolkit token ownership and direct same/missing-host eligibility. The final focused Compare view-model/service/fake/render Release suite passes 60/60. Evidence is saved under ignored `artifacts/h06c/`; no live calls were used. Complete solution gates remain a parent step.
