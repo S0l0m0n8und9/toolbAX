@@ -25,6 +25,9 @@ public partial class ProfilesViewModel : ObservableObject
     private readonly IAuthService _auth;
     private readonly IDualWriteGatewayTester _gatewayTester;
     private readonly IConnectionTester _connectionTester;
+    private readonly Func<EnvProfile, Task<string?>> _requestActivation;
+    private readonly Func<EnvProfile, EnvProfile, Task<string?>> _commitActiveIdentitySave;
+    private readonly Func<string?> _mutationBlockReason;
 
     public ObservableCollection<EnvProfile> Profiles { get; }
 
@@ -166,7 +169,10 @@ public partial class ProfilesViewModel : ObservableObject
         IInteractiveAuthBroker? broker = null,
         IAuthService? auth = null,
         IDualWriteGatewayTester? gatewayTester = null,
-        IConnectionTester? connectionTester = null)
+        IConnectionTester? connectionTester = null,
+        Func<EnvProfile, Task<string?>>? requestActivation = null,
+        Func<EnvProfile, EnvProfile, Task<string?>>? commitActiveIdentitySave = null,
+        Func<string?>? mutationBlockReason = null)
     {
         _store = store;
         _secrets = secrets ?? new FakeSecretStore();
@@ -174,6 +180,9 @@ public partial class ProfilesViewModel : ObservableObject
         _auth = auth ?? new FakeAuthService();
         _gatewayTester = gatewayTester ?? new FakeDualWriteGatewayTester();
         _connectionTester = connectionTester ?? new FakeConnectionTester();
+        _requestActivation = requestActivation ?? LocalActivationAsync;
+        _commitActiveIdentitySave = commitActiveIdentitySave ?? LocalIdentitySaveAsync;
+        _mutationBlockReason = mutationBlockReason ?? (() => null);
         Profiles = new ObservableCollection<EnvProfile>(store.GetAll());
         Profiles.CollectionChanged += (_, _) =>
         {
@@ -183,6 +192,32 @@ public partial class ProfilesViewModel : ObservableObject
         _activeId = store.ActiveId;
         _selected = Profiles.FirstOrDefault(p => p.Id == _activeId) ?? Profiles.FirstOrDefault();
         LoadDrafts(_selected);
+    }
+
+    private Task<string?> LocalActivationAsync(EnvProfile target)
+    {
+        try
+        {
+            _store.ActiveId = target.Id;
+            return Task.FromResult<string?>(null);
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult<string?>($"Couldn't switch environment: {ex.Message}");
+        }
+    }
+
+    private Task<string?> LocalIdentitySaveAsync(EnvProfile before, EnvProfile after)
+    {
+        try
+        {
+            _store.Save(after);
+            return Task.FromResult<string?>(null);
+        }
+        catch (Exception ex)
+        {
+            return Task.FromResult<string?>($"Couldn't save '{after.Name}': {ex.Message}");
+        }
     }
 
     public bool IsRopc => DraftDiMode == DiAuthMode.Ropc;
@@ -361,6 +396,12 @@ public partial class ProfilesViewModel : ObservableObject
         // IsEnabled binding — ICommand.Execute bypasses CanExecute, so guard here too.
         if (Selected is null || Profiles.Count <= 1)
         {
+            return;
+        }
+
+        if (Selected.Id == ActiveId && _mutationBlockReason() is { } blocked)
+        {
+            Status = blocked;
             return;
         }
 
@@ -623,34 +664,42 @@ public partial class ProfilesViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void SetActive()
+    private async Task SetActive()
     {
-        if (Selected is null)
+        var selected = Selected;
+        if (selected is null)
         {
             return;
         }
 
-        ActiveId = Selected.Id;
-        _store.ActiveId = Selected.Id;
-        Status = $"'{Selected.Name}' is now the active environment.";
-        ActiveChanged?.Invoke(Selected.Id);
+        var error = await _requestActivation(selected);
+        if (error is not null)
+        {
+            Status = error;
+            return;
+        }
+
+        ActiveId = selected.Id;
+        Status = $"'{selected.Name}' is now the active environment.";
+        ActiveChanged?.Invoke(selected.Id);
     }
 
     [RelayCommand]
-    private void Save()
+    private async Task Save()
     {
-        if (Selected is null)
+        var selected = Selected;
+        if (selected is null)
         {
             return;
         }
 
         // Captured before the swap so we can tell whether the auth identity changed (and evict the old
         // cached session if so).
-        var previous = Selected;
+        var previous = selected;
 
         // Commit the editable drafts onto a new immutable record, persist, and swap it into the list
         // so the master + detail reflect the edit.
-        var updated = Selected with
+        var updated = selected with
         {
             Name = DraftName,
             Url = DraftUrl,
@@ -667,15 +716,41 @@ public partial class ProfilesViewModel : ObservableObject
             AuthMode = DraftAuthMode,
         };
 
-        _store.Save(updated);
+        var activeIdentityChanged = selected.Id == ActiveId &&
+            EnvironmentIdentity.Create(selected) != EnvironmentIdentity.Create(updated);
+        if (activeIdentityChanged)
+        {
+            var error = await _commitActiveIdentitySave(selected, updated);
+            if (error is not null)
+            {
+                Status = error;
+                return;
+            }
+        }
+        else
+        {
+            try
+            {
+                _store.Save(updated);
+            }
+            catch (Exception ex)
+            {
+                Status = $"Couldn't save '{updated.Name}': {ex.Message}";
+                return;
+            }
+        }
 
-        var index = Profiles.IndexOf(Selected);
+        var existing = Profiles.FirstOrDefault(p => p.Id == selected.Id);
+        var index = existing is null ? -1 : Profiles.IndexOf(existing);
         if (index >= 0)
         {
             Profiles[index] = updated;
         }
 
-        Selected = updated;
+        if (Selected?.Id == selected.Id)
+        {
+            Selected = updated;
+        }
         Status = $"Saved '{updated.Name}'.";
         ProfileSaved?.Invoke(updated);
 

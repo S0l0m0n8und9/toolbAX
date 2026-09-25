@@ -14,6 +14,9 @@ namespace ToolBax.Core.Services;
 /// </summary>
 public interface IMetadataService
 {
+    /// <summary>Invalidates every environment-scoped cached value and any in-flight cache generation.</summary>
+    void Invalidate();
+
     IReadOnlyList<EntitySet> GetEntities();
 
     IReadOnlyList<EntityField>? GetFields(string entityName);

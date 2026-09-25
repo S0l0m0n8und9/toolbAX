@@ -19,6 +19,8 @@ public class MetadataViewModelTests
     // fields appears — so InitializeAsync (not the ctor) is what populates the browser.
     private sealed class DeferredMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private bool _loaded;
         private static readonly EntitySet[] Late = { new("LateEntity", "M", 1, "k", false, "odata") };
         private static readonly EntityField[] LateFields = { new("Id", "String", false, IsKey: true, Length: 10) };
@@ -47,6 +49,8 @@ public class MetadataViewModelTests
     // Mimics a live failure (token denied / OData unreachable) so the fetch can't silently no-op.
     private sealed class ThrowingMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         public IReadOnlyList<EntitySet> GetEntities() => Array.Empty<EntitySet>();
         public IReadOnlyList<EntityField>? GetFields(string entityName) => null;
         public Task LoadEntitiesAsync(CancellationToken ct = default) =>
@@ -68,8 +72,29 @@ public class MetadataViewModelTests
 
     // Records the forceRefresh flag of every load, so Refresh can be shown to bypass the caches rather
     // than just re-reading them.
+    private sealed class CancellationObservingRefreshMetadata : IMetadataService
+    {
+        private static readonly EntitySet[] Entities = { new("Alpha", "M", 1, "k", false, "odata") };
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public CancellationToken ReceivedToken { get; private set; }
+        public void Invalidate() { }
+        public IReadOnlyList<EntitySet> GetEntities() => Entities;
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) => Task.FromResult(false);
+        public async Task LoadEntitiesAsync(bool forceRefresh, CancellationToken ct = default)
+        {
+            ReceivedToken = ct;
+            Entered.TrySetResult();
+            await Release.Task.WaitAsync(ct);
+        }
+    }
+
     private sealed class RecordingMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly EntitySet[] All =
         {
             new("Alpha", "M", 1, "k", false, "odata"),
@@ -136,6 +161,8 @@ public class MetadataViewModelTests
     // (a profile repointed at an environment without OData metadata, or a cache emptied by the switch).
     private sealed class EmptyingMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly EntitySet[] Initial = { new("Alpha", "M", 1, "k", false, "odata") };
         private static readonly EntityField[] Props = { new("Id", "String", false, IsKey: true, Length: 10) };
         private bool _emptied;
@@ -192,10 +219,28 @@ public class MetadataViewModelTests
         Assert.False(vm.IsBusy);
     }
 
+    [Fact]
+    public async Task Dispose_cancels_an_inflight_refresh_token()
+    {
+        var metadata = new CancellationObservingRefreshMetadata();
+        var vm = new MetadataViewModel(metadata);
+
+        var refresh = vm.RefreshCommand.ExecuteAsync(null);
+        await metadata.Entered.Task;
+        vm.Dispose();
+        Assert.True(metadata.ReceivedToken.IsCancellationRequested);
+        metadata.Release.TrySetResult();
+        await refresh;
+
+        Assert.False(vm.RefreshCommand.CanExecute(null));
+    }
+
     // Holds a field fetch open so the in-flight state is observable. The real service is a live $metadata
     // read against a document that can be tens of MB, which is the whole reason the pane needs an indicator.
     private sealed class BlockingFieldsMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly EntitySet[] All =
         {
             new("Alpha", "M", 1, "k", false, "odata"),
@@ -244,6 +289,33 @@ public class MetadataViewModelTests
     }
 
     [Fact]
+    public async Task Disposed_metadata_does_not_commit_a_late_fields_response()
+    {
+        var metadata = new BlockingFieldsMetadata();
+        var vm = new MetadataViewModel(metadata);
+
+        var fetch = vm.LoadSelectedFieldsCommand.ExecuteAsync(null);
+        vm.Dispose();
+        metadata.Gate.SetResult(true);
+        await fetch;
+
+        Assert.Empty(vm.Fields);
+        Assert.False(vm.IsCached);
+    }
+
+    [Fact]
+    public async Task A_configured_missing_active_profile_blocks_metadata_field_dispatch()
+    {
+        var metadata = new BlockingFieldsMetadata();
+        var vm = new MetadataViewModel(metadata, activeEnvironment: () => null);
+
+        await vm.LoadSelectedFieldsCommand.ExecuteAsync(null);
+
+        Assert.False(vm.IsLoadingFields);
+        Assert.False(metadata.Gate.Task.IsCompleted);
+    }
+
+    [Fact]
     public async Task A_failed_fields_fetch_clears_the_indicator_and_restores_the_not_cached_hint()
     {
         var metadata = new BlockingFieldsMetadata();
@@ -266,6 +338,8 @@ public class MetadataViewModelTests
     // like the real service, so a superseded fetch actually unwinds instead of hanging.
     private sealed class GatedFieldsMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly EntitySet[] All =
         {
             new("Alpha", "M", 1, "k", false, "odata"),

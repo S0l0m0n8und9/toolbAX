@@ -45,6 +45,8 @@ public class MetadataViewRenderTests
     // Holds the field fetch open so the in-flight pane can be inspected.
     private sealed class BlockingFieldsMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly EntitySet[] All = { new("Alpha", "M", 1, "k", false, "odata") };
         private static readonly EntityField[] Props = { new("Id", "String", false, IsKey: true, Length: 10) };
         private bool _loaded;

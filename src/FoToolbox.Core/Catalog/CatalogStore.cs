@@ -1,5 +1,9 @@
 using Microsoft.Data.Sqlite;
 using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -8,14 +12,98 @@ namespace FoToolbox.Core.Catalog;
 public sealed class CatalogStore
 {
     private readonly string _connectionString;
+    private readonly MetadataRetentionCoordinator _retention;
 
     public CatalogStore(string databasePath)
     {
+        _retention = MetadataRetentionCoordinator.ForDatabase(databasePath);
         _connectionString = new SqliteConnectionStringBuilder
         {
             DataSource = databasePath,
             ForeignKeys = true
         }.ToString();
+    }
+
+    internal long MetadataPruneGeneration => _retention.PruneGeneration;
+
+    internal ValueTask<IAsyncDisposable> LeaseMetadataPartitionAsync(string profileId, string key, CancellationToken ct) =>
+        _retention.AcquireAsync(this, profileId, key, ct);
+
+    private const string PartitionPrefix = "catalog-meta-v1:";
+    private const string KnownMetadataKinds =
+        "(Kind = $full OR Kind = $xml OR Kind = $index OR substr(Kind, 1, length($details)) = $details)";
+
+    // Called only while the process-local admission gate is held. Reads summaries, never XML/payload
+    // blobs, then atomically removes known representations of the oldest unleased groups. Deleted pages
+    // are reusable by SQLite; this neither VACUUMs nor promises a fixed byte/file-size bound.
+    internal async Task<bool> PruneMetadataPartitionsAsync(string profileId, IEnumerable<string> leasedKeys, CancellationToken ct)
+    {
+        var protectedKeys = leasedKeys.ToHashSet(StringComparer.Ordinal);
+        var connectionString = new SqliteConnectionStringBuilder(_connectionString) { DefaultTimeout = 2 }.ToString();
+        await using var conn = new SqliteConnection(connectionString);
+        await conn.OpenAsync(ct).ConfigureAwait(false);
+        using var transaction = conn.BeginTransaction();
+        var groups = new Dictionary<string, long>(StringComparer.Ordinal);
+        await using (var select = conn.CreateCommand())
+        {
+            select.Transaction = transaction;
+            select.CommandTimeout = 2;
+            // Parse the round-trip timestamps without SQLite julianday's sub-millisecond rounding.
+            // These tiny summaries avoid loading the multi-megabyte XML/JSON payloads.
+            select.CommandText = $"SELECT EnvId, UpdatedUtc FROM CatalogData WHERE substr(EnvId, 1, length($prefix)) = $prefix AND {KnownMetadataKinds}";
+            select.Parameters.AddWithValue("$prefix", PartitionPrefix);
+            AddMetadataKinds(select);
+            await using var reader = await select.ExecuteReaderAsync(ct).ConfigureAwait(false);
+            while (await reader.ReadAsync(ct).ConfigureAwait(false))
+            {
+                ct.ThrowIfCancellationRequested();
+                var key = reader.GetString(0);
+                if (!protectedKeys.Contains(key) && IsPartitionForProfile(key, profileId)
+                    && DateTimeOffset.TryParse(reader.GetString(1), CultureInfo.InvariantCulture,
+                        DateTimeStyles.AssumeUniversal, out var updated))
+                {
+                    groups.TryGetValue(key, out var previous);
+                    groups[key] = Math.Max(previous, updated.UtcTicks);
+                }
+            }
+        }
+
+        var removed = 0;
+        foreach (var group in groups.OrderByDescending(g => g.Value).ThenBy(g => g.Key, StringComparer.Ordinal).Skip(3))
+        {
+            ct.ThrowIfCancellationRequested();
+            await using var delete = conn.CreateCommand();
+            delete.Transaction = transaction;
+            delete.CommandTimeout = 2;
+            delete.CommandText = $"DELETE FROM CatalogData WHERE EnvId = $key COLLATE BINARY AND {KnownMetadataKinds}";
+            delete.Parameters.AddWithValue("$key", group.Key);
+            AddMetadataKinds(delete);
+            removed += await delete.ExecuteNonQueryAsync(ct).ConfigureAwait(false);
+        }
+        await transaction.CommitAsync(ct).ConfigureAwait(false);
+        return removed > 0;
+    }
+
+    private static void AddMetadataKinds(SqliteCommand command)
+    {
+        command.Parameters.AddWithValue("$full", "ODataMetadata");
+        command.Parameters.AddWithValue("$xml", "ODataMetadataXml");
+        command.Parameters.AddWithValue("$index", "ODataEntityIndex");
+        command.Parameters.AddWithValue("$details", "ODataEntityDetails:");
+    }
+
+    private static bool IsPartitionForProfile(string key, string profileId)
+    {
+        if (!key.StartsWith(PartitionPrefix, StringComparison.Ordinal)) return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(key[PartitionPrefix.Length..]);
+            var root = doc.RootElement;
+            return root.ValueKind == JsonValueKind.Array && root.GetArrayLength() == 3
+                && root.EnumerateArray().All(e => e.ValueKind == JsonValueKind.String)
+                && string.Equals(root[0].GetString(), profileId, StringComparison.Ordinal);
+        }
+        catch (JsonException) { return false; }
     }
 
     public async Task EnsureCreatedAsync(CancellationToken cancellationToken = default)

@@ -17,6 +17,48 @@ public class DualWriteCompareViewModelTests
     private static DualWriteCompareViewModel MakeVm(IDualWriteCompareService? service = null) =>
         new(new FakeProfileStore(), service ?? new FakeDualWriteCompareService());
 
+    private sealed class GatedCompareService : IDualWriteCompareService
+    {
+        public TaskCompletionSource<IReadOnlyList<DualWriteMapComparisonRow>> Gate { get; } = new();
+
+        public Task<IReadOnlyList<DualWriteMapComparisonRow>> CompareAsync(
+            EnvProfile source, EnvProfile target, CancellationToken ct = default) => Gate.Task;
+    }
+
+    [Fact]
+    public async Task Disposed_compare_does_not_commit_a_late_result()
+    {
+        var service = new GatedCompareService();
+        var vm = MakeVm(service);
+
+        var compare = vm.CompareCommand.ExecuteAsync(null);
+        vm.Dispose();
+        service.Gate.SetResult(new[]
+        {
+            new DualWriteMapComparisonRow("Late", true, true, "1", "1", "Running", "Running", DualWriteComparisonVerdict.Identical)
+        });
+        await compare;
+
+        Assert.Empty(vm.DiffRows);
+        Assert.False(vm.HasResult);
+    }
+
+    [Fact]
+    public void Disposed_compare_refuses_environment_refresh_side_effects()
+    {
+        var store = new FakeProfileStore();
+        var vm = new DualWriteCompareViewModel(store, new FakeDualWriteCompareService());
+        var before = vm.Environments.Count;
+        vm.Dispose();
+        store.Save(new EnvProfile("late", "Late", "late.operations.dynamics.com", "tenant", "USMF",
+            "Tier 1", EnvStatus.Connected));
+
+        vm.RefreshEnvironmentsCommand.Execute(null);
+
+        Assert.Equal(before, vm.Environments.Count);
+        Assert.DoesNotContain(vm.Environments, env => env.Id == "late");
+    }
+
     [Fact]
     public void Defaults_pick_two_different_environments()
     {
@@ -415,7 +457,7 @@ public class DualWriteCompareViewModelTests
 
             return new DualWriteSession(
                 new FakeCoreDualWriteGateway(FakeDualWriteConnector.SeedMaps()),
-                "fake-cid", "Contoso", env.Id, "https://fake-gateway.dual-write.example");
+                "fake-cid", "Contoso", env, "https://fake-gateway.dual-write.example");
         }
     }
 
@@ -436,7 +478,7 @@ public class DualWriteCompareViewModelTests
         {
             var gateway = env.Id == "src" ? _sourceGateway : _targetGateway;
             return Task.FromResult(
-                new DualWriteSession(gateway, "fake-cid", "Contoso", env.Id, "https://fake-gateway.dual-write.example"));
+                new DualWriteSession(gateway, "fake-cid", "Contoso", env, "https://fake-gateway.dual-write.example"));
         }
     }
 
@@ -456,7 +498,7 @@ public class DualWriteCompareViewModelTests
         public Task<DualWriteSession> ConnectAsync(EnvProfile env, CancellationToken ct = default) =>
             env.Id == "src"
                 ? Task.FromResult(new DualWriteSession(
-                    _sourceGateway, "fake-cid", "Contoso", env.Id, "https://fake-gateway.dual-write.example"))
+                    _sourceGateway, "fake-cid", "Contoso", env, "https://fake-gateway.dual-write.example"))
                 : Task.FromException<DualWriteSession>(_targetFailure);
     }
 

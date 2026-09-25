@@ -161,25 +161,30 @@ public class ShellRenderTests
     }
 
     [AvaloniaFact]
-    public void Picking_an_environment_in_the_header_switcher_routes_through_the_switch_funnel()
+    public async Task Declining_a_header_switch_rolls_the_rendered_selection_back_through_the_funnel()
     {
         var store = new FakeProfileStore();
         var dialogs = new CountingDialogs();  // declines the tool refresh
         var shell = new ShellViewModel(profileStore: store, dialogs: dialogs);
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
         var window = new MainWindow { DataContext = shell };
         window.Show();
         Dispatcher.UIThread.RunJobs();
         try
         {
             var switcher = Switcher(window);
-            var other = shell.Environments.First(e => e.Id != shell.ActiveEnvironment!.Id);
+            var previous = shell.ActiveEnvironment!;
+            var other = shell.Environments.First(e => e.Id != previous.Id);
 
             switcher.SelectedItem = other;   // the user's pick, as the rendered control reports it
             Dispatcher.UIThread.RunJobs();
+            await shell.SetActiveEnvironmentCommand.ExecutionTask!;
+            Dispatcher.UIThread.RunJobs();
 
-            Assert.Equal(other.Id, shell.ActiveEnvironment!.Id);  // the shell moved…
-            Assert.Equal(other.Id, store.ActiveId);               // …the choice was persisted…
-            Assert.Equal(1, dialogs.Calls);                       // …and the refresh prompt was offered once
+            Assert.Same(previous, shell.ActiveEnvironment);
+            Assert.Equal(previous.Id, store.ActiveId);
+            Assert.Same(previous, switcher.SelectedItem);
+            Assert.Equal(1, dialogs.Calls);
         }
         finally
         {

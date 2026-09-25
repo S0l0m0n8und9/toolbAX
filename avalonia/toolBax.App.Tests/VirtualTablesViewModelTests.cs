@@ -145,6 +145,35 @@ public class VirtualTablesViewModelTests
     }
 
     [Fact]
+    public async Task Selected_table_link_stays_attributed_to_the_loaded_profile()
+    {
+        var active = EnvWith("https://first.crm.dynamics.com");
+        var vm = new VirtualTablesViewModel(new FakeVirtualTableReader(), activeEnv: () => active);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedTable = vm.Tables.First();
+
+        active = active with { DataverseUrl = "https://second.crm.dynamics.com" };
+
+        Assert.Contains("first.crm.dynamics.com", vm.SelectedTableUrl);
+        Assert.DoesNotContain("second.crm.dynamics.com", vm.SelectedTableUrl);
+    }
+
+    [Fact]
+    public async Task Disposed_table_link_command_does_not_launch()
+    {
+        var launcher = new FakeUrlLauncher();
+        var vm = new VirtualTablesViewModel(new FakeVirtualTableReader(),
+            activeEnv: () => EnvWith("https://contoso.crm.dynamics.com"), launcher: launcher);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedTable = vm.Tables.First();
+        vm.Dispose();
+
+        await vm.OpenInDataverseCommand.ExecuteAsync(null);
+
+        Assert.Null(launcher.LastUrl);
+    }
+
+    [Fact]
     public async Task Without_a_dataverse_url_the_open_link_is_unavailable()
     {
         var vm = new VirtualTablesViewModel(new FakeVirtualTableReader(), activeEnv: () => EnvWith(null));
@@ -217,6 +246,20 @@ public class VirtualTablesViewModelTests
     }
 
     [Fact]
+    public async Task Re_initializing_after_same_id_endpoint_edit_reloads()
+    {
+        var reader = new CountingReader();
+        var env = new EnvSwitch();
+        var vm = new VirtualTablesViewModel(reader, activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        env.Current = env.Current! with { DataverseUrl = "https://replacement.crm.dynamics.com" };
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, reader.Calls);
+    }
+
+    [Fact]
     public async Task Re_initializing_under_the_same_environment_does_not_reload()
     {
         var reader = new CountingReader();
@@ -227,6 +270,19 @@ public class VirtualTablesViewModelTests
         await vm.InitializeCommand.ExecuteAsync(null);
 
         Assert.Equal(1, reader.Calls);   // re-navigating stays cheap
+    }
+
+    [Fact]
+    public async Task Disposed_refresh_refuses_a_new_reader_call()
+    {
+        var reader = new CountingReader();
+        var vm = new VirtualTablesViewModel(reader);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.Dispose();
+
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, reader.Calls);
     }
 
     [Fact]

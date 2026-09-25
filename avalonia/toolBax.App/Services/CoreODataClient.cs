@@ -67,6 +67,18 @@ public sealed class CoreODataClient : IODataClient, IDisposable
             return new ODataResponse(0, "No active environment", "Select an environment first.", (int)sw.ElapsedMilliseconds);
         }
 
+        var identity = EnvironmentIdentity.Create(env);
+        var normalizedBaseUrl = ResourceUrlNormalizer.NormalizeFoBaseUrl(env.Url);
+        var uri = BuildUri(normalizedBaseUrl, path);
+
+        // A server-driven paging link is used verbatim, but only if it stays on the captured environment's
+        // origin. Decide this from the same immutable profile snapshot used for auth and dispatch.
+        if (path.StartsWith("http", StringComparison.OrdinalIgnoreCase) && !RequestOriginGuard.IsSameOrigin(normalizedBaseUrl, uri))
+        {
+            return new ODataResponse(0, "Refused",
+                "The paging link points to a different origin than the environment.", (int)sw.ElapsedMilliseconds);
+        }
+
         string token;
         try
         {
@@ -84,16 +96,10 @@ public sealed class CoreODataClient : IODataClient, IDisposable
             return new ODataResponse(401, "Unauthorized", ex.Message, (int)sw.ElapsedMilliseconds);
         }
 
-        var normalizedBaseUrl = ResourceUrlNormalizer.NormalizeFoBaseUrl(env.Url);
-        var uri = BuildUri(normalizedBaseUrl, path);
-
-        // A server-driven paging link is used verbatim, but only if it stays on the environment's origin
-        // (scheme + host + port) — otherwise the env-scoped bearer (and its claims) would be sent to a
-        // foreign origin, or downgraded to plaintext on the same host.
-        if (path.StartsWith("http", StringComparison.OrdinalIgnoreCase) && !RequestOriginGuard.IsSameOrigin(normalizedBaseUrl, uri))
+        if (!identity.IsCurrent(_activeEnv()))
         {
-            return new ODataResponse(0, "Refused",
-                "The paging link points to a different origin than the environment.", (int)sw.ElapsedMilliseconds);
+            return new ODataResponse(0, "Environment changed",
+                "The active environment changed before the request was sent.", (int)sw.ElapsedMilliseconds);
         }
 
         try
