@@ -110,14 +110,24 @@ public partial class App : Application
                 virtualTableReader: virtualTableReader,
                 degraded: degraded);
             window.DataContext = shell;
+            StartupSmoke.Current?.Attach(window, desktop, shell,
+                profileStore is CoreProfileStore && secretStore is CoreSecretStore && authService is CoreAuthService
+                && odataClient is CoreODataClient && metadataService is CoreMetadataService
+                && mapReader is CoreDualWriteMapReader && virtualTableReader is CoreVirtualTableReader
+                && dwConnector is CoreDualWriteConnector && compareService is CoreDualWriteCompareService
+                && gatewayTester is CoreDualWriteGatewayTester && connectionTester is CoreConnectionTester);
             desktop.MainWindow = window;
 
             // The safety net below is deliberately scoped to the real desktop host: headless tests install it
             // themselves so a test's throwing job can't be swallowed by the app-wide handler.
             ShellViewModel shellForReports = shell;   // non-nullable local: the lambda's nullable flow state resets
+            var smokeForReports = StartupSmoke.Current;
             // The handle is intentionally not stored — the net lives for the process lifetime.
             _ = InstallLastResortExceptionHandlers(message =>
-                Dispatcher.UIThread.Post(() => shellForReports.ReportBackgroundFailure(message)));
+            {
+                smokeForReports?.RecordFailure(message);
+                Dispatcher.UIThread.Post(() => shellForReports.ReportBackgroundFailure(message));
+            });
         }
 
         base.OnFrameworkInitializationCompleted();
