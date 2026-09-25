@@ -10,8 +10,8 @@ It provides:
 - Data Integrator portal browser sign-in for dual-write; legacy ROPC settings are preserved but not used or offered
 - OData metadata exploration and query tools, with cancellable runs
 - A POST / write (OData) builder with metadata-backed payload validation
-- Dual-write map browser, operations, and compare tooling — row-count checks report capped or
-  not-comparable counts rather than a false Match/Mismatch
+- Dual-write map browser, operations, and compare tooling — Compare reports map presence and reported
+  version/state, including Unknown/Ambiguous outcomes
 - A Dataverse virtual-tables inspector for the F&O-backed tables
 - CSV export
 
@@ -29,13 +29,13 @@ Releases are published as GitHub Releases:
 
 Download `toolbAX-win-x64.zip` from the assets, extract it anywhere, and run `toolbAX.exe`. It's a **self-contained** Windows x64 build — no .NET runtime install required.
 
-> ⚠️ Releases are currently **unsigned**. Windows SmartScreen will show "Windows protected your PC" — click **More info** → **Run anyway** to proceed. A signed release path is on the roadmap.
+> ⚠️ Releases are currently **unsigned**. Follow your organisation's security policy for SmartScreen and download approval. A signed release path is on the roadmap.
 >
 > To verify your download while the release is unsigned, compare its hash against the published `toolbAX-win-x64.zip.sha256` asset: `Get-FileHash toolbAX-win-x64.zip -Algorithm SHA256`.
 
 ### Logs
 
-Each run writes a log to `%LocalAppData%\FoToolbox\logs\toolbax-<date>-<time>.log` — one file per session, capped at the newest 20 and 14 days. It records warnings and errors (failed requests as status + endpoint path, dual-write gateway failures, degraded-mode reasons), and deliberately records no tokens, request/response bodies or headers — a gateway error that quotes its response body on screen is reduced to the status alone in the file. Attach the newest file when reporting a bug; the directory is safe to delete at any time.
+Each run writes a log, usually under `%LocalAppData%\FoToolbox\logs`. Review and redact business identifiers before sharing while H14 is pending.
 
 The header records which Windows composition backend the run asked for (requested, not negotiated); if the window ever freezes, set `TOOLBAX_COMPOSITION` to `dxgi` (the default), `surface` (maximum compatibility) or `winui` (Avalonia's own default, which deadlocked in [#212](https://github.com/S0l0m0n8und9/toolbAX/issues/212)) before launching to change it without a rebuild — an unrecognised value is ignored rather than fatal.
 
@@ -74,6 +74,8 @@ Run the app: `dotnet run --project avalonia/toolBax.App`.
 ## Security
 
 If you discover a security issue, please follow `SECURITY.md`.
+
+See [support and capabilities](docs/support-and-capabilities.md) for prerequisites, product/Core-only boundaries, and evidence limits.
 
 ## License
 
