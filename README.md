@@ -19,6 +19,8 @@ It provides:
 
 This repository is in active development. APIs and behavior may change.
 
+The [Dual-write Profiler CLI](profiler/README.md) is **experimental** and is not part of the supported desktop release or current CI/release workflows.
+
 ## Download
 
 Releases are published as GitHub Releases:

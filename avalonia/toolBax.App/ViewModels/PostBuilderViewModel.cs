@@ -48,7 +48,7 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(ShowIfMatch))]
     private string _method = "POST";
 
-    /// <summary>Send an <c>If-Match</c> header on PATCH/DELETE (optimistic concurrency).</summary>
+    /// <summary>Send an <c>If-Match</c> existence or version precondition on PATCH/DELETE.</summary>
     [ObservableProperty]
     private bool _useIfMatch;
 
@@ -353,7 +353,7 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     // Method affects mandatory enforcement (POST enforces, PATCH/DELETE don't), so rebuild the payload.
     partial void OnMethodChanged(string value)
     {
-        // PATCH/DELETE default to sending If-Match (optimistic concurrency); a POST create has no use for
+        // PATCH/DELETE default to If-Match:* (an existence precondition); a POST create has no use for
         // it. The user can still toggle it off afterward.
         UseIfMatch = IsKeyedMethod(value);
         if (UseFieldGrid)
@@ -655,7 +655,7 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     // in raw mode the user owns the body, so there's nothing to gate on.
     private bool CanSend() => !(UseFieldGrid && HasPayloadIssues);
 
-    // The If-Match header for a PATCH/DELETE when enabled (optimistic concurrency); null otherwise.
+    // The If-Match header for a PATCH/DELETE when enabled (existence or version precondition); null otherwise.
     private static IReadOnlyDictionary<string, string>? BuildHeaders(
         string method, bool useIfMatch, string ifMatch) =>
         useIfMatch && IsKeyedMethod(method) && !string.IsNullOrWhiteSpace(ifMatch)

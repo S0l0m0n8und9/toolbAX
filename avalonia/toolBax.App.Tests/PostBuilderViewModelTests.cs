@@ -1319,7 +1319,7 @@ public class PostBuilderViewModelTests
         Assert.False(vm.UseIfMatch);
 
         vm.Method = "PATCH";
-        Assert.True(vm.UseIfMatch); // PATCH/DELETE default to optimistic concurrency
+        Assert.True(vm.UseIfMatch); // PATCH/DELETE default to the If-Match:* existence precondition
 
         vm.Method = "POST";
         Assert.False(vm.UseIfMatch); // a create has no If-Match
