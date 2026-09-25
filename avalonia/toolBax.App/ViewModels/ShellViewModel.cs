@@ -194,11 +194,12 @@ public partial class ShellViewModel : ObservableObject
         "home" => _homeContent ??= new PluginsHomeViewModel(new BuiltInToolCatalog(), ActiveEnvironment?.Name, OpenToolById),
         "ops" => _operationsContent ??= _operationsContentFactory(),
         "profiles" => _profilesContent ??= CreateProfilesContent(),
-        "metadata" => _metadataContent ??= new MetadataViewModel(_metadataService),
+        "metadata" => _metadataContent ??= new MetadataViewModel(_metadataService, () => ActiveEnvironment),
         "virtualtables" => _virtualTablesContent ??= new VirtualTablesViewModel(_virtualTableReader, () => ActiveEnvironment, _launcher),
         "post" => _postContent ??= new PostBuilderViewModel(
             _odataClient, _clipboard, _metadataService, _dialogs, () => ActiveEnvironment),
-        "query" => _queryContent ??= new QueryBuilderViewModel(_metadataService, _odataClient, _clipboard, _fileSave),
+        "query" => _queryContent ??= new QueryBuilderViewModel(
+            _metadataService, _odataClient, _clipboard, _fileSave, () => ActiveEnvironment),
         "mapbrowser" => _mapBrowserContent ??= new DualWriteMapViewModel(_mapReader, _fileSave, _odataClient, _metadataService, () => ActiveEnvironment, _clipboard, _launcher),
         "compare" => _compareContent ??= new DualWriteCompareViewModel(_profileStore, _compareService),
         _ => new PlaceholderScreenViewModel(tool.Title),
@@ -213,6 +214,9 @@ public partial class ShellViewModel : ObservableObject
             requestActivation: ApplyActiveEnvironmentSwitchAsync,
             commitActiveIdentitySave: CommitActiveIdentitySaveAsync,
             mutationBlockReason: MutationBlockReason);
+        // Shell may have fallen back to the first profile because persisted ActiveId was null/stale. Profiles
+        // must classify that effective profile as active without fabricating a persisted startup choice.
+        profiles.ActiveId = ActiveEnvironment?.Id;
         profiles.ProfileSaved += updated =>
         {
             var existing = Environments.FirstOrDefault(e => e.Id == updated.Id);

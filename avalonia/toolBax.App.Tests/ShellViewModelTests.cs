@@ -91,6 +91,22 @@ public class ShellViewModelTests
     }
 
     [Fact]
+    public void Shell_binds_Query_and_Metadata_commands_to_the_active_environment_accessor()
+    {
+        var shell = new ShellViewModel(
+            profileStore: new FakeProfileStore(Array.Empty<EnvProfile>()),
+            metadataService: new OneEntityMetadata());
+
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var query = Assert.IsType<QueryBuilderViewModel>(shell.CurrentContent);
+        Assert.False(query.RunCommand.CanExecute(null));
+
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "metadata");
+        var metadata = Assert.IsType<MetadataViewModel>(shell.CurrentContent);
+        Assert.False(metadata.RefreshCommand.CanExecute(null));
+    }
+
+    [Fact]
     public void Default_tool_is_the_plugins_home()
     {
         var shell = new ShellViewModel();
@@ -452,6 +468,67 @@ public class ShellViewModelTests
         dialogs.Release(false);
         await send;
         Assert.False(post.MutationInProgress);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("missing-profile")]
+    public async Task Effective_startup_profile_is_active_in_Profiles_mutation_guards(string? persistedActiveId)
+    {
+        var store = new FakeProfileStore { ActiveId = persistedActiveId };
+        var dialogs = new GatedDialogs();
+        var shell = new ShellViewModel(profileStore: store, dialogs: dialogs);
+        var effective = shell.ActiveEnvironment!;
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "post");
+        var post = Assert.IsType<PostBuilderViewModel>(shell.CurrentContent);
+        post.Method = "DELETE";
+        post.Path = "/data/CustomersV3(dataAreaId='USMF',CustomerAccount='US-1')";
+        var send = post.SendCommand.ExecuteAsync(null);
+        await dialogs.Entered;
+
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
+        var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
+        profiles.Selected = profiles.Profiles.Single(p => p.Id == effective.Id);
+        Assert.Equal(effective.Id, profiles.ActiveId);
+        Assert.True(profiles.IsSelectedActive);
+
+        profiles.DraftUrl = "https://edited.operations.dynamics.com";
+        await profiles.SaveCommand.ExecuteAsync(null);
+        Assert.Equal(effective.Url, store.GetAll().Single(p => p.Id == effective.Id).Url);
+
+        profiles.DeleteProfileCommand.Execute(null);
+        Assert.Contains(store.GetAll(), p => p.Id == effective.Id);
+        Assert.Contains("live write", profiles.Status, StringComparison.OrdinalIgnoreCase);
+
+        dialogs.Release(false);
+        await send;
+    }
+
+    [Fact]
+    public async Task Accepted_active_save_updates_the_captured_profile_without_relabelling_a_new_selection()
+    {
+        var store = new FakeProfileStore();
+        var dialogs = new GatedDialogs();
+        var shell = new ShellViewModel(profileStore: store, dialogs: dialogs);
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
+        var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
+        var active = shell.ActiveEnvironment!;
+        var other = profiles.Profiles.First(p => p.Id != active.Id);
+        profiles.Selected = profiles.Profiles.Single(p => p.Id == active.Id);
+        profiles.DraftUrl = "https://edited.operations.dynamics.com";
+
+        var saving = profiles.SaveCommand.ExecuteAsync(null);
+        await dialogs.Entered;
+        profiles.Selected = other;
+        dialogs.Release(true);
+        await saving;
+
+        Assert.Equal("https://edited.operations.dynamics.com", store.GetAll().Single(p => p.Id == active.Id).Url);
+        Assert.Equal(other.Url, store.GetAll().Single(p => p.Id == other.Id).Url);
+        Assert.Equal(other.Id, profiles.Selected!.Id);
+        Assert.Equal(other.Url, profiles.DraftUrl);
+        Assert.Equal("https://edited.operations.dynamics.com", shell.ActiveEnvironment!.Url);
     }
 
     [Fact]
