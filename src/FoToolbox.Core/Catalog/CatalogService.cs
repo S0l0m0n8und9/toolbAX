@@ -51,9 +51,9 @@ public sealed class CatalogService : ICatalogService
     // environments (or repointing a profile's URL) evicts it, so the memory cost stays at a single
     // metadata document rather than one per environment visited. The memo mirrors what the
     // ODataMetadataXml row would have returned and is consulted under the same refresh-mode/max-age rules
-    // as that row (see TryUseMetadataXmlMemo), so it never widens the freshness window. It cannot,
-    // however, observe that row being changed or removed behind this instance's back — by another process
-    // or another CatalogService over the same database.
+    // as that row (see TryUseMetadataXmlMemo), so it never widens the freshness window. A shared generation
+    // invalidates it after coordinated pruning by any service/store on this file path in this process.
+    // Ordinary external writes/deletes and other processes retain the existing snapshot semantics.
     private MetadataXmlMemo? _metadataXmlMemo;
 
     public CatalogService(HttpClient httpClient, ProfileStore profileStore, CatalogStore store, CatalogServiceOptions? options = null)
@@ -131,6 +131,8 @@ public sealed class CatalogService : ICatalogService
     {
         await _store.EnsureCreatedAsync(ct).ConfigureAwait(false);
         var key = MetadataCacheKey(env);
+        await using var lease = env.MetadataCachePartition is null ? null
+            : await _store.LeaseMetadataPartitionAsync(env.Id, key, ct).ConfigureAwait(false);
         var gate = _metadataLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -172,6 +174,8 @@ public sealed class CatalogService : ICatalogService
     {
         await _store.EnsureCreatedAsync(ct).ConfigureAwait(false);
         var key = MetadataCacheKey(env);
+        await using var lease = env.MetadataCachePartition is null ? null
+            : await _store.LeaseMetadataPartitionAsync(env.Id, key, ct).ConfigureAwait(false);
         var gate = _metadataLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -217,6 +221,8 @@ public sealed class CatalogService : ICatalogService
 
         await _store.EnsureCreatedAsync(ct).ConfigureAwait(false);
         var key = MetadataCacheKey(env);
+        await using var lease = env.MetadataCachePartition is null ? null
+            : await _store.LeaseMetadataPartitionAsync(env.Id, key, ct).ConfigureAwait(false);
         var gate = _metadataLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -440,7 +446,8 @@ public sealed class CatalogService : ICatalogService
     private MetadataXmlMemo? TryUseMetadataXmlMemo(string key, CatalogRefreshMode mode)
     {
         var memo = Volatile.Read(ref _metadataXmlMemo);
-        if (memo is null || !string.Equals(memo.Key, key, StringComparison.Ordinal))
+        if (memo is null || memo.PruneGeneration != _store.MetadataPruneGeneration
+            || !string.Equals(memo.Key, key, StringComparison.Ordinal))
         {
             return null;
         }
@@ -456,7 +463,7 @@ public sealed class CatalogService : ICatalogService
     // Replaces the single memo slot (evicting whatever environment was there) with what the XML row now
     // holds, so the next caller for this environment can skip the blob read entirely.
     private void RememberMetadataXml(string key, string xml, string? etag, DateTime updatedUtc) =>
-        Volatile.Write(ref _metadataXmlMemo, new MetadataXmlMemo(key, xml, etag, updatedUtc));
+        Volatile.Write(ref _metadataXmlMemo, new MetadataXmlMemo(key, xml, etag, updatedUtc, _store.MetadataPruneGeneration));
 
     private static bool IsFresh(DateTime updatedUtc, TimeSpan maxAge)
     {
@@ -996,7 +1003,7 @@ public sealed class CatalogService : ICatalogService
     /// from, so a cached-details decision (and a sibling entity's parse) needs no second blob read.
     /// Immutable, so the single field can be swapped wholesale without tearing.
     /// </summary>
-    private sealed record MetadataXmlMemo(string Key, string Xml, string? ETag, DateTime UpdatedUtc);
+    private sealed record MetadataXmlMemo(string Key, string Xml, string? ETag, DateTime UpdatedUtc, long PruneGeneration);
 
     private sealed record PublicEntitiesResponse(List<PublicEntityDto>? Value);
     private sealed record PublicEntityDto(string? EntitySetName, List<PublicEntityPropertyDto>? Properties);
