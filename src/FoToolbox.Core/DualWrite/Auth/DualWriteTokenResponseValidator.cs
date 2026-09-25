@@ -34,6 +34,7 @@ internal static class DualWriteTokenResponseValidator
         DateTimeOffset now,
         CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (observation is null || observation.RequestUri is null ||
             observation.Method != HttpMethod.Post ||
             !DualWriteEndpointPolicy.IsTokenEndpoint(observation.RequestUri) ||
@@ -54,8 +55,7 @@ internal static class DualWriteTokenResponseValidator
                  !string.Equals(resources[0], DualWriteAuthConstants.ResourceBaseUrl, StringComparison.Ordinal)) ||
             !TryParseResponse(observation.ResponseBody, now, out var response) ||
             response.Scope is not null &&
-                (!TryValidateScopes(response.Scope, out var responseScope) ||
-                 !ResponseResourceScopesFitRequest(responseScope, canonicalScope)))
+                !ResponseResourceScopesFitRequest(response.Scope, canonicalScope))
         {
             return (null, "Token exchange was not accepted.");
         }
@@ -71,30 +71,22 @@ internal static class DualWriteTokenResponseValidator
             return (null, "Tenant constraint was not accepted.");
         }
 
-        Guid actualTenant;
-        var endpointIsGuid = Guid.TryParse(endpointTenant, out var endpointGuid) && endpointGuid != Guid.Empty;
-        if (parsedConstraint.Kind == TenantConstraintKind.ExplicitGuid)
+        Guid? expectedTenant = parsedConstraint.Kind == TenantConstraintKind.ExplicitGuid
+            ? parsedConstraint.TenantId
+            : null;
+        if (parsedConstraint.Kind == TenantConstraintKind.Domain)
         {
-            if (!endpointIsGuid || endpointGuid != parsedConstraint.TenantId)
-            {
-                return (null, "Token exchange tenant did not match the configured tenant.");
-            }
-            actualTenant = endpointGuid;
-        }
-        else if (parsedConstraint.Kind == TenantConstraintKind.Domain)
-        {
-            if (!string.Equals(endpointTenant, parsedConstraint.Domain, StringComparison.OrdinalIgnoreCase))
-            {
-                return (null, "Token exchange tenant did not match the configured domain.");
-            }
-            var resolved = await resolver.ResolveAsync(parsedConstraint.Domain!, cancellationToken).ConfigureAwait(false);
-            if (resolved is null)
+            expectedTenant = await resolver.ResolveAsync(parsedConstraint.Domain!, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (expectedTenant is null)
             {
                 return (null, "Tenant domain could not be resolved safely.");
             }
-            actualTenant = resolved.Value;
         }
-        else if (endpointIsGuid)
+
+        Guid actualTenant;
+        var endpointNeedsIdentityMetadata = false;
+        if (Guid.TryParse(endpointTenant, out var endpointGuid) && endpointGuid != Guid.Empty)
         {
             actualTenant = endpointGuid;
         }
@@ -102,10 +94,32 @@ internal static class DualWriteTokenResponseValidator
                  string.Equals(endpointTenant, "organizations", StringComparison.OrdinalIgnoreCase))
         {
             actualTenant = Guid.Empty;
+            endpointNeedsIdentityMetadata = true;
         }
         else
         {
-            return (null, "Token exchange tenant was not an organizational authority.");
+            var endpointAuthority = TenantConstraint.Parse(endpointTenant);
+            if (endpointAuthority.Kind != TenantConstraintKind.Domain)
+            {
+                return (null, "Token exchange tenant was not an organizational authority.");
+            }
+            Guid? resolvedEndpoint;
+            if (parsedConstraint.Kind == TenantConstraintKind.Domain &&
+                string.Equals(parsedConstraint.Domain, endpointAuthority.Domain, StringComparison.OrdinalIgnoreCase))
+            {
+                resolvedEndpoint = expectedTenant;
+            }
+            else
+            {
+                resolvedEndpoint = await resolver.ResolveAsync(endpointAuthority.Domain!, cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+            }
+            if (resolvedEndpoint is null)
+            {
+                return (null, "Token endpoint domain could not be resolved safely.");
+            }
+            actualTenant = resolvedEndpoint.Value;
+            endpointNeedsIdentityMetadata = true;
         }
 
         if (response.IdToken is not null)
@@ -120,10 +134,18 @@ internal static class DualWriteTokenResponseValidator
             }
             actualTenant = idTenant;
         }
-        else if (actualTenant == Guid.Empty || parsedConstraint.Kind == TenantConstraintKind.Domain)
+        else if (actualTenant == Guid.Empty || endpointNeedsIdentityMetadata ||
+                 parsedConstraint.Kind == TenantConstraintKind.Domain)
         {
             return (null, "Token response did not include required tenant metadata.");
         }
+
+        if (expectedTenant is { } expected && actualTenant != expected)
+        {
+            return (null, "Token response tenant did not match the configured tenant.");
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
 
         var binding = new DualWriteDelegatedBinding(
             actualTenant,
@@ -152,8 +174,7 @@ internal static class DualWriteTokenResponseValidator
         }
 
         if (response.Scope is not null &&
-            (!TryValidateScopes(response.Scope, out var responseScope) ||
-             !ResponseResourceScopesFitRequest(responseScope, binding.Scope)))
+            !ResponseResourceScopesFitRequest(response.Scope, binding.Scope))
         {
             return false;
         }
@@ -192,8 +213,7 @@ internal static class DualWriteTokenResponseValidator
             {
                 continue;
             }
-            if (token.StartsWith(DualWriteAuthConstants.ResourceBaseUrl + "/", StringComparison.Ordinal) &&
-                token.Length > DualWriteAuthConstants.ResourceBaseUrl.Length + 1)
+            if (TryGetBoundResourcePermission(token, out _))
             {
                 resourceScopes.Add(token);
             }
@@ -248,6 +268,7 @@ internal static class DualWriteTokenResponseValidator
             var root = document.RootElement;
             if (root.ValueKind != JsonValueKind.Object ||
                 !TryString(root, "access_token", out var accessToken) ||
+                !IsUsableBearer(accessToken) ||
                 !TryString(root, "token_type", out var tokenType) ||
                 !string.Equals(tokenType, "Bearer", StringComparison.OrdinalIgnoreCase) ||
                 !TryPositiveSeconds(root, "expires_in", out var expiresIn) ||
@@ -380,11 +401,86 @@ internal static class DualWriteTokenResponseValidator
 
     private static bool ResponseResourceScopesFitRequest(string response, string request)
     {
-        var requested = request.Split(' ', StringSplitOptions.RemoveEmptyEntries).ToHashSet(StringComparer.Ordinal);
-        return response.Split(' ', StringSplitOptions.RemoveEmptyEntries)
+        string decoded;
+        try
+        {
+            decoded = Uri.UnescapeDataString(response);
+        }
+        catch (UriFormatException)
+        {
+            return false;
+        }
+        if (decoded.Contains('%'))
+        {
+            return false;
+        }
+
+        var requestedResourceScopes = request.Split(' ', StringSplitOptions.RemoveEmptyEntries)
             .Where(scope => scope.StartsWith(DualWriteAuthConstants.ResourceBaseUrl + "/", StringComparison.Ordinal))
-            .All(requested.Contains);
+            .ToHashSet(StringComparer.Ordinal);
+        var defaultExpansion = requestedResourceScopes.Contains(DualWriteAuthConstants.ResourceBaseUrl + "/.default");
+        var sawResourcePermission = false;
+        foreach (var scope in decoded.Split((char[]?)null,
+                     StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (OptionalScopes.Contains(scope))
+            {
+                continue;
+            }
+
+            string permission;
+            if (scope.Contains("://", StringComparison.Ordinal))
+            {
+                if (!TryGetBoundResourcePermission(scope, out permission))
+                {
+                    return false;
+                }
+            }
+            else
+            {
+                if (!IsRelativePermission(scope))
+                {
+                    return false;
+                }
+                permission = scope;
+            }
+
+            if (string.IsNullOrWhiteSpace(permission))
+            {
+                return false;
+            }
+            sawResourcePermission = true;
+            if (!defaultExpansion &&
+                !requestedResourceScopes.Contains(DualWriteAuthConstants.ResourceBaseUrl + "/" + permission))
+            {
+                return false;
+            }
+        }
+        return sawResourcePermission;
     }
+
+    private static bool IsUsableBearer(string value) =>
+        value.Length > 0 && value.All(character => !char.IsWhiteSpace(character) && !char.IsControl(character));
+
+    private static bool TryGetBoundResourcePermission(string scope, out string permission)
+    {
+        permission = string.Empty;
+        if (!scope.StartsWith(DualWriteAuthConstants.ResourceBaseUrl + "/", StringComparison.Ordinal) ||
+            !Uri.TryCreate(scope, UriKind.Absolute, out var uri) ||
+            !string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
+            uri.Port != 443 || !string.IsNullOrEmpty(uri.UserInfo) ||
+            !string.IsNullOrEmpty(uri.Query) || !string.IsNullOrEmpty(uri.Fragment) ||
+            !string.Equals(uri.IdnHost, "integratorapp.com", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        permission = uri.GetComponents(UriComponents.Path, UriFormat.UriEscaped);
+        return IsRelativePermission(permission);
+    }
+
+    private static bool IsRelativePermission(string permission) =>
+        !string.IsNullOrWhiteSpace(permission) && permission.All(character =>
+            char.IsAsciiLetterOrDigit(character) || character is '_' or '-' or '.');
 
     private static bool TryString(JsonElement root, string name, out string value)
     {

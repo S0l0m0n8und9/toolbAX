@@ -25,6 +25,7 @@ public sealed class DualWriteTenantResolver
 
     public async Task<Guid?> ResolveAsync(string domain, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!IsValidDomain(domain))
         {
             return null;
@@ -38,6 +39,7 @@ public sealed class DualWriteTenantResolver
                 $"https://login.microsoftonline.com/{Uri.EscapeDataString(domain)}/v2.0/.well-known/openid-configuration");
             using var response = await _http.GetAsync(uri, HttpCompletionOption.ResponseHeadersRead, timeout.Token)
                 .ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             if (!response.IsSuccessStatusCode || response.Content is null ||
                 response.Content.Headers.ContentLength > MaximumBodyBytes)
             {
@@ -45,18 +47,21 @@ public sealed class DualWriteTenantResolver
             }
 
             var body = await ReadBoundedAsync(response.Content, timeout.Token).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             if (body is null)
             {
                 return null;
             }
 
             using var document = JsonDocument.Parse(body);
-            return document.RootElement.ValueKind == JsonValueKind.Object &&
+            Guid? result = document.RootElement.ValueKind == JsonValueKind.Object &&
                    document.RootElement.TryGetProperty("issuer", out var issuer) &&
                    issuer.ValueKind == JsonValueKind.String &&
-                   DualWriteTokenResponseValidator.TryParseV2Issuer(issuer.GetString(), out var tenant)
-                ? tenant
+                   DualWriteTokenResponseValidator.TryParseV2Issuer(issuer.GetString(), out var parsedTenant)
+                ? parsedTenant
                 : null;
+            cancellationToken.ThrowIfCancellationRequested();
+            return result;
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {

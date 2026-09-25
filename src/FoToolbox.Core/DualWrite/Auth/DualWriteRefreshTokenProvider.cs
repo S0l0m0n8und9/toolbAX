@@ -31,6 +31,7 @@ public sealed class DualWriteRefreshTokenProvider
         DualWriteToken currentToken,
         CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         ArgumentNullException.ThrowIfNull(currentToken);
         if (string.IsNullOrWhiteSpace(currentToken.RefreshToken))
         {
@@ -58,7 +59,9 @@ public sealed class DualWriteRefreshTokenProvider
         });
 
         using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         var body = response.Content is null ? string.Empty : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         if (!response.IsSuccessStatusCode)
         {
             throw new DualWriteAuthException($"Dual-write token refresh failed: {(int)response.StatusCode} {response.ReasonPhrase}.");
@@ -75,6 +78,7 @@ public sealed class DualWriteRefreshTokenProvider
             throw new DualWriteAuthException("Dual-write token refresh returned an untrusted response.");
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         return token!;
     }
 }

@@ -19,8 +19,12 @@ public sealed class DualWriteSignInCapture
     private readonly Func<DateTimeOffset> _clock;
     private readonly string? _tenantConstraint;
     private readonly IDualWriteTenantResolver _tenantResolver;
+    private readonly object _stateGate = new();
     private readonly List<DualWriteToken> _pendingTokens = [];
     private readonly List<PendingGateway> _pendingGateways = [];
+    private DualWriteToken? _token;
+    private string? _gatewayBaseUrl;
+    private string _incompleteReason = "Waiting for a trusted token exchange and matching gateway response.";
 
     public DualWriteSignInCapture(Func<DateTimeOffset>? clock = null)
         : this("common", null, clock)
@@ -37,13 +41,13 @@ public sealed class DualWriteSignInCapture
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
     }
 
-    public DualWriteToken? Token { get; private set; }
-    public string? GatewayBaseUrl { get; private set; }
-    public bool IsComplete => Token is not null && GatewayBaseUrl is not null;
-    public string IncompleteReason { get; private set; } = "Waiting for a trusted token exchange and matching gateway response.";
+    public DualWriteToken? Token { get { lock (_stateGate) return _token; } }
+    public string? GatewayBaseUrl { get { lock (_stateGate) return _gatewayBaseUrl; } }
+    public bool IsComplete { get { lock (_stateGate) return IsCompleteUnderLock(); } }
+    public string IncompleteReason { get { lock (_stateGate) return _incompleteReason; } }
 
-    internal int PendingTokenCount => _pendingTokens.Count;
-    internal int PendingGatewayCount => _pendingGateways.Count;
+    internal int PendingTokenCount { get { lock (_stateGate) return _pendingTokens.Count; } }
+    internal int PendingGatewayCount { get { lock (_stateGate) return _pendingGateways.Count; } }
 
     /// <summary>
     /// Legacy adapter compatibility only. A response body without its committed request/status provenance
@@ -51,7 +55,11 @@ public sealed class DualWriteSignInCapture
     /// </summary>
     public bool ObserveTokenResponseBody(string? json)
     {
-        IncompleteReason = "The sign-in adapter must provide committed token-exchange provenance.";
+        lock (_stateGate)
+        {
+            if (!IsCompleteUnderLock())
+                _incompleteReason = "The sign-in adapter must provide committed token-exchange provenance.";
+        }
         return false;
     }
 
@@ -61,7 +69,11 @@ public sealed class DualWriteSignInCapture
     /// </summary>
     public bool ObserveUrl(string? url)
     {
-        IncompleteReason = "Waiting for a successful gateway response carrying the captured bearer.";
+        lock (_stateGate)
+        {
+            if (!IsCompleteUnderLock())
+                _incompleteReason = "Waiting for a successful gateway response carrying the captured bearer.";
+        }
         return false;
     }
 
@@ -69,9 +81,10 @@ public sealed class DualWriteSignInCapture
         DualWriteTokenExchangeObservation observation,
         CancellationToken cancellationToken = default)
     {
-        if (IsComplete)
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_stateGate)
         {
-            return false;
+            if (IsCompleteUnderLock()) return false;
         }
 
         var (token, reason) = await DualWriteTokenResponseValidator.ValidateCaptureAsync(
@@ -80,52 +93,65 @@ public sealed class DualWriteSignInCapture
             _tenantResolver,
             _clock(),
             cancellationToken).ConfigureAwait(false);
-        if (token is null)
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_stateGate)
         {
-            IncompleteReason = reason;
-            return false;
-        }
+            if (IsCompleteUnderLock()) return false;
+            if (token is null)
+            {
+                _incompleteReason = reason;
+                return false;
+            }
 
-        var matchingGateway = _pendingGateways.FirstOrDefault(candidate =>
-            string.Equals(candidate.AccessToken, token.AccessToken, StringComparison.Ordinal));
-        if (matchingGateway is not null)
-        {
-            Complete(token, matchingGateway.Origin);
+            var matchingGateway = _pendingGateways.FirstOrDefault(candidate =>
+                string.Equals(candidate.AccessToken, token.AccessToken, StringComparison.Ordinal));
+            if (matchingGateway is not null)
+            {
+                CompleteUnderLock(token, matchingGateway.Origin);
+                return true;
+            }
+
+            _pendingTokens.RemoveAll(candidate =>
+                string.Equals(candidate.AccessToken, token.AccessToken, StringComparison.Ordinal));
+            AddBounded(_pendingTokens, token);
+            _incompleteReason = "Trusted token captured; waiting for a matching successful gateway response.";
             return true;
         }
-
-        _pendingTokens.RemoveAll(candidate =>
-            string.Equals(candidate.AccessToken, token.AccessToken, StringComparison.Ordinal));
-        AddBounded(_pendingTokens, token);
-        IncompleteReason = "Trusted token captured; waiting for a matching successful gateway response.";
-        return true;
     }
 
     public bool ObserveGatewayResponse(DualWriteGatewayResponseObservation observation)
     {
-        if (IsComplete || observation is null ||
+        if (observation is null ||
             observation.ResponseStatusCode is < 200 or > 299 ||
             !DualWriteEndpointPolicy.IsGatewayApiRequest(observation.RequestUri) ||
             !DualWriteEndpointPolicy.TryGetGatewayOrigin(observation.RequestUri, out var origin) ||
             !TryReadBearer(observation.Authorization, out var accessToken))
         {
-            IncompleteReason = "Gateway response was not accepted for sign-in correlation.";
+            lock (_stateGate)
+            {
+                if (!IsCompleteUnderLock())
+                    _incompleteReason = "Gateway response was not accepted for sign-in correlation.";
+            }
             return false;
         }
 
-        var matchingToken = _pendingTokens.FirstOrDefault(candidate =>
-            string.Equals(candidate.AccessToken, accessToken, StringComparison.Ordinal));
-        if (matchingToken is not null)
+        lock (_stateGate)
         {
-            Complete(matchingToken, origin);
-            return true;
-        }
+            if (IsCompleteUnderLock()) return false;
+            var matchingToken = _pendingTokens.FirstOrDefault(candidate =>
+                string.Equals(candidate.AccessToken, accessToken, StringComparison.Ordinal));
+            if (matchingToken is not null)
+            {
+                CompleteUnderLock(matchingToken, origin);
+                return true;
+            }
 
-        _pendingGateways.RemoveAll(candidate =>
-            string.Equals(candidate.AccessToken, accessToken, StringComparison.Ordinal));
-        AddBounded(_pendingGateways, new PendingGateway(accessToken, origin));
-        IncompleteReason = "Trusted gateway response observed; waiting for its provenanced token exchange.";
-        return false;
+            _pendingGateways.RemoveAll(candidate =>
+                string.Equals(candidate.AccessToken, accessToken, StringComparison.Ordinal));
+            AddBounded(_pendingGateways, new PendingGateway(accessToken, origin));
+            _incompleteReason = "Trusted gateway response observed; waiting for its provenanced token exchange.";
+            return false;
+        }
     }
 
     public static bool IsTokenEndpoint(string? url) =>
@@ -133,19 +159,27 @@ public sealed class DualWriteSignInCapture
         Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
         DualWriteEndpointPolicy.IsTokenEndpoint(uri);
 
-    public DualWriteSignInResult? Result =>
-        IsComplete ? new DualWriteSignInResult(Token!, GatewayBaseUrl!) : null;
+    public DualWriteSignInResult? Result
+    {
+        get
+        {
+            lock (_stateGate)
+                return IsCompleteUnderLock() ? new DualWriteSignInResult(_token!, _gatewayBaseUrl!) : null;
+        }
+    }
 
     /// <summary>No manual-close fallback exists until full token/gateway correlation is complete.</summary>
     public DualWriteSignInResult? BestEffortResult => Result;
 
-    private void Complete(DualWriteToken token, Uri gatewayOrigin)
+    private bool IsCompleteUnderLock() => _token is not null && _gatewayBaseUrl is not null;
+
+    private void CompleteUnderLock(DualWriteToken token, Uri gatewayOrigin)
     {
-        Token = token;
-        GatewayBaseUrl = gatewayOrigin.AbsoluteUri;
+        _token = token;
+        _gatewayBaseUrl = gatewayOrigin.AbsoluteUri;
         _pendingTokens.Clear();
         _pendingGateways.Clear();
-        IncompleteReason = string.Empty;
+        _incompleteReason = string.Empty;
     }
 
     private static bool TryReadBearer(string? authorization, out string token)
@@ -164,7 +198,7 @@ public sealed class DualWriteSignInCapture
         }
 
         token = authorization[(separator + 1)..].Trim();
-        return token.Length > 0 && !token.Any(char.IsWhiteSpace);
+        return token.Length > 0 && !token.Any(character => char.IsWhiteSpace(character) || char.IsControl(character));
     }
 
     private static void AddBounded<T>(List<T> list, T value)
