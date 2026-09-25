@@ -70,15 +70,16 @@ async function main() {
       sourceEnvironmentUrl: config.envUrl
     };
 
-    if (argv['skip-auth']) {
-      console.log('Offline fixture written: authentication and environment data were not verified.');
-    } else {
-      console.log(`Environment response name: ${envInfo.name}`);
+    if (!argv['skip-auth']) {
+      console.log(`Environment URL name: ${envInfo.name}`);
       console.log(`Reported version: ${envInfo.version} (server header or fallback; not a verified Dual-write API capability).`);
     }
 
     const profilePath = path.join(config.outputDir, 'dualwrite-profile.json');
     fs.writeFileSync(profilePath, JSON.stringify(metadata, null, 2));
+    if (argv['skip-auth']) {
+      console.log('Offline fixture mode: authentication and environment data were not verified.');
+    }
     console.log(`Capture metadata written to ${profilePath}`);
 
     console.log(`Output directory: ${config.outputDir}`);

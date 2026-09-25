@@ -4,7 +4,7 @@
 
 The `profiler/` CLI remains present as an experimental capture-metadata tool. This change adds no authentication, schema, dependency, CI, release, or workflow behavior.
 
-Its real path requests a Graph `.default` token and calls Dataverse `GET /api/data/v9.2/msdyn_dualwriteentitymaps`. The only emitted JSON is `dualwrite-profile.json` with `schemaVersion`, `capturedAt`, and `sourceEnvironmentUrl`. Map inventory, integration-key analysis, and risk reports are not implemented. The displayed version is only a server header or fallback value, not proof of Dual-write API capability.
+Its real path requests a Graph `.default` token and calls Dataverse `GET /api/data/v9.2/msdyn_dualwriteentitymaps`. The device-code scope does not implement a validated working Dataverse authentication flow. The only emitted JSON is `dualwrite-profile.json` with `schemaVersion`, `capturedAt`, and `sourceEnvironmentUrl`. Map inventory, integration-key analysis, and risk reports are not implemented. The displayed version is only a server header or fallback value, not proof of Dual-write API capability.
 
 ## Pre-mortem
 
