@@ -122,3 +122,7 @@ Pinned SDK evidence: WebView2 1.0.2792.45 documents the response event's Request
 ### Phase 2b local validation
 
 Behavioral RED against the integrated pre-adapter source showed the matching domain/GUID authority case failing while its mismatch control passed (1/2), and all eight connector/tester binding, legacy-refusal and canceled-late-result cases failed. GREEN passed 35/35 App native-helper/sign-in/wiring tests with `EnableWebView2=false` and the same 35/35 with `EnableWebView2=true`; the latter compiled the pinned Windows adapter without launching a browser. Focused Core trust/capture/resolver/provider/handler passed 132/132. Separate CI-strict App builds with WebView2 disabled and enabled both passed with zero warnings/errors. Evidence is under `artifacts/h05/phase2b/`. Full solutions, live portal acceptance, PR and hosted review remain parent gates.
+
+### Parent review and complete offline gates
+
+Parent review accepted Core phases 1/2a and native phase 2b at source `cab116221aa03560dc15c010bceadffb8432a53e`. With `CI=true`, both Release solutions built with zero warnings/errors; the full Windows App suite with `EnableWebView2=true` passed 1,381/1,381 and Core passed 566/566, with zero failed/skipped. Evidence is `artifacts/h05/full-{app,core}-build.log`, `full-{app,core}-test.log` and `full-{app,core}.trx`. PR creation, hosted review/CI, merge and live commercial-cloud sign-in acceptance remain pending. No browser was launched and no real WebView profile was cleared during validation.
