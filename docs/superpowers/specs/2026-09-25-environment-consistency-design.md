@@ -1,7 +1,7 @@
 # Environment Consistency — Design
 
 Date: 2026-09-25  
-Status: Accepted for implementation; H01 in progress  
+Status: Implemented and validated; pending PR review and merge
 Campaign item: H01, with the `CoreProfileStore.ActiveId` ordering portion of H09
 
 ## Problem
@@ -12,24 +12,24 @@ The switch flow also commits the new header and persisted `ActiveId` before aski
 
 H01 makes environment identity explicit, routes activation and active-profile identity changes through one awaited shell decision, and makes every affected asynchronous boundary discard or refuse stale work.
 
-## Verified source findings
+## Pre-implementation source findings
 
-- `ShellViewModel.ApplyActiveEnvironmentSwitchAsync` currently assigns `ActiveEnvironment` and writes `_profileStore.ActiveId` before showing an optional refresh prompt. A declined or failed prompt leaves the new environment active while cached tools remain from the old one.
-- `ProfilesViewModel.SetActive` writes its own `ActiveId` and `_store.ActiveId`, then raises an `Action<string>` that the shell handles fire-and-forget.
-- `CoreProfileStore.ActiveId` changes `_activeId` before persistence; a failed SQLite write therefore leaves its in-memory value ahead of durable state.
-- `CoreMetadataService` keys and commits by profile id. Its post-await check compares only `_cacheEnvId`; if no getter runs during a switch, the cache stamp never changes and an old result can commit.
+- `ShellViewModel.ApplyActiveEnvironmentSwitchAsync` assigned `ActiveEnvironment` and wrote `_profileStore.ActiveId` before showing an optional refresh prompt. A declined or failed prompt left the new environment active while cached tools remained from the old one.
+- `ProfilesViewModel.SetActive` wrote its own `ActiveId` and `_store.ActiveId`, then raised an `Action<string>` that the shell handled fire-and-forget.
+- `CoreProfileStore.ActiveId` changed `_activeId` before persistence; a failed SQLite write therefore left its in-memory value ahead of durable state.
+- `CoreMetadataService` keyed and committed by profile id. Its post-await check compared only `_cacheEnvId`; if no getter ran during a switch, the cache stamp never changed and an old result could commit.
 - Clearing `CoreMetadataService`'s front cache is insufficient for tenant/client/mode/company edits: `ResolveEnv` still supplies raw profile id and `CatalogService` persists metadata under id+URL, so `UseCacheIfFresh` can immediately rehydrate metadata obtained under the old auth/company context. That persistent cache survives a new App service instance.
-- `CoreAuthService` app-only F&O/Dataverse acquisition looks up a service principal by `env.Id` after an await and then trusts the returned row. It does not verify the row still belongs to the captured environment id/target/client id/auth mode, so an A-B-A transition can hand B's persisted principal to A's broker call.
-- `DualWriteSession`, `DualWriteOpsViewModel`, `DualWriteMapViewModel`, and `VirtualTablesViewModel` use profile ids as their environment stamp. Same-id endpoint/auth edits are invisible.
-- `CoreDualWriteMapReader` has a private id-plus-Dataverse-URL string identity for one cache. It does not cover the complete identity and duplicates normalization rules.
-- `CoreODataClient` and `CoreDataverseClient` capture an `EnvProfile` for a call, but do not recheck the current identity after asynchronous token acquisition and before dispatch.
-- Query and POST view models have no active-environment accessor. POST reads method/path/body/headers again after confirmation instead of sending the exact request that was approved.
-- Only `DualWriteOpsViewModel` is currently disposable. Its in-flight connect can return after disposal and assign a new gateway session to the discarded VM.
+- `CoreAuthService` app-only F&O/Dataverse acquisition looked up a service principal by `env.Id` after an await and then trusted the returned row. It did not verify that the row still belonged to the captured environment id/target/client id/auth mode, so an A-B-A transition could hand B's persisted principal to A's broker call.
+- `DualWriteSession`, `DualWriteOpsViewModel`, `DualWriteMapViewModel`, and `VirtualTablesViewModel` used profile ids as their environment stamp. Same-id endpoint/auth edits were invisible.
+- `CoreDualWriteMapReader` had a private id-plus-Dataverse-URL string identity for one cache. It did not cover the complete identity and duplicated normalization rules.
+- `CoreODataClient` and `CoreDataverseClient` captured an `EnvProfile` for a call, but did not recheck the current identity after asynchronous token acquisition and before dispatch.
+- Query and POST view models had no active-environment accessor. POST read method/path/body/headers again after confirmation instead of sending the exact request that was approved.
+- Only `DualWriteOpsViewModel` was disposable. Its in-flight connect could return after disposal and assign a new gateway session to the discarded VM.
 - `CoreDualWriteConnector` does not use `DataIntegratorClientId`, `DataIntegratorMode`, or `DualWriteGatewayUrl`: it signs in through the portal and uses the gateway host discovered by that sign-in. Those legacy profile values therefore do not affect a current live session and are not part of H01 identity. H07 owns removal/legacy handling; H01 does not change auth-mode support.
 
 ## Environment identity
 
-Add one immutable App-services record, `EnvironmentIdentity`, derived from one immutable `EnvProfile` snapshot.
+The implementation adds one immutable App-services record, `EnvironmentIdentity`, derived from one immutable `EnvProfile` snapshot.
 
 It contains:
 
@@ -41,9 +41,9 @@ It contains:
 - Dataverse client id and auth mode; and
 - default company (`Legal`).
 
-`EnvironmentIdentity.Create(EnvProfile)` uses `FoToolbox.Core.Auth.ResourceUrlNormalizer` for both endpoints, then canonicalizes only the URI scheme and authority. URL path, query, and fragment casing remains significant; if the normalized text is not a valid absolute URI, it remains exact. Profile id is an opaque SQLite key and remains exact with ordinal record equality. Tenant and client identifiers are trimmed and case-normalized because their GUID/domain semantics are case-insensitive. Default company (`Legal`) remains exact with ordinal equality; H01 has no source evidence that every stored company value is case-insensitive. Name, status, latency, and tier are intentionally excluded.
+`EnvironmentIdentity.Create(EnvProfile)` directly uses the shared `FoToolbox.Core.Auth.ResourceUrlNormalizer` for both endpoints, then canonicalizes only the URI scheme and authority. The earlier App-local normalization duplicate was removed. URL path, query, and fragment casing remains significant; if the normalized text is not a valid absolute URI, it remains exact. Profile id is an opaque SQLite key and remains exact with ordinal record equality. Tenant and client identifiers are trimmed and case-normalized because their GUID/domain semantics are case-insensitive. Default company (`Legal`) remains exact with ordinal equality; H01 has no source evidence that every stored company value is case-insensitive. Name, status, latency, and tier are intentionally excluded.
 
-The helper accepts a real profile, never `null`. Callers that have an optional active profile explicitly branch on absence. In a production-bound path, a missing identity blocks the operation; it is never treated as permission to send. Optional active-environment constructor seams may remain for isolated tests, but `ShellViewModel.ResolveContent` must bind Query and POST as well as the already-bound Map, Virtual Tables, and Operations VMs. App wiring continues to bind Core metadata/HTTP services. Compare uses explicit source/target profiles and gains discard/cancel lifecycle only; H06c owns result attribution to those selections.
+The helper accepts a real profile, never `null`. Callers that have an optional active profile explicitly branch on absence. In a production-bound path, a missing identity blocks the operation; it is never treated as permission to send. Optional active-environment constructor seams remain for isolated tests, while `ShellViewModel.ResolveContent` binds Query, POST, and Metadata as well as Map, Virtual Tables, Operations, and the other affected cached VMs. App wiring binds Core metadata/HTTP services. Compare uses explicit source/target profiles and has discard/cancel lifecycle only; H06c owns result attribution to those selections.
 
 Every operation captures `EnvProfile` once at entry, then derives both `EnvironmentIdentity` and request/catalog inputs from that same immutable object. It must not call `_activeEnv()` separately to derive a stamp and an endpoint. Post-await checks compare the captured identity with a newly derived current identity.
 
@@ -66,7 +66,7 @@ Profiles receives the shell activation callback and awaits it. It does not pre-w
 
 ## Active-profile save transaction
 
-`ProfilesViewModel.Save` becomes asynchronous and captures the selected immutable profile plus every draft value before its first await. For an active identity change, the injected Shell callback owns approval, the post-approval recheck, persistence, active-record replacement, and tool invalidation while holding the transition gate; this prevents another Shell transition from landing between approval and persistence.
+`ProfilesViewModel.Save` is asynchronous and captures the selected immutable profile plus every draft value before its first await. For an active identity change, the injected Shell callback owns approval, the post-approval recheck, persistence, active-record replacement, and tool invalidation while holding the transition gate; this prevents another Shell transition from landing between approval and persistence.
 
 - If the selected profile is not active, or the complete identity is unchanged, persist normally. Cosmetic name/status/latency/tier edits preserve open tools.
 - If an active profile's identity changes, ask the injected shell approval callback before persistence when open tool state exists.
@@ -81,13 +81,13 @@ The existing best-effort old-auth-session eviction remains after successful pers
 
 ### Metadata
 
-`IMetadataService` gains an explicit `Invalidate()` contract. `CoreMetadataService` replaces `_cacheEnvId` with full `EnvironmentIdentity` plus a monotonically increasing cache generation; its implementation clears all caches and increments the generation under the existing lock. Cacheless fakes implement an explicit no-op and wrappers delegate. Shell calls its existing `IMetadataService.Invalidate()` on every accepted switch, active identity save, or active-profile deletion, so no cache-owning implementation can be silently skipped.
+`IMetadataService` has an explicit `Invalidate()` contract. `CoreMetadataService` uses full `EnvironmentIdentity` plus a monotonically increasing cache generation in place of `_cacheEnvId`; its implementation clears all caches and increments the generation under the existing lock. Cacheless fakes implement an explicit no-op and wrappers delegate. Shell calls its existing `IMetadataService.Invalidate()` on every accepted switch, active identity save, or active-profile deletion, so no cache-owning implementation can be silently skipped.
 
 Each load captures one profile, its identity, the derived `FoEnvironment`, and the generation under the cache lock. A result commits only when both generation and current complete identity still match. This rejects same-id edits, A-B-A transitions, and a late completion even when nobody called a getter during the switch.
 
 #### Locked design addendum: persistent catalog partition
 
-`FoToolbox.Core.Models.FoEnvironment` gains one optional init-only `[JsonIgnore] string? MetadataCachePartition`. It does not alter `Id`, request routing, authentication, or the SQL profile schema. `CoreMetadataService` derives the value from the same single captured `EnvironmentIdentity` used for its front-cache generation and attaches it to the captured `FoEnvironment`.
+`FoToolbox.Core.Models.FoEnvironment` has one optional init-only `[JsonIgnore] string? MetadataCachePartition`. It does not alter `Id`, request routing, authentication, or the SQL profile schema. `CoreMetadataService` derives the value from the same single captured `EnvironmentIdentity` used for its front-cache generation and attaches it to the captured `FoEnvironment`.
 
 The partition is deterministic and explicitly versioned. Serialize the identity fields in a fixed declared order using field names plus UTF-8 byte lengths and bytes; serialize auth enums with invariant numeric values. Hash those bytes with SHA-256 and emit a stable value such as `envmeta-v1:<lowercase hex>`. Do not use `GetHashCode()`, record/object `ToString()`, runtime-dependent JSON defaults, or a delimiter-only concatenation. Normalized endpoint aliases and cosmetic profile edits therefore reuse a partition; profile id, case-sensitive URL suffix, tenant/client/mode, and exact company changes produce a different partition.
 
@@ -102,7 +102,7 @@ All three Catalog HTTP request-construction sites tag the request with the same 
 
 This handler gate closes changes that land inside Catalog's own awaits. The App adapter's post-await generation still decides whether a successful response may update the UI, while the tagged handler guarantees no request is sent after its captured context becomes stale.
 
-Acceptance uses the real `CatalogService` with a temporary `CatalogStore` and a fake HTTP handler serving distinct metadata documents with the same ETag. It must cover full metadata, entity index, entity details, and a warmed raw-XML memo; repeat the reads after constructing a fresh Catalog service over the same store; prove tenant/client/mode/company partitions are isolated; prove cosmetic and normalized endpoint aliases reuse; prove request URI and actual `FoEnvironment.Id` are unchanged; and prove Tables `UserImport` migration data remains present and independent.
+Acceptance uses the real `CatalogService` with a temporary `CatalogStore` and a fake HTTP handler serving distinct metadata documents with the same ETag. The implemented tests cover full metadata, entity index, entity details, and a warmed raw-XML memo; repeat the reads after constructing a fresh Catalog service over the same store; prove tenant/client/mode/company partitions are isolated; prove cosmetic and normalized endpoint aliases reuse; prove request URI and actual `FoEnvironment.Id` are unchanged; and prove Tables `UserImport` migration data remains present and independent.
 
 ### App-only principal binding
 
@@ -168,6 +168,8 @@ This applies to Query, POST read initialization, Metadata, Map Browser, Virtual 
 ## Validation boundary
 
 All proof is deterministic and local: xUnit, headless Avalonia, controlled task gates, fake HTTP handlers, and the two complete CI-strict Release solution gates. No Dataverse, F&O, gateway, portal, or tenant sign-in is used.
+
+Validated source head: `bc00be270972abd8a40c2cf6c264488868b68aa4`. The CI-strict Release builds for `avalonia/toolBax.slnx` and `FoToolbox.sln` completed with 0 warnings and 0 errors. Their complete test suites passed 1,127/1,127 App tests and 394/394 Core tests, with 0 failed or skipped. H01 is implemented and locally validated; the campaign tracker intentionally keeps completion pending until PR review, any observed Greptile findings, and merge are complete.
 
 ## Out of scope
 

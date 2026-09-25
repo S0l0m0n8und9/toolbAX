@@ -1,16 +1,38 @@
 # Environment Consistency Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **Implementation record:** This plan was executed task-by-task using deterministic TDD and parent/independent review. Checked steps record the completed implementation; remote PR review and merge remain separate campaign gates.
 
 **Goal:** Make active-environment switches and same-profile connection edits transactional, and prevent cached, in-flight, or mutating work from crossing the resulting environment boundary.
 
-**Architecture:** Add one immutable `EnvironmentIdentity` in App Services and use it at every existing environment-sensitive seam. Shell owns one awaited activation/save decision and disposes cached tool VMs only after confirmation and persistence succeed. Existing services and VMs gain local generation/disposal guards; there is no event bus, base-VM framework, service locator, or auth redesign.
+**Architecture:** One immutable `EnvironmentIdentity` in App Services is used at every affected environment-sensitive seam. Shell owns one awaited activation/save decision and disposes cached tool VMs only after confirmation and persistence succeed. Services and VMs use local generation/disposal guards; there is no event bus, base-VM framework, service locator, or auth redesign.
 
 **Tech Stack:** .NET 10, Avalonia 12, CommunityToolkit.Mvvm, xUnit v3, Avalonia.Headless.XUnit, FoToolbox.Core URL normalization.
 
 **Spec:** `docs/superpowers/specs/2026-09-25-environment-consistency-design.md`
 
-**Status:** Accepted for implementation; H01 in progress.
+**Status:** Implemented and validated at `bc00be270972abd8a40c2cf6c264488868b68aa4`; pending PR review and merge.
+
+## Implementation outcome
+
+- `EnvironmentIdentity` directly reuses the shared Core `ResourceUrlNormalizer`, preserving opaque profile/company values and case-sensitive URL suffixes.
+- Metadata is partitioned across persistent parsed/index/details/XML/memo/ETag/lock state by a stable versioned SHA-256 identity partition, while Tables/imports retain H08b semantics. Tagged Catalog requests and app-only principal lookup fail closed on captured-context drift.
+- Shell/Profile transitions, requests, dual-write sessions, loaded links, exports, counts, and cached view models use captured profiles plus complete identity/generation/disposal guards. Late work cannot dispatch or publish after invalidation.
+- Focused RED/GREEN cycles covered cache/auth, transaction, and lifecycle failures. Final CI-strict Release builds completed with 0 warnings/errors; full suites passed 1,127/1,127 App and 394/394 Core tests, with 0 failed/skipped.
+- Validation was offline. H03 write-outcome uncertainty and H09 aggregate atomic/asynchronous profile-secret persistence remain outside this implementation.
+
+### Implemented cache and authentication addendum
+
+- `FoEnvironment.MetadataCachePartition` is optional, init-only, and ignored by JSON. `EnvironmentIdentity.ToMetadataCachePartition()` serializes the captured identity in an explicit versioned format and hashes it with SHA-256; it does not alter profile IDs, routing, authentication, or SQL profile schema.
+- `CatalogService` uses the partition for parsed metadata, entity index/details, raw XML, the warmed XML memo, ETag/freshness state, and load locks. It performs no cross-partition fallback. Tables, user imports, and H08b migration rules retain their independent keys and behavior; unpartitioned Core callers retain catalog-v2 behavior.
+- All three Catalog HTTP construction paths attach `CatalogRequestContext.MetadataCachePartition`. `AuthenticatedHttpHandler` validates the active identity, partition, and origin before authentication, then rechecks identity and partition after token acquisition before dispatch. Tagged requests cannot bypass these checks through anonymous or pre-authorized paths.
+- `CoreAuthService.ValidatePrincipalSnapshot` binds app-only F&O and Dataverse principal rows to the captured profile's exact environment ID, target, normalized client ID, and auth mode before invoking the broker. Missing or mismatched rows fail closed, including the tested A-B-A lookup case.
+- Real `CatalogService`/temporary `CatalogStore` tests isolate same-ETag metadata across service restarts and warmed memo state while proving normalized aliases reuse the partition, request URI/profile ID remain unchanged, and imported Tables survive.
+
+### Implemented view-model lifecycle behavior
+
+- Shell serializes header/Profile activation and active-identity saves, rechecks mutation and target drift after confirmation, persists before publishing, rolls back visible selection on failure, and invalidates cached tools only after a successful commit.
+- Query, POST, Metadata, Compare, Operations, Map Browser, Virtual Tables, and `EntityCatalogLoader` capture immutable operation scope and use cancellation, generation, and disposal checks at entry and after awaits. A discarded VM cannot dispatch a later leg, publish a late result/error, open a picker, copy/open a stale link, or retain a late gateway.
+- POST sends the exact approved request snapshot. Dual-write sessions carry a get-only captured profile and identity. Retained Map/Virtual links use their loaded profile, while disposed commands refuse to act.
 
 ## Global Constraints
 
@@ -19,8 +41,8 @@
 - Keep `ResourceUrlNormalizer` in FoToolbox.Core as the endpoint normalization source; do not add a Core-to-UI dependency.
 - Preserve H02 Compare service sign-in sequencing, existing same-origin guards, auth-mode support, retry/parser policies, and gateway failure disposal.
 - Use controlled `TaskCompletionSource`/fake HTTP handlers; no sleeps, live services, sign-ins, dependencies, or machine configuration.
-- Production Shell wiring must bind Query and POST plus the already-bound Map Browser, Virtual Tables, and Operations accessors; App wiring keeps Core metadata/HTTP services bound. Explicitly unbound constructor seams may remain for isolated legacy tests. Compare keeps explicit source/target profiles and receives lifecycle cancellation only.
-- A tracker item remains In progress until its PR is merged and every observed Greptile finding is adjudicated.
+- Production Shell wiring binds Query, POST, and Metadata plus Map Browser, Virtual Tables, and Operations accessors; App wiring keeps Core metadata/HTTP services bound. Explicitly unbound constructor seams remain for isolated legacy tests. Compare keeps explicit source/target profiles and receives lifecycle cancellation only.
+- A tracker item remains incomplete until its PR is merged and every observed Greptile finding is adjudicated.
 
 ## Review Focus
 
@@ -42,6 +64,11 @@
 | `avalonia/toolBax.App/Services/CoreODataClient.cs` | Captured F&O request and post-token identity guard | Modify |
 | `avalonia/toolBax.App/Services/CoreDataverseClient.cs` | Captured Dataverse request and post-token identity guard | Modify |
 | `avalonia/toolBax.App/Services/CoreDualWriteMapReader.cs` | Shared identity, pinned paging scope | Modify |
+| `avalonia/toolBax.App/Services/AuthenticatedHttpHandler.cs` | Tagged Catalog identity/origin checks before and after authentication | Modify |
+| `avalonia/toolBax.App/Services/CoreAuthService.cs` | Bind app-only principals to the captured profile snapshot | Modify |
+| `src/FoToolbox.Core/Models/FoEnvironment.cs` | Optional metadata cache partition carried outside JSON/schema identity | Modify |
+| `src/FoToolbox.Core/Catalog/CatalogRequestContext.cs` | Public immutable Catalog request option key | Create |
+| `src/FoToolbox.Core/Catalog/CatalogService.cs` | Partition metadata caches, memo, freshness, and locks without changing Tables | Modify |
 | `avalonia/toolBax.App/Services/IDualWriteConnector.cs` | Session carries profile snapshot/identity | Modify |
 | `avalonia/toolBax.App/Services/CoreDualWriteConnector.cs` | Populate snapshot session | Modify |
 | `avalonia/toolBax.App/Services/FakeDualWriteConnector.cs` | Match real session contract | Modify |
@@ -74,7 +101,7 @@
 - Produces: `EnvironmentIdentity.TryCreate(EnvProfile? profile) : EnvironmentIdentity?`
 - Produces: `EnvironmentIdentity.IsCurrent(EnvProfile? current) : bool`
 
-- [ ] **Step 1: Write failing identity tests**
+- [x] **Step 1: Write failing identity tests**
 
 Create a table-driven test that starts from one literal profile and mutates one field at a time:
 
@@ -103,7 +130,7 @@ public void Same_profile_id_with_changed_connection_data_is_a_different_identity
 
 Add `Cosmetic_profile_changes_keep_the_same_identity` for Name/Status/LatencyMs/Tier, `Equivalent_endpoint_spelling_keeps_the_same_identity` for scheme/trailing slash/case, and `Data_integrator_legacy_fields_do_not_change_current_live_identity` to pin the source-backed exclusion.
 
-- [ ] **Step 2: Write `Active_id_cache_stays_old_when_persistence_fails`**
+- [x] **Step 2: Write `Active_id_cache_stays_old_when_persistence_fails`**
 
 Create a real store with active `env1`. Using `Microsoft.Data.Sqlite`, add a temporary trigger on `Settings` that executes `RAISE(ABORT, 'blocked default env update')` when `OLD.Key = 'DefaultEnvId'`. Attempt the update and assert:
 
@@ -116,7 +143,7 @@ Assert.Equal(before, await NewService().GetDefaultEnvironmentIdAsync(ct));
 
 Drop the trigger in `finally`; the fixture continues using its normal database cleanup.
 
-- [ ] **Step 3: Run focused tests and capture RED**
+- [x] **Step 3: Run focused tests and capture RED**
 
 Run:
 
@@ -127,7 +154,7 @@ dotnet test .\avalonia\toolBax.App.Tests\toolBax.App.Tests.csproj -c Release --n
 
 Expected behavioral RED: the existing metadata/session same-id endpoint regression accepts stale state, and the ActiveId ordering test reports cached `env2` after persistence throws. Add the helper matrix before GREEN, but do not count a missing-type compiler error as RED evidence.
 
-- [ ] **Step 4: Implement the immutable helper and ordering fix**
+- [x] **Step 4: Implement the immutable helper and ordering fix**
 
 Use this shape:
 
@@ -177,11 +204,11 @@ RunBlocking(() => _profiles.SetDefaultEnvironmentAsync(value ?? string.Empty));
 _activeId = value;
 ```
 
-- [ ] **Step 5: Run focused tests and capture GREEN**
+- [x] **Step 5: Run focused tests and capture GREEN**
 
 Run the Step 3 command. Expected: all selected tests pass.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add avalonia/toolBax.App/Services/EnvironmentIdentity.cs avalonia/toolBax.App/Services/CoreProfileStore.cs avalonia/toolBax.App.Tests/EnvironmentIdentityTests.cs avalonia/toolBax.App.Tests/CoreProfileStoreTests.cs
@@ -207,7 +234,7 @@ git commit -m "fix: define complete environment identity"
 - Produces: `IMetadataService.Invalidate() : void`
 - Consumes: `EnvironmentIdentity.Create/TryCreate`
 
-- [ ] **Step 1: Write failing service regressions**
+- [x] **Step 1: Write failing service regressions**
 
 Add controlled gates and these exact cases:
 
@@ -229,7 +256,7 @@ Add `Metadata_A_to_B_to_A_still_discards_the_old_generation`, `Same_id_endpoint_
 
 For `CoreDualWriteMapReader`, add `Map_paging_stops_when_complete_identity_changes`, `Same_id_auth_edit_does_not_reuse_logical_name_cache`, and preserve `A_profile_repointed_at_another_organisation...` using the shared helper.
 
-- [ ] **Step 2: Run focused tests and capture RED**
+- [x] **Step 2: Run focused tests and capture RED**
 
 ```powershell
 $env:CI='true'
@@ -238,7 +265,7 @@ dotnet test .\avalonia\toolBax.App.Tests\toolBax.App.Tests.csproj -c Release --n
 
 Expected: new tests show stale metadata commit, one HTTP dispatch after gated auth, and reader identity/cache reuse.
 
-- [ ] **Step 3: Implement metadata identity plus generation**
+- [x] **Step 3: Implement metadata identity plus generation**
 
 Add mandatory `void Invalidate();` to `IMetadataService`. Add explicit no-op implementations to `FakeMetadataService` and genuinely cacheless test fakes; cache-owning wrappers delegate to their inner service. Replace `_cacheEnvId` with identity and generation under `_envSync`. Capture one profile once:
 
@@ -258,7 +285,7 @@ lock (_envSync)
 
 `Invalidate()` increments `_generation` and clears entities, enums, fields, and navigations under the same lock.
 
-- [ ] **Step 4: Implement captured client dispatch**
+- [x] **Step 4: Implement captured client dispatch**
 
 In each client, derive URI and identity from one captured profile. After token acquisition:
 
@@ -272,15 +299,15 @@ if (!capturedIdentity.IsCurrent(_activeEnv()))
 
 Send to the URI derived from the captured profile; retain existing origin checks and token handling.
 
-- [ ] **Step 5: Pin CoreDualWriteMapReader operations**
+- [x] **Step 5: Pin CoreDualWriteMapReader operations**
 
 Replace the private `EnvIdentity` string with `EnvironmentIdentity`. At each public entry point capture one profile/identity/API base. Pass that captured scope through component/map/solution paging and count helpers; use absolute pinned URLs where an endpoint exists. Before each request and before returning/caching, require the captured identity to remain current.
 
-- [ ] **Step 6: Run focused tests and capture GREEN**
+- [x] **Step 6: Run focused tests and capture GREEN**
 
 Run the Step 2 command. Expected: all selected tests pass, including existing origin and paging tests.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add avalonia/toolBax.Core/Services/IMetadataService.cs avalonia/toolBax.App/Services/CoreMetadataService.cs avalonia/toolBax.App/Services/CoreODataClient.cs avalonia/toolBax.App/Services/CoreDataverseClient.cs avalonia/toolBax.App/Services/CoreDualWriteMapReader.cs avalonia/toolBax.App/Services/FakeMetadataService.cs avalonia/toolBax.App.Tests/CoreMetadataServiceTests.cs avalonia/toolBax.App.Tests/CoreMetadataServiceEnvScopeTests.cs avalonia/toolBax.App.Tests/CoreODataClientTests.cs avalonia/toolBax.App.Tests/CoreDataverseClientTests.cs avalonia/toolBax.App.Tests/CoreDualWriteMapReaderTests.cs
@@ -305,7 +332,7 @@ git commit -m "fix: reject stale environment service results"
 - Produces for Profiles delete: `Func<string?> mutationBlockReason`
 - Consumes: `CoreMetadataService.Invalidate()` through an App-layer concrete type check (`_metadataService is CoreMetadataService core`); do not add or change a `toolBax.Core` interface.
 
-- [ ] **Step 1: Replace optional-refresh expectations with failing transactional tests**
+- [x] **Step 1: Replace optional-refresh expectations with failing transactional tests**
 
 Update only tests that encode the removed "switch now, optionally refresh later" behavior. Add:
 
@@ -327,7 +354,7 @@ Add `Accepted_switch_persists_then_invalidates_open_tools`, `First_selection_wit
 
 Add `[AvaloniaFact] Declined_switch_forces_the_ComboBox_back_to_the_old_selection_even_when_ActiveEnvironment_reference_never_changed`.
 
-- [ ] **Step 2: Run focused tests and capture RED**
+- [x] **Step 2: Run focused tests and capture RED**
 
 ```powershell
 $env:CI='true'
@@ -336,7 +363,7 @@ dotnet test .\avalonia\toolBax.App.Tests\toolBax.App.Tests.csproj -c Release --n
 
 Expected: current Shell commits before decline; Profiles writes the store before Shell; ComboBox remains on the declined item.
 
-- [ ] **Step 3: Implement activation ordering and rollback**
+- [x] **Step 3: Implement activation ordering and rollback**
 
 Guard activation and active-identity-save flows with one private `SemaphoreSlim(1, 1)`. Reshape the Shell activation funnel in this order:
 
@@ -356,7 +383,7 @@ return null;
 
 `Reject` raises `OnPropertyChanged(nameof(ActiveEnvironment))` and leaves state untouched. Confirm copy states that accepting changes environment and discards open tool state; it must not claim the switch already occurred.
 
-- [ ] **Step 4: Implement awaited Profiles activation/save**
+- [x] **Step 4: Implement awaited Profiles activation/save**
 
 Make `SetActive` and `Save` async. `SetActive` calls `requestActivation(SelectedSnapshot)` and updates local status/id only on null result.
 
@@ -364,15 +391,15 @@ Make `SetActive` and `Save` async. `SetActive` calls `requestActivation(Selected
 
 Before deleting the active profile, call `mutationBlockReason`; a non-null reason leaves store/list untouched and becomes `Status`.
 
-- [ ] **Step 5: Wire successful profile saves and invalidation**
+- [x] **Step 5: Wire successful profile saves and invalidation**
 
 Shell's `ProfileSaved` handler remains the list/header synchronization path for ordinary/cosmetic saves and is idempotent after the active-identity callback already updated Shell. Cosmetic save: replace environment/header record only. Identity save invalidation occurs inside `commitActiveIdentitySave` while the transition gate is held. Header and Profiles both call the same activation delegate.
 
-- [ ] **Step 6: Run focused tests and capture GREEN**
+- [x] **Step 6: Run focused tests and capture GREEN**
 
 Run the Step 2 command. Expected: all selected tests pass, including rendered ComboBox rollback.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```powershell
 git add avalonia/toolBax.App/ViewModels/ShellViewModel.cs avalonia/toolBax.App/ViewModels/ProfilesViewModel.cs avalonia/toolBax.App/Views/MainWindow.axaml.cs avalonia/toolBax.App.Tests/ShellViewModelTests.cs avalonia/toolBax.App.Tests/ShellRenderTests.cs avalonia/toolBax.App.Tests/ProfilesViewModelTests.cs
@@ -401,13 +428,13 @@ git commit -m "fix: make environment changes transactional"
 - POST produces `public bool MutationInProgress { get; private set; }`.
 - EntityCatalogLoader, Query, POST, Metadata, Compare implement `IDisposable` as required by their owned command/CTS lifecycle.
 
-- [ ] **Step 1: Write failing Query and lifecycle tests**
+- [x] **Step 1: Write failing Query and lifecycle tests**
 
 Add `Query_started_under_A_is_discarded_after_same_id_identity_edit`, `Query_A_to_B_to_A_is_discarded_after_dispose`, and `Disposed_export_all_never_opens_the_late_save_picker`. Use a client gate that deliberately ignores cancellation for the last case; dispose after request entry, release the response, assert `FakeFileSaveService` saw no call.
 
 Add Metadata/Compare tests that dispose with a controlled load/compare in flight, release it, and assert no collection/result resurrection.
 
-- [ ] **Step 2: Write failing POST snapshot/mutation tests**
+- [x] **Step 2: Write failing POST snapshot/mutation tests**
 
 Use a gated dialog and gated auth/client seam:
 
@@ -424,7 +451,7 @@ Assert.Equal(("POST", "/data/Original", originalBody, originalHeaders), client.L
 
 Add `Identity_change_during_confirmation_prevents_dispatch`, `Identity_change_during_token_acquisition_prevents_dispatch` at the real client boundary, `Shell_refuses_switch_while_POST_confirmation_is_open`, and `Disposed_catalogue_load_does_not_publish_a_late_error`.
 
-- [ ] **Step 3: Run focused tests and capture RED**
+- [x] **Step 3: Run focused tests and capture RED**
 
 ```powershell
 $env:CI='true'
@@ -433,29 +460,29 @@ dotnet test .\avalonia\toolBax.App.Tests\toolBax.App.Tests.csproj -c Release --n
 
 Expected: stale completions/picker occur, POST sends mutable current properties, and Shell switches during pending confirmation.
 
-- [ ] **Step 4: Implement local lifetime guards**
+- [x] **Step 4: Implement local lifetime guards**
 
 Each affected VM owns `_disposed` plus a monotonic `_generation`. `Dispose()` sets `_disposed`, increments generation, cancels its generated Initialize/Load/Run/Export/Compare commands, and disposes `EntityCatalogLoader`. Every post-await commit checks both.
 
 `EntityCatalogLoader.Dispose()` cancels and disposes its active CTS; its catch/finally does not publish `LastError` after disposal or a newer generation.
 
-- [ ] **Step 5: Implement Query operation scope**
+- [x] **Step 5: Implement Query operation scope**
 
 Capture profile/identity/generation/path/columns before awaiting each Run, LoadMore, ExportCurrent, and ExportAll. In bound mode, no profile means a clear no-environment status. Before rows/status/picker commit, require current identity, generation, and not disposed. Keep explicitly unbound tests behavior-compatible.
 
-- [ ] **Step 6: Implement POST approved snapshot and mutation flag**
+- [x] **Step 6: Implement POST approved snapshot and mutation flag**
 
 At Send entry capture method, effective path, body/null, copied headers, identity, and generation. Set `MutationInProgress = true` before confirmation. Build `ConfirmRequest` from captured values. After confirmation and after client completion, check identity/generation/disposal. Send only captured values. Clear mutation in `finally` and raise command state notifications.
 
-- [ ] **Step 7: Bind production VMs and Shell mutation inspection**
+- [x] **Step 7: Bind production VMs and Shell mutation inspection**
 
 Change `ShellViewModel.ResolveContent` to pass `() => ActiveEnvironment` into Query and POST. `MutationBlockReason()` inspects cached POST and Operations instances; at this task POST is covered, and Task 5 completes Operations.
 
-- [ ] **Step 8: Run focused tests and capture GREEN**
+- [x] **Step 8: Run focused tests and capture GREEN**
 
 Run the Step 3 command. Expected: all selected tests pass and H02 service tests remain unchanged.
 
-- [ ] **Step 9: Commit**
+- [x] **Step 9: Commit**
 
 ```powershell
 git add avalonia/toolBax.App/ViewModels/EntityCatalogLoader.cs avalonia/toolBax.App/ViewModels/QueryBuilderViewModel.cs avalonia/toolBax.App/ViewModels/PostBuilderViewModel.cs avalonia/toolBax.App/ViewModels/MetadataViewModel.cs avalonia/toolBax.App/ViewModels/DualWriteCompareViewModel.cs avalonia/toolBax.App/ViewModels/ShellViewModel.cs avalonia/toolBax.App.Tests/QueryBuilderViewModelTests.cs avalonia/toolBax.App.Tests/PostBuilderViewModelTests.cs avalonia/toolBax.App.Tests/MetadataViewModelTests.cs avalonia/toolBax.App.Tests/DualWriteCompareViewModelTests.cs avalonia/toolBax.App.Tests/ShellViewModelTests.cs
@@ -484,7 +511,7 @@ git commit -m "fix: discard invalidated query and post work"
 - `DualWriteSession.Identity` derives once from `Profile`; `EnvId => Profile.Id` remains available.
 - Operations produces `public bool MutationInProgress { get; private set; }`.
 
-- [ ] **Step 1: Write failing session and late-connect tests**
+- [x] **Step 1: Write failing session and late-connect tests**
 
 Add `Same_id_endpoint_edit_refuses_gateway_action`, `Same_id_auth_edit_refuses_debug_requests`, and `Late_session_returned_after_dispose_is_disposed_and_never_assigned`:
 
@@ -500,7 +527,7 @@ Assert.False(vm.IsConnected);
 
 Add gated-confirmation tests for lifecycle action and debug toggle asserting `MutationInProgress` is true and Shell refuses header switch, active identity save, and active-profile deletion without disposing the gateway.
 
-- [ ] **Step 2: Run focused tests and capture RED**
+- [x] **Step 2: Run focused tests and capture RED**
 
 ```powershell
 $env:CI='true'
@@ -509,7 +536,7 @@ dotnet test .\avalonia\toolBax.App.Tests\toolBax.App.Tests.csproj -c Release --n
 
 Expected: id-only session accepts same-id edits; late connector result survives disposal; Shell switches during dual-write confirmation.
 
-- [ ] **Step 3: Change the session contract and connectors**
+- [x] **Step 3: Change the session contract and connectors**
 
 Use:
 
@@ -525,17 +552,17 @@ public sealed record DualWriteSession(
 
 Real/fake connectors pass the immutable `env` argument they already captured. Update test session constructors mechanically without changing H02 connect ordering.
 
-- [ ] **Step 4: Implement Operations generation, disposal, and mutation guards**
+- [x] **Step 4: Implement Operations generation, disposal, and mutation guards**
 
 Load captures profile/identity/generation. After `ConnectAsync`, dispose the returned gateway and return when disposed, generation changed, or current identity differs. Recheck after map load before assigning observable state.
 
 Replace id-only mismatch with session identity equality. Set `MutationInProgress` before lifecycle confirmation and before debug metadata/auth work; clear it in `finally` after every branch. Keep the existing per-await action/debug guards.
 
-- [ ] **Step 5: Run focused tests and capture GREEN**
+- [x] **Step 5: Run focused tests and capture GREEN**
 
 Run the Step 2 command. Expected: all selected tests pass, including the H02 UI-thread regression.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add avalonia/toolBax.App/Services/IDualWriteConnector.cs avalonia/toolBax.App/Services/CoreDualWriteConnector.cs avalonia/toolBax.App/Services/FakeDualWriteConnector.cs avalonia/toolBax.App/ViewModels/DualWriteOpsViewModel.cs avalonia/toolBax.App.Tests/DualWriteOpsTests.cs avalonia/toolBax.App.Tests/DualWriteConnectionGuardTests.cs avalonia/toolBax.App.Tests/DualWriteCompareViewModelTests.cs avalonia/toolBax.App.Tests/CoreDualWriteCompareServiceTests.cs avalonia/toolBax.App.Tests/ShellViewModelTests.cs
@@ -556,7 +583,7 @@ git commit -m "fix: bind dual-write sessions to complete identity"
 - Consumes: `EnvironmentIdentity`
 - Both VMs implement `IDisposable` and keep captured loaded `EnvProfile`/identity plus local generation.
 
-- [ ] **Step 1: Write failing loaded-scope tests**
+- [x] **Step 1: Write failing loaded-scope tests**
 
 Add Map Browser tests: `Same_id_Dataverse_edit_blocks_stale_counts`, `Map_link_uses_loaded_profiles_Dataverse_url_after_active_profile_changes`, `Disposed_map_link_commands_do_not_launch_or_copy`, `Slow_A_completion_after_B_does_not_overwrite_B`, `A_to_B_to_A_old_generation_is_discarded`, and `Dispose_cancels_reload_count_and_export_without_late_state`.
 
@@ -564,7 +591,7 @@ Add Virtual Tables tests: `Same_id_endpoint_edit_reloads`, `Selected_link_uses_l
 
 Use per-call `TaskCompletionSource` gates and literal A/B table/map payloads; no sleeps.
 
-- [ ] **Step 2: Run focused tests and capture RED**
+- [x] **Step 2: Run focused tests and capture RED**
 
 ```powershell
 $env:CI='true'
@@ -573,19 +600,19 @@ dotnet test .\avalonia\toolBax.App.Tests\toolBax.App.Tests.csproj -c Release --n
 
 Expected: id-only guards accept same-id edits, links use the current environment, and disposed/old-generation completions can publish.
 
-- [ ] **Step 3: Implement Map Browser loaded scope**
+- [x] **Step 3: Implement Map Browser loaded scope**
 
 Capture one profile/identity/generation before each reader call. Commit maps/solutions/count statuses only if current identity and generation still match and the VM is not disposed. Stamp successful map data with the captured profile and identity. `MapRecordUrl` uses `_loadedProfile?.DataverseUrl`; open/copy commands return immediately once disposed. `Dispose()` increments generation and cancels Initialize, ReloadMaps, CountAllRows, and ExportMarkdown commands.
 
-- [ ] **Step 4: Implement Virtual Tables loaded scope**
+- [x] **Step 4: Implement Virtual Tables loaded scope**
 
 Replace `_loadedEnvId` with captured loaded profile/identity. `SelectedTableUrl` uses the loaded profile; the open command returns immediately once disposed. Commit result/error/loaded label only for current generation and identity. `Dispose()` cancels Initialize/Refresh and blocks late state.
 
-- [ ] **Step 5: Run focused tests and capture GREEN**
+- [x] **Step 5: Run focused tests and capture GREEN**
 
 Run the Step 2 command. Expected: all selected tests pass, including existing overlapping-load busy-state cases.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```powershell
 git add avalonia/toolBax.App/ViewModels/DualWriteMapViewModel.cs avalonia/toolBax.App/ViewModels/VirtualTablesViewModel.cs avalonia/toolBax.App.Tests/DualWriteMapViewModelTests.cs avalonia/toolBax.App.Tests/VirtualTablesViewModelTests.cs
@@ -603,7 +630,7 @@ git commit -m "fix: attribute loaded environment data and links"
 **Interfaces:**
 - No new runtime interface; this task validates the completed H01 slice.
 
-- [ ] **Step 1: Run the focused environment-consistency set**
+- [x] **Step 1: Run the focused environment-consistency set**
 
 ```powershell
 $env:CI='true'
@@ -612,7 +639,7 @@ dotnet test .\avalonia\toolBax.App.Tests\toolBax.App.Tests.csproj -c Release --n
 
 Expected: all pass with no warnings/errors.
 
-- [ ] **Step 2: Run both CI-strict Release build/test gates**
+- [x] **Step 2: Run both CI-strict Release build/test gates**
 
 ```powershell
 $env:CI='true'
@@ -624,7 +651,7 @@ dotnet test .\FoToolbox.sln -c Release --no-build
 
 Expected: both builds report 0 warnings and 0 errors; both complete suites pass.
 
-- [ ] **Step 3: Audit invariants and diff**
+- [x] **Step 3: Audit invariants and diff**
 
 Run:
 
@@ -638,18 +665,18 @@ git diff --stat origin/main...HEAD
 
 Inspect each hit; no environment-sensitive live path may remain id-only, and no operation may separately fetch its stamp and request profile.
 
-- [ ] **Step 4: Update tracker evidence without claiming merge**
+- [x] **Step 4: Update tracker evidence without claiming merge**
 
-Keep H01 `In progress`. Record focused red/green evidence, final suite counts, and the H09 `ActiveId` overlap. Keep D01 pending and explicitly outside H01. Do not mark H01 complete or add PR/Greptile/merge evidence before those events occur.
+Record H01 as implemented and validated, pending PR review and merge. Record focused red/green evidence, final suite counts, and the H09 `ActiveId` overlap. Keep D01-D03 pending and explicitly outside H01. Do not mark H01 complete or add PR/Greptile/merge evidence before those events occur.
 
-- [ ] **Step 5: Commit final evidence**
+- [x] **Step 5: Commit final evidence**
 
 ```powershell
 git add docs/production-readiness/2026-09-25-hardening.md
 git commit -m "docs: record environment consistency validation"
 ```
 
-- [ ] **Step 6: Parent and independent review gate**
+- [x] **Step 6: Parent and independent review gate**
 
 Return the complete diff, focused red/green outputs, suite totals, commit list, and remaining limitations to the parent. The parent runs final diff review and a separate reviewer before any push/PR. Parent owns remote push, PR, Greptile handling, merge, main fast-forward, and the later tracker completion evidence.
 
@@ -657,7 +684,7 @@ Return the complete diff, focused red/green outputs, suite totals, commit list, 
 
 ## Self-review record
 
-- Spec coverage: every locked decision maps to Tasks 1-7; D01 is recorded but excluded from implementation.
+- Spec coverage: every locked decision maps to Tasks 1-7; D01-D03 are recorded but excluded from implementation.
 - Placeholder scan: the plan names concrete files, methods, tests, commands, and expected failures/passes.
 - Type consistency: all tasks use `EnvironmentIdentity.Create/TryCreate/IsCurrent`; session and constructor changes are defined before consumers rely on them.
 - Review Focus: all five conditions have explicit tests in Tasks 1, 2, 4, 5, or 6.
