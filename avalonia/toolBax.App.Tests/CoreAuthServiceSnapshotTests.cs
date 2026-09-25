@@ -29,6 +29,41 @@ public sealed class CoreAuthServiceSnapshotTests
         new("sp", "env", target == AuthTarget.Fo ? "client-a" : "dv-client-a", AuthMode.ClientSecret, "secret-ref", null, target);
 
     [Theory]
+    [InlineData(AuthTarget.Fo, (int)FoAuthMode.Certificate)]
+    [InlineData(AuthTarget.Fo, -1)]
+    [InlineData(AuthTarget.Fo, 99)]
+    [InlineData(AuthTarget.Dataverse, (int)FoAuthMode.Certificate)]
+    [InlineData(AuthTarget.Dataverse, -1)]
+    [InlineData(AuthTarget.Dataverse, 99)]
+    public async Task Unsupported_app_mode_is_rejected_before_principal_lookup_or_token_acquisition(
+        AuthTarget target, int rawMode)
+    {
+        var lookupCalls = 0;
+        var brokerCalls = 0;
+        var auth = new CoreAuthService((_, _, _) =>
+        {
+            lookupCalls++;
+            return Task.FromResult<ServicePrincipal?>(Principal(target));
+        }, (_, _) =>
+        {
+            brokerCalls++;
+            return Task.FromResult("wrong-token");
+        });
+        var mode = (FoAuthMode)rawMode;
+        var profile = target == AuthTarget.Fo
+            ? Profile() with { AuthMode = mode }
+            : Profile() with { DataverseAuthMode = mode };
+
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => target == AuthTarget.Fo
+            ? auth.AcquireFoTokenAsync(profile, TestContext.Current.CancellationToken)
+            : auth.AcquireDataverseTokenAsync(profile, TestContext.Current.CancellationToken));
+
+        Assert.Contains("unsupported", error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, lookupCalls);
+        Assert.Equal(0, brokerCalls);
+    }
+
+    [Theory]
     [InlineData(AuthTarget.Fo, "environment")]
     [InlineData(AuthTarget.Fo, "target")]
     [InlineData(AuthTarget.Fo, "client")]

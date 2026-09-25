@@ -85,7 +85,7 @@ public class DualWriteCompareViewRenderTests
 
             var count = Named<TextBlock>(view, "ComparedCountText");
             Assert.True(count.IsVisible);
-            Assert.Equal("0 maps compared", count.Text);
+            Assert.Equal("0 map rows", count.Text);
 
             var prompt = Named<Border>(view, "EmptyResultPrompt");
             Assert.True(prompt.IsVisible);
@@ -116,7 +116,7 @@ public class DualWriteCompareViewRenderTests
             Dispatcher.UIThread.RunJobs();
 
             Assert.NotEmpty(vm.DiffRows);
-            Assert.Equal($"{vm.DiffRows.Count} maps compared", Named<TextBlock>(view, "ComparedCountText").Text);
+            Assert.Equal($"{vm.DiffRows.Count} map rows", Named<TextBlock>(view, "ComparedCountText").Text);
             Assert.False(Named<Border>(view, "EmptyResultPrompt").IsVisible);
             Assert.True(view.GetVisualDescendants().OfType<DataGrid>().First(g => g.Name == "DiffGrid").IsVisible);
         }
@@ -207,6 +207,58 @@ public class DualWriteCompareViewRenderTests
 
     private static Color Colour(DualWriteComparisonVerdict verdict) =>
         Assert.IsAssignableFrom<ISolidColorBrush>(Brush(verdict)).Color;
+
+    [AvaloniaFact]
+    public void Unknown_is_visible_on_the_attached_row_with_warning_reason_and_limited_scope()
+    {
+        var vm = new DualWriteCompareViewModel(new FakeProfileStore(), new EvidenceCompareService());
+        var view = new DualWriteCompareView { DataContext = vm };
+        var window = new Window { Content = view, Width = 1200, Height = 720 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            vm.CompareCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+
+            var unknown = DualWriteComparisonVerdict.Unknown;
+            var row = Assert.Single(view.GetVisualDescendants().OfType<DataGridRow>(),
+                r => (r.DataContext as DualWriteMapComparisonRow)?.Verdict == unknown);
+            Assert.True(row.IsEffectivelyVisible);
+            var label = Assert.Single(row.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "unknown");
+            Assert.True(label.IsEffectivelyVisible);
+            Assert.True(Avalonia.Application.Current!.TryGetResource("WarnBrush", null, out var warning));
+            Assert.Equal(Assert.IsAssignableFrom<ISolidColorBrush>(warning).Color,
+                Assert.IsAssignableFrom<ISolidColorBrush>(label.Foreground).Color);
+            Assert.NotEqual(Colour(DualWriteComparisonVerdict.Identical),
+                Assert.IsAssignableFrom<ISolidColorBrush>(label.Foreground).Color);
+            var (data, note) = Row(view, unknown);
+            Assert.True(note.IsEffectivelyVisible);
+            Assert.Equal("Missing reported values: source state.", data.Note);
+            Assert.Equal(data.Note, ToolTip.GetTip(note));
+            Assert.Contains(view.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "1 unknown" && t.IsEffectivelyVisible);
+            Assert.Contains(view.GetVisualDescendants().OfType<TextBlock>(), t => t.Text == "reported values match" && t.IsEffectivelyVisible);
+            Assert.Equal("2 map rows", Named<TextBlock>(view, "ComparedCountText").Text);
+
+            var scope = Named<TextBlock>(view, "ComparisonScope");
+            Assert.True(scope.IsEffectivelyVisible);
+            Assert.Equal(TextWrapping.Wrap, scope.TextWrapping);
+            Assert.Contains("reported map presence, active version and state", scope.Text);
+            Assert.Contains("Field mappings, filters, integration keys and other configuration are not compared", scope.Text);
+        }
+        finally { window.Close(); }
+    }
+
+    private sealed class EvidenceCompareService : IDualWriteCompareService
+    {
+        public Task<IReadOnlyList<DualWriteMapComparisonRow>> CompareAsync(EnvProfile source, EnvProfile target, CancellationToken ct = default) =>
+            Task.FromResult<IReadOnlyList<DualWriteMapComparisonRow>>(new[]
+            {
+                new DualWriteMapComparisonRow("Missing state", true, true, "1.0", "1.0", "", "Running", DualWriteComparisonVerdict.Unknown)
+                    { Note = "Missing reported values: source state." },
+                new DualWriteMapComparisonRow("Complete values", true, true, "1.0", "1.0", "Running", "Running", DualWriteComparisonVerdict.Identical),
+            });
+    }
 
     /// <summary>Both gateways answered, neither with a usable map — a result, but nothing compared.</summary>
     private sealed class EmptyCompareService : IDualWriteCompareService

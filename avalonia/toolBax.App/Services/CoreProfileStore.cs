@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FoToolbox.Core.Models;
@@ -75,6 +76,10 @@ public sealed class CoreProfileStore : IProfileStore
 
     public void Save(EnvProfile profile)
     {
+        var previous = _cache.FirstOrDefault(p => string.Equals(p.Id, profile.Id, StringComparison.Ordinal));
+        ValidateAuthEditBeforeWrite(previous, profile, AuthTarget.Fo);
+        ValidateAuthEditBeforeWrite(previous, profile, AuthTarget.Dataverse);
+
         RunBlocking(() => _profiles.UpsertEnvironmentAsync(new FoEnvironment(
             profile.Id,
             profile.Name,
@@ -87,29 +92,33 @@ public sealed class CoreProfileStore : IProfileStore
         RunBlocking(() => _profiles.UpsertDataverseEnvironmentAsync(
             new DataverseEnvironment(profile.Id, profile.DataverseUrl ?? string.Empty, profile.Tenant)));
 
-        SaveFoServicePrincipal(profile);
-        SaveDataverseServicePrincipal(profile);
+        if (!PreservesUnsupportedTarget(previous, profile, AuthTarget.Fo))
+        {
+            SaveFoServicePrincipal(profile);
+        }
+        if (!PreservesUnsupportedTarget(previous, profile, AuthTarget.Dataverse))
+        {
+            SaveDataverseServicePrincipal(profile);
+        }
 
         // Data Integrator / dual-write config (key/value Settings; a blank value removes the row, so
         // an env with no DI config leaves no orphan rows). The mode only matters with a client id.
-        if (string.IsNullOrWhiteSpace(profile.DataIntegratorClientId))
+        var preservesDi = previous is not null
+            && string.Equals(previous.DataIntegratorClientId, profile.DataIntegratorClientId, StringComparison.Ordinal)
+            && previous.DataIntegratorMode == profile.DataIntegratorMode
+            && string.Equals(previous.DualWriteGatewayUrl, profile.DualWriteGatewayUrl, StringComparison.Ordinal);
+        if (!preservesDi && string.IsNullOrWhiteSpace(profile.DataIntegratorClientId))
         {
             SetOrClearSetting(DiClientIdKey(profile.Id), null);
             SetOrClearSetting(DiModeKey(profile.Id), null);
+            SetOrClearSetting(GatewayUrlKey(profile.Id), profile.DualWriteGatewayUrl);
         }
-        else
+        else if (!preservesDi)
         {
             SetOrClearSetting(DiClientIdKey(profile.Id), profile.DataIntegratorClientId);
             SetOrClearSetting(DiModeKey(profile.Id), profile.DataIntegratorMode.ToString());
+            SetOrClearSetting(GatewayUrlKey(profile.Id), profile.DualWriteGatewayUrl);
         }
-
-        SetOrClearSetting(GatewayUrlKey(profile.Id), profile.DualWriteGatewayUrl);
-
-        // The FO/Dataverse auth mode lives in Settings: the FoToolbox SP AuthMode only models the
-        // app-only ClientSecret/Certificate modes, so Interactive (delegated, no SP) couldn't round-trip
-        // through the SP alone.
-        SetOrClearSetting(FoAuthModeKey(profile.Id), profile.AuthMode.ToString());
-        SetOrClearSetting(DataverseAuthModeKey(profile.Id), profile.DataverseAuthMode.ToString());
 
         // Environment type (Production / Non-production). Persist the normalised bucket from the profile.
         SetOrClearSetting(EnvironmentTypeKey(profile.Id), profile.Tier);
@@ -170,19 +179,23 @@ public sealed class CoreProfileStore : IProfileStore
 
         if (profile.AuthMode == FoAuthMode.Interactive)
         {
-            SetOrClearSetting(FoClientIdKey(profile.Id), profile.ClientId);
             DropServicePrincipal(existing, profile.Id);
+            SetOrClearSetting(FoClientIdKey(profile.Id), profile.ClientId);
+            SetOrClearSetting(FoAuthModeKey(profile.Id), profile.AuthMode.ToString());
             return;
         }
 
-        SetOrClearSetting(FoClientIdKey(profile.Id), null); // app-only: the SP is the client-id source
         if (string.IsNullOrWhiteSpace(profile.ClientId))
         {
             DropServicePrincipal(existing, profile.Id);
+            SetOrClearSetting(FoClientIdKey(profile.Id), null);
+            SetOrClearSetting(FoAuthModeKey(profile.Id), profile.AuthMode.ToString());
             return;
         }
 
         var clientIdChanged = ClientIdChanged(existing, profile.ClientId);
+        var credentialIncompatible = existing is not null && existing.AuthMode != AuthMode.ClientSecret;
+        var unbindCredential = clientIdChanged || credentialIncompatible;
 
         // Order matters: persist the row (with the credential unbound) BEFORE deleting the blob it used
         // to point at. Invariant: never delete a blob a still-persisted row points at — deleting first
@@ -194,11 +207,13 @@ public sealed class CoreProfileStore : IProfileStore
             profile.Id,
             profile.ClientId!,
             ToCoreAuthMode(profile.AuthMode),
-            clientIdChanged ? null : existing?.SecretRef,
-            clientIdChanged ? null : existing?.CertThumbprint,
+            unbindCredential ? null : existing?.SecretRef,
+            unbindCredential ? null : existing?.CertThumbprint,
             AuthTarget.Fo)));
 
-        if (clientIdChanged)
+        SetOrClearSetting(FoClientIdKey(profile.Id), null); // app-only: the SP is the client-id source
+        SetOrClearSetting(FoAuthModeKey(profile.Id), profile.AuthMode.ToString());
+        if (unbindCredential)
         {
             DeleteSecretBlob(existing!.SecretRef, profile.Id);
         }
@@ -211,19 +226,23 @@ public sealed class CoreProfileStore : IProfileStore
 
         if (profile.DataverseAuthMode == FoAuthMode.Interactive)
         {
-            SetOrClearSetting(DataverseClientIdKey(profile.Id), profile.DataverseClientId);
             DropServicePrincipal(existing, profile.Id);
+            SetOrClearSetting(DataverseClientIdKey(profile.Id), profile.DataverseClientId);
+            SetOrClearSetting(DataverseAuthModeKey(profile.Id), profile.DataverseAuthMode.ToString());
             return;
         }
 
-        SetOrClearSetting(DataverseClientIdKey(profile.Id), null);
         if (string.IsNullOrWhiteSpace(profile.DataverseClientId))
         {
             DropServicePrincipal(existing, profile.Id);
+            SetOrClearSetting(DataverseClientIdKey(profile.Id), null);
+            SetOrClearSetting(DataverseAuthModeKey(profile.Id), profile.DataverseAuthMode.ToString());
             return;
         }
 
         var clientIdChanged = ClientIdChanged(existing, profile.DataverseClientId);
+        var credentialIncompatible = existing is not null && existing.AuthMode != AuthMode.ClientSecret;
+        var unbindCredential = clientIdChanged || credentialIncompatible;
 
         // Upsert before deleting the superseded blob — see SaveFoServicePrincipal for the invariant.
         RunBlocking(() => _profiles.UpsertServicePrincipalAsync(new ServicePrincipal(
@@ -231,11 +250,13 @@ public sealed class CoreProfileStore : IProfileStore
             profile.Id,
             profile.DataverseClientId!,
             ToCoreAuthMode(profile.DataverseAuthMode),
-            clientIdChanged ? null : existing?.SecretRef,
-            clientIdChanged ? null : existing?.CertThumbprint,
+            unbindCredential ? null : existing?.SecretRef,
+            unbindCredential ? null : existing?.CertThumbprint,
             AuthTarget.Dataverse)));
 
-        if (clientIdChanged)
+        SetOrClearSetting(DataverseClientIdKey(profile.Id), null);
+        SetOrClearSetting(DataverseAuthModeKey(profile.Id), profile.DataverseAuthMode.ToString());
+        if (unbindCredential)
         {
             DeleteSecretBlob(existing!.SecretRef, profile.Id);
         }
@@ -250,6 +271,30 @@ public sealed class CoreProfileStore : IProfileStore
     // store, not the vault.)
     private static bool ClientIdChanged(ServicePrincipal? existing, string? clientId) =>
         existing is not null && !string.Equals(existing.ClientId, clientId, StringComparison.Ordinal);
+
+    private static bool IsSupportedAuthMode(FoAuthMode mode) =>
+        mode is FoAuthMode.Interactive or FoAuthMode.ClientSecret;
+
+    private static bool PreservesUnsupportedTarget(EnvProfile? before, EnvProfile after, AuthTarget target)
+    {
+        if (before is null) return false;
+        var beforeMode = target == AuthTarget.Fo ? before.AuthMode : before.DataverseAuthMode;
+        var afterMode = target == AuthTarget.Fo ? after.AuthMode : after.DataverseAuthMode;
+        var beforeClient = target == AuthTarget.Fo ? before.ClientId : before.DataverseClientId;
+        var afterClient = target == AuthTarget.Fo ? after.ClientId : after.DataverseClientId;
+        return !IsSupportedAuthMode(beforeMode) && beforeMode == afterMode
+            && string.Equals(beforeClient, afterClient, StringComparison.Ordinal);
+    }
+
+    private static void ValidateAuthEditBeforeWrite(EnvProfile? before, EnvProfile after, AuthTarget target)
+    {
+        var mode = target == AuthTarget.Fo ? after.AuthMode : after.DataverseAuthMode;
+        if (IsSupportedAuthMode(mode)) return;
+        if (PreservesUnsupportedTarget(before, after, target)) return;
+        var label = target == AuthTarget.Fo ? "F&O" : "Dataverse";
+        throw new InvalidOperationException(
+            $"The saved {label} authentication mode is unsupported. Choose a supported mode before changing its client ID or mode.");
+    }
 
     // Removes a service-principal row and the secret blob it points at. The SecretVault has no FK cascade
     // to ServicePrincipals, so dropping the row alone would orphan the credential on disk forever —
@@ -332,8 +377,14 @@ public sealed class CoreProfileStore : IProfileStore
         }
     }
 
-    private static DiAuthMode ParseDiMode(string? mode) =>
-        Enum.TryParse<DiAuthMode>(mode, out var parsed) ? parsed : DiAuthMode.Interactive;
+    private static DiAuthMode ParseDiMode(string? mode)
+    {
+        if (mode is null) return DiAuthMode.Interactive;
+        return Enum.TryParse<DiAuthMode>(mode, out var parsed)
+            && parsed is DiAuthMode.Interactive or DiAuthMode.Ropc
+                ? parsed
+                : DiAuthMode.Unsupported;
+    }
 
     private static string DiClientIdKey(string envId) => $"di.clientId:{envId}";
 
@@ -355,19 +406,16 @@ public sealed class CoreProfileStore : IProfileStore
     private static string EnvironmentTypeKey(string envId) => $"env.type:{envId}";
 
     private static AuthMode ToCoreAuthMode(FoAuthMode mode) =>
-        mode == FoAuthMode.Certificate ? AuthMode.Certificate : AuthMode.ClientSecret;
+        mode == FoAuthMode.ClientSecret
+            ? AuthMode.ClientSecret
+            : throw new InvalidOperationException("Only Client secret can be persisted as an App service principal.");
 
     private static FoAuthMode FromCoreAuthMode(AuthMode? mode) => mode switch
     {
         AuthMode.Certificate => FoAuthMode.Certificate,
-        // BearerToken is FoToolbox's delegated (captured/pasted user token) mode — NOT app-only. The
-        // Avalonia app's delegated equivalent is a fresh interactive MSAL sign-in, so a legacy WPF
-        // bearer-token profile must surface as Interactive (and never hit the client-credentials path,
-        // which rejects BearerToken). Interactive maps to Interactive so a WPF-written Interactive SP
-        // (AuthMode.Interactive) round-trips correctly into the Avalonia UI. Anything else is an
-        // app-only client secret.
-        AuthMode.BearerToken or AuthMode.Interactive => FoAuthMode.Interactive,
-        _ => FoAuthMode.ClientSecret,
+        AuthMode.ClientSecret => FoAuthMode.ClientSecret,
+        AuthMode.Interactive => FoAuthMode.Interactive,
+        _ => FoAuthMode.Unsupported,
     };
 
     // The effective client id: an explicit Settings value, else the linked SP's, else — for a delegated
@@ -388,10 +436,18 @@ public sealed class CoreProfileStore : IProfileStore
 
     // The auth mode comes from the Settings row when present (covers Interactive); otherwise it's
     // derived from a legacy app-only SP, or defaults to Interactive when neither exists.
-    private static FoAuthMode ResolveAuthMode(string? setting, ServicePrincipal? sp) =>
-        Enum.TryParse<FoAuthMode>(setting, out var parsed) ? parsed
-        : sp is null ? FoAuthMode.Interactive
-        : FromCoreAuthMode(sp.AuthMode);
+    private static FoAuthMode ResolveAuthMode(string? setting, ServicePrincipal? sp)
+    {
+        if (setting is null)
+        {
+            return sp is null ? FoAuthMode.Interactive : FromCoreAuthMode(sp.AuthMode);
+        }
+
+        return Enum.TryParse<FoAuthMode>(setting, out var parsed)
+            && parsed is FoAuthMode.Interactive or FoAuthMode.ClientSecret or FoAuthMode.Certificate
+                ? parsed
+                : FoAuthMode.Unsupported;
+    }
 
     // The IProfileStore contract is synchronous but persistence is async; run it on the thread pool
     // to bridge without risking a UI-thread sync-context deadlock. SQLite writes are sub-millisecond.

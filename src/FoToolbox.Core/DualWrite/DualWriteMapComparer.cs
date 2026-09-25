@@ -18,10 +18,13 @@ public enum DualWriteComparisonVerdict
     /// one environment share the same identity (name + CE target), a map carries no usable identity at
     /// all, or the two gateways answered in different response shapes and the same-name maps cannot be
     /// lined up. Reported instead of a fabricated diff — see
-    /// <see cref="DualWriteMapComparisonRow.Note"/> for which case it is. Appended last so the existing
-    /// members keep their values (the summary chips order by them).
+    /// <see cref="DualWriteMapComparisonRow.Note"/> for which case it is. Appended after the original
+    /// verdicts so their values remain stable (the summary chips order by them).
     /// </summary>
-    Ambiguous
+    Ambiguous,
+
+    /// <summary>A confident pairing lacks reported active version or state evidence; Note names the missing fields.</summary>
+    Unknown
 }
 
 /// <summary>One row of an environment comparison, keyed by map name + CE (right-side) target.</summary>
@@ -35,11 +38,16 @@ public sealed record DualWriteMapComparisonRow(
     string RightState,
     DualWriteComparisonVerdict Verdict)
 {
+    /// <summary>
+    /// Legacy non-identical attention flag. Includes Ambiguous and Unknown rows that cannot establish
+    /// configuration drift; true is not proof that reported values or full configuration differ.
+    /// </summary>
     public bool IsDifference => Verdict != DualWriteComparisonVerdict.Identical;
 
     /// <summary>
     /// Why this row could not be compared, for the rows that carry
-    /// <see cref="DualWriteComparisonVerdict.Ambiguous"/>. Empty for every ordinary row.
+    /// <see cref="DualWriteComparisonVerdict.Ambiguous"/> or <see cref="DualWriteComparisonVerdict.Unknown"/>.
+    /// Empty when presence or complete reported values establish the verdict.
     /// </summary>
     public string Note { get; init; } = string.Empty;
 }
@@ -145,9 +153,15 @@ public static class DualWriteMapComparer
             var leftState = l?.State ?? string.Empty;
             var rightState = r?.State ?? string.Empty;
 
-            var verdict = Classify(l is not null, r is not null, leftVersion, rightVersion, leftState, rightState);
+            // Presence and identity ambiguity retain their meaning. Only a confident two-sided pairing
+            // can lack the reported evidence needed for version/state comparison; blank is not equality.
+            var note = l is not null && r is not null
+                ? MissingEvidenceNote(leftVersion, rightVersion, leftState, rightState)
+                : string.Empty;
+            var verdict = note.Length > 0 ? DualWriteComparisonVerdict.Unknown
+                : Classify(l is not null, r is not null, leftVersion, rightVersion, leftState, rightState);
             rows.Add(new DualWriteMapComparisonRow(
-                label, l is not null, r is not null, leftVersion, rightVersion, leftState, rightState, verdict));
+                label, l is not null, r is not null, leftVersion, rightVersion, leftState, rightState, verdict) { Note = note });
         }
 
         // Unkeyable maps can't be matched to anything, but dropping them hides real configuration.
@@ -272,6 +286,16 @@ public static class DualWriteMapComparer
     private static PairUnit OneSided(MapGroup group, bool isLeft) => isLeft
         ? new PairUnit(group.Identity, group.Maps, NoMaps)
         : new PairUnit(group.Identity, NoMaps, group.Maps);
+
+    private static string MissingEvidenceNote(string leftVersion, string rightVersion, string leftState, string rightState)
+    {
+        var missing = new List<string>(4);
+        if (string.IsNullOrWhiteSpace(leftVersion)) missing.Add("source active version");
+        if (string.IsNullOrWhiteSpace(leftState)) missing.Add("source state");
+        if (string.IsNullOrWhiteSpace(rightVersion)) missing.Add("target active version");
+        if (string.IsNullOrWhiteSpace(rightState)) missing.Add("target state");
+        return missing.Count == 0 ? string.Empty : $"Missing reported values: {string.Join("; ", missing)}.";
+    }
 
     private static DualWriteComparisonVerdict Classify(
         bool hasLeft, bool hasRight,
