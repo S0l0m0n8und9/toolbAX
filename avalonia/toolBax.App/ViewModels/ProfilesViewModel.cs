@@ -14,14 +14,12 @@ namespace ToolBax.App.ViewModels;
 
 /// <summary>
 /// Profiles screen (viewmodels-and-services §B): master list of environments with search, the active
-/// selection, and save. The auth / Dataverse / Data-Integrator detail tabs land in a follow-up (they
-/// need the platform auth seams); this slice covers the master + the F&amp;O environment fields.
+/// selection, supported F&amp;O/Dataverse authentication, portal-only Data Integrator testing, and save.
 /// </summary>
 public partial class ProfilesViewModel : ObservableObject
 {
     private readonly IProfileStore _store;
     private readonly ISecretStore _secrets;
-    private readonly IInteractiveAuthBroker _broker;
     private readonly IAuthService _auth;
     private readonly IDualWriteGatewayTester _gatewayTester;
     private readonly IConnectionTester _connectionTester;
@@ -41,6 +39,11 @@ public partial class ProfilesViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(CanSetActive))]
     [NotifyPropertyChangedFor(nameof(HasSecret))]
     [NotifyPropertyChangedFor(nameof(HasDataverseSecret))]
+    [NotifyPropertyChangedFor(nameof(HasLegacyDiConfiguration))]
+    [NotifyPropertyChangedFor(nameof(CanStoreFoClientSecret))]
+    [NotifyPropertyChangedFor(nameof(CanStoreDataverseClientSecret))]
+    [NotifyPropertyChangedFor(nameof(ShowFoSecretSaveFirstHint))]
+    [NotifyPropertyChangedFor(nameof(ShowDataverseSecretSaveFirstHint))]
     private EnvProfile? _selected;
 
     /// <summary>The Auth-tab client-secret entry. Write-only: stored on save, never loaded back.</summary>
@@ -73,6 +76,10 @@ public partial class ProfilesViewModel : ObservableObject
     private string _draftUrl = string.Empty;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CanStoreFoClientSecret))]
+    [NotifyPropertyChangedFor(nameof(CanStoreDataverseClientSecret))]
+    [NotifyPropertyChangedFor(nameof(ShowFoSecretSaveFirstHint))]
+    [NotifyPropertyChangedFor(nameof(ShowDataverseSecretSaveFirstHint))]
     private string _draftTenant = string.Empty;
 
     [ObservableProperty]
@@ -93,11 +100,15 @@ public partial class ProfilesViewModel : ObservableObject
     // Dataverse drafts — a separate app reg from F&O.
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowDataverseDefaultClientIdNote))]
+    [NotifyPropertyChangedFor(nameof(CanStoreDataverseClientSecret))]
+    [NotifyPropertyChangedFor(nameof(ShowDataverseSecretSaveFirstHint))]
     private string _draftDataverseClientId = string.Empty;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowDataverseDefaultClientIdNote))]
     [NotifyPropertyChangedFor(nameof(IsDataverseClientSecretMode))]
+    [NotifyPropertyChangedFor(nameof(CanStoreDataverseClientSecret))]
+    [NotifyPropertyChangedFor(nameof(ShowDataverseSecretSaveFirstHint))]
     private FoAuthMode _draftDataverseAuthMode = FoAuthMode.Interactive;
 
     /// <summary>The Dataverse client-secret entry. Write-only, like the F&amp;O secret.</summary>
@@ -107,14 +118,44 @@ public partial class ProfilesViewModel : ObservableObject
     // F&O drafts.
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowFoDefaultClientIdNote))]
+    [NotifyPropertyChangedFor(nameof(CanStoreFoClientSecret))]
+    [NotifyPropertyChangedFor(nameof(ShowFoSecretSaveFirstHint))]
     private string _draftClientId = string.Empty;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowFoDefaultClientIdNote))]
     [NotifyPropertyChangedFor(nameof(IsFoClientSecretMode))]
+    [NotifyPropertyChangedFor(nameof(CanStoreFoClientSecret))]
+    [NotifyPropertyChangedFor(nameof(ShowFoSecretSaveFirstHint))]
     private FoAuthMode _draftAuthMode = FoAuthMode.Interactive;
 
-    public FoAuthMode[] AuthModes { get; } = { FoAuthMode.Interactive, FoAuthMode.ClientSecret, FoAuthMode.Certificate };
+    public FoAuthMode[] AuthModes { get; } = { FoAuthMode.Interactive, FoAuthMode.ClientSecret };
+
+    public FoAuthMode? SelectedFoAuthMode
+    {
+        get => IsSupportedAuthMode(DraftAuthMode) ? DraftAuthMode : null;
+        set
+        {
+            if (value is { } mode && IsSupportedAuthMode(mode)) DraftAuthMode = mode;
+        }
+    }
+
+    public FoAuthMode? SelectedDataverseAuthMode
+    {
+        get => IsSupportedAuthMode(DraftDataverseAuthMode) ? DraftDataverseAuthMode : null;
+        set
+        {
+            if (value is { } mode && IsSupportedAuthMode(mode)) DraftDataverseAuthMode = mode;
+        }
+    }
+
+    public bool HasUnsupportedFoAuthMode => !IsSupportedAuthMode(DraftAuthMode);
+
+    public bool HasUnsupportedDataverseAuthMode => !IsSupportedAuthMode(DraftDataverseAuthMode);
+
+    public bool CanEditFoClientId => !HasUnsupportedFoAuthMode;
+
+    public bool CanEditDataverseClientId => !HasUnsupportedDataverseAuthMode;
 
     /// <summary>Show the "Microsoft default client ID" note while the F&amp;O auth is Interactive and the
     /// client ID is still the default (it's editable; changing it hides the note).</summary>
@@ -124,44 +165,38 @@ public partial class ProfilesViewModel : ObservableObject
     public bool ShowDataverseDefaultClientIdNote =>
         DraftDataverseAuthMode == FoAuthMode.Interactive && DraftDataverseClientId == FoAuthModeExtensions.DefaultInteractiveClientId;
 
-    /// <summary>Client-secret entry only applies to the app-only ClientSecret mode (not Interactive/Certificate).</summary>
+    /// <summary>Client-secret entry only applies to the supported app-only ClientSecret mode.</summary>
     public bool IsFoClientSecretMode => DraftAuthMode == FoAuthMode.ClientSecret;
 
     public bool IsDataverseClientSecretMode => DraftDataverseAuthMode == FoAuthMode.ClientSecret;
 
-    // Data Integrator config drafts.
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(ShowDiDefaultClientIdNote))]
-    private string _draftDiClientId = string.Empty;
+    public bool CanStoreFoClientSecret => SavedClientSecretContextMatches(
+        Selected?.AuthMode, Selected?.ClientId, DraftAuthMode, DraftClientId, Selected?.Tenant, DraftTenant);
 
-    /// <summary>Show the "well-known Data Integrator client ID" note while the DI client ID is still the
-    /// default first-party app id (it's editable; changing it hides the note).</summary>
-    public bool ShowDiDefaultClientIdNote =>
-        DraftDiClientId == DiAuthModeExtensions.DefaultDataIntegratorClientId;
+    public bool CanStoreDataverseClientSecret => SavedClientSecretContextMatches(
+        Selected?.DataverseAuthMode, Selected?.DataverseClientId, DraftDataverseAuthMode,
+        DraftDataverseClientId, Selected?.Tenant, DraftTenant);
 
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsRopc))]
-    [NotifyPropertyChangedFor(nameof(IsInteractive))]
-    private DiAuthMode _draftDiMode = DiAuthMode.Interactive;
+    public bool ShowFoSecretSaveFirstHint => IsFoClientSecretMode && !CanStoreFoClientSecret;
 
-    /// <summary>The dual-write management gateway base URL (entered manually for the loopback path).</summary>
-    [ObservableProperty]
-    private string _draftGatewayUrl = string.Empty;
+    public bool ShowDataverseSecretSaveFirstHint =>
+        IsDataverseClientSecretMode && !CanStoreDataverseClientSecret;
 
-    /// <summary>The DI ROPC service-account secret entry. Write-only, like the Auth client secret.</summary>
-    [ObservableProperty]
-    private string _diSecretInput = string.Empty;
-
-    [ObservableProperty]
-    private bool _isSigningIn;
+    private static bool SavedClientSecretContextMatches(FoAuthMode? savedMode, string? savedClientId,
+        FoAuthMode draftMode, string? draftClientId, string? savedTenant, string? draftTenant)
+    {
+        var effectiveDraftClient = string.IsNullOrWhiteSpace(draftClientId) ? null : draftClientId;
+        return savedMode == FoAuthMode.ClientSecret && draftMode == FoAuthMode.ClientSecret
+            && !string.IsNullOrWhiteSpace(savedClientId)
+            && string.Equals(effectiveDraftClient, savedClientId, StringComparison.Ordinal)
+            && string.Equals(draftTenant, savedTenant, StringComparison.Ordinal);
+    }
 
     [ObservableProperty]
     private bool _isTestingGateway;
 
     [ObservableProperty]
     private string _diStatus = string.Empty;
-
-    public DiAuthMode[] DiModes { get; } = { DiAuthMode.Interactive, DiAuthMode.Ropc };
 
     public ProfilesViewModel(
         IProfileStore store,
@@ -176,7 +211,7 @@ public partial class ProfilesViewModel : ObservableObject
     {
         _store = store;
         _secrets = secrets ?? new FakeSecretStore();
-        _broker = broker ?? new FakeInteractiveAuthBroker();
+        _ = broker; // Retained constructor compatibility; portal testing uses IDualWriteGatewayTester.
         _auth = auth ?? new FakeAuthService();
         _gatewayTester = gatewayTester ?? new FakeDualWriteGatewayTester();
         _connectionTester = connectionTester ?? new FakeConnectionTester();
@@ -220,13 +255,6 @@ public partial class ProfilesViewModel : ObservableObject
         }
     }
 
-    public bool IsRopc => DraftDiMode == DiAuthMode.Ropc;
-
-    public bool IsInteractive => DraftDiMode == DiAuthMode.Interactive;
-
-    // A status from one mode shouldn't linger in the other's section.
-    partial void OnDraftDiModeChanged(DiAuthMode value) => DiStatus = string.Empty;
-
     // Selecting Interactive (MFA) defaults a blank client ID to Microsoft's global public client; an
     // already-entered ID is respected (item 4 — the field stays editable).
     partial void OnDraftAuthModeChanged(FoAuthMode value)
@@ -235,6 +263,9 @@ public partial class ProfilesViewModel : ObservableObject
         {
             DraftClientId = FoAuthModeExtensions.DefaultInteractiveClientId;
         }
+        OnPropertyChanged(nameof(SelectedFoAuthMode));
+        OnPropertyChanged(nameof(HasUnsupportedFoAuthMode));
+        OnPropertyChanged(nameof(CanEditFoClientId));
     }
 
     partial void OnDraftDataverseAuthModeChanged(FoAuthMode value)
@@ -243,16 +274,22 @@ public partial class ProfilesViewModel : ObservableObject
         {
             DraftDataverseClientId = FoAuthModeExtensions.DefaultInteractiveClientId;
         }
+        OnPropertyChanged(nameof(SelectedDataverseAuthMode));
+        OnPropertyChanged(nameof(HasUnsupportedDataverseAuthMode));
+        OnPropertyChanged(nameof(CanEditDataverseClientId));
     }
+
+    private static bool IsSupportedAuthMode(FoAuthMode mode) =>
+        mode is FoAuthMode.Interactive or FoAuthMode.ClientSecret;
 
     partial void OnSelectedChanged(EnvProfile? value)
     {
         LoadDrafts(value);
         SecretInput = string.Empty; // never carry an entry across environments
         DataverseSecretInput = string.Empty;
-        DiSecretInput = string.Empty;
         DiStatus = string.Empty;
         OnPropertyChanged(nameof(HasDiSecret));
+        OnPropertyChanged(nameof(HasLegacyDiConfiguration));
     }
 
     private void LoadDrafts(EnvProfile? profile)
@@ -267,13 +304,6 @@ public partial class ProfilesViewModel : ObservableObject
         DraftDataverseAuthMode = profile?.DataverseAuthMode ?? FoAuthMode.Interactive;
         DraftClientId = profile?.ClientId ?? string.Empty;
         DraftAuthMode = profile?.AuthMode ?? FoAuthMode.Interactive;
-        // Default a blank DI client id to the well-known first-party app (editable) — the user shouldn't
-        // have to supply one; a configured custom id is respected.
-        DraftDiClientId = string.IsNullOrWhiteSpace(profile?.DataIntegratorClientId)
-            ? DiAuthModeExtensions.DefaultDataIntegratorClientId
-            : profile.DataIntegratorClientId;
-        DraftDiMode = profile?.DataIntegratorMode ?? DiAuthMode.Interactive;
-        DraftGatewayUrl = profile?.DualWriteGatewayUrl ?? string.Empty;
     }
 
     /// <summary>Derived Dataverse Web API endpoint from the edited CE base URL (empty when none).</summary>
@@ -306,8 +336,13 @@ public partial class ProfilesViewModel : ObservableObject
     /// <summary>Whether the selected environment has a Dataverse client secret stored (CE tab).</summary>
     public bool HasDataverseSecret => Selected is not null && _secrets.HasSecret(Selected.Id, SecretTarget.Dataverse);
 
-    /// <summary>Whether the selected environment has a DI ROPC service-account secret stored.</summary>
+    /// <summary>Whether the selected environment retains a legacy DI password that can be explicitly cleared.</summary>
     public bool HasDiSecret => Selected is not null && _secrets.HasSecret(Selected.Id, SecretTarget.DataIntegrator);
+
+    public bool HasLegacyDiConfiguration => Selected is not null &&
+        (HasDiSecret || !string.IsNullOrWhiteSpace(Selected.DataIntegratorClientId)
+         || Selected.DataIntegratorMode != DiAuthMode.Interactive
+         || !string.IsNullOrWhiteSpace(Selected.DualWriteGatewayUrl));
 
     /// <summary>Raised when the active profile changes, so the shell's switcher can stay in sync.</summary>
     public event Action<string>? ActiveChanged;
@@ -441,10 +476,16 @@ public partial class ProfilesViewModel : ObservableObject
     [RelayCommand]
     private void SaveSecret()
     {
-        if (Selected is null || string.IsNullOrEmpty(SecretInput))
+        if (Selected is null)
         {
             return;
         }
+        if (!CanStoreFoClientSecret)
+        {
+            Status = "Save authentication changes before entering a client secret.";
+            return;
+        }
+        if (string.IsNullOrEmpty(SecretInput)) return;
 
         var error = TryStoreSecret(Selected.Id, SecretInput);
         OnPropertyChanged(nameof(HasSecret));
@@ -473,6 +514,11 @@ public partial class ProfilesViewModel : ObservableObject
         {
             return;
         }
+        if (!CanStoreFoClientSecret)
+        {
+            Status = "Save authentication changes before clearing the client secret.";
+            return;
+        }
 
         _secrets.ClearSecret(Selected.Id);
         OnPropertyChanged(nameof(HasSecret));
@@ -482,10 +528,16 @@ public partial class ProfilesViewModel : ObservableObject
     [RelayCommand]
     private void SaveDataverseSecret()
     {
-        if (Selected is null || string.IsNullOrEmpty(DataverseSecretInput))
+        if (Selected is null)
         {
             return;
         }
+        if (!CanStoreDataverseClientSecret)
+        {
+            Status = "Save authentication changes before entering a client secret.";
+            return;
+        }
+        if (string.IsNullOrEmpty(DataverseSecretInput)) return;
 
         var error = TryStoreSecret(Selected.Id, DataverseSecretInput, SecretTarget.Dataverse);
         OnPropertyChanged(nameof(HasDataverseSecret));
@@ -514,6 +566,11 @@ public partial class ProfilesViewModel : ObservableObject
         {
             return;
         }
+        if (!CanStoreDataverseClientSecret)
+        {
+            Status = "Save authentication changes before clearing the client secret.";
+            return;
+        }
 
         _secrets.ClearSecret(Selected.Id, SecretTarget.Dataverse);
         OnPropertyChanged(nameof(HasDataverseSecret));
@@ -521,35 +578,7 @@ public partial class ProfilesViewModel : ObservableObject
     }
 
     [RelayCommand]
-    private void SaveDiSecret()
-    {
-        if (Selected is null || string.IsNullOrEmpty(DiSecretInput))
-        {
-            return;
-        }
-
-        var error = TryStoreSecret(Selected.Id, DiSecretInput, SecretTarget.DataIntegrator);
-        OnPropertyChanged(nameof(HasDiSecret));
-        if (error is not null)
-        {
-            DiStatus = $"Could not store the service-account secret: {error}";
-            return;
-        }
-
-        // Re-check presence like the client-secret commands do: a store that couldn't persist must not be
-        // reported as a success, and the entry the user typed must survive so they can retry.
-        if (!HasDiSecret)
-        {
-            DiStatus = "Could not store the service-account secret — save the environment first.";
-            return;
-        }
-
-        DiSecretInput = string.Empty; // don't keep plaintext around after it's protected
-        DiStatus = "Service-account secret stored.";
-    }
-
-    [RelayCommand]
-    private void ClearDiSecret()
+    private void ClearLegacyDiPassword()
     {
         if (Selected is null)
         {
@@ -558,42 +587,8 @@ public partial class ProfilesViewModel : ObservableObject
 
         _secrets.ClearSecret(Selected.Id, SecretTarget.DataIntegrator);
         OnPropertyChanged(nameof(HasDiSecret));
-        DiStatus = "Service-account secret cleared.";
-    }
-
-    [RelayCommand]
-    private async Task SignIn(CancellationToken ct)
-    {
-        if (Selected is null)
-        {
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(DraftDiClientId))
-        {
-            DiStatus = "Enter a Data Integrator client ID before signing in.";
-            return;
-        }
-
-        IsSigningIn = true;
-        DiStatus = "Opening sign-in…";
-        try
-        {
-            var result = await _broker.SignInAsync(DraftDiClientId, DraftTenant, ct);
-            DiStatus = result is null ? "Sign-in cancelled." : $"Signed in as {result.Account}.";
-        }
-        catch (OperationCanceledException)
-        {
-            DiStatus = "Sign-in cancelled.";
-        }
-        catch (Exception ex)
-        {
-            DiStatus = $"Sign-in failed: {ex.Message}";
-        }
-        finally
-        {
-            IsSigningIn = false;
-        }
+        OnPropertyChanged(nameof(HasLegacyDiConfiguration));
+        DiStatus = "Legacy Data Integrator password cleared.";
     }
 
     // Tests the dual-write connection by driving the Data Integrator portal sign-in for the env's F&O
@@ -693,6 +688,26 @@ public partial class ProfilesViewModel : ObservableObject
             return;
         }
 
+        var effectiveFoClientId = string.IsNullOrWhiteSpace(DraftClientId) ? null : DraftClientId;
+        var effectiveDataverseClientId = string.IsNullOrWhiteSpace(DraftDataverseClientId)
+            ? null
+            : DraftDataverseClientId;
+
+        if (!IsSupportedAuthMode(DraftAuthMode)
+            && (DraftAuthMode != selected.AuthMode
+                || !string.Equals(effectiveFoClientId, selected.ClientId, StringComparison.Ordinal)))
+        {
+            Status = "The saved F&O authentication mode is unsupported. Choose a supported mode before changing its client ID or mode.";
+            return;
+        }
+        if (!IsSupportedAuthMode(DraftDataverseAuthMode)
+            && (DraftDataverseAuthMode != selected.DataverseAuthMode
+                || !string.Equals(effectiveDataverseClientId, selected.DataverseClientId, StringComparison.Ordinal)))
+        {
+            Status = "The saved Dataverse authentication mode is unsupported. Choose a supported mode before changing its client ID or mode.";
+            return;
+        }
+
         // Captured before the swap so we can tell whether the auth identity changed (and evict the old
         // cached session if so).
         var previous = selected;
@@ -707,12 +722,9 @@ public partial class ProfilesViewModel : ObservableObject
             Legal = DraftLegal,
             Tier = DraftEnvironmentType,
             DataverseUrl = string.IsNullOrWhiteSpace(DraftDataverseUrl) ? null : DraftDataverseUrl,
-            DataverseClientId = string.IsNullOrWhiteSpace(DraftDataverseClientId) ? null : DraftDataverseClientId,
+            DataverseClientId = effectiveDataverseClientId,
             DataverseAuthMode = DraftDataverseAuthMode,
-            DataIntegratorClientId = string.IsNullOrWhiteSpace(DraftDiClientId) ? null : DraftDiClientId,
-            DataIntegratorMode = DraftDiMode,
-            DualWriteGatewayUrl = string.IsNullOrWhiteSpace(DraftGatewayUrl) ? null : DraftGatewayUrl,
-            ClientId = string.IsNullOrWhiteSpace(DraftClientId) ? null : DraftClientId,
+            ClientId = effectiveFoClientId,
             AuthMode = DraftAuthMode,
         };
 

@@ -30,6 +30,7 @@ public class ValueConverterTests
     [InlineData(FoAuthMode.Interactive, "Interactive (MFA)")]
     [InlineData(FoAuthMode.ClientSecret, "Client secret")]
     [InlineData(FoAuthMode.Certificate, "Certificate")]
+    [InlineData(FoAuthMode.Unsupported, "Unsupported legacy mode")]
     public void FoAuthModeLabel_maps_each_mode_to_its_friendly_label(FoAuthMode mode, string expected) =>
         Assert.Equal(expected, FoAuthModeLabelConverter.Instance.Convert(mode, typeof(string), null, Culture));
 
@@ -67,6 +68,7 @@ public class ValueConverterTests
     [Theory]
     [InlineData(DiAuthMode.Interactive, "Interactive (MFA)")]
     [InlineData(DiAuthMode.Ropc, "ROPC (service account)")]
+    [InlineData(DiAuthMode.Unsupported, "Unsupported legacy mode")]
     public void DiAuthModeLabel_maps_each_mode_to_its_friendly_label(DiAuthMode mode, string expected) =>
         Assert.Equal(expected, DiAuthModeLabelConverter.Instance.Convert(mode, typeof(string), null, Culture));
 
