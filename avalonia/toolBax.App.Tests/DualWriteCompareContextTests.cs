@@ -124,6 +124,62 @@ public class DualWriteCompareContextTests
     }
 
     [Fact]
+    public async Task Same_id_store_url_edit_refresh_clears_completed_result()
+    {
+        var (store, vm, service) = Make();
+        var source = vm.SelectedSource!;
+        var compare = vm.CompareCommand.ExecuteAsync(null);
+        service.Gate.SetResult(new[] { Row() });
+        await compare;
+        store.Save(source with { Url = "https://changed.operations.dynamics.com" });
+
+        vm.RefreshEnvironmentsCommand.Execute(null);
+
+        Assert.False(vm.HasResult);
+        Assert.Empty(vm.DiffRows);
+    }
+
+    [Fact]
+    public async Task Same_id_store_auth_edit_refresh_rejects_held_result()
+    {
+        var (store, vm, service) = Make();
+        var source = vm.SelectedSource!;
+        var compare = vm.CompareCommand.ExecuteAsync(null);
+        store.Save(source with { ClientId = "changed-client" });
+        vm.RefreshEnvironmentsCommand.Execute(null);
+        service.Gate.SetResult(new[] { Row() });
+        await compare;
+
+        Assert.False(vm.HasResult);
+        Assert.Empty(vm.DiffRows);
+    }
+
+    [Fact]
+    public async Task Deleted_selection_at_entry_makes_zero_calls_and_never_falls_back()
+    {
+        var (store, vm, service) = Make();
+        store.Delete(vm.SelectedSource!.Id);
+
+        await vm.CompareCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, service.Calls);
+        Assert.DoesNotContain(vm.Environments, profile => profile.Id == "dev-usmf");
+    }
+
+    [Fact]
+    public async Task Store_drift_at_entry_makes_zero_calls_and_requires_explicit_rerun()
+    {
+        var (store, vm, service) = Make();
+        var source = vm.SelectedSource!;
+        store.Save(source with { Tenant = "changed.onmicrosoft.com" });
+
+        await vm.CompareCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, service.Calls);
+        Assert.NotEqual(source, vm.SelectedSource);
+    }
+
+    [Fact]
     public async Task Overlapping_direct_compares_start_only_one_service_call()
     {
         var (_, vm, service) = Make();
