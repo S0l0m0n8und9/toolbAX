@@ -2,7 +2,7 @@
 
 ## Status and boundary
 
-Implemented and locally validated; parent full gates, hosted CI, review and merge remain pending. No signing, package/SDK
+Implemented and parent-validated before H15 integration; final integration gates, hosted CI, review and merge remain pending. No signing, package/SDK
 version changes, machine-global runtime installation, tag creation/push or release publication is authorized.
 
 Keep `build-test` and Linux `avalonia-tests` check names. Reusable CI and release verification use one
@@ -75,3 +75,5 @@ At source `1cc22ff786d9ecd5c52d73700889212893e797fb`, the local Windows self-con
 Focused smoke tests passed 26/26 after meaningful RED (25 failures, one normal-launch control passed). Release-helper checks passed 44/44; the audit-shape regression first failed 11 cases, then accepted genuine clean path-only project reports while rejecting null/empty/malformed collections. The actual shipping dependency audit passed with no stderr. The App solution Release build emitted shared Core in Release with zero warnings/errors. Official workspace-local actionlint 1.7.12 accepted both workflows. All XML/config assets remain in the archive; only PDBs are excluded.
 
 Evidence is retained under ignored `artifacts/h04/`: `smoke-integrated-green.trx`, `audit-shape-{red,green}.log`, `shipping-audit-final.json`, `actionlint-final.log`, `native-package-final.log`, and `package-final/smoke-dc4e6de8134447adbee1e545bfbe34fb/report.json`. This proves local startup/package readiness only. Hosted Windows WebView2 availability, Linux/Windows remote jobs, full solution gates and release publication are not claimed by this checkpoint. Parent will integrate H15 and perform final gates before delivery. Distribution remains unsigned and requires an available WebView2 Runtime.
+
+Parent independently passed both CI=true Release solution builds with zero warnings/errors at `1be3599ff6dfd6f820ab1869d0f37340bd34d4c3`, Windows App with EnableWebView2=true 1,214/1,214 and Core 432/432, zero failed/skipped. Evidence: `artifacts/h04/parent-{app,core}-{restore,build,test}.log` and `parent-{app,core}-full.trx`. H15 is now integrated from `af6e434a1010d0cbec6a2d9ae43ca0743094b41e`; a fresh native package smoke will target this integration commit, followed by parent final App gates. Hosted CI and publication remain unexecuted at this checkpoint.

@@ -22,7 +22,7 @@ public sealed class BuiltInToolCatalog : IPluginCatalog
         new PluginCard("mapbrowser", "Dual-Write Map Browser", "Integration",
             "Inspect F&O ↔ Dataverse entity maps, field bindings, value maps, and sync state.", "D"),
         new PluginCard("compare", "Dual-Write Compare", "Integration",
-            "Diff dual-write maps and row counts across two environments.", "C"),
+            "Compare dual-write map presence and reported version/state across two environments.", "C"),
         new PluginCard("metadata", "Table/Entity Browser", "Data",
             "Explore $metadata: entity sets, navigation properties, enums, keys.", "M"),
         // Distinct from the Map Browser above: virtual tables surface F&O data live in Dataverse, they
