@@ -2,102 +2,96 @@ name: release
 
 on:
   push:
-    tags:
-      - 'v*'
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag:
-        description: "Tag to publish (e.g. v1.0.0). Must already exist on the repo."
+        description: Existing vMAJOR.MINOR.PATCH tag (optional prerelease/build metadata)
         required: true
+        type: string
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  build:
+  resolve:
     runs-on: windows-latest
+    outputs:
+      source_sha: ${{ steps.tag.outputs.source_sha }}
+      package_version: ${{ steps.tag.outputs.package_version }}
+      file_version: ${{ steps.tag.outputs.file_version }}
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1, node24
         with:
-          ref: ${{ github.event.inputs.tag || github.ref }}
+          fetch-depth: 0
+      - name: Validate existing tag and resolve immutable source
+        id: tag
+        shell: pwsh
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: ./scripts/ci/Resolve-ReleaseTag.ps1 -Tag $env:RELEASE_TAG
 
-      - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+  verify:
+    needs: resolve
+    uses: ./.github/workflows/ci.yml
+    permissions:
+      contents: read
+    with:
+      source_sha: ${{ needs.resolve.outputs.source_sha }}
+      package_version: ${{ needs.resolve.outputs.package_version }}
+      file_version: ${{ needs.resolve.outputs.file_version }}
+
+  publish:
+    needs: [resolve, verify]
+    if: ${{ needs.resolve.result == 'success' && needs.verify.result == 'success' }}
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download the exact tested archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1, node24
         with:
-          global-json-file: global.json
-
-      - name: Derive version from tag
-        id: ver
+          name: tested-package-${{ needs.resolve.outputs.source_sha }}
+          path: release-assets
+      - name: Check tested checksum and final tag consistency
         shell: pwsh
+        env:
+          RELEASE_TAG: ${{ needs.resolve.outputs.tag }}
+          VERIFIED_SHA: ${{ needs.resolve.outputs.source_sha }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          $tag = "${{ github.event.inputs.tag || github.ref_name }}"
-          $version = $tag.TrimStart('v')
-          "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Append
-          Write-Host "Tag $tag -> version $version"
-
-      - name: Publish self-contained (win-x64)
-        shell: pwsh
-        run: |
-          dotnet publish avalonia/toolBax.App/toolBax.App.csproj `
-            -c Release -r win-x64 --self-contained true `
-            -p:PublishSingleFile=true `
-            -p:IncludeNativeLibrariesForSelfExtract=true `
-            -p:Version=${{ steps.ver.outputs.version }} `
-            -p:FileVersion=${{ steps.ver.outputs.version }} `
-            -o publish
-
-      - name: Verify the executable was produced
-        shell: pwsh
-        run: |
-          if (-not (Test-Path publish/toolbAX.exe)) {
-            throw "publish/toolbAX.exe was not produced by dotnet publish."
+          $ErrorActionPreference = 'Stop'
+          $sum = (Get-Content release-assets/toolbAX-win-x64.zip.sha256 -Raw).Trim()
+          if ($sum -cnotmatch '\A([0-9a-f]{64})  toolbAX-win-x64\.zip\z') { throw 'Invalid tested checksum.' }
+          if ((Get-FileHash release-assets/toolbAX-win-x64.zip -Algorithm SHA256).Hash.ToLowerInvariant() -cne $Matches[1]) { throw 'Tested archive checksum changed.' }
+          $headers = @{ Authorization = "Bearer $env:GH_TOKEN"; Accept = 'application/vnd.github+json' }
+          $tag = [Uri]::EscapeDataString($env:RELEASE_TAG)
+          $base = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY"
+          $object = (Invoke-RestMethod -Uri "$base/git/ref/tags/$tag" -Headers $headers).object
+          for ($depth = 0; $object.type -eq 'tag' -and $depth -lt 8; $depth++) {
+            if ($object.sha -cnotmatch '\A[0-9a-f]{40}\z') { throw 'Invalid tag object.' }
+            $object = (Invoke-RestMethod -Uri "$base/git/tags/$($object.sha)" -Headers $headers).object
           }
-          Get-Item publish/toolbAX.exe | Select-Object Name, Length, LastWriteTime
-
-      - name: Zip the portable app
-        shell: pwsh
-        run: |
-          # Drop debug symbols (PDBs) and package XML doc files so the release asset stays lean —
-          # neither is needed at runtime by the self-contained single-file app. PDBs come from the
-          # Core project refs (which -p:DebugType doesn't reliably suppress across references); the
-          # *.xml IntelliSense docs leak out of the WebView2 NuGet package.
-          Get-ChildItem publish -Recurse -File | Where-Object { $_.Extension -in '.pdb', '.xml' } | Remove-Item -Force
-          Compress-Archive -Path publish/* -DestinationPath toolbAX-win-x64.zip -Force
-
-      - name: Compute SHA-256 checksum
-        shell: pwsh
-        run: |
-          # The release is unsigned, so a published checksum is the only way a user can verify the
-          # download wasn't tampered with or corrupted in transit.
-          $hash = (Get-FileHash toolbAX-win-x64.zip -Algorithm SHA256).Hash.ToLower()
-          "$hash  toolbAX-win-x64.zip" | Out-File -Encoding ascii toolbAX-win-x64.zip.sha256
-          Write-Host "SHA-256: $hash"
-
-      - name: Compose release notes
-        shell: pwsh
-        run: |
+          if ($object.type -ne 'commit' -or $object.sha -cne $env:VERIFIED_SHA) { throw 'Tag moved or disappeared after verification; refusing publication.' }
           @'
-          ## toolbAX — portable app (Avalonia)
+          ## toolbAX — portable Windows app
 
-          Cross-platform Avalonia build of toolbAX. This is a **self-contained** Windows x64 build — no .NET runtime install required.
+          Extract toolbAX-win-x64.zip and run toolbAX.exe. The .NET runtime is included; Microsoft Edge WebView2 Runtime remains a separate prerequisite.
 
-          **Install:** download `toolbAX-win-x64.zip`, extract it anywhere, and run `toolbAX.exe`.
+          **Unsigned.** A signed release remains future work. Verify the supplied SHA-256 checksum against the downloaded archive.
 
-          > ⚠️ **Unsigned.** Windows SmartScreen will show "Windows protected your PC" — click **More info** → **Run anyway**. A signed release path is on the roadmap.
-
-          **Verify your download** (recommended while the release is unsigned): the `toolbAX-win-x64.zip.sha256` asset holds the expected SHA-256. Compare it with `Get-FileHash toolbAX-win-x64.zip -Algorithm SHA256`.
-
-          See the auto-generated change log below for what's new.
-          '@ | Out-File -Encoding utf8 release-notes.md
-
-      - name: Publish release with portable zip
+          This exact archive passed Windows startup/package smoke after Core, Linux App and Windows App tests. Smoke does not validate live sign-in, portal behavior or every business feature.
+          '@ | Set-Content -Encoding utf8 release-notes.md
+      - name: Publish verified assets
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2.6.2
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          tag_name: ${{ needs.resolve.outputs.tag }}
+          target_commitish: ${{ needs.resolve.outputs.source_sha }}
           files: |
-            toolbAX-win-x64.zip
-            toolbAX-win-x64.zip.sha256
+            release-assets/toolbAX-win-x64.zip
+            release-assets/toolbAX-win-x64.zip.sha256
+          fail_on_unmatched_files: true
           generate_release_notes: true
           body_path: release-notes.md
-          prerelease: ${{ startsWith(github.event.inputs.tag || github.ref_name, 'v0.') || contains(github.event.inputs.tag || github.ref_name, '-') }}
+          prerelease: ${{ startsWith(needs.resolve.outputs.tag, 'v0.') || contains(needs.resolve.outputs.tag, '-') }}

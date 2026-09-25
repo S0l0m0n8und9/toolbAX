@@ -1,8 +1,24 @@
-# CI and release readiness (H04 proposal)
+# CI and release readiness (H04)
 
 ## Status and boundary
 
-This is a design proposal only. It does not change workflows, code signing, tags, packages, runtime installation, or release publication.
+Accepted for implementation by the parent with the locked clarifications below. No signing, package/SDK
+version changes, machine-global runtime installation, tag creation/push or release publication is authorized.
+
+Keep `build-test` and Linux `avalonia-tests` check names. Reusable CI and release verification use one
+immutable source SHA; only publication receives write permission and it reuses the tested archive after
+rechecking the existing tag. Pass raw tag input via environment/arguments, never executable-source interpolation.
+Root verified the action pins below use Node 24; upload bundles with explicit `archive: true`. Hosted runners
+only. Add shared Core to the App solution and explicitly enable WebView2 on Windows.
+
+Smoke requires explicit absolute data/report paths before any App initialization. Permit absent/empty data,
+reject nonempty data and reserve the report with CreateNew. Use normal real Windows composition, an
+unactivated/taskbar-hidden native window, actual XAML/home readiness, zero profiles/active environment,
+runtime assembly Release/provenance evidence and a WebView2 availability probe only. Capture startup and
+background failures and finalize the report at shutdown. The driver owns its unique scratch root, sets the child
+app-data override, runs the extracted executable, validates exit/report/provenance/readiness and kills only its
+own process tree on timeout. No report-supplied path deletion or global installation. This is not live-auth,
+portal, full-rendering or business-feature acceptance. Parent runs full solution/remote CI gates after freeze.
 
 Verified source facts:
 
@@ -23,7 +39,7 @@ Resolve an existing validated `v<major>.<minor>.<patch>[-prerelease][+metadata]`
 
 Pass raw workflow input through environment variables or structured arguments, never interpolated into PowerShell source. Derive numeric `FileVersion` separately from semantic/package version. Validation/build jobs have read-only token permissions; only final publication has `contents:write`. Do not create/push tags or execute publishing in H04. The unsigned boundary remains explicit.
 
-Proposed action pins, subject to implementation-time README/archive-input verification:
+Root-verified immutable action pins:
 
 - `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1` (v7.0.1)
 - `actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68` (v6.0.0)
@@ -32,9 +48,9 @@ Proposed action pins, subject to implementation-time README/archive-input verifi
 
 Keep the existing pinned `softprops` action unless separately justified.
 
-## Package smoke proposal
+## Package smoke
 
-A narrow `--smoke-test` entry path and helper script launch the extracted release executable with a fresh, driver-owned data directory and report path. The driver sets `FOTOOLBOX_APPDATA_DIR` before launch and passes it as an override even for an older mismatched executable. It rejects existing data/report paths rather than overwriting them; all outputs stay under its known scratch root.
+A narrow `--smoke-test` entry path and helper script launch the extracted release executable with a fresh, driver-owned data directory and report path. The driver sets `FOTOOLBOX_APPDATA_DIR` before launch and passes it as an override even for an older mismatched executable. It rejects nonempty data directories and existing report files rather than overwriting them; all outputs stay under its known scratch root.
 
 The smoke launches the actual archive executable with `WindowStyle Hidden`, no taskbar/focus steal using supported Avalonia options, waits to a finite deadline, and terminates only its own process on timeout. It validates real Avalonia desktop startup/window/XAML and Windows service composition, MainWindow readiness, expected home/tool availability, empty profiles, Release configuration, and WebView2 compile capability. It probes native-loader/runtime availability without opening a browser or navigating. It fails on degraded/fake composition, startup/background error, wrong/missing report, nonzero exit, or timeout, retaining useful evidence and classifying prerequisite versus packaging failure.
 

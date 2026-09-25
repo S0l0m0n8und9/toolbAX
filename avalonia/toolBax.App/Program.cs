@@ -1,5 +1,6 @@
 using System;
 using Avalonia;
+using FoToolbox.Core.Profiles;
 
 namespace ToolBax.App;
 
@@ -22,6 +23,22 @@ internal static class Program
             .LogToTrace();
 
     [STAThread]
-    public static void Main(string[] args) =>
-        BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+    public static int Main(string[] args)
+    {
+        StartupSmoke? smoke;
+        try { smoke = StartupSmoke.Prepare(args); }
+        catch (Exception ex) { Console.Error.WriteLine($"Smoke arguments rejected: {ex.Message}"); return 2; }
+        if (smoke is null) return BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
+        using (smoke)
+        {
+            // Before App, profile stores, logs or MSAL cache construction; the driver also sets this.
+            Environment.SetEnvironmentVariable(ProfilePaths.AppDataDirEnvVar, smoke.DataDirectory);
+            StartupSmoke.Current = smoke;
+            int exitCode;
+            try { exitCode = BuildAvaloniaApp().StartWithClassicDesktopLifetime(args); }
+            catch (Exception ex) { smoke.RecordFailure($"Startup failed: {ex.GetType().Name}: {ex.Message}"); exitCode = 1; }
+            finally { StartupSmoke.Current = null; }
+            return smoke.Complete(exitCode);
+        }
+    }
 }

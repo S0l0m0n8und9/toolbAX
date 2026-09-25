@@ -1,0 +1,76 @@
+Set-StrictMode -Version Latest
+
+function Convert-ReleaseTag {
+    param([string]$Tag)
+    $identifier = '(?:0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)'
+    $pattern = '\Av(?<major>0|[1-9][0-9]*)\.(?<minor>0|[1-9][0-9]*)\.(?<patch>0|[1-9][0-9]*)(?:-(?<pre>' + $identifier + '(?:\.' + $identifier + ')*))?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?\z'
+    $match = [regex]::Match($Tag, $pattern, [System.Text.RegularExpressions.RegexOptions]::CultureInvariant)
+    if (-not $match.Success) { throw 'Tag must be a safe vMAJOR.MINOR.PATCH semantic version.' }
+    foreach ($part in @('major', 'minor', 'patch')) {
+        $number = 0
+        if (-not [int]::TryParse($match.Groups[$part].Value, [ref]$number) -or $number -gt 65534) { throw 'Version component exceeds the numeric assembly/file-version range.' }
+    }
+    [pscustomobject]@{ Tag = $Tag; PackageVersion = $Tag.Substring(1)
+        FileVersion = '{0}.{1}.{2}.0' -f $match.Groups['major'].Value, $match.Groups['minor'].Value, $match.Groups['patch'].Value }
+}
+
+function Assert-BuildInputs {
+    param([string]$SourceSha, [string]$PackageVersion, [string]$FileVersion)
+    if ($SourceSha -cnotmatch '\A[0-9a-f]{40}\z') { throw 'Source must be one full immutable lowercase commit SHA.' }
+    $version = Convert-ReleaseTag ('v' + $PackageVersion)
+    if ($FileVersion -cne $version.FileVersion) { throw 'FileVersion does not match the validated numeric version.' }
+}
+
+function Assert-PackageAuditJson {
+    param([string]$Json, [int]$ExitCode)
+    if ($ExitCode -ne 0) { throw "Package audit command failed ($ExitCode)." }
+    $report = ConvertFrom-Json -InputObject $Json -AsHashtable -Depth 100 -ErrorAction Stop
+    if ($report['version'] -ne 1 -or @($report['sources']).Count -eq 0 -or @($report['projects']).Count -eq 0 -or
+        $report['parameters'] -notmatch '--vulnerable' -or $report['parameters'] -notmatch '--include-transitive') { throw 'Missing or incomplete package audit output.' }
+    foreach ($project in $report['projects']) {
+        if (@($project['frameworks']).Count -eq 0) { throw 'A project was not audited.' }
+    }
+    function Inspect-AuditNode($node) {
+        if ($node -is [System.Collections.IDictionary]) {
+            foreach ($key in $node.Keys) {
+                if ($key -in @('vulnerabilities', 'errors', 'problems') -and @($node[$key]).Count -gt 0) { throw "Package audit reported $key." }
+                if ($key -in @('level', 'severity') -and $node[$key] -in @('Error', 'Warning')) { throw 'Package audit reported a diagnostic failure.' }
+                Inspect-AuditNode $node[$key]
+            }
+        } elseif ($node -is [System.Collections.IList]) { foreach ($item in $node) { Inspect-AuditNode $item } }
+    }
+    Inspect-AuditNode $report
+}
+
+function Assert-SmokeReport {
+    param([string]$ReportPath, [string]$DataDirectory, [string]$Executable, [string]$SourceSha,
+        [string]$PackageVersion, [string]$FileVersion, [int]$ProcessExitCode)
+    Assert-BuildInputs $SourceSha $PackageVersion $FileVersion
+    if ($ProcessExitCode -ne 0) { throw "Packaged app smoke exited $ProcessExitCode. Inspect its report/stdout/stderr." }
+    $report = Get-Content -LiteralPath $ReportPath -Raw | ConvertFrom-Json -AsHashtable -Depth 100
+    if (($report['schemaVersion'] -isnot [long] -and $report['schemaVersion'] -isnot [int]) -or
+        $report['schemaVersion'] -ne 1 -or $report['success'] -isnot [bool] -or $report['success'] -ne $true -or
+        $report['exitCode'] -ne 0 -or $report['failures'] -isnot [array] -or @($report['failures']).Count -ne 0) { throw 'Smoke report is missing, unsuccessful or has an unsupported schema.' }
+    if ([IO.Path]::GetFullPath($report['dataDirectory']) -cne [IO.Path]::GetFullPath($DataDirectory) -or
+        [IO.Path]::GetFullPath($report['executable']) -cne [IO.Path]::GetFullPath($Executable)) { throw 'Smoke report has different executable/data provenance.' }
+    $o = $report['observation']
+    foreach ($property in @('windows', 'mainWindowReady', 'homeReady', 'realComposition')) {
+        if ($o[$property] -isnot [bool] -or $o[$property] -ne $true) { throw "Smoke readiness failed: $property." }
+    }
+    if ($o['degraded'] -isnot [bool] -or $o['hasActiveEnvironment'] -isnot [bool] -or
+        $o['degraded'] -ne $false -or $o['profileCount'] -ne 0 -or $o['hasActiveEnvironment'] -ne $false -or
+        [IO.Path]::GetFullPath($o['profileDbPath']) -cne (Join-Path ([IO.Path]::GetFullPath($DataDirectory)) 'profile.db')) { throw 'Smoke did not use empty isolated real composition.' }
+    foreach ($tool in @('home','profiles','query','post','metadata','ops','compare','mapbrowser','virtualtables')) {
+        if ($tool -cnotin $o['tools']) { throw "Smoke is missing tool $tool." }
+    }
+    $information = if ($PackageVersion.Contains('+')) { "$PackageVersion.$SourceSha" } else { "$PackageVersion+$SourceSha" }
+    if (@($o['assemblies']).Count -ne 3) { throw 'Smoke assembly metadata is incomplete.' }
+    foreach ($name in @('toolbAX', 'FoToolbox.Core', 'toolBax.Core')) {
+        $assemblies = @($o['assemblies'] | Where-Object { $_['name'] -ceq $name })
+        if ($assemblies.Count -ne 1 -or $assemblies[0]['configuration'] -cne 'Release' -or
+            $assemblies[0]['informationalVersion'] -cne $information -or $assemblies[0]['fileVersion'] -cne $FileVersion) { throw "Wrong runtime Release/version/SHA metadata: $name." }
+    }
+    if ($o['webView2']['compiled'] -isnot [bool] -or $o['webView2']['compiled'] -ne $true -or $o['webView2']['status'] -cne 'available' -or
+        [string]::IsNullOrWhiteSpace($o['webView2']['version'])) { throw 'WebView2 loader/runtime capability unavailable.' }
+    return $report
+}
