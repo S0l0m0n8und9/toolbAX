@@ -36,6 +36,32 @@ public class QueryBuilderViewModelTests
         }
     }
 
+    [Fact]
+    public async Task Disposed_query_does_not_commit_a_late_response()
+    {
+        var client = new GatedODataClient();
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+
+        var run = vm.RunCommand.ExecuteAsync(null);
+        vm.Dispose();
+        client.Gate.SetResult();
+        await run;
+
+        Assert.Empty(vm.ResultRows);
+        Assert.False(vm.HasRun);
+    }
+
+    [Fact]
+    public async Task A_configured_missing_active_profile_blocks_query_dispatch()
+    {
+        var client = new RecordingODataClient();
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, activeEnvironment: () => null);
+
+        await vm.RunCommand.ExecuteAsync(null);
+
+        Assert.Null(client.LastPath);
+    }
+
     // Returns each queued response in turn, recording the requested paths (for paging tests).
     private sealed class PagingODataClient : IODataClient
     {

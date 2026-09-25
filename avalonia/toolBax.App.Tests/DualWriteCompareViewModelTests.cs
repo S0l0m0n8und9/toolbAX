@@ -17,6 +17,32 @@ public class DualWriteCompareViewModelTests
     private static DualWriteCompareViewModel MakeVm(IDualWriteCompareService? service = null) =>
         new(new FakeProfileStore(), service ?? new FakeDualWriteCompareService());
 
+    private sealed class GatedCompareService : IDualWriteCompareService
+    {
+        public TaskCompletionSource<IReadOnlyList<DualWriteMapComparisonRow>> Gate { get; } = new();
+
+        public Task<IReadOnlyList<DualWriteMapComparisonRow>> CompareAsync(
+            EnvProfile source, EnvProfile target, CancellationToken ct = default) => Gate.Task;
+    }
+
+    [Fact]
+    public async Task Disposed_compare_does_not_commit_a_late_result()
+    {
+        var service = new GatedCompareService();
+        var vm = MakeVm(service);
+
+        var compare = vm.CompareCommand.ExecuteAsync(null);
+        vm.Dispose();
+        service.Gate.SetResult(new[]
+        {
+            new DualWriteMapComparisonRow("Late", true, true, "1", "1", "Running", "Running", DualWriteComparisonVerdict.Identical)
+        });
+        await compare;
+
+        Assert.Empty(vm.DiffRows);
+        Assert.False(vm.HasResult);
+    }
+
     [Fact]
     public void Defaults_pick_two_different_environments()
     {

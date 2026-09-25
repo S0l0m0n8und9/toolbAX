@@ -42,10 +42,12 @@ public sealed record DiffBucket(DualWriteComparisonVerdict Verdict, int Count)
 /// show a per-map diff grid + verdict summary chips. Compare is enabled only when the two picks resolve
 /// to different F&amp;O environments.
 /// </summary>
-public partial class DualWriteCompareViewModel : ObservableObject
+public partial class DualWriteCompareViewModel : ObservableObject, IDisposable
 {
     private readonly IProfileStore _store;
     private readonly IDualWriteCompareService _service;
+    private bool _disposed;
+    private int _lifecycleGeneration;
 
     public ObservableCollection<EnvProfile> Environments { get; }
     public ObservableCollection<DualWriteMapComparisonRow> DiffRows { get; } = new();
@@ -93,6 +95,23 @@ public partial class DualWriteCompareViewModel : ObservableObject
         _service = service;
         Environments = new ObservableCollection<EnvProfile>();
         RefreshEnvironments();
+    }
+
+    private bool IsLifecycleCurrent(int generation) => !_disposed && generation == _lifecycleGeneration;
+
+    public void Dispose()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        Interlocked.Increment(ref _lifecycleGeneration);
+        if (CompareCancelCommand.CanExecute(null))
+        {
+            CompareCancelCommand.Execute(null);
+        }
     }
 
     /// <summary>
@@ -183,21 +202,25 @@ public partial class DualWriteCompareViewModel : ObservableObject
             : lowered;
     }
 
-    private bool CanRunCompare() => CanCompare && !IsBusy;
+    private bool CanRunCompare() => !_disposed && CanCompare && !IsBusy;
 
     [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanRunCompare))]
     private async Task Compare(CancellationToken ct)
     {
-        if (SelectedSource is null || SelectedTarget is null)
+        if (_disposed || SelectedSource is null || SelectedTarget is null)
         {
             return;
         }
 
+        var lifecycleGeneration = _lifecycleGeneration;
+        var source = SelectedSource;
+        var target = SelectedTarget;
         IsBusy = true;
         Error = null;
         try
         {
-            var rows = await _service.CompareAsync(SelectedSource, SelectedTarget, ct);
+            var rows = await _service.CompareAsync(source, target, ct);
+            if (!IsLifecycleCurrent(lifecycleGeneration)) return;
 
             DiffRows.Clear();
             foreach (var row in rows)
@@ -216,10 +239,12 @@ public partial class DualWriteCompareViewModel : ObservableObject
         }
         catch (OperationCanceledException)
         {
+            if (!IsLifecycleCurrent(lifecycleGeneration)) return;
             // Cancelled — leave the prior result (if any) untouched.
         }
         catch (Exception ex)
         {
+            if (!IsLifecycleCurrent(lifecycleGeneration)) return;
             Error = ex.Message;
             HasResult = false;
             ComparedCount = 0;
@@ -228,7 +253,10 @@ public partial class DualWriteCompareViewModel : ObservableObject
         }
         finally
         {
-            IsBusy = false;
+            if (IsLifecycleCurrent(lifecycleGeneration))
+            {
+                IsBusy = false;
+            }
         }
     }
 
