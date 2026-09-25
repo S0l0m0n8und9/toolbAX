@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace ToolBax.Core.Services;
@@ -23,4 +24,14 @@ public sealed record ConfirmRequest(
 public interface IDialogService
 {
     Task<bool> ConfirmAsync(ConfirmRequest request);
+
+    /// <summary>
+    /// Confirms with caller cancellation. Legacy/headless providers inherit a cancellable await around the
+    /// one-argument contract; UI providers must override this overload to dismiss their actual dialog.
+    /// </summary>
+    async Task<bool> ConfirmAsync(ConfirmRequest request, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        return await ConfirmAsync(request).WaitAsync(ct).ConfigureAwait(false);
+    }
 }

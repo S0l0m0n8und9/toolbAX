@@ -963,6 +963,37 @@ public class DualWriteOpsTests
     }
 
     [Fact]
+    public async Task Debug_command_cancel_completes_without_answering_confirmation_and_late_approval_cannot_dispatch()
+    {
+        var dialogs = new ControlledDebugDialogs();
+        var metadata = new CountingMetadata("DualWriteProjectConfigurations");
+        var odata = new ScriptedODataClient(DebugRecord);
+        var connector = new CountingConnector();
+        var vm = new DualWriteOpsViewModel(connector, Env, dialogs, odata: odata, metadata: metadata);
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.First().IsSelected = true;
+
+        var operation = vm.EnableDebugForSelectedCommand.ExecuteAsync(null);
+        await WaitForDebugConfirmation(operation, dialogs);
+        vm.EnableDebugForSelectedCommand.Cancel();
+        var winner = await Task.WhenAny(operation, Task.Delay(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
+        var completedWithoutAnswer = ReferenceEquals(winner, operation);
+
+        // Always release the legacy fake for RED cleanup. After the fix this is a late answer to an
+        // abandoned confirmation and must have no effect.
+        dialogs.Answer.TrySetResult(true);
+        await operation;
+
+        Assert.True(completedWithoutAnswer);
+        Assert.Equal(0, metadata.Calls);
+        Assert.Empty(odata.Calls);
+        Assert.False(vm.MutationInProgress);
+        Assert.False(vm.IsBusy);
+        Assert.True(vm.EnableDebugForSelectedCommand.CanExecute(null));
+        Assert.Equal(1, connector.Calls);
+    }
+
+    [Fact]
     public async Task Debug_confirmation_owner_refuses_direct_competitors_without_extra_dialogs()
     {
         var dialogs = new ControlledDebugDialogs();

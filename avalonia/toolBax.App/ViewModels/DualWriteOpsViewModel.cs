@@ -651,7 +651,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         bool confirmed;
         try
         {
-            confirmed = await _dialogs.ConfirmAsync(request).ConfigureAwait(true);
+            confirmed = await _dialogs.ConfirmAsync(request, ct).ConfigureAwait(true);
         }
         catch (OperationCanceledException)
         {
