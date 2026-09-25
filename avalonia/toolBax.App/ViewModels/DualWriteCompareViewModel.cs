@@ -18,7 +18,7 @@ public static class CompareVerdict
 {
     public static string Label(DualWriteComparisonVerdict verdict) => verdict switch
     {
-        DualWriteComparisonVerdict.Identical => "identical",
+        DualWriteComparisonVerdict.Identical => "reported values match",
         DualWriteComparisonVerdict.OnlyInLeft => "only in source",
         DualWriteComparisonVerdict.OnlyInRight => "only in target",
         DualWriteComparisonVerdict.VersionMismatch => "version mismatch",
@@ -26,6 +26,7 @@ public static class CompareVerdict
         // #160: the row could not be paired — two maps in one environment share a name + CE target, a map
         // has neither, or one gateway omitted the CE target and no unique match exists. No verdict to show.
         DualWriteComparisonVerdict.Ambiguous => "cannot compare",
+        DualWriteComparisonVerdict.Unknown => "unknown",
         _ => verdict.ToString(),
     };
 }
@@ -71,8 +72,8 @@ public partial class DualWriteCompareViewModel : ObservableObject, IDisposable
     private bool _hasResult;
 
     /// <summary>
-    /// How many maps the last compare actually looked at. Surfaced because a compare that returned nothing
-    /// used to render exactly like a compare that found no differences — an empty grid, no chips, no count.
+    /// How many map rows the last compare returned, including incomplete and unpaired evidence. An empty
+    /// result used to render exactly like a compare with no differences — no grid rows, chips or count.
     /// The count is the one thing that separates them, so it is always on screen with a result.
     /// </summary>
     [ObservableProperty]
@@ -160,9 +161,9 @@ public partial class DualWriteCompareViewModel : ObservableObject, IDisposable
         && !string.IsNullOrEmpty(GatewayHost(SelectedTarget))
         && !SameGateway(SelectedSource, SelectedTarget);
 
-    /// <summary>Result-scale caption shown beside the verdict chips, e.g. "8 maps compared".</summary>
+    /// <summary>Result-scale caption counts rows, without claiming every row could be compared.</summary>
     public string ComparedSummary =>
-        ComparedCount == 1 ? "1 map compared" : $"{ComparedCount} maps compared";
+        ComparedCount == 1 ? "1 map row" : $"{ComparedCount} map rows";
 
     /// <summary>
     /// A compare that completed but had nothing to compare — neither gateway returned a usable map. Not a

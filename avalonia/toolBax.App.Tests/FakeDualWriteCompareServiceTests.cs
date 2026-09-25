@@ -18,6 +18,17 @@ namespace ToolBax.App.Tests;
 public class FakeDualWriteCompareServiceTests
 {
     [Fact]
+    public async System.Threading.Tasks.Task Unknown_seed_has_missing_reported_evidence_and_a_reason()
+    {
+        var env = new EnvProfile("e", "Env", "https://x", "t", "USMF", "Tier", EnvStatus.Connected);
+        var rows = await new FakeDualWriteCompareService().CompareAsync(env, env, TestContext.Current.CancellationToken);
+        var unknown = Assert.Single(rows, r => r.Verdict == DualWriteComparisonVerdict.Unknown);
+        Assert.True(unknown.InLeft && unknown.InRight);
+        Assert.True(string.IsNullOrWhiteSpace(unknown.LeftVersion) || string.IsNullOrWhiteSpace(unknown.RightVersion)
+            || string.IsNullOrWhiteSpace(unknown.LeftState) || string.IsNullOrWhiteSpace(unknown.RightState));
+        Assert.False(string.IsNullOrWhiteSpace(unknown.Note));
+    }
+    [Fact]
     public async System.Threading.Tasks.Task Seed_has_at_least_one_row_for_every_verdict()
     {
         var env = new EnvProfile("e", "Env", "https://x", "t", "USMF", "Tier", EnvStatus.Connected);

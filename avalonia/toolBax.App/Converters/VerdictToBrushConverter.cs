@@ -21,7 +21,8 @@ public sealed class VerdictToBrushConverter : IValueConverter
             ? verdict switch
             {
                 DualWriteComparisonVerdict.Identical => "OkBrush",
-                DualWriteComparisonVerdict.VersionMismatch or DualWriteComparisonVerdict.StateMismatch => "WarnBrush",
+                DualWriteComparisonVerdict.VersionMismatch or DualWriteComparisonVerdict.StateMismatch
+                    or DualWriteComparisonVerdict.Unknown => "WarnBrush",
                 DualWriteComparisonVerdict.OnlyInRight => "InfoBrush",
                 // Unpairable (#160) reads as an error rather than drift: the comparison could not be made
                 // at all, which is a configuration problem to fix before the diff means anything.
