@@ -335,7 +335,23 @@ public partial class DualWriteCompareViewModel : ObservableObject, IDisposable
         }
         catch (OperationCanceledException)
         {
-            // Cancelled — leave the prior result (if any) untouched.
+            // Preserve the prior result only when the accepted owner's captured selection and saved
+            // identities are still current. A user cancel can race a profile edit, so this check must not
+            // depend on the operation token remaining uncancelled.
+            if (!IsOwnerCurrent(owner) || _disposed || source is null || target is null
+                || sourceIdentity is null || targetIdentity is null
+                || generation != Volatile.Read(ref _selectionGeneration)
+                || !SelectionMatches(SelectedSource, source.Id, sourceIdentity)
+                || !SelectionMatches(SelectedTarget, target.Id, targetIdentity))
+            {
+                return;
+            }
+            if (!StoreMatches(source.Id, sourceIdentity) || !StoreMatches(target.Id, targetIdentity))
+            {
+                RefreshEnvironments();
+                if (!_disposed)
+                    Error = "Environment selections changed. Check the selections and run Compare again.";
+            }
         }
         catch (Exception ex)
         {

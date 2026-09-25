@@ -27,6 +27,22 @@ public class DualWriteCompareContextTests
         }
     }
 
+    private sealed class SecondCallCancellationCompare : IDualWriteCompareService
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<IReadOnlyList<DualWriteMapComparisonRow>> Second { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public List<CancellationToken> Tokens { get; } = new();
+        public Task<IReadOnlyList<DualWriteMapComparisonRow>> CompareAsync(
+            EnvProfile source, EnvProfile target, CancellationToken ct = default)
+        {
+            Tokens.Add(ct);
+            if (Tokens.Count == 1) return Task.FromResult<IReadOnlyList<DualWriteMapComparisonRow>>(new[] { Row() });
+            Entered.TrySetResult();
+            return Second.Task;
+        }
+    }
+
     private static Task Watch(Task task) =>
         task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
@@ -347,5 +363,60 @@ public class DualWriteCompareContextTests
         Assert.DoesNotContain("late failure", vm.Error, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("changed", vm.Error, StringComparison.OrdinalIgnoreCase);
         Assert.Equal("changed.onmicrosoft.com", vm.SelectedSource!.Tenant);
+    }
+
+    [Theory]
+    [InlineData("source-edit", true)]
+    [InlineData("target-edit", false)]
+    [InlineData("delete", true)]
+    [InlineData("source-edit", false)]
+    public async Task Cancellation_with_store_drift_invalidates_prior_result_and_refreshes_choices(
+        string drift, bool explicitCancel)
+    {
+        var store = new FakeProfileStore();
+        var service = new SecondCallCancellationCompare();
+        var vm = new DualWriteCompareViewModel(store, service);
+        await vm.CompareCommand.ExecuteAsync(null);
+        Assert.True(vm.HasResult);
+        var source = vm.SelectedSource!;
+        var target = vm.SelectedTarget!;
+        var second = vm.CompareCommand.ExecuteAsync(null);
+        await service.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        if (drift == "delete") store.Delete(source.Id);
+        else if (drift == "target-edit") store.Save(target with { Tenant = "changed-target" });
+        else store.Save(source with { Tenant = "changed-source" });
+        if (explicitCancel) vm.CompareCancelCommand.Execute(null);
+        service.Second.TrySetException(new OperationCanceledException("simulated timeout/cancel"));
+        await second.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.False(vm.HasResult);
+        Assert.Null(vm.ResultContext);
+        Assert.Empty(vm.DiffRows);
+        Assert.Empty(vm.Summary);
+        Assert.Equal(0, vm.ComparedCount);
+        Assert.Contains("changed", vm.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Cancellation_with_unchanged_store_preserves_prior_result(bool explicitCancel)
+    {
+        var service = new SecondCallCancellationCompare();
+        var vm = new DualWriteCompareViewModel(new FakeProfileStore(), service);
+        await vm.CompareCommand.ExecuteAsync(null);
+        var context = vm.ResultContext;
+        var second = vm.CompareCommand.ExecuteAsync(null);
+        await service.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        if (explicitCancel) vm.CompareCancelCommand.Execute(null);
+        service.Second.TrySetException(new OperationCanceledException("simulated timeout/cancel"));
+        await second.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.True(vm.HasResult);
+        Assert.Same(context, vm.ResultContext);
+        Assert.Single(vm.DiffRows);
+        Assert.Null(vm.Error);
+        Assert.False(vm.IsBusy);
     }
 }
