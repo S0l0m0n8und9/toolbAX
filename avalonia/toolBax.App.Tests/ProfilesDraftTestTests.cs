@@ -18,6 +18,12 @@ using Xunit;
 
 namespace ToolBax.App.Tests;
 
+[CollectionDefinition("Profile probe finalization", DisableParallelization = true)]
+public sealed class ProfileProbeFinalizationCollection
+{
+}
+
+[Collection("Profile probe finalization")]
 public sealed class ProfilesDraftTestTests
 {
     private static EnvProfile Profile(string id = "a") => new(id, "Saved", "https://saved.example", "tenant", "USMF", "Tier 1", EnvStatus.Connected)
