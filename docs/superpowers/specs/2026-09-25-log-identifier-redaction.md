@@ -2,13 +2,13 @@
 
 ## Status
 
-Proposal only; not accepted for implementation. No production, test, tracker, or remote changes are proposed.
+Proposal only; not accepted for implementation. No production, test, tracker, or remote changes have been made.
 
 ## Verified baseline
 
-[`RequestTrace`](../../avalonia/toolBax.App/Services/RequestTrace.cs) persists `ReasonPhrase` plus API/method/Endpoint. Endpoint removes origin/query but retains OData business keys such as `CustomersV3(dataAreaId='USMF',CustomerAccount='C000123')`; `Clean` only removes control characters.
+[`RequestTrace`](../../../avalonia/toolBax.App/Services/RequestTrace.cs) persists `ReasonPhrase` plus API/method/Endpoint. Endpoint removes origin/query but retains OData business keys such as `CustomersV3(dataAreaId='USMF',CustomerAccount='C000123')`; `Clean` only removes control characters.
 
-[`DualWriteOpsViewModel`](../../avalonia/toolBax.App/ViewModels/DualWriteOpsViewModel.cs) `Log` Warn/Err defaults to `traceText ?? text`; its comments name persisted gateway hosts, map names, connection/request IDs, and status. `Traceable` handles body-bearing gateway exception types, while unknown exceptions fall back to message-based concise formatting. [`ProfilesViewModel`](../../avalonia/toolBax.App/ViewModels/ProfilesViewModel.cs) logs environment name plus session-eviction exception. App last-resort handlers trace full exception text. [`SessionTraceLog`](../../avalonia/toolBax.App/Services/SessionTraceLog.cs) persists these events.
+[`DualWriteOpsViewModel`](../../../avalonia/toolBax.App/ViewModels/DualWriteOpsViewModel.cs) `Log` Warn/Err defaults to `traceText ?? text`; its comments name persisted gateway hosts, map names, connection/request IDs, and status. `Traceable` handles body-bearing gateway exception types, while unknown exceptions fall back to message-based concise formatting. [`ProfilesViewModel`](../../../avalonia/toolBax.App/ViewModels/ProfilesViewModel.cs) logs environment name plus session-eviction exception. App last-resort handlers trace full exception text. [`SessionTraceLog`](../../../avalonia/toolBax.App/Services/SessionTraceLog.cs) persists these events.
 
 ## Desired invariants
 
