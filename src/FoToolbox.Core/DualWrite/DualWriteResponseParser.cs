@@ -26,13 +26,16 @@ public static class DualWriteResponseParser
     public static IReadOnlyList<DualWriteMap> ParseMaps(string json)
     {
         using var doc = ParseGatewayJson(json);
-        var array = AsArray(doc.RootElement);
+        var array = AsArrayOrNull(doc.RootElement)
+            ?? throw new DualWriteGatewayResponseException(
+                "The gateway maps response had no supported collection (bare array, value, entities, or items).", null);
         var maps = new List<DualWriteMap>();
-        foreach (var item in array)
+        foreach (var item in array.EnumerateArray())
         {
             if (item.ValueKind != JsonValueKind.Object)
             {
-                continue;
+                throw new DualWriteGatewayResponseException(
+                    "The gateway maps collection contained a non-object item.", null);
             }
 
             maps.Add(ParseMap(item));

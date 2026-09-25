@@ -1084,6 +1084,148 @@ public class DualWriteMapViewModelTests
             Task.FromResult(DwCountResult.Ok(0));
     }
 
+    private sealed class SolutionWarningReader : IDualWriteMapReader
+    {
+        private static readonly DwMapRecord Incomplete = DualWriteMapParser.ParsePage(
+            "{\"value\":[{\"msdyn_name\":\"Map\",\"msdyn_mapping\":\"{bad\"}]}").Records.Single();
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            Task.FromResult(DwMapLoadResult.Ok(new[] { Incomplete }));
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) =>
+            Task.FromResult(DwSolutionLoadResult.Fail("Solutions response had no array at value."));
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) =>
+            Task.FromResult(DwCountResult.Ok(0));
+    }
+
+    private sealed class RecoveringSolutionWarningReader : IDualWriteMapReader
+    {
+        private int _solutionCalls;
+        private int _mapCalls;
+        private static readonly DwMapRecord Incomplete = DualWriteMapParser.ParsePage(
+            "{\"value\":[{\"msdyn_name\":\"Map\",\"msdyn_mapping\":\"{bad\"}]}").Records.Single();
+        private static readonly DwMapRecord Healthy = DualWriteMapParser.ParsePage(
+            "{\"value\":[{\"msdyn_name\":\"Map\",\"msdyn_mapping\":\"{\\\"legs\\\":[]}\"}]}").Records.Single();
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) =>
+            Task.FromResult(++_solutionCalls == 1
+                ? DwSolutionLoadResult.Fail("solution failure")
+                : DwSolutionLoadResult.Ok(Array.Empty<DwSolution>()));
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            Task.FromResult(DwMapLoadResult.Ok(new[] { ++_mapCalls == 1 ? Incomplete : Healthy }));
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) =>
+            Task.FromResult(DwCountResult.Ok(0));
+    }
+
+    private sealed class GatedSolutionRetryReader(bool ignoreCancellation) : IDualWriteMapReader
+    {
+        private int _solutionCalls;
+        public int MapCalls { get; private set; }
+        public TaskCompletionSource<DwSolutionLoadResult> Retry { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default)
+        {
+            if (++_solutionCalls == 1) return Task.FromResult(DwSolutionLoadResult.Fail("original warning"));
+            return ignoreCancellation ? Retry.Task : Retry.Task.WaitAsync(ct);
+        }
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default)
+        {
+            MapCalls++;
+            return Task.FromResult(DwMapLoadResult.Ok(Array.Empty<DwMapRecord>()));
+        }
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) =>
+            Task.FromResult(DwCountResult.Ok(0));
+    }
+
+    [Fact]
+    public async Task Solution_failure_and_incomplete_map_details_have_independent_warnings()
+    {
+        var vm = MakeVm(new SolutionWarningReader());
+
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        Assert.Single(vm.Maps);
+        Assert.Empty(vm.LoadError);
+        Assert.Contains("Solutions", vm.SolutionWarning);
+        Assert.Equal(1, vm.IncompleteDetailsCount);
+        Assert.Contains("msdyn_mapping", vm.SelectedDetailsWarning);
+    }
+
+    [Fact]
+    public async Task Explicit_refresh_retries_solutions_and_clears_solution_and_detail_warnings_on_success()
+    {
+        var vm = MakeVm(new RecoveringSolutionWarningReader());
+        await vm.InitializeCommand.ExecuteAsync(null);
+        Assert.NotEmpty(vm.SolutionWarning);
+        Assert.Equal(1, vm.IncompleteDetailsCount);
+
+        await vm.ReloadMapsCommand.ExecuteAsync(null);
+
+        Assert.Empty(vm.SolutionWarning);
+        Assert.Equal(0, vm.IncompleteDetailsCount);
+        Assert.Empty(vm.SelectedDetailsWarning);
+    }
+
+    [Fact]
+    public async Task Explicit_refresh_that_fails_solutions_again_retains_warning()
+    {
+        var vm = MakeVm(new SolutionWarningReader());
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        await vm.ReloadMapsCommand.ExecuteAsync(null);
+
+        Assert.NotEmpty(vm.SolutionWarning);
+    }
+
+    [Fact]
+    public async Task Disposed_solution_retry_discards_late_fault_and_skips_maps()
+    {
+        var reader = new GatedSolutionRetryReader(ignoreCancellation: true);
+        var vm = MakeVm(reader);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        var warning = vm.SolutionWarning;
+        var reload = vm.ReloadMapsCommand.ExecuteAsync(null);
+        vm.Dispose();
+        reader.Retry.TrySetException(new InvalidOperationException("late fault"));
+        await reload.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(warning, vm.SolutionWarning);
+        Assert.Equal(1, reader.MapCalls);
+    }
+
+    [Fact]
+    public async Task Cancelled_solution_retry_completes_quietly_and_skips_maps()
+    {
+        var reader = new GatedSolutionRetryReader(ignoreCancellation: false);
+        var vm = MakeVm(reader);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        var reload = vm.ReloadMapsCommand.ExecuteAsync(null);
+        vm.ReloadMapsCancelCommand.Execute(null);
+        await reload.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(1, reader.MapCalls);
+        Assert.NotEmpty(vm.SolutionWarning);
+    }
+
+    [Fact]
+    public async Task Cancellation_ignoring_solution_retry_cannot_commit_success_after_cancel()
+    {
+        var reader = new GatedSolutionRetryReader(ignoreCancellation: true);
+        var vm = MakeVm(reader);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        var warning = vm.SolutionWarning;
+        var selectedPublisher = vm.SelectedPublisher;
+        var selectedSolution = vm.SelectedSolution;
+        var reload = vm.ReloadMapsCommand.ExecuteAsync(null);
+        vm.ReloadMapsCancelCommand.Execute(null);
+        reader.Retry.TrySetResult(DwSolutionLoadResult.Ok(new[]
+        {
+            new DwSolution("id", "new_solution", "New", "1", "publisher", "Publisher"),
+        }));
+
+        await reload.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal(warning, vm.SolutionWarning);
+        Assert.Same(selectedPublisher, vm.SelectedPublisher);
+        Assert.Same(selectedSolution, vm.SelectedSolution);
+        Assert.Equal(1, reader.MapCalls);
+    }
+
     private sealed class ThrowingClipboard : IClipboardService
     {
         public Task SetTextAsync(string text) => throw new InvalidOperationException("clipboard is busy");
@@ -1686,5 +1828,129 @@ public class DualWriteMapViewModelTests
         Assert.False(row.CeCountCapped);        // a snapshot total is not a ceiling
         Assert.Equal("≈42,317", row.CeCountLabel);
         Assert.Equal("≈ Mismatch", row.ComparisonLabel);
+    }
+
+    private sealed class ScopedSolutionsReader(bool retry) : IDualWriteMapReader
+    {
+        private int _calls;
+        public int MapsCalls { get; private set; }
+        public TaskCompletionSource<DwSolutionLoadResult> Gate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) =>
+            retry && ++_calls == 1 ? Task.FromResult(DwSolutionLoadResult.Fail("original warning")) : Gate.Task;
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default)
+        {
+            MapsCalls++;
+            return Task.FromResult(DwMapLoadResult.Ok(Array.Empty<DwMapRecord>()));
+        }
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) => Task.FromResult(DwCountResult.Ok(0));
+    }
+
+    [Theory]
+    [InlineData(false, "profile", false)]
+    [InlineData(false, "profile", true)]
+    [InlineData(false, "url", false)]
+    [InlineData(false, "url", true)]
+    [InlineData(false, "auth", false)]
+    [InlineData(false, "auth", true)]
+    [InlineData(true, "profile", false)]
+    [InlineData(true, "profile", true)]
+    [InlineData(true, "url", false)]
+    [InlineData(true, "url", true)]
+    [InlineData(true, "auth", false)]
+    [InlineData(true, "auth", true)]
+    public async Task Solution_scope_drift_discards_initial_or_retry_result_and_entire_followon_chain(bool retry, string change, bool fault)
+    {
+        var current = new EnvProfile("a", "A", "https://a.example", "tenant", "USMF", "Tier 1", EnvStatus.Connected);
+        var reader = new ScopedSolutionsReader(retry);
+        var metadata = new CountingLoadMetadata();
+        using var vm = new DualWriteMapViewModel(reader, metadata: metadata, activeEnv: () => current);
+        if (retry)
+            await vm.InitializeCommand.ExecuteAsync(null);
+        var warning = vm.SolutionWarning;
+        var publishers = vm.Publishers.ToArray();
+        var solutions = vm.Solutions.ToArray();
+        var mapsBefore = reader.MapsCalls;
+        var metadataBefore = metadata.LoadCalls;
+        var operation = retry ? vm.ReloadMapsCommand.ExecuteAsync(null) : vm.InitializeCommand.ExecuteAsync(null);
+        current = change switch
+        {
+            "profile" => current with { Id = "b", Name = "B" },
+            "url" => current with { Url = "https://other.example" },
+            _ => current with { ClientId = "changed-client" }
+        };
+        if (fault)
+            reader.Gate.SetException(new InvalidOperationException("OLD_SCOPE_FAILURE"));
+        else
+            reader.Gate.SetResult(DwSolutionLoadResult.Ok(new[]
+            {
+                new DwSolution("old-id", "OLD_SCOPE_SOLUTION", "Old", "1", "publisher", "Publisher")
+            }));
+        await operation.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(publishers, vm.Publishers);
+        Assert.Equal(solutions, vm.Solutions);
+        Assert.Equal(warning, vm.SolutionWarning);
+        Assert.DoesNotContain("OLD_SCOPE", vm.LoadError);
+        Assert.Equal(mapsBefore, reader.MapsCalls);
+        Assert.Equal(metadataBefore, metadata.LoadCalls);
+    }
+
+    [Fact]
+    public async Task Same_scope_thrown_solution_failure_keeps_independent_warning_and_allows_maps()
+    {
+        var current = new EnvProfile("a", "A", "https://a.example", "tenant", "USMF", "Tier 1", EnvStatus.Connected);
+        var reader = new ScopedSolutionsReader(false);
+        var metadata = new CountingLoadMetadata();
+        using var vm = new DualWriteMapViewModel(reader, metadata: metadata, activeEnv: () => current);
+        var operation = vm.InitializeCommand.ExecuteAsync(null);
+        reader.Gate.SetException(new InvalidOperationException("same scope failure"));
+        await operation;
+        Assert.Contains("same scope failure", vm.SolutionWarning);
+        Assert.Empty(vm.LoadError);
+        Assert.Equal(1, metadata.LoadCalls);
+        Assert.Equal(1, reader.MapsCalls);
+    }
+
+    private sealed class ScopeChainMetadata : IMetadataService
+    {
+        public int Reads { get; private set; }
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Gate { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public void Invalidate() { }
+        public IReadOnlyList<EntitySet> GetEntities()
+        {
+            Reads++;
+            return Array.Empty<EntitySet>();
+        }
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default)
+        {
+            Entered.TrySetResult();
+            return Gate.Task;
+        }
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) => Task.FromResult(false);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Initial_chain_identity_is_preserved_across_the_metadata_stage(bool fault)
+    {
+        var current = new EnvProfile("a", "A", "https://a.example", "tenant", "USMF", "Tier 1", EnvStatus.Connected);
+        var reader = new ScopedSolutionsReader(false);
+        reader.Gate.SetResult(NoSolutions);
+        var metadata = new ScopeChainMetadata();
+        using var vm = new DualWriteMapViewModel(reader, metadata: metadata, activeEnv: () => current);
+        var operation = vm.InitializeCommand.ExecuteAsync(null);
+        await metadata.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        var readsBefore = metadata.Reads;
+        current = current with { Url = "https://changed.example" };
+        if (fault)
+            metadata.Gate.SetException(new InvalidOperationException("OLD_SCOPE_METADATA"));
+        else
+            metadata.Gate.SetResult();
+        await operation.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(readsBefore, metadata.Reads);
+        Assert.Equal(0, reader.MapsCalls);
+        Assert.DoesNotContain("OLD_SCOPE", vm.LoadError);
     }
 }

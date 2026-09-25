@@ -11,6 +11,15 @@ namespace ToolBax.App.Tests;
 /// </summary>
 public class DualWriteMapMarkdownExporterTests
 {
+    [Fact]
+    public void Export_warns_when_embedded_details_are_incomplete()
+    {
+        var record = Record("{\"value\":[{\"msdyn_name\":\"Map\",\"msdyn_mapping\":\"{bad\"}]}");
+        var markdown = DualWriteMapMarkdownExporter.Export(record);
+        Assert.Contains("Warning", markdown);
+        Assert.Contains("incomplete", markdown);
+        Assert.Contains("msdyn_mapping", markdown);
+    }
     private static DwMapRecord Record(string json) => DualWriteMapParser.ParsePage(json).Records.Single();
 
     private const string SampleJson = """
