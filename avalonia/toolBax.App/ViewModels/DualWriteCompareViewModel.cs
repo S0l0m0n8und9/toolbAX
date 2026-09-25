@@ -37,6 +37,18 @@ public sealed record DiffBucket(DualWriteComparisonVerdict Verdict, int Count)
     public string Label => $"{Count} {CompareVerdict.Label(Verdict)}";
 }
 
+/// <summary>Immutable attribution for the profiles that produced the currently displayed result.</summary>
+public sealed record CompareResultContext(
+    string SourceName,
+    string SourceUrl,
+    string TargetName,
+    string TargetUrl,
+    DateTimeOffset CompletedAt)
+{
+    public string Summary =>
+        $"{SourceName} ({SourceUrl}) → {TargetName} ({TargetUrl}) · completed {CompletedAt:yyyy-MM-dd HH:mm:ss zzz}";
+}
+
 /// <summary>
 /// Dual-Write Compare (control-map §5): pick a source and target environment, compare their dual-write
 /// maps (connect each gateway → load maps → diff via the Core <see cref="DualWriteMapComparer"/>), and
@@ -48,7 +60,13 @@ public partial class DualWriteCompareViewModel : ObservableObject, IDisposable
     private readonly IProfileStore _store;
     private readonly IDualWriteCompareService _service;
     private bool _disposed;
-    private int _lifecycleGeneration;
+    private int _selectionGeneration;
+    private int _operationLeaseHeld;
+    private int _ownerSequence;
+    private int _activeOwner;
+    private CancellationTokenSource? _activeCompareCts;
+    private readonly CancellationTokenSource _lifetimeCts = new();
+    private bool _batchingSelectionChanges;
 
     public ObservableCollection<EnvProfile> Environments { get; }
     public ObservableCollection<DualWriteMapComparisonRow> DiffRows { get; } = new();
@@ -90,6 +108,9 @@ public partial class DualWriteCompareViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string? _error;
 
+    [ObservableProperty]
+    private CompareResultContext? _resultContext;
+
     public DualWriteCompareViewModel(IProfileStore store, IDualWriteCompareService service)
     {
         _store = store;
@@ -97,8 +118,6 @@ public partial class DualWriteCompareViewModel : ObservableObject, IDisposable
         Environments = new ObservableCollection<EnvProfile>();
         RefreshEnvironments();
     }
-
-    private bool IsLifecycleCurrent(int generation) => !_disposed && generation == _lifecycleGeneration;
 
     public void Dispose()
     {
@@ -108,11 +127,12 @@ public partial class DualWriteCompareViewModel : ObservableObject, IDisposable
         }
 
         _disposed = true;
-        Interlocked.Increment(ref _lifecycleGeneration);
-        if (CompareCancelCommand.CanExecute(null))
-        {
-            CompareCancelCommand.Execute(null);
-        }
+        Interlocked.Increment(ref _selectionGeneration);
+        ClearResult();
+        Error = null;
+        _lifetimeCts.Cancel();
+        _activeCompareCts?.Cancel();
+        _lifetimeCts.Dispose();
     }
 
     /// <summary>
@@ -122,8 +142,8 @@ public partial class DualWriteCompareViewModel : ObservableObject, IDisposable
     /// stale copy — a URL corrected in Profiles would never reach the compare, and added/deleted profiles
     /// would only appear after an app restart. Selections are preserved by <see cref="EnvProfile.Id"/> and
     /// rebound to the new record instances so their URL/tenant are current; a selection whose profile is
-    /// gone falls back to the defaults. In-flight/previous compare RESULTS are deliberately untouched —
-    /// this only refreshes the pickers.
+    /// gone falls back to the defaults. Selection assignment is batched so transient nulls never invalidate
+    /// an otherwise unchanged result; complete identities are compared once after the rebind.
     /// </summary>
     [RelayCommand]
     private void RefreshEnvironments()
@@ -132,20 +152,69 @@ public partial class DualWriteCompareViewModel : ObservableObject, IDisposable
         {
             return;
         }
-        var sourceId = SelectedSource?.Id;
-        var targetId = SelectedTarget?.Id;
+        var oldSource = SelectedSource;
+        var oldTarget = SelectedTarget;
+        var sourceId = oldSource?.Id;
+        var targetId = oldTarget?.Id;
 
-        Environments.Clear();
-        foreach (var env in _store.GetAll())
+        _batchingSelectionChanges = true;
+        try
         {
-            Environments.Add(env);
+            Environments.Clear();
+            foreach (var env in _store.GetAll())
+            {
+                Environments.Add(env);
+            }
+
+            // Rebind by exact id (the record instance changed), else fall back to the default picks.
+            SelectedSource = ById(sourceId) ?? Environments.FirstOrDefault();
+            SelectedTarget = ById(targetId)
+                ?? Environments.Skip(1).FirstOrDefault()
+                ?? Environments.FirstOrDefault();
+        }
+        finally
+        {
+            _batchingSelectionChanges = false;
         }
 
-        // Rebind by id (the record instance changed), else fall back to the default picks.
-        SelectedSource = ById(sourceId) ?? Environments.FirstOrDefault();
-        SelectedTarget = ById(targetId)
-            ?? Environments.Skip(1).FirstOrDefault()
-            ?? Environments.FirstOrDefault();
+        if (!SameIdentity(oldSource, SelectedSource) || !SameIdentity(oldTarget, SelectedTarget))
+        {
+            InvalidateSelectionScope();
+        }
+    }
+
+    partial void OnSelectedSourceChanged(EnvProfile? oldValue, EnvProfile? newValue) =>
+        OnSelectionChanged(oldValue, newValue);
+
+    partial void OnSelectedTargetChanged(EnvProfile? oldValue, EnvProfile? newValue) =>
+        OnSelectionChanged(oldValue, newValue);
+
+    private void OnSelectionChanged(EnvProfile? oldValue, EnvProfile? newValue)
+    {
+        if (!_batchingSelectionChanges && !SameIdentity(oldValue, newValue))
+        {
+            InvalidateSelectionScope();
+        }
+    }
+
+    private static bool SameIdentity(EnvProfile? left, EnvProfile? right) =>
+        Equals(EnvironmentIdentity.TryCreate(left), EnvironmentIdentity.TryCreate(right));
+
+    private void InvalidateSelectionScope()
+    {
+        Interlocked.Increment(ref _selectionGeneration);
+        ClearResult();
+        Error = null;
+        _activeCompareCts?.Cancel();
+    }
+
+    private void ClearResult()
+    {
+        HasResult = false;
+        ComparedCount = 0;
+        DiffRows.Clear();
+        Summary.Clear();
+        ResultContext = null;
     }
 
     private EnvProfile? ById(string? id) =>
@@ -207,25 +276,45 @@ public partial class DualWriteCompareViewModel : ObservableObject, IDisposable
             : lowered;
     }
 
-    private bool CanRunCompare() => !_disposed && CanCompare && !IsBusy;
+    private bool CanRunCompare() =>
+        !_disposed && CanCompare && !IsBusy && Volatile.Read(ref _operationLeaseHeld) == 0;
 
-    [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanRunCompare))]
-    private async Task Compare(CancellationToken ct)
+    [RelayCommand(CanExecute = nameof(CanRunCompare))]
+    private async Task Compare()
     {
-        if (_disposed || SelectedSource is null || SelectedTarget is null)
+        // ICommand.CanExecute is a UI affordance; direct ExecuteAsync callers still pass through here.
+        if (_disposed || !CanCompare || !TryBeginCompare(out var owner, out var operationCts))
         {
             return;
         }
 
-        var lifecycleGeneration = _lifecycleGeneration;
         var source = SelectedSource;
         var target = SelectedTarget;
-        IsBusy = true;
-        Error = null;
+        var generation = Volatile.Read(ref _selectionGeneration);
+        var sourceIdentity = EnvironmentIdentity.TryCreate(source);
+        var targetIdentity = EnvironmentIdentity.TryCreate(target);
         try
         {
-            var rows = await _service.CompareAsync(source, target, ct);
-            if (!IsLifecycleCurrent(lifecycleGeneration)) return;
+            if (source is null || target is null || sourceIdentity is null || targetIdentity is null) return;
+
+            if (!StoreMatches(source.Id, sourceIdentity) || !StoreMatches(target.Id, targetIdentity))
+            {
+                RefreshEnvironments();
+                if (!_disposed) Error = "Environment selections changed. Check the selections and run Compare again.";
+                return;
+            }
+
+            Error = null;
+            var rows = await _service.CompareAsync(source, target, operationCts.Token);
+            if (!CanCommit(owner, generation, source.Id, sourceIdentity, target.Id, targetIdentity, operationCts))
+            {
+                if (!_disposed && (!StoreMatches(source.Id, sourceIdentity) || !StoreMatches(target.Id, targetIdentity)))
+                {
+                    RefreshEnvironments();
+                    Error = "Environment selections changed. Check the selections and run Compare again.";
+                }
+                return;
+            }
 
             DiffRows.Clear();
             foreach (var row in rows)
@@ -240,29 +329,110 @@ public partial class DualWriteCompareViewModel : ObservableObject, IDisposable
             }
 
             ComparedCount = rows.Count;
+            ResultContext = new CompareResultContext(
+                source.Name, source.Url, target.Name, target.Url, DateTimeOffset.Now);
             HasResult = true;
         }
         catch (OperationCanceledException)
         {
-            if (!IsLifecycleCurrent(lifecycleGeneration)) return;
-            // Cancelled — leave the prior result (if any) untouched.
+            // Preserve the prior result only when the accepted owner's captured selection and saved
+            // identities are still current. A user cancel can race a profile edit, so this check must not
+            // depend on the operation token remaining uncancelled.
+            if (!IsOwnerCurrent(owner) || _disposed || source is null || target is null
+                || sourceIdentity is null || targetIdentity is null
+                || generation != Volatile.Read(ref _selectionGeneration)
+                || !SelectionMatches(SelectedSource, source.Id, sourceIdentity)
+                || !SelectionMatches(SelectedTarget, target.Id, targetIdentity))
+            {
+                return;
+            }
+            if (!StoreMatches(source.Id, sourceIdentity) || !StoreMatches(target.Id, targetIdentity))
+            {
+                RefreshEnvironments();
+                if (!_disposed)
+                    Error = "Environment selections changed. Check the selections and run Compare again.";
+            }
         }
         catch (Exception ex)
         {
-            if (!IsLifecycleCurrent(lifecycleGeneration)) return;
+            if (!IsOwnerCurrent(owner) || operationCts.IsCancellationRequested || _disposed) return;
+            if (source is null || target is null || sourceIdentity is null || targetIdentity is null
+                || generation != Volatile.Read(ref _selectionGeneration)
+                || !SelectionMatches(SelectedSource, source.Id, sourceIdentity)
+                || !SelectionMatches(SelectedTarget, target.Id, targetIdentity))
+            {
+                return;
+            }
+            if (!StoreMatches(source.Id, sourceIdentity) || !StoreMatches(target.Id, targetIdentity))
+            {
+                RefreshEnvironments();
+                Error = "Environment selections changed. Check the selections and run Compare again.";
+                return;
+            }
             Error = ex.Message;
-            HasResult = false;
-            ComparedCount = 0;
-            DiffRows.Clear();
-            Summary.Clear();
+            ClearResult();
         }
         finally
         {
-            if (IsLifecycleCurrent(lifecycleGeneration))
-            {
-                IsBusy = false;
-            }
+            EndCompare(owner, operationCts);
         }
+    }
+
+    [RelayCommand]
+    private void CompareCancel() => _activeCompareCts?.Cancel();
+
+    private bool TryBeginCompare(out int owner, out CancellationTokenSource operationCts)
+    {
+        owner = 0;
+        operationCts = null!;
+        if (_disposed || Interlocked.CompareExchange(ref _operationLeaseHeld, 1, 0) != 0) return false;
+        if (_disposed || IsBusy)
+        {
+            Volatile.Write(ref _operationLeaseHeld, 0);
+            return false;
+        }
+
+        owner = Interlocked.Increment(ref _ownerSequence);
+        operationCts = CancellationTokenSource.CreateLinkedTokenSource(_lifetimeCts.Token);
+        Volatile.Write(ref _activeOwner, owner);
+        _activeCompareCts = operationCts;
+        IsBusy = true;
+        return true;
+    }
+
+    private bool CanCommit(int owner, int generation, string sourceId, EnvironmentIdentity sourceIdentity,
+        string targetId, EnvironmentIdentity targetIdentity, CancellationTokenSource operationCts) =>
+        IsOwnerCurrent(owner) && !_disposed && !operationCts.IsCancellationRequested
+        && generation == Volatile.Read(ref _selectionGeneration)
+        && SelectionMatches(SelectedSource, sourceId, sourceIdentity)
+        && SelectionMatches(SelectedTarget, targetId, targetIdentity)
+        && StoreMatches(sourceId, sourceIdentity)
+        && StoreMatches(targetId, targetIdentity);
+
+    private static bool SelectionMatches(EnvProfile? profile, string id, EnvironmentIdentity identity) =>
+        profile is not null && string.Equals(profile.Id, id, StringComparison.Ordinal)
+        && Equals(EnvironmentIdentity.Create(profile), identity);
+
+    private bool StoreMatches(string id, EnvironmentIdentity identity)
+    {
+        var current = _store.GetAll().FirstOrDefault(p => string.Equals(p.Id, id, StringComparison.Ordinal));
+        return current is not null && Equals(EnvironmentIdentity.Create(current), identity);
+    }
+
+    private bool IsOwnerCurrent(int owner) => Volatile.Read(ref _activeOwner) == owner;
+
+    private void EndCompare(int owner, CancellationTokenSource operationCts)
+    {
+        if (Interlocked.CompareExchange(ref _activeOwner, 0, owner) != owner)
+        {
+            operationCts.Dispose();
+            return;
+        }
+
+        _activeCompareCts = null;
+        operationCts.Dispose();
+        Volatile.Write(ref _operationLeaseHeld, 0);
+        IsBusy = false;
     }
 
     // Counts per verdict, in the enum's canonical order, omitting empty buckets.

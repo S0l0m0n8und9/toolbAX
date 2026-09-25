@@ -59,8 +59,10 @@
     </StackPanel>
 
     <!-- Result scale + summary chips -->
-    <StackPanel Grid.Row="1" Orientation="Horizontal" Spacing="12" IsVisible="{Binding HasResult}"
-                Margin="0,14,0,12">
+    <StackPanel Grid.Row="1" Spacing="6" IsVisible="{Binding HasResult}" Margin="0,14,0,12">
+      <TextBlock x:Name="ResultContextText" Text="{Binding ResultContext.Summary}" FontSize="11.5"
+                 Foreground="{StaticResource Text2Brush}" TextWrapping="Wrap" />
+      <StackPanel Orientation="Horizontal" Spacing="12">
       <!-- The compared count is what separates "nothing came back" from "nothing differs": chips exist only
            for verdicts that actually occurred, so an empty result would otherwise render as a blank row. -->
       <TextBlock x:Name="ComparedCountText" Text="{Binding ComparedSummary}" FontSize="11.5"
@@ -84,6 +86,7 @@
           </DataTemplate>
         </ItemsControl.ItemTemplate>
       </ItemsControl>
+      </StackPanel>
     </StackPanel>
 
     <!-- Body: error, same-env prompt, empty result, or the diff grid -->

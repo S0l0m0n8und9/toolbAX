@@ -23,6 +23,47 @@ namespace ToolBax.App.Tests;
 public class DualWriteCompareViewRenderTests
 {
     [AvaloniaFact]
+    public async Task Attached_selectors_and_result_context_keep_the_captured_pair_after_cosmetic_refresh()
+    {
+        var store = new FakeProfileStore();
+        var vm = new DualWriteCompareViewModel(store, new FakeDualWriteCompareService());
+        var source = vm.SelectedSource!;
+        var target = vm.SelectedTarget!;
+        var view = new DualWriteCompareView { DataContext = vm };
+        var window = new Window { Content = view, Width = 1200, Height = 720 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            await vm.CompareCommand.ExecuteAsync(null);
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            var sourcePick = Assert.IsType<ComboBox>(view.FindControl<ComboBox>("SourcePick"));
+            var targetPick = Assert.IsType<ComboBox>(view.FindControl<ComboBox>("TargetPick"));
+            var context = Assert.IsType<TextBlock>(view.FindControl<TextBlock>("ResultContextText"));
+            Assert.Contains(sourcePick, window.GetVisualDescendants());
+            Assert.Contains(targetPick, window.GetVisualDescendants());
+            Assert.Contains(context, window.GetVisualDescendants());
+            Assert.Contains(source.Name, context.Text);
+            Assert.Contains(source.Url, context.Text);
+            Assert.Contains(target.Name, context.Text);
+            Assert.Contains(target.Url, context.Text);
+
+            store.Save(source with { Name = "Cosmetic rename" });
+            vm.RefreshEnvironmentsCommand.Execute(null);
+            Dispatcher.UIThread.RunJobs();
+
+            Assert.Equal("Cosmetic rename", Assert.IsType<EnvProfile>(sourcePick.SelectedItem).Name);
+            Assert.Contains(source.Name, context.Text);
+            Assert.DoesNotContain("Cosmetic rename", context.Text);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
     public void Renders_two_pickers_and_a_compare_button()
     {
         var view = new DualWriteCompareView
