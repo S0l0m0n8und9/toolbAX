@@ -467,7 +467,14 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         {
             if (_disposed || !ReferenceEquals(session, _session) || (invoked && LastLifecycleReceipt?.AttemptId != receipt.AttemptId)) return;
             if (invoked && string.IsNullOrWhiteSpace(LastLifecycleReceipt?.RequestId))
-                LastLifecycleReceipt = receipt with { Observation = WriteObservation.From((ex as IDualWriteMutationFailure)?.Evidence) };
+            {
+                var evidence = (ex as IDualWriteMutationFailure)?.Evidence;
+                LastLifecycleReceipt = receipt with
+                {
+                    Observation = WriteObservation.From(evidence),
+                    Diagnostic = CompleteGatewayDiagnostic(ex, evidence)
+                };
+            }
             if (!Current(session)) { Status = "Context changed — captured submission evidence retained; reconnect to the original context before readback."; return; }
             if (!invoked) { Status = "Not sent — confirmation stopped or failed."; return; }
             if (LastLifecycleReceipt?.RequestId is { Length: > 0 } id)
@@ -475,8 +482,13 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             else
             {
                 var evidence = (ex as IDualWriteMutationFailure)?.Evidence;
-                LastLifecycleReceipt = receipt with { Observation = WriteObservation.From(evidence) };
-                Status = LastLifecycleReceipt.Observation.Summary;
+                LastLifecycleReceipt = receipt with
+                {
+                    Observation = WriteObservation.From(evidence),
+                    Diagnostic = CompleteGatewayDiagnostic(ex, evidence)
+                };
+                Status = LastLifecycleReceipt.Observation.Summary +
+                    (LastLifecycleReceipt.Diagnostic is null ? "" : $" Gateway detail: {LastLifecycleReceipt.Diagnostic}");
             }
             Log(Status, LogKind.Warn, traceText: "Mutation observation stopped; inspect retained evidence.");
         }
@@ -596,6 +608,12 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         var first = ex.Message.Split('\n', 2)[0].Trim().TrimEnd('.');
         return first.Length == 0 ? ex.GetType().Name : first;
     }
+
+    private static string? CompleteGatewayDiagnostic(Exception exception, DualWriteMutationEvidence? evidence) =>
+        exception is DualWriteGatewayException gateway &&
+        evidence is { StatusCode: not null, BodyComplete: true }
+            ? WriteUiEvidence.FromGateway(gateway)
+            : null;
 
     private bool CanToggleDebug() =>
         !IsBusy && Volatile.Read(ref _operationLeaseHeld) == 0
@@ -725,10 +743,16 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             }
             return false;
         }
-        void Leg(int index, WriteObservation observation, bool pending = false)
+        void Leg(int index, WriteObservation observation, bool pending = false,
+            string? stage = null, string? diagnostic = null)
         {
             if (_disposed || !ReferenceEquals(session, _session) || LastDebugReceipt is not { } r || r.AttemptId != attempt.AttemptId) return;
-            LastDebugReceipt = r with { Projects = r.Projects.SetItem(index, r.Projects[index] with { Observation = observation, Stage = pending ? "Pending" : "Observed" }) };
+            LastDebugReceipt = r with { Projects = r.Projects.SetItem(index, r.Projects[index] with
+            {
+                Observation = observation,
+                Stage = pending ? "Pending" : stage ?? "Observed",
+                Diagnostic = diagnostic
+            }) };
         }
         try
         {
@@ -749,8 +773,19 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
                 if (Stop()) return;
                 var get = await _odata.SendAsync("GET", DebugReadPath(set, projectIds[i]), null, getHeaders, ct);
                 if (Stop()) return;
-                var record = get.IsSuccess ? DualWriteDebugMode.ReadFirstRecord(get.Body) : null;
-                if (record is null) { Leg(i, new WriteObservation(false)); continue; }
+                if (!get.IsSuccess)
+                {
+                    Leg(i, new WriteObservation(false), stage: "Read failed",
+                        diagnostic: WriteUiEvidence.FromReadResponse(get));
+                    continue;
+                }
+                var record = DualWriteDebugMode.ReadFirstRecord(get.Body);
+                if (record is null)
+                {
+                    Leg(i, new WriteObservation(false), stage: "Record missing",
+                        diagnostic: "Read succeeded but the project configuration record was not returned.");
+                    continue;
+                }
                 if (Stop()) return;
                 Leg(i, new WriteObservation(null), pending: true);
                 patchInvoked = true;
@@ -770,7 +805,12 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
                 var observation = ex is ODataWriteCanceledException cancelled
                     ? cancelled.ObservedResponse is { } observed ? WriteObservation.From(observed) : new WriteObservation(cancelled.DispatchStarted)
                     : new WriteObservation(patchInvoked ? null : false);
-                Leg(activeIndex, observation);
+                var diagnostic = patchInvoked ? null : ex is OperationCanceledException
+                    ? "Read cancelled before any write was sent."
+                    : $"Read failed before any write was sent: {WriteUiEvidence.FromException(ex)}";
+                Leg(activeIndex, observation,
+                    stage: patchInvoked ? "Observed" : ex is OperationCanceledException ? "Read cancelled" : "Read failed",
+                    diagnostic: diagnostic);
             }
             if (!Current(session)) { Stop(); return; }
             DebugStatus = patchInvoked ? "Debug write outcome unknown or incompletely observed — stopped waiting. Inspect per-project evidence; remaining projects were not attempted."

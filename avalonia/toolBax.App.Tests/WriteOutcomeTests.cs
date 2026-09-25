@@ -1,5 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Net;
+using System.Net.Http;
 using System.Linq;
 using System.Threading;
 using FoToolbox.Core.DualWrite;
@@ -621,5 +625,124 @@ public sealed class WriteOutcomeTests
         Assert.False(vm.LastReceipt!.Observation.DispatchStarted);
         Assert.Null(vm.LastReceipt.Observation.StatusCode);
         Assert.Contains("Not sent", vm.StatusText);
+    }
+
+    [Theory]
+    [InlineData("http", "HTTP 401")]
+    [InlineData("missing", "record was not returned")]
+    [InlineData("transport", "HttpRequestException")]
+    [InlineData("cancel", "cancelled")]
+    public async Task Debug_project_read_failures_remain_distinct_from_the_not_sent_write(
+        string mode,
+        string expectedDiagnostic)
+    {
+        var client = new Client((verb, _, ct) =>
+        {
+            if (verb == "PATCH") throw new InvalidOperationException("PATCH must not run after a failed read.");
+            return mode switch
+            {
+                "http" => Task.FromResult(new ODataResponse(401, "Unauthorized", "UNBOUNDED-BODY", 12)),
+                "missing" => Task.FromResult(new ODataResponse(200, "OK", "{\"value\":[]}", 8)),
+                "transport" => throw new HttpRequestException("socket reset while reading project configuration"),
+                _ => throw new OperationCanceledException(ct)
+            };
+        });
+        using var vm = new DualWriteOpsViewModel(
+            new FakeDualWriteConnector(), Env, new Dialogs(), odata: client, metadata: new Metadata());
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps[0].IsSelected = true;
+
+        await vm.EnableDebugForSelectedCommand.ExecuteAsync(null);
+
+        var project = Assert.Single(vm.LastDebugReceipt!.Projects);
+        Assert.False(project.Observation!.DispatchStarted);
+        Assert.Contains(project.ProjectId, project.Summary);
+        Assert.Contains("Not sent", project.Summary);
+        Assert.Contains(expectedDiagnostic, project.Summary, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("UNBOUNDED-BODY", project.Summary);
+        Assert.DoesNotContain(client.Calls, call => call.Method == "PATCH");
+    }
+
+    [Fact]
+    public async Task Complete_gateway_rejection_keeps_bounded_UI_reason_without_tracing_it()
+    {
+        const string marker = "VISIBLE-GATEWAY-REJECTION-MARKER";
+        using var trace = new TraceCapture();
+        var gateway = new Gateway
+        {
+            Start = _ => throw new DualWriteGatewayException(
+                $"Dual-write gateway request failed: 502 Bad Gateway. {marker}\r\ncontrol\u0001detail{new string('x', 500)}",
+                HttpStatusCode.BadGateway)
+            {
+                Evidence = new DualWriteMutationEvidence(true, 502, BodyComplete: true)
+            }
+        };
+        using var vm = new DualWriteOpsViewModel(new Connector(gateway), Env, new Dialogs());
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps[0].IsSelected = true;
+
+        await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+
+        Assert.Equal(502, vm.LastLifecycleReceipt!.Observation.StatusCode);
+        Assert.True(vm.LastLifecycleReceipt.Observation.Unconfirmed);
+        Assert.InRange(vm.LastLifecycleReceipt.Diagnostic!.Length, 1, 321);
+        Assert.DoesNotContain('\u0001', vm.LastLifecycleReceipt.Diagnostic);
+        Assert.Contains(marker, vm.LastLifecycleReceipt.Summary);
+        Assert.Contains(marker, vm.Status);
+        Assert.Contains(vm.GatewayLog, entry => entry.Text.Contains(marker, StringComparison.Ordinal));
+        Assert.DoesNotContain(marker, trace.Text);
+        Assert.Contains("Mutation observation stopped", trace.Text);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Post_receipt_keeps_observed_response_elapsed_time(bool cancelled)
+    {
+        var observed = new ODataResponse(503, "Service Unavailable", "", 321)
+        {
+            DispatchStarted = true,
+            BodyComplete = false,
+            BodyReadError = "IOException"
+        };
+        var client = new Client((_, _, ct) => cancelled
+            ? throw new ODataWriteCanceledException(true, observed, new OperationCanceledException(ct), ct)
+            : Task.FromResult(observed));
+        using var vm = new PostBuilderViewModel(client, dialogs: new Dialogs(), activeEnv: Env);
+
+        await vm.SendCommand.ExecuteAsync(null);
+
+        Assert.Contains("321 ms", vm.WriteReceiptText);
+        Assert.Contains("321 ms", vm.StatusText);
+        Assert.True(vm.LastReceipt!.Observation.Unconfirmed);
+    }
+
+    [Fact]
+    public async Task Post_failure_without_observed_response_does_not_invent_elapsed_HTTP_time()
+    {
+        var client = new Client((_, _, _) => throw new HttpRequestException("connection lost"));
+        using var vm = new PostBuilderViewModel(client, dialogs: new Dialogs(), activeEnv: Env);
+
+        await vm.SendCommand.ExecuteAsync(null);
+
+        Assert.DoesNotContain(" ms", vm.WriteReceiptText);
+    }
+
+    private sealed class TraceCapture : IDisposable
+    {
+        private readonly StringWriter _writer = new();
+        private readonly TextWriterTraceListener _listener;
+        public TraceCapture()
+        {
+            _listener = new TextWriterTraceListener(_writer);
+            Trace.Listeners.Add(_listener);
+        }
+        public string Text { get { Trace.Flush(); return _writer.ToString(); } }
+        public void Dispose()
+        {
+            Trace.Listeners.Remove(_listener);
+            _listener.Dispose();
+            _writer.Dispose();
+        }
     }
 }
