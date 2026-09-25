@@ -241,15 +241,15 @@ public sealed class CoreProfileStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Save_round_trips_the_fo_service_principal()
+    public async Task Load_round_trips_a_legacy_fo_certificate_service_principal()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
-        store.Save(new EnvProfile("env1", "One", "https://one", "t", "USMF", "", EnvStatus.Disconnected)
-        {
-            ClientId = "11111111-2222-3333-4444-555555555555",
-            AuthMode = FoAuthMode.Certificate,
-        });
+        var seed = NewService();
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "One", "https://one", "t", "USMF"), ct);
+        await seed.SetSettingAsync("fo.authMode:env1", nameof(FoAuthMode.Certificate), ct);
+        await seed.UpsertServicePrincipalAsync(new ServicePrincipal("env1:fo", "env1",
+            "11111111-2222-3333-4444-555555555555", AuthMode.Certificate, null, "thumb", AuthTarget.Fo), ct);
 
         var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
         var profile = reopened.GetAll().Single(p => p.Id == "env1");
@@ -291,12 +291,11 @@ public sealed class CoreProfileStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Legacy_bearer_token_service_principal_loads_as_interactive()
+    public async Task Legacy_bearer_token_service_principal_loads_as_unsupported()
     {
         // A profile created by the WPF app with a captured/pasted bearer token (AuthMode.BearerToken)
         // and no Avalonia fo.authMode setting. BearerToken is a DELEGATED token mode — not app-only —
-        // so it must surface as Interactive (MFA), not mis-mapped to the client-credentials path (which
-        // rejects BearerToken with "Auth mode 'BearerToken' is not supported for the client-credentials flow").
+        // so it must surface as unsupported in the App rather than silently becoming Interactive.
         var ct = TestContext.Current.CancellationToken;
         var seed = NewService();
         await seed.EnsureCreatedAsync(ct);
@@ -309,11 +308,150 @@ public sealed class CoreProfileStoreTests : IDisposable
         var store = await CoreProfileStore.CreateAsync(NewService(), ct);
 
         var profile = store.GetAll().Single(p => p.Id == "env1");
-        Assert.Equal(FoAuthMode.Interactive, profile.AuthMode);
-        Assert.Equal(FoAuthMode.Interactive, profile.DataverseAuthMode);
-        // The SP's own client id is kept as the interactive client id.
+        Assert.Equal(FoAuthMode.Unsupported, profile.AuthMode);
+        Assert.Equal(FoAuthMode.Unsupported, profile.DataverseAuthMode);
+        // The SP's own client id remains visible for explicit replacement.
         Assert.Equal("client-from-wpf", profile.ClientId);
         Assert.Equal("dv-from-wpf", profile.DataverseClientId);
+    }
+
+    [Fact]
+    public async Task Unrelated_save_preserves_raw_unknown_auth_DI_settings_principals_and_blobs_across_restart()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var seed = NewService();
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "Legacy", "https://legacy", "tenant", "USMF"), ct);
+        await seed.SetSettingAsync("fo.authMode:env1", "FutureAuth", ct);
+        await seed.SetSettingAsync("dv.authMode:env1", "99", ct);
+        await seed.SetSettingAsync("di.mode:env1", "FutureDi", ct);
+        await seed.SetSettingAsync("dw.gatewayUrl:env1", "https://legacy-gateway", ct);
+        await seed.SetSettingAsync(CoreSecretStore.DiSecretRefSettingKey("env1"), "di-row", ct);
+        await seed.UpsertServicePrincipalAsync(new ServicePrincipal(
+            "legacy-fo", "env1", "fo-client", AuthMode.BearerToken, "fo-row", "FO-CERT", AuthTarget.Fo), ct);
+        await seed.UpsertServicePrincipalAsync(new ServicePrincipal(
+            "legacy-dv", "env1", "dv-client", AuthMode.Certificate, "dv-row", "DV-CERT", AuthTarget.Dataverse), ct);
+        InsertVaultRow("fo-row");
+        InsertVaultRow("dv-row");
+        InsertVaultRow("di-row");
+
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        var loaded = Assert.Single(store.GetAll());
+        Assert.Equal(FoAuthMode.Unsupported, loaded.AuthMode);
+        Assert.Equal(FoAuthMode.Unsupported, loaded.DataverseAuthMode);
+        Assert.Equal(DiAuthMode.Unsupported, loaded.DataIntegratorMode);
+
+        store.Save(loaded with { Name = "Renamed" });
+
+        var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
+        Assert.Equal("Renamed", Assert.Single(reopened.GetAll()).Name);
+        Assert.Equal("FutureAuth", await NewService().GetSettingAsync("fo.authMode:env1", ct));
+        Assert.Equal("99", await NewService().GetSettingAsync("dv.authMode:env1", ct));
+        Assert.Equal("FutureDi", await NewService().GetSettingAsync("di.mode:env1", ct));
+        Assert.Equal("https://legacy-gateway", await NewService().GetSettingAsync("dw.gatewayUrl:env1", ct));
+        Assert.Equal("di-row", await NewService().GetSettingAsync(CoreSecretStore.DiSecretRefSettingKey("env1"), ct));
+        var fo = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct);
+        Assert.Equal(("legacy-fo", AuthMode.BearerToken, "fo-row", "FO-CERT"),
+            (fo!.Id, fo.AuthMode, fo.SecretRef, fo.CertThumbprint));
+        var dv = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Dataverse, ct);
+        Assert.Equal(("legacy-dv", AuthMode.Certificate, "dv-row", "DV-CERT"),
+            (dv!.Id, dv.AuthMode, dv.SecretRef, dv.CertThumbprint));
+        Assert.Equal(1, CountVaultRows("fo-row"));
+        Assert.Equal(1, CountVaultRows("dv-row"));
+        Assert.Equal(1, CountVaultRows("di-row"));
+    }
+
+    [Theory]
+    [InlineData(AuthTarget.Fo)]
+    [InlineData(AuthTarget.Dataverse)]
+    public async Task Same_client_legacy_mode_replacement_unbinds_incompatible_credentials_after_upsert(AuthTarget target)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = target == AuthTarget.Fo
+            ? await SeedFoSecretAsync("same-client", "old-row")
+            : await SeedDataverseSecretAsync("same-client", "old-row");
+        var service = NewService();
+        var existing = await service.GetServicePrincipalAsync("env1", target, ct);
+        await service.UpsertServicePrincipalAsync(existing! with
+        {
+            AuthMode = AuthMode.Certificate,
+            CertThumbprint = "OLD-CERT",
+        }, ct);
+        await service.SetSettingAsync(
+            target == AuthTarget.Fo ? "fo.authMode:env1" : "dv.authMode:env1",
+            nameof(FoAuthMode.Certificate), ct);
+        store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        var profile = Assert.Single(store.GetAll());
+        Assert.Equal(FoAuthMode.Certificate,
+            target == AuthTarget.Fo ? profile.AuthMode : profile.DataverseAuthMode);
+
+        store.Save(target == AuthTarget.Fo
+            ? profile with { AuthMode = FoAuthMode.ClientSecret }
+            : profile with { DataverseAuthMode = FoAuthMode.ClientSecret });
+
+        var replaced = await NewService().GetServicePrincipalAsync("env1", target, ct);
+        Assert.Equal(AuthMode.ClientSecret, replaced!.AuthMode);
+        Assert.Null(replaced.SecretRef);
+        Assert.Null(replaced.CertThumbprint);
+        Assert.Equal(0, CountVaultRows("old-row"));
+    }
+
+    [Theory]
+    [InlineData(AuthTarget.Fo)]
+    [InlineData(AuthTarget.Dataverse)]
+    public async Task Failed_same_client_legacy_replacement_preserves_old_row_and_blob(AuthTarget target)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var store = target == AuthTarget.Fo
+            ? await SeedFoSecretAsync("same-client", "old-row")
+            : await SeedDataverseSecretAsync("same-client", "old-row");
+        var service = NewService();
+        var existing = await service.GetServicePrincipalAsync("env1", target, ct);
+        await service.UpsertServicePrincipalAsync(existing! with
+        {
+            AuthMode = AuthMode.Certificate,
+            CertThumbprint = "OLD-CERT",
+        }, ct);
+        await service.SetSettingAsync(
+            target == AuthTarget.Fo ? "fo.authMode:env1" : "dv.authMode:env1",
+            nameof(FoAuthMode.Certificate), ct);
+        store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        var profile = Assert.Single(store.GetAll());
+        RejectServicePrincipalUpdates();
+
+        Assert.Throws<SqliteException>(() => store.Save(target == AuthTarget.Fo
+            ? profile with { AuthMode = FoAuthMode.ClientSecret }
+            : profile with { DataverseAuthMode = FoAuthMode.ClientSecret }));
+
+        var preserved = await NewService().GetServicePrincipalAsync("env1", target, ct);
+        Assert.Equal(AuthMode.Certificate, preserved!.AuthMode);
+        Assert.Equal("old-row", preserved.SecretRef);
+        Assert.Equal("OLD-CERT", preserved.CertThumbprint);
+        Assert.Equal(1, CountVaultRows("old-row"));
+    }
+
+    [Fact]
+    public async Task Changing_client_while_legacy_mode_remains_unsupported_is_rejected_before_environment_write()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var seed = NewService();
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "Legacy", "https://legacy", "tenant", "USMF"), ct);
+        await seed.SetSettingAsync("fo.authMode:env1", "FutureAuth", ct);
+        await seed.UpsertServicePrincipalAsync(new ServicePrincipal(
+            "legacy-fo", "env1", "old-client", AuthMode.BearerToken, "old-row", null, AuthTarget.Fo), ct);
+        InsertVaultRow("old-row");
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        var profile = Assert.Single(store.GetAll());
+
+        var error = Assert.Throws<InvalidOperationException>(() =>
+            store.Save(profile with { Name = "Must not persist", ClientId = "new-client" }));
+
+        Assert.Contains("supported mode", error.Message, StringComparison.OrdinalIgnoreCase);
+        var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
+        Assert.Equal("Legacy", Assert.Single(reopened.GetAll()).Name);
+        Assert.Equal("old-client", (await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct))!.ClientId);
+        Assert.Equal(1, CountVaultRows("old-row"));
     }
 
     [Fact]
@@ -342,7 +480,22 @@ public sealed class CoreProfileStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Interactive_with_no_client_id_falls_back_to_the_default_global_client()
+    public async Task Unknown_core_service_principal_mode_loads_as_unsupported()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var seed = NewService();
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "Legacy", "https://legacy", "tenant", "USMF"), ct);
+        await seed.UpsertServicePrincipalAsync(new ServicePrincipal(
+            "legacy", "env1", "client", (AuthMode)99, "secret-ref", "thumb", AuthTarget.Fo), ct);
+
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+
+        Assert.Equal(FoAuthMode.Unsupported, Assert.Single(store.GetAll()).AuthMode);
+    }
+
+    [Fact]
+    public async Task Bearer_token_with_no_client_id_remains_unsupported_without_inventing_a_client()
     {
         // A delegated (Interactive) environment with no configured client id (e.g. a legacy bearer-token
         // profile whose SP carried no client id) gets Microsoft's global public client so an interactive
@@ -357,8 +510,8 @@ public sealed class CoreProfileStoreTests : IDisposable
         var store = await CoreProfileStore.CreateAsync(NewService(), ct);
 
         var profile = store.GetAll().Single(p => p.Id == "env1");
-        Assert.Equal(FoAuthMode.Interactive, profile.AuthMode);
-        Assert.Equal(FoAuthModeExtensions.DefaultInteractiveClientId, profile.ClientId);
+        Assert.Equal(FoAuthMode.Unsupported, profile.AuthMode);
+        Assert.Null(profile.ClientId);
     }
 
     [Fact]
@@ -422,16 +575,16 @@ public sealed class CoreProfileStoreTests : IDisposable
     }
 
     [Fact]
-    public async Task Save_round_trips_the_dataverse_service_principal()
+    public async Task Load_round_trips_a_legacy_dataverse_certificate_service_principal()
     {
         var ct = TestContext.Current.CancellationToken;
-        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
-        store.Save(new EnvProfile("env1", "One", "https://one", "t", "USMF", "", EnvStatus.Disconnected)
-        {
-            DataverseUrl = "https://ce.example",
-            DataverseClientId = "99999999-8888-7777-6666-555555555555",
-            DataverseAuthMode = FoAuthMode.Certificate,
-        });
+        var seed = NewService();
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "One", "https://one", "t", "USMF"), ct);
+        await seed.UpsertDataverseEnvironmentAsync(new DataverseEnvironment("env1", "https://ce.example", "t"), ct);
+        await seed.SetSettingAsync("dv.authMode:env1", nameof(FoAuthMode.Certificate), ct);
+        await seed.UpsertServicePrincipalAsync(new ServicePrincipal("env1:dataverse", "env1",
+            "99999999-8888-7777-6666-555555555555", AuthMode.Certificate, null, "thumb", AuthTarget.Dataverse), ct);
 
         var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
         var profile = reopened.GetAll().Single(p => p.Id == "env1");
@@ -643,51 +796,6 @@ public sealed class CoreProfileStoreTests : IDisposable
         Assert.Equal("dv-b", sp!.ClientId);
         Assert.Null(sp.SecretRef);
         Assert.Equal(0, CountVaultRows("dv-row-1"));
-    }
-
-    [Fact]
-    public async Task Changing_the_fo_client_id_also_unbinds_the_certificate_thumbprint()
-    {
-        // A certificate is bound to its app registration exactly like a secret: carrying the thumbprint
-        // across a client-id change presents the wrong certificate to AAD.
-        var ct = TestContext.Current.CancellationToken;
-        var seeded = await CoreProfileStore.CreateAsync(NewService(), ct);
-        seeded.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected)
-        {
-            ClientId = "app-a",
-            AuthMode = FoAuthMode.Certificate,
-        });
-        await AttachCertThumbprintAsync("env1", AuthTarget.Fo, "AA11BB22CC33");
-        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
-
-        store.Save(store.GetAll().Single() with { ClientId = "app-b" });
-
-        var sp = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Fo, ct);
-        Assert.NotNull(sp);
-        Assert.Equal("app-b", sp!.ClientId);
-        Assert.Null(sp.CertThumbprint);
-    }
-
-    [Fact]
-    public async Task Changing_the_dataverse_client_id_also_unbinds_the_certificate_thumbprint()
-    {
-        var ct = TestContext.Current.CancellationToken;
-        var seeded = await CoreProfileStore.CreateAsync(NewService(), ct);
-        seeded.Save(new EnvProfile("env1", "One", "https://one", "t", "", "", EnvStatus.Disconnected)
-        {
-            DataverseUrl = "https://ce.example",
-            DataverseClientId = "dv-a",
-            DataverseAuthMode = FoAuthMode.Certificate,
-        });
-        await AttachCertThumbprintAsync("env1", AuthTarget.Dataverse, "DD44EE55FF66");
-        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
-
-        store.Save(store.GetAll().Single() with { DataverseClientId = "dv-b" });
-
-        var sp = await NewService().GetServicePrincipalAsync("env1", AuthTarget.Dataverse, ct);
-        Assert.NotNull(sp);
-        Assert.Equal("dv-b", sp!.ClientId);
-        Assert.Null(sp.CertThumbprint);
     }
 
     // Makes the next service-principal upsert fail at the database, standing in for any write that can't

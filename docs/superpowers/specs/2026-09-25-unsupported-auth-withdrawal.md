@@ -1,6 +1,6 @@
 # Unsupported App authentication withdrawal
 
-Status: Accepted for implementation; H07 in progress.
+Status: Implemented and focused-validated; parent review, latest-main integration, full gates, PR, and merge pending.
 
 ## Objective
 
@@ -14,7 +14,7 @@ This withdrawal does not remove Core authentication APIs, change enum ordinals a
 
 When the selected profile carries an unsupported mode, the tab shows a visible warning: the saved mode is unsupported, unrelated edits preserve its legacy settings, and choosing a supported mode replaces it. The client-ID editor is disabled until a supported replacement is selected. Direct save invocation validates the mode and client change before calling persistence, so bindings and command bypasses cannot create a new unsupported configuration.
 
-Certificate and unknown Core service-principal modes map to `Unsupported`. Core `BearerToken` is also unsupported in the App and remains distinct from Interactive. Only an absent setting with no service-principal row defaults to Interactive.
+Known Certificate values retain `FoAuthMode.Certificate` and their label while remaining outside the supported-mode predicate. Unknown Core service-principal modes and Core `BearerToken` map to `Unsupported`, distinct from Interactive. Only an absent setting with no service-principal row defaults to Interactive.
 
 ## Legacy-preserving persistence
 
@@ -56,3 +56,5 @@ When a loaded profile has legacy DI settings, unknown raw mode text, or a stored
 - Runtime tests prove unsupported F&O/Dataverse modes perform no principal lookup or token acquisition.
 - README and current model comments describe the supported App surface without rewriting historical design archives.
 - Validation is deterministic and offline with headless Avalonia, temporary SQLite/vault data, injected profile/token seams, and `CI=true` Release tests. No live service, authentication, or sign-in is used.
+
+Focused validation passes 193/193 Release tests across Profiles view/model, Shell integration, real `CoreProfileStore` SQLite round trips, `CoreAuthService` snapshot guards, converters, and retained legacy labels. Behavioral RED artifacts and final focused logs/TRX are stored under ignored `artifacts/h07/`. Complete solution gates remain a parent step after integrating the latest main branch.

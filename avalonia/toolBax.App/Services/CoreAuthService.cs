@@ -69,6 +69,8 @@ public sealed class CoreAuthService : IAuthService
             throw new InvalidOperationException("No F&O environment URL is configured.");
         }
 
+        EnsureSupportedAppMode(env.AuthMode, "F&O");
+
         var resourceBase = ResourceUrlNormalizer.NormalizeFoBaseUrl(env.Url);
 
         // Interactive (MFA): a delegated browser sign-in (loopback), scoped to the F&O resource — no
@@ -115,6 +117,9 @@ public sealed class CoreAuthService : IAuthService
             throw new InvalidOperationException("No tenant ID is configured for this environment.");
         }
 
+
+        EnsureSupportedAppMode(env.DataverseAuthMode, "Dataverse");
+
         var resourceBase = ResourceUrlNormalizer.NormalizeDataverseResourceBaseUrl(env.DataverseUrl);
 
         // Interactive (MFA): delegated browser sign-in scoped to the (normalized) Dataverse resource.
@@ -154,7 +159,6 @@ public sealed class CoreAuthService : IAuthService
         var expectedMode = mode switch
         {
             FoAuthMode.ClientSecret => AuthMode.ClientSecret,
-            FoAuthMode.Certificate => AuthMode.Certificate,
             FoAuthMode.Interactive => AuthMode.Interactive,
             _ => throw new InvalidOperationException("The captured profile has an unsupported authentication mode."),
         };
@@ -165,6 +169,15 @@ public sealed class CoreAuthService : IAuthService
                 EnvironmentIdentity.NormalizeIdentifier(principal.ClientId), StringComparison.Ordinal))
         {
             throw new InvalidOperationException("The stored authentication settings changed. Retry using the current environment profile.");
+        }
+    }
+
+    private static void EnsureSupportedAppMode(FoAuthMode mode, string target)
+    {
+        if (mode is not (FoAuthMode.Interactive or FoAuthMode.ClientSecret))
+        {
+            throw new InvalidOperationException(
+                $"The saved {target} authentication mode is unsupported. Choose Interactive or Client secret in Profiles.");
         }
     }
 

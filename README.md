@@ -6,7 +6,8 @@ inspired by XrmToolBox-style workflows. It's an [Avalonia](https://avaloniaui.ne
 
 It provides:
 - Environment/profile management, including a header switcher for the active environment
-- Entra ID auth (MSAL interactive, client secret, certificate)
+- Entra ID auth in the app (MSAL interactive or client secret); legacy certificate profiles are preserved for explicit replacement
+- Data Integrator portal browser sign-in for dual-write; legacy ROPC settings are preserved but not used or offered
 - OData metadata exploration and query tools, with cancellable runs
 - A POST / write (OData) builder with metadata-backed payload validation
 - Dual-write map browser, operations, and compare tooling — row-count checks report capped or

@@ -11,13 +11,14 @@ public enum EnvStatus
 }
 
 /// <summary>
-/// How the (always delegated, never app-only) Data Integrator token is acquired. ROPC uses a stored
-/// service-account credential and fails under MFA (AADSTS50076); Interactive uses a browser sign-in.
+/// Legacy Data Integrator authentication values retained for profile round-trip compatibility. The App
+/// supports portal browser sign-in only; ROPC and unknown values are not offered or dispatched.
 /// </summary>
 public enum DiAuthMode
 {
-    Interactive,
-    Ropc,
+    Unsupported = -1,
+    Interactive = 0,
+    Ropc = 1,
 }
 
 /// <summary>Friendly labels for the Data Integrator auth modes (Profiles DI tab dropdown).</summary>
@@ -35,20 +36,22 @@ public static class DiAuthModeExtensions
     {
         DiAuthMode.Interactive => "Interactive (MFA)",
         DiAuthMode.Ropc => "ROPC (service account)",
+        DiAuthMode.Unsupported => "Unsupported legacy mode",
         _ => mode.ToString(),
     };
 }
 
 /// <summary>
 /// How an F&amp;O / Dataverse connection authenticates. <see cref="Interactive"/> is a delegated browser
-/// sign-in (MFA-capable, no stored secret — the default); ClientSecret/Certificate are app-only
-/// (client-credentials) service-principal modes that mirror the FoToolbox.Core AuthMode values.
+/// sign-in (MFA-capable, no stored secret — the default) and ClientSecret is app-only. Certificate and
+/// unknown values are retained only so legacy records can be displayed and preserved until replacement.
 /// </summary>
 public enum FoAuthMode
 {
-    Interactive,
-    ClientSecret,
-    Certificate,
+    Unsupported = -1,
+    Interactive = 0,
+    ClientSecret = 1,
+    Certificate = 2,
 }
 
 /// <summary>Friendly labels for the F&amp;O / Dataverse auth modes (Profiles dropdowns).</summary>
@@ -62,6 +65,7 @@ public static class FoAuthModeExtensions
         FoAuthMode.Interactive => "Interactive (MFA)",
         FoAuthMode.ClientSecret => "Client secret",
         FoAuthMode.Certificate => "Certificate",
+        FoAuthMode.Unsupported => "Unsupported legacy mode",
         _ => mode.ToString(),
     };
 }

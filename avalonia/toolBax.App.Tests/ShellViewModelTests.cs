@@ -498,6 +498,33 @@ public class ShellViewModelTests
     }
 
     [Fact]
+    public async Task Declined_active_legacy_auth_replacement_preserves_profile_shell_and_supported_draft()
+    {
+        var legacy = new EnvProfile("legacy", "Legacy", "https://legacy.operations.dynamics.com", "tenant",
+            "USMF", "Tier 1", EnvStatus.Disconnected, ClientId: "same-client", AuthMode: FoAuthMode.Certificate);
+        var other = new EnvProfile("other", "Other", "https://other.operations.dynamics.com", "tenant",
+            "DEMF", "Tier 1", EnvStatus.Disconnected);
+        var store = new FakeProfileStore(new[] { legacy, other }) { ActiveId = legacy.Id };
+        var dialogs = new RecordingDialogs(answer: false);
+        var shell = new ShellViewModel(profileStore: store, dialogs: dialogs);
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var queryBefore = shell.CurrentContent;
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
+        var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
+        profiles.Selected = profiles.Profiles.Single(p => p.Id == legacy.Id);
+        profiles.SelectedFoAuthMode = FoAuthMode.ClientSecret;
+
+        await profiles.SaveCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, dialogs.Calls);
+        Assert.Equal(FoAuthMode.Certificate, Assert.Single(store.GetAll(), p => p.Id == legacy.Id).AuthMode);
+        Assert.Equal(FoAuthMode.Certificate, shell.ActiveEnvironment!.AuthMode);
+        Assert.Equal(FoAuthMode.ClientSecret, profiles.DraftAuthMode);
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        Assert.Same(queryBefore, shell.CurrentContent);
+    }
+
+    [Fact]
     public async Task Pending_POST_confirmation_blocks_switch_active_save_and_active_delete()
     {
         var store = new FakeProfileStore();

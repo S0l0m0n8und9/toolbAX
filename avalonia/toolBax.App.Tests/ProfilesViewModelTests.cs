@@ -14,6 +14,55 @@ namespace ToolBax.App.Tests;
 public class ProfilesViewModelTests
 {
     [Fact]
+    public void Offered_auth_modes_exclude_legacy_certificate()
+    {
+        var vm = new ProfilesViewModel(new FakeProfileStore());
+
+        Assert.Equal(new[] { FoAuthMode.Interactive, FoAuthMode.ClientSecret }, vm.AuthModes);
+    }
+
+    [Fact]
+    public async Task Direct_save_cannot_change_client_while_legacy_mode_remains_unsupported()
+    {
+        var original = new EnvProfile("legacy", "Legacy", "https://legacy", "tenant", "USMF", "Tier 1",
+            EnvStatus.Disconnected, ClientId: "old-client", AuthMode: FoAuthMode.Certificate);
+        var store = new FakeProfileStore(new[] { original }) { ActiveId = original.Id };
+        var vm = new ProfilesViewModel(store);
+        vm.DraftName = "Must not persist";
+        vm.DraftClientId = "new-client";
+
+        await vm.SaveCommand.ExecuteAsync(null);
+
+        var persisted = Assert.Single(store.GetAll());
+        Assert.Equal("Legacy", persisted.Name);
+        Assert.Equal("old-client", persisted.ClientId);
+        Assert.Equal(FoAuthMode.Certificate, persisted.AuthMode);
+        Assert.Contains("supported mode", vm.Status, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Declined_active_legacy_replacement_preserves_profile_and_supported_mode_draft()
+    {
+        var original = new EnvProfile("legacy", "Legacy", "https://legacy", "tenant", "USMF", "Tier 1",
+            EnvStatus.Disconnected, ClientId: "same-client", AuthMode: FoAuthMode.Certificate);
+        var store = new FakeProfileStore(new[] { original }) { ActiveId = original.Id };
+        var callbackCalls = 0;
+        var vm = new ProfilesViewModel(store, commitActiveIdentitySave: (_, _) =>
+        {
+            callbackCalls++;
+            return Task.FromResult<string?>("Replacement cancelled.");
+        });
+        vm.SelectedFoAuthMode = FoAuthMode.ClientSecret;
+
+        await vm.SaveCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, callbackCalls);
+        Assert.Equal(FoAuthMode.Certificate, Assert.Single(store.GetAll()).AuthMode);
+        Assert.Equal(FoAuthMode.ClientSecret, vm.DraftAuthMode);
+        Assert.Contains("cancelled", vm.Status, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public void Loads_profiles_and_preselects_the_active_one()
     {
         var vm = new ProfilesViewModel(new FakeProfileStore());
@@ -425,7 +474,7 @@ public class ProfilesViewModelTests
         vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
 
         vm.DraftClientId = "client-xyz";
-        vm.DraftAuthMode = FoAuthMode.Certificate;
+        vm.DraftAuthMode = FoAuthMode.ClientSecret;
         vm.SaveCommand.Execute(null);
 
         Assert.Equal("client-xyz", store.GetAll().Single(p => p.Id == "uat-eur").ClientId);
@@ -434,7 +483,7 @@ public class ProfilesViewModelTests
         vm.Selected = vm.Profiles.Single(p => p.Id == "dev-usmf");
         vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
         Assert.Equal("client-xyz", vm.DraftClientId);
-        Assert.Equal(FoAuthMode.Certificate, vm.DraftAuthMode);
+        Assert.Equal(FoAuthMode.ClientSecret, vm.DraftAuthMode);
     }
 
     [Fact]
@@ -445,18 +494,18 @@ public class ProfilesViewModelTests
         vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
 
         vm.DraftDataverseClientId = "dv-client-xyz";
-        vm.DraftDataverseAuthMode = FoAuthMode.Certificate;
+        vm.DraftDataverseAuthMode = FoAuthMode.ClientSecret;
         vm.SaveCommand.Execute(null);
 
         var saved = store.GetAll().Single(p => p.Id == "uat-eur");
         Assert.Equal("dv-client-xyz", saved.DataverseClientId);
-        Assert.Equal(FoAuthMode.Certificate, saved.DataverseAuthMode);
+        Assert.Equal(FoAuthMode.ClientSecret, saved.DataverseAuthMode);
 
         // Reselect away and back: drafts reload from the saved profile.
         vm.Selected = vm.Profiles.Single(p => p.Id == "dev-usmf");
         vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
         Assert.Equal("dv-client-xyz", vm.DraftDataverseClientId);
-        Assert.Equal(FoAuthMode.Certificate, vm.DraftDataverseAuthMode);
+        Assert.Equal(FoAuthMode.ClientSecret, vm.DraftDataverseAuthMode);
     }
 
     [Fact]
@@ -546,21 +595,6 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
-    public void Di_mode_toggles_ropc_and_interactive_visibility()
-    {
-        var vm = new ProfilesViewModel(new FakeProfileStore());
-        vm.Selected = vm.Profiles.First();
-
-        vm.DraftDiMode = DiAuthMode.Ropc;
-        Assert.True(vm.IsRopc);
-        Assert.False(vm.IsInteractive);
-
-        vm.DraftDiMode = DiAuthMode.Interactive;
-        Assert.False(vm.IsRopc);
-        Assert.True(vm.IsInteractive);
-    }
-
-    [Fact]
     public void Di_default_client_id_matches_the_canonical_dual_write_constant()
     {
         // The VM-facing default (ToolBax.Core.Models) duplicates the canonical FoToolbox value so the
@@ -569,137 +603,25 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
-    public void Di_client_id_defaults_to_the_well_known_first_party_app_when_unset()
+    public void Clear_legacy_password_removes_only_the_DI_secret()
     {
-        // The Data Integrator is a well-known first-party Microsoft app — the user shouldn't have to
-        // supply a client id (the WPF/original tool never does). A profile with no DI client id surfaces
-        // the well-known default so sign-in works out of the box.
-        var vm = new ProfilesViewModel(new FakeProfileStore());
-
-        vm.Selected = vm.Profiles.First();
-
-        Assert.Equal(DiAuthModeExtensions.DefaultDataIntegratorClientId, vm.DraftDiClientId);
-        Assert.True(vm.ShowDiDefaultClientIdNote);
-    }
-
-    [Fact]
-    public void Changing_di_client_id_hides_the_default_note()
-    {
-        var vm = new ProfilesViewModel(new FakeProfileStore());
-        vm.Selected = vm.Profiles.First();
-        Assert.True(vm.ShowDiDefaultClientIdNote);
-
-        vm.DraftDiClientId = "11111111-2222-3333-4444-555555555555";
-
-        Assert.False(vm.ShowDiDefaultClientIdNote);
-    }
-
-    [Fact]
-    public void Existing_custom_di_client_id_is_preserved_over_the_default()
-    {
-        var store = new FakeProfileStore();
-        var vm = new ProfilesViewModel(store);
-        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
-        vm.DraftDiClientId = "custom-di-app-id";
-        vm.SaveCommand.Execute(null);
-
-        // Re-select to reload from the store: a configured custom id is kept, not overwritten by the default.
-        vm.Selected = vm.Profiles.First(p => p.Id != "uat-eur");
-        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
-
-        Assert.Equal("custom-di-app-id", vm.DraftDiClientId);
-        Assert.False(vm.ShowDiDefaultClientIdNote);
-    }
-
-    [Fact]
-    public void Save_persists_di_client_id_and_mode()
-    {
-        var store = new FakeProfileStore();
-        var vm = new ProfilesViewModel(store);
-        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
-
-        vm.DraftDiClientId = "2e49aa60-1bd3-43b6-8ab6-03ada3d9f08b";
-        vm.DraftDiMode = DiAuthMode.Ropc;
-        vm.SaveCommand.Execute(null);
-
-        var saved = store.GetAll().Single(p => p.Id == "uat-eur");
-        Assert.Equal("2e49aa60-1bd3-43b6-8ab6-03ada3d9f08b", saved.DataIntegratorClientId);
-        Assert.Equal(DiAuthMode.Ropc, saved.DataIntegratorMode);
-    }
-
-    [Fact]
-    public void Di_service_account_secret_is_stored_under_its_own_target()
-    {
+        var profile = new EnvProfile("legacy", "Legacy", "https://legacy", "tenant", "USMF", "Tier 1",
+            EnvStatus.Disconnected, DataIntegratorClientId: "legacy-client", DataIntegratorMode: DiAuthMode.Ropc,
+            DualWriteGatewayUrl: "https://legacy-gateway");
+        var store = new FakeProfileStore(new[] { profile }) { ActiveId = profile.Id };
         var secrets = new FakeSecretStore();
-        var vm = new ProfilesViewModel(new FakeProfileStore(), secrets);
-        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+        secrets.SetSecret(profile.Id, "fo-secret");
+        secrets.SetSecret(profile.Id, "di-password", SecretTarget.DataIntegrator);
+        var vm = new ProfilesViewModel(store, secrets);
 
-        vm.DiSecretInput = "svc-password";
-        vm.SaveDiSecretCommand.Execute(null);
+        vm.ClearLegacyDiPasswordCommand.Execute(null);
 
-        Assert.True(vm.HasDiSecret);
-        // The environment id is passed through unchanged; the target is what separates the DI
-        // service-account secret from the environment's F&O client secret.
-        Assert.True(secrets.HasSecret("uat-eur", SecretTarget.DataIntegrator));
-        Assert.False(secrets.HasSecret("uat-eur")); // distinct from the Auth client secret
-        Assert.Equal(string.Empty, vm.DiSecretInput);
-    }
-
-    [Fact]
-    public async Task Interactive_sign_in_reports_the_account()
-    {
-        var vm = new ProfilesViewModel(new FakeProfileStore());
-        vm.Selected = vm.Profiles.First();
-        vm.DraftDiMode = DiAuthMode.Interactive;
-        vm.DraftDiClientId = "client-id";
-
-        await vm.SignInCommand.ExecuteAsync(null);
-
-        Assert.Contains("Signed in as", vm.DiStatus);
-        Assert.False(vm.IsSigningIn);
-    }
-
-    [Fact]
-    public async Task Sign_in_without_a_client_id_prompts_for_one()
-    {
-        var broker = new ThrowingBroker();
-        var vm = new ProfilesViewModel(new FakeProfileStore(), broker: broker);
-        vm.Selected = vm.Profiles.First();
-        vm.DraftDiMode = DiAuthMode.Interactive;
-        vm.DraftDiClientId = "";
-
-        await vm.SignInCommand.ExecuteAsync(null);
-
-        Assert.Contains("client ID", vm.DiStatus);
-        Assert.False(broker.WasCalled); // guarded before reaching the broker
-    }
-
-    [Fact]
-    public async Task Cancelled_sign_in_reports_cancellation_not_failure()
-    {
-        var vm = new ProfilesViewModel(new FakeProfileStore(), broker: new CancellingBroker());
-        vm.Selected = vm.Profiles.First();
-        vm.DraftDiMode = DiAuthMode.Interactive;
-        vm.DraftDiClientId = "client-id";
-
-        await vm.SignInCommand.ExecuteAsync(null);
-
-        Assert.Equal("Sign-in cancelled.", vm.DiStatus);
-    }
-
-    [Fact]
-    public void Changing_di_mode_clears_the_status()
-    {
-        var vm = new ProfilesViewModel(new FakeProfileStore());
-        vm.Selected = vm.Profiles.First();
-        vm.DraftDiMode = DiAuthMode.Ropc;
-        vm.DiSecretInput = "x";
-        vm.SaveDiSecretCommand.Execute(null);
-        Assert.NotEqual(string.Empty, vm.DiStatus);
-
-        vm.DraftDiMode = DiAuthMode.Interactive;
-
-        Assert.Equal(string.Empty, vm.DiStatus);
+        Assert.False(secrets.HasSecret(profile.Id, SecretTarget.DataIntegrator));
+        Assert.True(secrets.HasSecret(profile.Id));
+        var preserved = Assert.Single(store.GetAll());
+        Assert.Equal("legacy-client", preserved.DataIntegratorClientId);
+        Assert.Equal(DiAuthMode.Ropc, preserved.DataIntegratorMode);
+        Assert.Equal("https://legacy-gateway", preserved.DualWriteGatewayUrl);
     }
 
     [Fact]
@@ -734,7 +656,7 @@ public class ProfilesViewModelTests
     {
         var vm = new ProfilesViewModel(new FakeProfileStore());
 
-        Assert.Equal(new[] { FoAuthMode.Interactive, FoAuthMode.ClientSecret, FoAuthMode.Certificate }, vm.AuthModes);
+        Assert.Equal(new[] { FoAuthMode.Interactive, FoAuthMode.ClientSecret }, vm.AuthModes);
 
         vm.AddProfileCommand.Execute(null); // a brand-new environment
         Assert.Equal(FoAuthMode.Interactive, vm.DraftAuthMode);
@@ -799,7 +721,7 @@ public class ProfilesViewModelTests
 
         vm.DraftAuthMode = FoAuthMode.ClientSecret;
         Assert.True(vm.IsFoClientSecretMode);
-        vm.DraftAuthMode = FoAuthMode.Certificate;
+        vm.DraftAuthMode = FoAuthMode.Interactive;
         Assert.False(vm.IsFoClientSecretMode);
     }
 
@@ -829,37 +751,6 @@ public class ProfilesViewModelTests
             throw new PlatformNotSupportedException("The DPAPI secret vault is Windows-only.");
 
         public void ClearSecret(string key, SecretTarget target = SecretTarget.Fo) { }
-    }
-
-    [Fact]
-    public void Storing_a_di_secret_that_cannot_persist_keeps_the_entry_and_reports_no_success()
-    {
-        // The DI secret used to be written under a key the real store didn't recognise: nothing was
-        // stored, yet the UI cleared the box and said "Service-account secret stored."
-        var vm = new ProfilesViewModel(new FakeProfileStore(), new NoOpSecretStore());
-        vm.Selected = vm.Profiles.First();
-        vm.DiSecretInput = "svc-password";
-
-        vm.SaveDiSecretCommand.Execute(null);
-
-        Assert.False(vm.HasDiSecret);
-        Assert.Equal("svc-password", vm.DiSecretInput);        // not discarded
-        Assert.DoesNotContain("secret stored", vm.DiStatus);   // no false confirmation
-    }
-
-    [Fact]
-    public void Di_secret_storage_failure_is_reported_not_thrown()
-    {
-        var vm = new ProfilesViewModel(new FakeProfileStore(), new ThrowingSecretStore());
-        vm.Selected = vm.Profiles.First();
-        vm.DiSecretInput = "svc-password";
-
-        vm.SaveDiSecretCommand.Execute(null);
-
-        Assert.Contains("Could not store", vm.DiStatus);
-        Assert.Contains("DPAPI", vm.DiStatus);                 // the underlying reason surfaces
-        Assert.Equal("svc-password", vm.DiSecretInput);         // not discarded
-        Assert.False(vm.HasDiSecret);
     }
 
     [Fact]
