@@ -43,6 +43,7 @@ The header records which Windows composition backend the run asked for (requeste
 
 ### Running the release
 
+- Product targets are Windows 10 or Windows 11 (x64), using an edition/build listed by both [.NET 10 support guidance](https://github.com/dotnet/core/blob/main/release-notes/10.0/supported-os.md) and [WebView2 supported Windows versions](https://learn.microsoft.com/en-us/microsoft-edge/webview2/#supported-windows-versions). This is a vendor-qualified prerequisite, not a per-build toolbAX certification claim.
 - The published Windows x64 zip includes its .NET runtime.
 - WebView2 Runtime is a separate prerequisite; see [Microsoft's distribution guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution) and follow your organisation's installation/security policy.
 - Releases are unsigned; use your organisation's download approval policy.

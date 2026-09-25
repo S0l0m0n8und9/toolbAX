@@ -2,7 +2,7 @@
 
 ## Runtime prerequisites
 
-The published `toolbAX-win-x64.zip` is self-contained: it bundles its .NET runtime. The SDK in [`global.json`](../global.json) is for building source, not normal release use.
+The product targets Windows 10 or Windows 11 (x64), using an edition/build listed by both [.NET 10 support guidance](https://github.com/dotnet/core/blob/main/release-notes/10.0/supported-os.md) and [WebView2 supported Windows versions](https://learn.microsoft.com/en-us/microsoft-edge/webview2/#supported-windows-versions). This is a vendor-qualified prerequisite, not a per-build toolbAX certification claim. The published `toolbAX-win-x64.zip` is self-contained: it bundles its .NET runtime. The SDK in [`global.json`](../global.json) is for building source, not normal release use.
 
 WebView2 is compiled for Windows but its Runtime is separate. Confirm availability through [Microsoft's WebView2 distribution guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution); follow organisation policy for installation and security prompts. A bundled .NET runtime does not imply WebView2 Runtime availability.
 

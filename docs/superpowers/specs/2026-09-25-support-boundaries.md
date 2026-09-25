@@ -1,6 +1,6 @@
 # Support boundaries (H15)
 
-Document the self-contained win-x64 release separately from the build SDK; WebView2 Runtime is a separate prerequisite. Describe product capabilities rather than certification, distinguish App UI from Core-only APIs, preserve unsigned/checksum evidence limits, and retain external-management compatibility limits.
+Document Windows 10/11 x64 targets through both vendor support boundaries ([.NET 10](https://github.com/dotnet/core/blob/main/release-notes/10.0/supported-os.md) and [WebView2](https://learn.microsoft.com/en-us/microsoft-edge/webview2/#supported-windows-versions)), without claiming per-build certification. Document the self-contained win-x64 release separately from the build SDK; WebView2 Runtime is a separate prerequisite. Describe product capabilities rather than certification, distinguish App UI from Core-only APIs, preserve unsigned/checksum evidence limits, and retain external-management compatibility limits.
 
 ## Pre-mortem
 
