@@ -138,6 +138,15 @@ public sealed class EnvironmentIdentityTests
     }
 
     [Fact]
+    public void URL_userinfo_case_is_preserved_like_the_shared_request_normalizer()
+    {
+        var before = Profile() with { Url = "HTTPS://User:Pass@HOST.example/Path" };
+        var after = before with { Url = "https://user:pass@host.example/Path" };
+        Assert.Equal("https://User:Pass@host.example/Path", EnvironmentIdentity.Create(before).FoEndpoint);
+        Assert.NotEqual(EnvironmentIdentity.Create(before), EnvironmentIdentity.Create(after));
+    }
+
+    [Fact]
     public void Unused_legacy_data_integrator_fields_do_not_change_current_live_identity()
     {
         var before = Profile();

@@ -28,8 +28,8 @@ public sealed record EnvironmentIdentity(
         ArgumentNullException.ThrowIfNull(profile);
         return new EnvironmentIdentity(
             profile.Id,
-            NormalizeUrl(ResourceUrlNormalizer.NormalizeFoBaseUrl(profile.Url)),
-            NormalizeUrl(ResourceUrlNormalizer.NormalizeDataverseResourceBaseUrl(profile.DataverseUrl ?? string.Empty)),
+            ResourceUrlNormalizer.NormalizeFoBaseUrl(profile.Url),
+            ResourceUrlNormalizer.NormalizeDataverseResourceBaseUrl(profile.DataverseUrl ?? string.Empty),
             NormalizeIdentifier(profile.Tenant),
             NormalizeIdentifier(profile.ClientId),
             profile.AuthMode,
@@ -79,15 +79,4 @@ public sealed record EnvironmentIdentity(
         return "envmeta-v1:" + Convert.ToHexStringLower(SHA256.HashData(stream.ToArray()));
     }
 
-    private static string NormalizeUrl(string value)
-    {
-        if (!Uri.TryCreate(value, UriKind.Absolute, out var uri))
-        {
-            return value;
-        }
-
-        var authority = uri.GetLeftPart(UriPartial.Authority).ToLowerInvariant();
-        var suffix = uri.PathAndQuery + uri.Fragment;
-        return suffix == "/" ? authority : authority + suffix;
-    }
 }
