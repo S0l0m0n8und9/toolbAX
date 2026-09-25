@@ -497,6 +497,12 @@ public sealed class CoreProfileStoreTests : IDisposable
         Assert.Equal(oldRef, (await NewService().GetServicePrincipalAsync("env1", target, ct))!.SecretRef);
         Assert.Equal(1, CountVaultRows(oldRef));
 
+        if (target == AuthTarget.Fo) vm.ClearSecretCommand.Execute(null);
+        else vm.ClearDataverseSecretCommand.Execute(null);
+
+        Assert.Equal(oldRef, (await NewService().GetServicePrincipalAsync("env1", target, ct))!.SecretRef);
+        Assert.Equal(1, CountVaultRows(oldRef));
+
         await vm.SaveCommand.ExecuteAsync(null);
         if (target == AuthTarget.Fo)
         {

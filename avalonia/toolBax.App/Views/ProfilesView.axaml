@@ -177,7 +177,8 @@
                            PlaceholderText="Enter a new secret to store" FontFamily="{StaticResource MonoFontFamily}" />
                   <Button x:Name="FoSecretStoreButton" Grid.Column="2" Content="Store" Command="{Binding SaveSecretCommand}"
                           IsEnabled="{Binding CanStoreFoClientSecret}" />
-                  <Button Grid.Column="3" Content="Clear" Command="{Binding ClearSecretCommand}" />
+                  <Button x:Name="FoSecretClearButton" Grid.Column="3" Content="Clear"
+                          Command="{Binding ClearSecretCommand}" IsEnabled="{Binding CanStoreFoClientSecret}" />
                 </Grid>
                 <TextBlock x:Name="FoSecretSaveFirstHint" IsVisible="{Binding ShowFoSecretSaveFirstHint}"
                            Text="Save authentication changes before entering a client secret." FontSize="11"
@@ -251,7 +252,8 @@
                            PlaceholderText="Enter a new Dataverse secret to store" FontFamily="{StaticResource MonoFontFamily}" />
                   <Button x:Name="DataverseSecretStoreButton" Grid.Column="2" Content="Store" Command="{Binding SaveDataverseSecretCommand}"
                           IsEnabled="{Binding CanStoreDataverseClientSecret}" />
-                  <Button Grid.Column="3" Content="Clear" Command="{Binding ClearDataverseSecretCommand}" />
+                  <Button x:Name="DataverseSecretClearButton" Grid.Column="3" Content="Clear"
+                          Command="{Binding ClearDataverseSecretCommand}" IsEnabled="{Binding CanStoreDataverseClientSecret}" />
                 </Grid>
                 <TextBlock x:Name="DataverseSecretSaveFirstHint" IsVisible="{Binding ShowDataverseSecretSaveFirstHint}"
                            Text="Save authentication changes before entering a client secret." FontSize="11"

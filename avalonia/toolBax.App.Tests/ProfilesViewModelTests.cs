@@ -24,6 +24,7 @@ public class ProfilesViewModelTests
     {
         private readonly Dictionary<(string Key, SecretTarget Target), string> _values = new();
         public int SetCalls { get; private set; }
+        public int ClearCalls { get; private set; }
         public void Seed(string key, string value, SecretTarget target) => _values[(key, target)] = value;
         public string? Value(string key, SecretTarget target) =>
             _values.TryGetValue((key, target), out var value) ? value : null;
@@ -33,7 +34,11 @@ public class ProfilesViewModelTests
             SetCalls++;
             _values[(key, target)] = plaintext;
         }
-        public void ClearSecret(string key, SecretTarget target = SecretTarget.Fo) => _values.Remove((key, target));
+        public void ClearSecret(string key, SecretTarget target = SecretTarget.Fo)
+        {
+            ClearCalls++;
+            _values.Remove((key, target));
+        }
     }
 
     [Fact]
@@ -148,6 +153,14 @@ public class ProfilesViewModelTests
         Assert.Equal("new-secret", dataverse ? vm.DataverseSecretInput : vm.SecretInput);
         Assert.Contains("Save authentication changes", vm.Status, StringComparison.OrdinalIgnoreCase);
 
+        if (dataverse) vm.ClearDataverseSecretCommand.Execute(null);
+        else vm.ClearSecretCommand.Execute(null);
+
+        Assert.Equal(0, secrets.ClearCalls);
+        Assert.Equal("legacy-secret", secrets.Value(profile.Id, target));
+        Assert.Equal("new-secret", dataverse ? vm.DataverseSecretInput : vm.SecretInput);
+        Assert.Contains("Save authentication changes", vm.Status, StringComparison.OrdinalIgnoreCase);
+
         await vm.SaveCommand.ExecuteAsync(null);
 
         Assert.Equal(dataverse ? FoAuthMode.Certificate : FoAuthMode.Certificate,
@@ -186,6 +199,64 @@ public class ProfilesViewModelTests
         await vm.SaveCommand.ExecuteAsync(null);
 
         Assert.Equal("new-secret", secrets.Value(profile.Id, target));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void Saved_matching_ClientSecret_clear_removes_only_its_target(bool dataverse)
+    {
+        var profile = SavedClientSecretProfile();
+        var store = new FakeProfileStore(new[] { profile }) { ActiveId = profile.Id };
+        var secrets = new RecordingSecretStore();
+        secrets.Seed(profile.Id, "fo-secret", SecretTarget.Fo);
+        secrets.Seed(profile.Id, "dv-secret", SecretTarget.Dataverse);
+        var vm = new ProfilesViewModel(store, secrets);
+
+        if (dataverse) vm.ClearDataverseSecretCommand.Execute(null);
+        else vm.ClearSecretCommand.Execute(null);
+
+        var target = dataverse ? SecretTarget.Dataverse : SecretTarget.Fo;
+        var other = dataverse ? SecretTarget.Fo : SecretTarget.Dataverse;
+        Assert.Null(secrets.Value(profile.Id, target));
+        Assert.NotNull(secrets.Value(profile.Id, other));
+        Assert.Equal(1, secrets.ClearCalls);
+    }
+
+    [Theory]
+    [InlineData(false, "client")]
+    [InlineData(false, "tenant")]
+    [InlineData(true, "client")]
+    [InlineData(true, "tenant")]
+    public void Pending_saved_ClientSecret_identity_change_blocks_store_and_clear(bool dataverse, string change)
+    {
+        var profile = SavedClientSecretProfile();
+        var store = new FakeProfileStore(new[] { profile }) { ActiveId = profile.Id };
+        var target = dataverse ? SecretTarget.Dataverse : SecretTarget.Fo;
+        var secrets = new RecordingSecretStore();
+        secrets.Seed(profile.Id, "old-secret", target);
+        var vm = new ProfilesViewModel(store, secrets);
+        if (change == "tenant") vm.DraftTenant = "other-tenant";
+        else if (dataverse) vm.DraftDataverseClientId = "other-dv-client";
+        else vm.DraftClientId = "other-fo-client";
+        if (dataverse)
+        {
+            vm.DataverseSecretInput = "new-secret";
+            vm.SaveDataverseSecretCommand.Execute(null);
+            vm.ClearDataverseSecretCommand.Execute(null);
+        }
+        else
+        {
+            vm.SecretInput = "new-secret";
+            vm.SaveSecretCommand.Execute(null);
+            vm.ClearSecretCommand.Execute(null);
+        }
+
+        Assert.Equal(0, secrets.SetCalls);
+        Assert.Equal(0, secrets.ClearCalls);
+        Assert.Equal("old-secret", secrets.Value(profile.Id, target));
+        Assert.Equal("new-secret", dataverse ? vm.DataverseSecretInput : vm.SecretInput);
+        Assert.Contains("Save authentication changes", vm.Status, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

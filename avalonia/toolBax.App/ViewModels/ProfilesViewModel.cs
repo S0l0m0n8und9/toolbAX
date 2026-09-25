@@ -514,6 +514,11 @@ public partial class ProfilesViewModel : ObservableObject
         {
             return;
         }
+        if (!CanStoreFoClientSecret)
+        {
+            Status = "Save authentication changes before clearing the client secret.";
+            return;
+        }
 
         _secrets.ClearSecret(Selected.Id);
         OnPropertyChanged(nameof(HasSecret));
@@ -559,6 +564,11 @@ public partial class ProfilesViewModel : ObservableObject
     {
         if (Selected is null)
         {
+            return;
+        }
+        if (!CanStoreDataverseClientSecret)
+        {
+            Status = "Save authentication changes before clearing the client secret.";
             return;
         }
 

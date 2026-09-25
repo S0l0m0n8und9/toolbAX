@@ -107,10 +107,12 @@ public sealed class ProfilesAuthWithdrawalRenderTests
 
             var input = view.FindControl<TextBox>("FoSecretInput");
             var store = view.FindControl<Button>("FoSecretStoreButton");
+            var clear = view.FindControl<Button>("FoSecretClearButton");
             var hint = view.FindControl<TextBlock>("FoSecretSaveFirstHint");
             Assert.Contains(input!, window.GetVisualDescendants());
             Assert.False(input!.IsEnabled);
             Assert.False(store!.IsEnabled);
+            Assert.False(clear!.IsEnabled);
             Assert.True(hint!.IsEffectivelyVisible);
         }
         finally
@@ -133,10 +135,12 @@ public sealed class ProfilesAuthWithdrawalRenderTests
 
             var input = view.FindControl<TextBox>("DataverseSecretInput");
             var store = view.FindControl<Button>("DataverseSecretStoreButton");
+            var clear = view.FindControl<Button>("DataverseSecretClearButton");
             var hint = view.FindControl<TextBlock>("DataverseSecretSaveFirstHint");
             Assert.Contains(input!, window.GetVisualDescendants());
             Assert.False(input!.IsEnabled);
             Assert.False(store!.IsEnabled);
+            Assert.False(clear!.IsEnabled);
             Assert.True(hint!.IsEffectivelyVisible);
         }
         finally
