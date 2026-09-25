@@ -1446,6 +1446,28 @@ public class DualWriteMapViewModelTests
     }
 
     [Fact]
+    public async Task Dispose_during_successful_field_fetch_stops_before_FO_dispatch()
+    {
+        var env = new EnvSwitch();
+        var reader = new FilterLegReader("CustomerV3Entity", "(ISONETIMECUSTOMER != NoYes::Yes)");
+        var metadata = new GatedFieldMetadataService("CustomerV3", "IsOneTimeCustomer");
+        var odata = new CountODataClient(42);
+        var vm = new DualWriteMapViewModel(reader, odata: odata, metadata: metadata, activeEnv: env.Get);
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        var counting = vm.CountAllRowsCommand.ExecuteAsync(null);
+        await metadata.Entered.Task;
+        vm.Dispose();
+        metadata.Gate.TrySetResult();
+        await counting;
+
+        var row = vm.CountRows.Single();
+        Assert.Equal(0, odata.Calls);
+        Assert.Null(odata.LastPath);
+        Assert.Null(row.FoCount);
+    }
+
+    [Fact]
     public async Task Without_a_switch_the_field_fetch_still_leads_to_a_corrected_count()
     {
         // The re-check above must not misfire on an unchanged environment: same gated fetch, no switch.

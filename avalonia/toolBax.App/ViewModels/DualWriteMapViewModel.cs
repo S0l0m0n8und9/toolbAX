@@ -556,6 +556,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         if (_foEntityNames.Count == 0)
         {
             await LoadFoEntityNamesAsync(ct);
+            if (_disposed) return;
 
             // An await this run's entry guard predates: the shell can switch environments during the
             // catalogue fetch, and those names then describe a different environment than the displayed
@@ -638,6 +639,11 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     // consistent with the loaded environment at the moment they were read.
     private bool StopCountIfEnvChanged(MapLegCountRow row, bool ceStillPending)
     {
+        if (_disposed)
+        {
+            return true;
+        }
+
         if (!EnvChangedSinceLoad())
         {
             return false;
@@ -757,11 +763,13 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     // literal against an enum property's qualified type.
     private async Task<IReadOnlyList<EntityField>?> FoFieldsAsync(string entity, CancellationToken ct)
     {
+        if (_disposed) return null;
         if (_metadata.GetFields(entity) is null)
         {
             try
             {
                 await _metadata.LoadFieldsAsync(entity, ct);
+                if (_disposed) return null;
             }
             catch (Exception) when (!ct.IsCancellationRequested)
             {
@@ -769,6 +777,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
             }
         }
 
+        if (_disposed) return null;
         return _metadata.GetFields(entity);
     }
 
