@@ -10,4 +10,4 @@ Document the self-contained win-x64 release separately from the build SDK; WebVi
 4. Smoke/checksum mistaken for certification/signature: state evidence limits.
 5. External management API mistaken for stable support: cite its as-is compatibility disclaimer.
 
-No workflow, signing, installer, or runtime installation change is proposed.
+No workflow, signing, installer, or runtime installation change is proposed. Parent-observed final local validation passed both `CI=true` Release builds with 0 warnings/errors, App 1,188/1,188 and Core 432/432; source/link review only supports this copy boundary, not live backend claims.
