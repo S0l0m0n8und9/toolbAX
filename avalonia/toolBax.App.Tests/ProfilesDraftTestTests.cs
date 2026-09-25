@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Runtime.CompilerServices;
 using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.Input;
@@ -529,5 +530,96 @@ public sealed class ProfilesDraftTestTests
         Assert.Single(tester.Calls);
         Assert.Contains("invalid draft URL", TestStatus(vm, kind));
         Assert.False(Busy(vm, kind));
+    }
+
+    private sealed class AbandonedProbeTester : IConnectionTester, IDualWriteGatewayTester
+    {
+        private readonly TaskCompletionSource<ConnectionTestResult> _connection =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<DwGatewayTestResult> _gateway =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Original(string kind) => kind == "gateway" ? _gateway.Task : _connection.Task;
+        public void Fault(string kind, string canary)
+        {
+            var error = new InvalidOperationException(canary);
+            if (kind == "gateway") _gateway.SetException(error);
+            else _connection.SetException(error);
+        }
+        public Task<ConnectionTestResult> TestFoAsync(EnvProfile env, CancellationToken ct = default) => _connection.Task;
+        public Task<ConnectionTestResult> TestDataverseAsync(EnvProfile env, CancellationToken ct = default) => _connection.Task;
+        public Task<DwGatewayTestResult> TestAsync(EnvProfile env, CancellationToken ct = default) => _gateway.Task;
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static WeakReference UnobservedControl(string canary)
+    {
+        var source = new TaskCompletionSource();
+        source.SetException(new InvalidOperationException(canary));
+        return new WeakReference(source.Task);
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static async Task<WeakReference> CancelThenAbandonFaultingProbe(string kind, string canary)
+    {
+        var tester = new AbandonedProbeTester();
+        using var vm = new ProfilesViewModel(new Store(), connectionTester: tester, gatewayTester: tester);
+        var command = Command(vm, kind);
+        var accepted = command.ExecuteAsync(null);
+        command.Cancel();
+        await accepted.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.False(tester.Original(kind).IsCompleted); // prompt cancellation, before the ignored probe settles
+        var cancelledStatus = TestStatus(vm, kind);
+        Assert.Contains("cancelled", cancelledStatus);
+        var weak = new WeakReference(tester.Original(kind));
+        tester.Fault(kind, canary);
+        // Wait for completion without observing the antecedent's exception. This continuation reads no result.
+        await tester.Original(kind).ContinueWith(static _ => { }, CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously, TaskScheduler.Default);
+        Assert.Equal(cancelledStatus, TestStatus(vm, kind));
+        return weak;
+    }
+
+    [Theory]
+    [InlineData("fo")]
+    [InlineData("dv")]
+    [InlineData("gateway")]
+    public async Task Cancelled_probe_late_fault_is_observed_without_global_error_publication(string kind)
+    {
+        var canary = "h08a-late-probe-" + Guid.NewGuid().ToString("N");
+        var controlCanary = canary + "-control";
+        var lateFaults = 0;
+        var controlFaults = 0;
+        EventHandler<UnobservedTaskExceptionEventArgs> onUnobserved = (_, args) =>
+        {
+            foreach (var error in args.Exception.Flatten().InnerExceptions)
+            {
+                if (error.Message == canary) Interlocked.Increment(ref lateFaults);
+                else if (error.Message == controlCanary) Interlocked.Increment(ref controlFaults);
+                else continue;
+                args.SetObserved();
+            }
+        };
+        TaskScheduler.UnobservedTaskException += onUnobserved;
+        try
+        {
+            var probe = await CancelThenAbandonFaultingProbe(kind, canary);
+            var control = UnobservedControl(controlCanary);
+            // Bounded collection cycles; a collected positive control proves this exercised finalization.
+            for (var attempt = 0; attempt < 12 && (probe.IsAlive || control.IsAlive); attempt++)
+            {
+                GC.Collect();
+                GC.WaitForPendingFinalizers();
+                GC.Collect();
+                await Task.Yield();
+            }
+            Assert.False(control.IsAlive);
+            Assert.False(probe.IsAlive);
+            Assert.Equal(1, Volatile.Read(ref controlFaults));
+            Assert.Equal(0, Volatile.Read(ref lateFaults));
+        }
+        finally
+        {
+            TaskScheduler.UnobservedTaskException -= onUnobserved;
+        }
     }
 }

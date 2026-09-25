@@ -792,14 +792,14 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
             ConnectionTestResult result;
             if (kind == ProbeKind.Gateway)
             {
-                var gateway = await _gatewayTester.TestAsync(snapshot, ct).WaitAsync(ct);
+                var gateway = await WaitForProbeAsync(_gatewayTester.TestAsync(snapshot, ct), ct);
                 result = new ConnectionTestResult(gateway.IsSuccess, gateway.Message);
             }
             else
             {
-                result = await (kind == ProbeKind.Fo
+                result = await WaitForProbeAsync(kind == ProbeKind.Fo
                     ? _connectionTester.TestFoAsync(snapshot, ct)
-                    : _connectionTester.TestDataverseAsync(snapshot, ct)).WaitAsync(ct);
+                    : _connectionTester.TestDataverseAsync(snapshot, ct), ct);
             }
             ct.ThrowIfCancellationRequested();
             if (!IsCurrentProbe(snapshot, generation)) return;
@@ -814,6 +814,23 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
         catch (Exception ex)
         {
             if (IsCurrentProbe(snapshot, generation)) SetProbeStatus(kind, $"{attribution} failed: {ex.Message}");
+        }
+    }
+
+    private static async Task<T> WaitForProbeAsync<T>(Task<T> probe, CancellationToken ct)
+    {
+        try
+        {
+            return await probe.WaitAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // WaitAsync detaches from an unfinished probe when cancelled. Observe a later fault on
+            // that original task without retaining the VM, publishing/logging, or delaying cancellation.
+            _ = probe.ContinueWith(static completed => { _ = completed.Exception; }, CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            throw;
         }
     }
 
