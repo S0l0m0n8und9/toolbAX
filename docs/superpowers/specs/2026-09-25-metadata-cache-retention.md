@@ -1,6 +1,6 @@
 # Metadata cache retention
 
-Status: Accepted for implementation. PR 218 P2; parent-approved scope, 2026-09-25.
+Status: Implemented and validated at `03bebff70c0e43243875d938f8bcda8c4276fe7e` in PR 218; latest-head CI/review and merge pending.
 
 After successful housekeeping, retain three unleased `catalog-meta-v1` metadata partition groups per
 exact ordinal profile ID, plus every partition leased by an in-flight operation in this process.
@@ -37,5 +37,10 @@ or strict cross-process retention guarantee is made; existing external-change sn
 | Cleanup invents freshness or removes only some known representations. | Do not touch timestamps; delete the selected group atomically. Exercise same-ETag XML/full/index/details, restart and A-B-A reuse within the limit. |
 
 Validation is local only: real temporary SQLite stores, fake HTTP handlers, controlled task gates,
-bounded watchdogs where necessary, and no sleeps or live tenant calls. Parent runs full suites after
-the P1/P2 source freeze; implementation owns focused RED/GREEN evidence.
+bounded watchdogs where necessary, and no sleeps or live tenant calls. Focused RED/GREEN evidence and
+the complete post-freeze solution gates are recorded below.
+
+The behavioral RED retained five partition groups where the configured bound required three. The focused
+retention suite passes 49/49 after implementation. At the combined source head both CI-strict Release
+solutions build with 0 warnings/errors; the complete App suite passes 1,131/1,131 and Core passes 403/403,
+with no failures or skips.

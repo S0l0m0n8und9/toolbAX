@@ -10,14 +10,14 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-25-environment-consistency-design.md`
 
-**Status:** Implemented and validated at `bc00be270972abd8a40c2cf6c264488868b68aa4`; pending PR review and merge.
+**Status:** Implemented and validated at `03bebff70c0e43243875d938f8bcda8c4276fe7e` in open PR #218; latest-head CI/review and merge pending.
 
 ## Implementation outcome
 
 - `EnvironmentIdentity` directly reuses the shared Core `ResourceUrlNormalizer`, preserving opaque profile/company values and case-sensitive URL suffixes.
 - Metadata is partitioned across persistent parsed/index/details/XML/memo/ETag/lock state by a stable versioned SHA-256 identity partition, while Tables/imports retain H08b semantics. Tagged Catalog requests and app-only principal lookup fail closed on captured-context drift.
 - Shell/Profile transitions, requests, dual-write sessions, loaded links, exports, counts, and cached view models use captured profiles plus complete identity/generation/disposal guards. Late work cannot dispatch or publish after invalidation.
-- Focused RED/GREEN cycles covered cache/auth, transaction, and lifecycle failures. Final CI-strict Release builds completed with 0 warnings/errors; full suites passed 1,127/1,127 App and 394/394 Core tests, with 0 failed/skipped.
+- Focused RED/GREEN cycles covered cache/auth, transaction, lifecycle, overlapping Operations writes, and bounded metadata retention. Final CI-strict Release builds completed with 0 warnings/errors; full suites passed 1,131/1,131 App and 403/403 Core tests, with 0 failed/skipped.
 - Validation was offline. H03 write-outcome uncertainty and H09 aggregate atomic/asynchronous profile-secret persistence remain outside this implementation.
 
 ### Implemented cache and authentication addendum
@@ -27,12 +27,14 @@
 - All three Catalog HTTP construction paths attach `CatalogRequestContext.MetadataCachePartition`. `AuthenticatedHttpHandler` validates the active identity, partition, and origin before authentication, then rechecks identity and partition after token acquisition before dispatch. Tagged requests cannot bypass these checks through anonymous or pre-authorized paths.
 - `CoreAuthService.ValidatePrincipalSnapshot` binds app-only F&O and Dataverse principal rows to the captured profile's exact environment ID, target, normalized client ID, and auth mode before invoking the broker. Missing or mismatched rows fail closed, including the tested A-B-A lookup case.
 - Real `CatalogService`/temporary `CatalogStore` tests isolate same-ETag metadata across service restarts and warmed memo state while proving normalized aliases reuse the partition, request URI/profile ID remain unchanged, and imported Tables survive.
+- The accepted [metadata cache retention design](../specs/2026-09-25-metadata-cache-retention.md) bounds retained identity history to three unleased partition groups per exact profile ID plus all locally leased groups. Cleanup is atomic, best effort, and process coordinated; it preserves unknown/import data and does not promise physical SQLite file shrinkage.
 
 ### Implemented view-model lifecycle behavior
 
 - Shell serializes header/Profile activation and active-identity saves, rechecks mutation and target drift after confirmation, persists before publishing, rolls back visible selection on failure, and invalidates cached tools only after a successful commit.
 - Query, POST, Metadata, Compare, Operations, Map Browser, Virtual Tables, and `EntityCatalogLoader` capture immutable operation scope and use cancellation, generation, and disposal checks at entry and after awaits. A discarded VM cannot dispatch a later leg, publish a late result/error, open a picker, copy/open a stale link, or retain a late gateway.
 - POST sends the exact approved request snapshot. Dual-write sessions carry a get-only captured profile and identity. Retained Map/Virtual links use their loaded profile, while disposed commands refuse to act.
+- Operations lifecycle, both debug commands, and connect/load share one atomic, non-queuing operation lease. Only the acquirer clears `MutationInProgress`/`IsBusy`; direct competing commands cannot queue, dispatch, reconnect, or remove Shell's active-write guard.
 
 ## Global Constraints
 

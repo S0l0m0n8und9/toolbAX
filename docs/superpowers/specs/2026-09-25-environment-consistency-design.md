@@ -1,7 +1,7 @@
 # Environment Consistency — Design
 
 Date: 2026-09-25  
-Status: Implemented and validated; pending PR review and merge
+Status: Implemented and validated in open PR 218; latest-head CI/review and merge pending
 Campaign item: H01, with the `CoreProfileStore.ActiveId` ordering portion of H09
 
 ## Problem
@@ -89,6 +89,8 @@ Each load captures one profile, its identity, the derived `FoEnvironment`, and t
 
 `FoToolbox.Core.Models.FoEnvironment` has one optional init-only `[JsonIgnore] string? MetadataCachePartition`. It does not alter `Id`, request routing, authentication, or the SQL profile schema. `CoreMetadataService` derives the value from the same single captured `EnvironmentIdentity` used for its front-cache generation and attaches it to the captured `FoEnvironment`.
 
+Partition growth is bounded by the accepted [metadata cache retention design](2026-09-25-metadata-cache-retention.md): retain three unleased metadata partition groups per exact profile ID plus all groups leased by in-flight work in this process. Cleanup is best effort and count bounded; SQLite reuses deleted pages but the database file need not shrink.
+
 The partition is deterministic and explicitly versioned. Serialize the identity fields in a fixed declared order using field names plus UTF-8 byte lengths and bytes; serialize auth enums with invariant numeric values. Hash those bytes with SHA-256 and emit a stable value such as `envmeta-v1:<lowercase hex>`. Do not use `GetHashCode()`, record/object `ToString()`, runtime-dependent JSON defaults, or a delimiter-only concatenation. Normalized endpoint aliases and cosmetic profile edits therefore reuse a partition; profile id, case-sensitive URL suffix, tenant/client/mode, and exact company changes produce a different partition.
 
 `CatalogService` separates table identity from metadata identity:
@@ -123,6 +125,8 @@ POST captures identity and the exact approved method, path, body, and headers be
 `DualWriteSession` carries the captured immutable `EnvProfile` and derived `EnvironmentIdentity`; `EnvId` remains a convenience property. Real and fake connectors populate the snapshot.
 
 Operations compares the session identity with the current full identity at every existing guard. Connect/load also uses a local generation and disposed flag. A session returned after invalidation is disposed before assignment. Lifecycle actions and debug toggles expose a mutation-in-progress flag covering their confirmation and all network phases, allowing Shell to reject a switch rather than disposing an accepted write.
+
+Lifecycle actions, both debug commands, and connect/load also share one atomic non-queuing operation lease. The successful acquirer sets `MutationInProgress` and `IsBusy` before any confirmation or network await and alone clears them in `finally`. Direct command calls that bypass `CanExecute` are refused without queueing, dispatching, reconnecting, or clearing another operation's Shell guard.
 
 `CoreDualWriteMapReader` reuses `EnvironmentIdentity` instead of its private string recipe. Multi-page loads pin the Dataverse API base derived from their single captured profile and stop/discard when current identity changes.
 
@@ -169,7 +173,7 @@ This applies to Query, POST read initialization, Metadata, Map Browser, Virtual 
 
 All proof is deterministic and local: xUnit, headless Avalonia, controlled task gates, fake HTTP handlers, and the two complete CI-strict Release solution gates. No Dataverse, F&O, gateway, portal, or tenant sign-in is used.
 
-Validated source head: `bc00be270972abd8a40c2cf6c264488868b68aa4`. The CI-strict Release builds for `avalonia/toolBax.slnx` and `FoToolbox.sln` completed with 0 warnings and 0 errors. Their complete test suites passed 1,127/1,127 App tests and 394/394 Core tests, with 0 failed or skipped. H01 is implemented and locally validated; the campaign tracker intentionally keeps completion pending until PR review, any observed Greptile findings, and merge are complete.
+Validated source head: `03bebff70c0e43243875d938f8bcda8c4276fe7e`. The CI-strict Release builds for `avalonia/toolBax.slnx` and `FoToolbox.sln` completed with 0 warnings and 0 errors. Their complete test suites passed 1,131/1,131 App tests and 403/403 Core tests, with 0 failed or skipped. The two observed PR #218 Greptile findings are fixed locally in `8a7dd8a` and `03bebff`; H01 remains pending latest-head remote CI/review, discussion resolution, and merge.
 
 ## Out of scope
 
