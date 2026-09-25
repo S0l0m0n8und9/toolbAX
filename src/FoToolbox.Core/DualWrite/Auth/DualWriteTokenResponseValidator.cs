@@ -134,8 +134,7 @@ internal static class DualWriteTokenResponseValidator
             }
             actualTenant = idTenant;
         }
-        else if (actualTenant == Guid.Empty || endpointNeedsIdentityMetadata ||
-                 parsedConstraint.Kind == TenantConstraintKind.Domain)
+        else if (actualTenant == Guid.Empty || endpointNeedsIdentityMetadata)
         {
             return (null, "Token response did not include required tenant metadata.");
         }

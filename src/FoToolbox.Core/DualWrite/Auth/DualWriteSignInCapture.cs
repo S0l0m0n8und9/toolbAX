@@ -84,6 +84,7 @@ public sealed class DualWriteSignInCapture
         cancellationToken.ThrowIfCancellationRequested();
         lock (_stateGate)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (IsCompleteUnderLock()) return false;
         }
 
@@ -96,6 +97,7 @@ public sealed class DualWriteSignInCapture
         cancellationToken.ThrowIfCancellationRequested();
         lock (_stateGate)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (IsCompleteUnderLock()) return false;
             if (token is null)
             {

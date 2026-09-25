@@ -6,6 +6,8 @@ The product targets Windows 10 or Windows 11 (x64), using an edition/build liste
 
 WebView2 is compiled for Windows but its Runtime is separate. Confirm availability through [Microsoft's WebView2 distribution guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution); follow organisation policy for installation and security prompts. A bundled .NET runtime does not imply WebView2 Runtime availability.
 
+Dual-write portal sign-in uses a dedicated toolbAX WebView2 profile under the current user's local app data. Before each sign-in, toolbAX clears that profile's token-bearing browser storage and disk cache so the configured environment completes a fresh verifiable exchange. Normal sign-in preserves cookies for SSO; **Switch account** also clears cookies so Entra prompts again. This does not clear a normal Edge or Chrome profile. Closing the window cancels the attempt; an incomplete sign-in is never used as a partial connection. If browser preparation fails, close any other toolbAX sign-in window and retry; persistent failures usually require checking the WebView2 Runtime and access to the toolbAX local app-data folder.
+
 Releases are unsigned. The published SHA256 checks downloaded bytes against the published checksum; it is not a publisher signature. Follow organisation policy for download approval and SmartScreen.
 
 ## App capabilities

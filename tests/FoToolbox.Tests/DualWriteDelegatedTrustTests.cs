@@ -183,6 +183,20 @@ public sealed class DualWriteDelegatedCaptureTests
     }
 
     [Theory]
+    [InlineData("11111111-1111-1111-1111-111111111111", true)]
+    [InlineData("22222222-2222-2222-2222-222222222222", false)]
+    public async Task Domain_constraint_accepts_matching_concrete_guid_endpoint_without_id_token(
+        string endpointTenant,
+        bool accepted)
+    {
+        var capture = new DualWriteSignInCapture("contoso.example", new FixedResolver(TenantA), () => Now);
+
+        Assert.Equal(accepted, await capture.ObserveTokenExchangeAsync(
+            Exchange(endpointTenant, "opaque", Response("opaque")),
+            CancellationToken.None));
+    }
+
+    [Theory]
     [InlineData("guid", "common")]
     [InlineData("guid", "organizations")]
     [InlineData("guid", "contoso.example")]

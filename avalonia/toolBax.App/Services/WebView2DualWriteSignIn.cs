@@ -28,6 +28,7 @@ namespace ToolBax.App.Services;
 public sealed class WebView2DualWriteSignIn : IDualWriteSignIn
 {
     private readonly Window _owner;
+    private readonly DualWriteSignInSequencer _sequencer = new();
 
     public WebView2DualWriteSignIn(Window owner) => _owner = owner;
 
@@ -38,37 +39,33 @@ public sealed class WebView2DualWriteSignIn : IDualWriteSignIn
             throw new InvalidOperationException("Set the F&O environment URL first.");
         }
 
-        // The portal's axenv identifier is the F&O environment URL (the WPF plugin passes BaseUrl as-is;
-        // the gateway lookup normalises it to a host later). The title names the environment so a sign-in
-        // is attributable to the environment that asked for it.
-        var dialog = new DualWriteSignInDialog(env.Url, DualWriteSignInTitle.For(env), switchAccount);
-        using var reg = ct.CanBeCanceled
-            ? ct.Register(() => Dispatcher.UIThread.Post(dialog.Close))
-            : default;
-
-        var capture = dialog.ResultAsync();
-        await dialog.ShowDialog(_owner).ConfigureAwait(true);
-        return await capture.ConfigureAwait(true);
+        return await _sequencer.RunAsync(
+            () => new DualWriteSignInDialog(_owner, env, switchAccount), ct).ConfigureAwait(true);
     }
 }
 
 /// <summary>The modal sign-in window: a full-window WebView2 host that captures the token + gateway.</summary>
 [SupportedOSPlatform("windows")]
-internal sealed class DualWriteSignInDialog : Window
+internal sealed class DualWriteSignInDialog : Window, IDualWriteSignInAttempt
 {
+    private readonly Window _owner;
     private readonly string _foIdentifier;
     private readonly bool _switchAccount;
-    private readonly DualWriteSignInCapture _capture = new();
+    private readonly DualWriteSignInCapture _capture;
     private readonly WebView2Host _host = new();
+    private readonly CancellationTokenSource _lifetime = new();
     private readonly TaskCompletionSource<DualWriteSignInResult?> _tcs =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private Task _preparationTask = Task.CompletedTask;
     private bool _completed;
 
-    public DualWriteSignInDialog(string foIdentifier, string title, bool switchAccount)
+    public DualWriteSignInDialog(Window owner, EnvProfile env, bool switchAccount)
     {
-        _foIdentifier = foIdentifier;
+        _owner = owner;
+        _foIdentifier = env.Url;
         _switchAccount = switchAccount;
-        Title = title;
+        _capture = DualWriteNativeCapture.Create(env);
+        Title = DualWriteSignInTitle.For(env);
         Width = 920;
         Height = 760;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -77,11 +74,31 @@ internal sealed class DualWriteSignInDialog : Window
         Closed += OnClosed;
     }
 
-    /// <summary>Resolves with the captured result (null if cancelled / nothing captured).</summary>
-    public Task<DualWriteSignInResult?> ResultAsync() => _tcs.Task;
-
-    private void OnBrowserReady(object? sender, EventArgs e)
+    public async Task<DualWriteSignInResult?> RunAsync(CancellationToken cancellationToken)
     {
+        using var registration = cancellationToken.Register(Cancel);
+        await ShowDialog(_owner).ConfigureAwait(true);
+        return await _tcs.Task.ConfigureAwait(true);
+    }
+
+    public void Cancel()
+    {
+        if (!_lifetime.IsCancellationRequested) _lifetime.Cancel();
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (IsVisible) Close();
+        });
+    }
+
+    public async Task DrainPreparationAsync()
+    {
+        try { await _preparationTask.ConfigureAwait(true); }
+        catch { /* The controlled failure already completed the dialog. */ }
+    }
+
+    private async void OnBrowserReady(object? sender, EventArgs e)
+    {
+        if (_completed || _lifetime.IsCancellationRequested) return;
         var browser = _host.Browser;
         if (browser is null)
         {
@@ -92,54 +109,79 @@ internal sealed class DualWriteSignInDialog : Window
             return;
         }
 
-        // "Switch account": forget the persisted browser session so Entra re-prompts.
-        if (_switchAccount)
+        _preparationTask = PrepareBrowserAsync(browser);
+        try
         {
-            try
-            {
-                browser.CookieManager.DeleteAllCookies();
-            }
-            catch
-            {
-                // Best-effort: fall through to a normal (cached) sign-in if clearing fails.
-            }
+            await _preparationTask.ConfigureAwait(true);
+        }
+        catch (Exception ex)
+        {
+            if (!_lifetime.IsCancellationRequested)
+                Fail(DualWriteSignInFailure.BrowserPreparationError(ex));
+            return;
         }
 
-        browser.WebResourceResponseReceived += OnResponseReceived;
-        browser.Navigate(DualWriteAuthConstants.BuildSignInUrl(_foIdentifier));
+        // Preparation owns navigation and rechecks dialog lifetime after the uninterruptible clear.
+    }
+
+    private Task PrepareBrowserAsync(CoreWebView2 browser)
+    {
+        var policy = DualWriteBrowserPreparation.ResetKinds(_switchAccount);
+        var kinds = CoreWebView2BrowsingDataKinds.DiskCache |
+                    (policy.HasFlag(DualWriteBrowserDataKinds.Cookies)
+                        ? CoreWebView2BrowsingDataKinds.AllSite
+                        : CoreWebView2BrowsingDataKinds.AllDomStorage);
+        return DualWriteBrowserPreparation.PrepareAndNavigateAsync(
+            () => browser.Profile.ClearBrowsingDataAsync(kinds),
+            () =>
+            {
+                browser.WebResourceResponseReceived += OnResponseReceived;
+                browser.Navigate(DualWriteAuthConstants.BuildSignInUrl(_foIdentifier));
+            },
+            () => _completed || _lifetime.IsCancellationRequested);
     }
 
     private async void OnResponseReceived(object? sender, CoreWebView2WebResourceResponseReceivedEventArgs e)
     {
-        if (_completed)
+        if (_completed || _lifetime.IsCancellationRequested) return;
+        var request = e.Request;
+        if (request is null) return;
+        try
         {
-            return;
-        }
-
-        var url = e.Request?.Uri;
-        _capture.ObserveUrl(url);
-
-        if (DualWriteSignInCapture.IsTokenEndpoint(url))
-        {
-            try
+            if (DualWriteSignInCapture.IsTokenEndpoint(request.Uri))
             {
-                using var stream = await e.Response.GetContentAsync();
-                if (stream is not null)
-                {
-                    using var reader = new StreamReader(stream);
-                    _capture.ObserveTokenResponseBody(await reader.ReadToEndAsync());
-                }
+                var observation = await DualWriteCommittedResponseReader.ReadTokenExchangeAsync(
+                    request.Uri,
+                    request.Method,
+                    Header(request, "Content-Type"),
+                    request.Content,
+                    e.Response.StatusCode,
+                    async () => await e.Response.GetContentAsync(),
+                    _lifetime.Token).ConfigureAwait(true);
+                if (observation is not null)
+                    await _capture.ObserveTokenExchangeAsync(observation, _lifetime.Token).ConfigureAwait(true);
             }
-            catch
+
+            var gateway = DualWriteCommittedResponseReader.CreateGatewayObservation(
+                request.Uri, Header(request, "Authorization"), e.Response.StatusCode);
+            if (gateway is not null)
             {
-                // Body not retained/available — keep watching.
+                _capture.ObserveGatewayResponse(gateway);
             }
         }
+        catch (OperationCanceledException) { return; }
+        catch { return; }
 
-        if (_capture.IsComplete)
+        if (!_completed && !_lifetime.IsCancellationRequested && _capture.IsComplete)
         {
             Complete(_capture.Result);
         }
+    }
+
+    private static string? Header(CoreWebView2WebResourceRequest request, string name)
+    {
+        try { return request.Headers.GetHeader(name); }
+        catch { return null; }
     }
 
     private void Complete(DualWriteSignInResult? result)
@@ -150,6 +192,7 @@ internal sealed class DualWriteSignInDialog : Window
         }
 
         _completed = true;
+        _lifetime.Cancel();
         _tcs.TrySetResult(result);
         Dispatcher.UIThread.Post(Close);
     }
@@ -168,18 +211,20 @@ internal sealed class DualWriteSignInDialog : Window
         }
 
         _completed = true;
+        _lifetime.Cancel();
         _tcs.TrySetException(error);
         Dispatcher.UIThread.Post(Close);
     }
 
     private void OnClosed(object? sender, EventArgs e)
     {
-        // Closed before an API call pinned the regional gateway → fall back to the best-effort result so a
-        // manual close still works (mirrors the WPF window).
+        _lifetime.Cancel();
+        if (_host.Browser is { } browser)
+            browser.WebResourceResponseReceived -= OnResponseReceived;
         if (!_completed)
         {
             _completed = true;
-            _tcs.TrySetResult(_capture.BestEffortResult);
+            _tcs.TrySetResult(null);
         }
     }
 }
