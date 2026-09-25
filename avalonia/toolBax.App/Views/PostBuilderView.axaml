@@ -31,14 +31,18 @@
               ToolTip.Tip="Cancel the in-flight send" />
     </Grid>
 
-    <!-- If-Match (optimistic concurrency) — only relevant for PATCH/DELETE -->
-    <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="8" Margin="0,0,0,6"
+    <!-- If-Match conditional write — only relevant for PATCH/DELETE -->
+    <StackPanel Grid.Row="2" Orientation="Vertical" Spacing="3" Margin="0,0,0,6"
                 VerticalAlignment="Center" IsVisible="{Binding ShowIfMatch}">
-      <CheckBox Content="If-Match" VerticalAlignment="Center" IsChecked="{Binding UseIfMatch, Mode=TwoWay}"
-                ToolTip.Tip="Send an If-Match header for optimistic concurrency" />
-      <TextBox Width="220" Text="{Binding IfMatch, Mode=TwoWay}" IsEnabled="{Binding UseIfMatch}"
-               FontFamily="Cascadia Code,Consolas,monospace"
-               ToolTip.Tip="&quot;*&quot; (any version) or a specific ETag" />
+      <StackPanel Orientation="Horizontal" Spacing="8">
+        <CheckBox Content="If-Match" VerticalAlignment="Center" IsChecked="{Binding UseIfMatch, Mode=TwoWay}"
+                  ToolTip.Tip="Send a conditional If-Match header on PATCH or DELETE." />
+        <TextBox Width="220" Text="{Binding IfMatch, Mode=TwoWay}" IsEnabled="{Binding UseIfMatch}"
+                 FontFamily="Cascadia Code,Consolas,monospace"
+                 ToolTip.Tip="&quot;*&quot; (any version) or a specific ETag" />
+      </StackPanel>
+      <TextBlock Text="When enabled, * matches any existing version. Use the record’s ETag to request a version check where supported."
+                 TextWrapping="Wrap" FontSize="{StaticResource FontSizeCaption}" Foreground="{StaticResource Text2Brush}" />
     </StackPanel>
 
     <!-- Computed request URL preview -->
