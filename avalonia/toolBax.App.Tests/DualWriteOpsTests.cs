@@ -630,8 +630,7 @@ public class DualWriteOpsTests
     [Fact]
     public async Task A_user_cancel_during_polling_is_still_reported_as_a_cancel()
     {
-        // Guards the catch above from swallowing a genuine cancel: the token the user cancelled is ours, so
-        // this must stay "Cancelled." rather than being dressed up as a submitted-but-unpollable action.
+        // User cancellation stops polling; it must not erase the submission or imply rollback.
         var connector = new FakeDualWriteConnector(pollsBeforeTerminal: int.MaxValue);
         var vm = MakeVm(connector, confirm: true);
         await vm.LoadCommand.ExecuteAsync(null);

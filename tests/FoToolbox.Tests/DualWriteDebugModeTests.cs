@@ -65,4 +65,12 @@ public class DualWriteDebugModeTests
     [InlineData(null)]
     public void ReadFirstRecord_is_null_when_no_usable_record(string? json)
         => Assert.Null(DualWriteDebugMode.ReadFirstRecord(json));
-}
+    [Theory]
+    [InlineData(2)]
+    [InlineData(-1)]
+    public void ReadFirstRecord_unknown_numeric_debug_flag_is_not_enabled(int value)
+    {
+        var record = DualWriteDebugMode.ReadFirstRecord("{\"@odata.id\":\"u\",\"IsDebugMode\":" + value + "}");
+        Assert.NotNull(record);
+        Assert.Null(record!.IsDebugMode);
+    }}

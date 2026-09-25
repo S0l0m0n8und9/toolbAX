@@ -144,7 +144,7 @@ public class PostBuilderViewRenderTests
             send.GetAwaiter().GetResult();
             Dispatcher.UIThread.RunJobs();
 
-            Assert.Equal("Send cancelled.", vm.StatusText);
+            Assert.Contains("Outcome unknown", vm.StatusText);
             Assert.False(cancel.IsVisible);
         }
         finally

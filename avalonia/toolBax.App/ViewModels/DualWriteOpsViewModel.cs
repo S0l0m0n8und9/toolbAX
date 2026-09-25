@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.Immutable;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -42,6 +43,44 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     private int _generation;
     private int _operationLeaseHeld;
     private bool _disposed;
+    private CancellationTokenSource? _acceptedCancellation;
+    private DualWriteSession? _lifecycleSession;
+    private DualWriteSession? _debugSession;
+    private bool _lastWasDebug;
+    public IAsyncRelayCommand RunActionCommand { get; }
+    public IRelayCommand RunActionCancelCommand { get; }
+    public IAsyncRelayCommand EnableDebugForSelectedCommand { get; }
+    public IAsyncRelayCommand DisableDebugForSelectedCommand { get; }
+    public IAsyncRelayCommand ReconcileCommand { get; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasWriteReceipt))]
+    [NotifyPropertyChangedFor(nameof(WriteReceiptText))]
+    [NotifyPropertyChangedFor(nameof(ReconcileReason))]
+    private LifecycleWriteReceipt? _lastLifecycleReceipt;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasWriteReceipt))]
+    [NotifyPropertyChangedFor(nameof(WriteReceiptText))]
+    [NotifyPropertyChangedFor(nameof(ReconcileReason))]
+    private DebugWriteReceipt? _lastDebugReceipt;
+    [ObservableProperty] private string _readbackText = string.Empty;
+    public bool HasWriteReceipt => LastLifecycleReceipt is not null || LastDebugReceipt is not null;
+    public string WriteReceiptText => string.Join("\n\n", new[] { LastLifecycleReceipt?.Summary, LastDebugReceipt?.Summary }.Where(s => s is not null));
+    public string ReconcileReason
+    {
+        get
+        {
+            var session = _lastWasDebug ? _debugSession : _lifecycleSession;
+            if (!HasWriteReceipt) return "No captured write to inspect.";
+            if (!Current(session)) return "Readback disabled: the captured session or environment changed; no profile will be switched automatically.";
+            if (_lastWasDebug && LastDebugReceipt?.EntitySet is null) return "No captured project-configuration entity; inspect these projects manually in Query Builder.";
+            return "";
+        }
+    }
+    private bool Current(DualWriteSession? session) => !_disposed && session is not null && ReferenceEquals(session, _session) && session.Identity.IsCurrent(_activeEnv());
+    private string PriorWarning(EnvironmentIdentity identity) =>
+        (LastLifecycleReceipt is { Unconfirmed: true } lifecycle && lifecycle.Scope.Identity == identity) ||
+        (LastDebugReceipt is { Unconfirmed: true } debug && debug.Scope.Identity == identity)
+            ? " A prior write in this environment remains unconfirmed. Inspect its current state before a separate new attempt." : "";
 
     public ObservableCollection<MapRowViewModel> Maps { get; } = new();
 
@@ -73,6 +112,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     [NotifyCanExecuteChangedFor(nameof(RunActionCommand))]
     [NotifyCanExecuteChangedFor(nameof(EnableDebugForSelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(DisableDebugForSelectedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ReconcileCommand))]
     private bool _isBusy;
 
     /// <summary>True from the start of mutation confirmation/auth through submit, polling, and refresh.</summary>
@@ -111,6 +151,15 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         IODataClient? odata = null,
         IMetadataService? metadata = null)
     {
+        RunActionCommand = new WriteOperationCommand((arg, ct) => arg is OpsAction action ? RunActionExclusive(action, ct) : Task.CompletedTask, arg => CanRunAction(arg as OpsAction),
+            () => TryBeginOperation(true), () => EndOperation(true), c => _acceptedCancellation = c);
+        EnableDebugForSelectedCommand = new WriteOperationCommand((_, ct) => SetDebugForSelectedExclusiveAsync(true, ct), _ => CanToggleDebug(),
+            () => TryBeginOperation(true), () => EndOperation(true), c => _acceptedCancellation = c);
+        DisableDebugForSelectedCommand = new WriteOperationCommand((_, ct) => SetDebugForSelectedExclusiveAsync(false, ct), _ => CanToggleDebug(),
+            () => TryBeginOperation(true), () => EndOperation(true), c => _acceptedCancellation = c);
+        ReconcileCommand = new WriteOperationCommand((_, ct) => Reconcile(ct), _ => !IsBusy && HasWriteReceipt && ReconcileReason.Length == 0,
+            () => TryBeginOperation(false), () => EndOperation(false), c => _acceptedCancellation = c);
+        RunActionCancelCommand = new RelayCommand(() => _acceptedCancellation?.Cancel());
         _connector = connector;
         _activeEnv = activeEnv;
         _dialogs = dialogs;
@@ -310,21 +359,6 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         action is not null && !IsBusy && Volatile.Read(ref _operationLeaseHeld) == 0
         && _session is not null && !SessionEnvMismatch() && SelectedCount > 0;
 
-    // Opens the confirm dialog; mutates nothing until the user accepts, then submits + polls to terminal.
-    [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanRunAction))]
-    private async Task RunAction(OpsAction action, CancellationToken ct)
-    {
-        if (!TryBeginOperation(isMutation: true)) return;
-        try
-        {
-            await RunActionExclusive(action, ct);
-        }
-        finally
-        {
-            EndOperation(isMutation: true);
-        }
-    }
-
     private async Task RunActionExclusive(OpsAction action, CancellationToken ct)
     {
         var session = _session;
@@ -373,90 +407,68 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             Log(skipNote, LogKind.Warn);
         }
 
-        var request = new ConfirmRequest(
-            Title: $"{action.Label} {targets.Count} map(s)?",
-            Message: $"Sends {action.Label} to the dual-write gateway for {ConnectionName}.",
-            // Only the maps actually being sent: the dialog is the last chance to see what will happen.
-            Targets: targets.Select(t => $"{t.Name} · {t.CeEntity} · {t.State}").ToList(),
-            ConfirmLabel: action.Label,
-            IsDanger: action.Danger,
-            Caveat: action.Caveat);
-
-        if (!await _dialogs.ConfirmAsync(request))
-        {
-            return;
-        }
-
-        // Confirmation is an await: an external profile edit can land while the dialog is open.
-        if (BlockedByEnvMismatch())
-        {
-            return;
-        }
-
-        Status = $"{action.Label}…";
-        Log($"{action.Label}: {targets.Count} map(s) (cid {session.Cid})…");
+        var maps = targets.Select(t => t.Map).ToArray();
+        var receipt = new LifecycleWriteReceipt(WriteScope.Capture(session.Profile), session.Cid, action.Label,
+            DateTimeOffset.UtcNow, maps.Select(m => new CapturedWriteTarget(m.Id, m.Name, m.ProjectId)).ToImmutableArray(), new WriteObservation(false));
+        var invoked = false;
         try
         {
-            var maps = targets.Select(t => t.Map).ToList();
+            var request = new ConfirmRequest($"{action.Label} {targets.Count} map(s)?",
+                $"Sends {action.Label} to the dual-write gateway for {receipt.Scope.Display}." + PriorWarning(session.Identity),
+                targets.Select(t => $"{t.Name} · {t.CeEntity} · {t.State}").ToList(), action.Label, action.Danger, action.Caveat);
+            if (!await _dialogs.ConfirmAsync(request, ct) || ct.IsCancellationRequested)
+            { if (!_disposed) Status = "Not sent — confirmation cancelled."; return; }
+            if (!Current(session)) { if (!_disposed) Status = "Not sent — environment changed; reconnect required."; return; }
+            _lifecycleSession = session;
+            _lastWasDebug = false;
+            ReadbackText = "";
+            LastLifecycleReceipt = receipt = receipt with { Observation = new WriteObservation(null) };
+            Status = $"{action.Label}…";
+            invoked = true;
             var response = await session.Gateway.StartActionAsync(action.Type, maps, session.Cid, ct);
-
-            // Past this line the action IS submitted; everything below only reports on it. So nothing here
-            // may read as "the action failed", and nothing here may skip the refresh — a user shown a
-            // failure over a stale grid is a user who submits the same Initial sync a second time.
+            if (_disposed || !ReferenceEquals(session, _session) || LastLifecycleReceipt?.AttemptId != receipt.AttemptId) return;
+            // A returned action DTO is an acknowledgment even for legacy implementations without HTTP metadata.
+            var observation = response.Acknowledgment is null ? new WriteObservation(true, GatewayAcknowledged: true) : WriteObservation.From(response.Acknowledgment);
+            LastLifecycleReceipt = receipt = receipt with { Observation = observation, RequestId = response.RequestId };
+            if (!Current(session)) { Status = "Context changed — captured submission evidence retained; reconnect to the original context before readback."; return; }
             if (string.IsNullOrWhiteSpace(response.RequestId))
             {
-                // 202 with no body, or a bare id the gateway didn't label. Submitted, but there is nothing
-                // to poll — and GetStatusAsync with a blank id is an error, so it must not be called.
                 Status = $"{action.Label} submitted — the gateway did not return a request id; refresh to see the result.";
-                Log(Status, LogKind.Warn);
+                Log(Status, LogKind.Warn, traceText: "Mutation acknowledged without request identifier.");
             }
-            else
-            {
-                await PollAndReportAsync(action, session, response.RequestId, ct);
-            }
-
-            // Refresh the maps to pick up their new states, preserving the user's selection. A refresh
-            // failure must NOT overwrite the action result above (the action still happened), so it's
-            // caught separately — the grid just keeps its pre-refresh display.
+            else await PollAndReportAsync(action, session, response.RequestId, ct);
+            if (!_disposed && !Current(session)) Status = "Context changed — captured submission evidence retained; return to the original context before readback.";
+            if (ct.IsCancellationRequested || !Current(session)) return;
             try
             {
-                // Keep the whole selection, not just the maps sent: the user selected the skipped ones too
-                // and nothing was done to them, so silently deselecting them would hide the skip.
                 var keep = selected.Select(t => t.Id).ToHashSet(StringComparer.Ordinal);
                 var refreshed = await session.Gateway.GetMapsAsync(session.Cid, ct);
-                PopulateMaps(refreshed, keep);
+                if (!ct.IsCancellationRequested && Current(session)) PopulateMaps(refreshed, keep);
             }
             catch (Exception)
             {
-                Status += " (map list could not refresh)";
-                Log("Map list could not refresh.", LogKind.Warn);
+                if (Current(session)) { Status += " (map list could not refresh)"; Log("Map list could not refresh.", LogKind.Warn); }
             }
-        }
-        catch (OperationCanceledException)
-        {
-            // Only the submit itself or a user cancel reaches here: the polling timeout is handled inside
-            // PollAndReportAsync so that it still reaches the refresh, and the refresh has its own catch.
-            Status = ct.IsCancellationRequested ? "Cancelled." : $"{action.Label} timed out.";
-            Log(Status, LogKind.Warn);
         }
         catch (Exception ex)
         {
-            Status = $"{action.Label} failed: {ex.Message}";
-            Log(Status, LogKind.Err, traceText: $"{action.Label} failed: {Traceable(ex)}");
-        }
-        finally
-        {
-            // Appended last so it survives every branch above (completed, submitted-but-unpollable, timed
-            // out, failed, cancelled): whatever the outcome for the maps that were sent, the ones left out
-            // were still left out, and the user has to be told which.
-            if (skipNote is not null)
+            if (_disposed || !ReferenceEquals(session, _session) || (invoked && LastLifecycleReceipt?.AttemptId != receipt.AttemptId)) return;
+            if (invoked && string.IsNullOrWhiteSpace(LastLifecycleReceipt?.RequestId))
+                LastLifecycleReceipt = receipt with { Observation = WriteObservation.From((ex as IDualWriteMutationFailure)?.Evidence) };
+            if (!Current(session)) { Status = "Context changed — captured submission evidence retained; reconnect to the original context before readback."; return; }
+            if (!invoked) { Status = "Not sent — confirmation stopped or failed."; return; }
+            if (LastLifecycleReceipt?.RequestId is { Length: > 0 } id)
+                Status = $"{action.Label} submitted (request {id}) — stopped waiting; cancellation/error does not undo submission.";
+            else
             {
-                Status = $"{Status} {skipNote}";
+                var evidence = (ex as IDualWriteMutationFailure)?.Evidence;
+                LastLifecycleReceipt = receipt with { Observation = WriteObservation.From(evidence) };
+                Status = LastLifecycleReceipt.Observation.Summary;
             }
-
+            Log(Status, LogKind.Warn, traceText: "Mutation observation stopped; inspect retained evidence.");
         }
+        finally { if (!_disposed && skipNote is not null) Status = $"{Status} {skipNote}"; }
     }
-
     private bool TryBeginOperation(bool isMutation)
     {
         if (_disposed || Interlocked.CompareExchange(ref _operationLeaseHeld, 1, 0) != 0)
@@ -482,6 +494,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         // IsBusy drives the generated CanExecuteChanged notifications. Release first so handlers that
         // immediately re-query CanExecute observe the available lease rather than leaving buttons stale.
         IsBusy = false;
+        ReconcileCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(ReconcileReason));
     }
 
     // Polls a submitted request to a terminal state and reports the outcome. Neither our own polling budget
@@ -500,7 +514,9 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             using var timer = new PeriodicTimer(_pollInterval);
             while (await timer.WaitForNextTickAsync(pollToken))
             {
+                if (!Current(session)) return;
                 var status = await session.Gateway.GetStatusAsync(requestId, pollToken);
+                if (pollToken.IsCancellationRequested || !Current(session)) { pollToken.ThrowIfCancellationRequested(); return; }
                 if (status.IsTerminal)
                 {
                     final = status;
@@ -510,6 +526,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
+            if (!Current(session)) return;
             // The timeout tripped, not the user. A genuine cancel keeps propagating to RunAction.
             Status = $"{action.Label} submitted — still running after {_actionTimeout.TotalSeconds:0.##}s " +
                      $"(request {requestId}). The map list will refresh; check states again shortly.";
@@ -523,12 +540,16 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         // the filter so it keeps propagating to RunAction.
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
+            if (!Current(session)) return;
             var submitted = $"{action.Label} submitted — status check failed";
             Status = $"{submitted} ({Concise(ex)}); refreshing the map list.";
             Log(Status, LogKind.Warn, traceText: $"{submitted} ({Traceable(ex)}); refreshing the map list.");
             return;
         }
 
+        if (!Current(session)) return;
+        if (final is not null && LastLifecycleReceipt is { } receipt)
+            LastLifecycleReceipt = receipt with { TerminalState = final.State, TerminalSuccess = final.IsSuccess };
         if (final is { IsSuccess: true })
         {
             Status = $"{action.Label} completed.";
@@ -553,32 +574,6 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     private bool CanToggleDebug() =>
         !IsBusy && Volatile.Read(ref _operationLeaseHeld) == 0
         && _session is not null && !SessionEnvMismatch() && SelectedCount > 0;
-
-    // Enable dual-write debug mode for the selected map(s); scoped to the selection, never all maps.
-    [RelayCommand(CanExecute = nameof(CanToggleDebug))]
-    private Task EnableDebugForSelected(CancellationToken ct) => SetDebugForSelectedAsync(true, ct);
-
-    // Disable dual-write debug mode for the selected map(s).
-    [RelayCommand(CanExecute = nameof(CanToggleDebug))]
-    private Task DisableDebugForSelected(CancellationToken ct) => SetDebugForSelectedAsync(false, ct);
-
-    // Toggles IsDebugMode on the F&O DualWriteProjectConfiguration entity for each selected map's
-    // project. Debug mode is an F&O-side, project-level flag (verbose dual-write logging to the
-    // DualWriteErrorLog table) — so this targets F&O OData, not the gateway. The OData set name is
-    // resolved from live $metadata (it varies per environment); every step degrades to a clear,
-    // non-sensitive message rather than throwing, and no token is ever surfaced.
-    private async Task SetDebugForSelectedAsync(bool enabled, CancellationToken ct)
-    {
-        if (!TryBeginOperation(isMutation: true)) return;
-        try
-        {
-            await SetDebugForSelectedExclusiveAsync(enabled, ct);
-        }
-        finally
-        {
-            EndOperation(isMutation: true);
-        }
-    }
 
     private async Task SetDebugForSelectedExclusiveAsync(bool enabled, CancellationToken ct)
     {
@@ -636,7 +631,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         var actionVerb = enabled ? "Enable" : "Disable";
         var request = new ConfirmRequest(
             Title: $"{actionVerb} debug mode for {projectIds.Count} project(s)?",
-            Message: $"This changes project-level debug flags and dual-write logging for {env.Name} ({env.Url}).",
+            Message: $"This changes project-level debug flags and dual-write logging for {env.Name} ({env.Url})." + PriorWarning(identity),
             Targets: targets.Where(m => !string.IsNullOrWhiteSpace(m.ProjectId))
                 .Select(m => $"{m.Name} · {m.ProjectId}").ToList(),
             ConfirmLabel: actionVerb + " debug mode",
@@ -677,108 +672,143 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             return;
         }
 
+        _debugSession = session;
+        _lastWasDebug = true;
+        ReadbackText = "";
+        var attempt = new DebugWriteReceipt(WriteScope.Capture(env), session.Cid, DateTimeOffset.UtcNow,
+            projectIds.Select(pid => new DebugProjectAttempt(pid, enabled)).ToImmutableArray());
+        LastDebugReceipt = attempt;
         DebugStatus = enabled ? "Enabling debug mode…" : "Disabling debug mode…";
-        try
+        var activeIndex = -1;
+        var patchInvoked = false;
+        var acknowledged = 0;
+        bool Stop()
         {
-            // Resolve the F&O OData set that exposes IsDebugMode from the environment's live metadata.
-            // Only fetch $metadata if it isn't cached yet — the set name is stable within a session, and
-            // a re-fetch of that large XML document would add a needless round-trip before the toggle.
-            if (_metadata.GetEntities().Count == 0)
+            if (ct.IsCancellationRequested || !Current(session))
             {
-                await _metadata.LoadEntitiesAsync(ct).ConfigureAwait(true);
-            }
-
-            var set = _metadata.GetEntities()
-                .Select(e => e.Name)
-                .FirstOrDefault(n => n.Contains(DualWriteDebugMode.EntityLogicalName, StringComparison.OrdinalIgnoreCase));
-            if (set is null)
-            {
-                DebugStatus = $"This environment's OData metadata exposes no '{DualWriteDebugMode.EntityLogicalName}' entity, so debug mode can't be toggled from here.";
-                return;
-            }
-
-            var body = DualWriteDebugMode.BuildPatchBody(enabled);
-            // Full metadata so each record carries an @odata.id we can PATCH directly.
-            var getHeaders = new Dictionary<string, string> { ["Accept"] = "application/json;odata.metadata=full" };
-            var patchHeaders = new Dictionary<string, string> { ["If-Match"] = "*" };
-
-            var ok = 0;
-            var failures = new List<string>();
-
-            // Re-checked immediately before EVERY request (the initial GET and each PATCH) — the entry guard
-            // above expires the moment we await. _odata resolves the active environment per call while the
-            // project ids came from this session's maps, so a switch mid-run would apply env A's ids to
-            // env B. On a trip we stop where we are and say how far we got; already-applied PATCHes are not
-            // rolled back, because each was valid for the environment it was issued against.
-            bool StopIfEnvChanged(int applied)
-            {
-                if (!BlockedByEnvMismatch())
+                if (!_disposed) DebugStatus = ct.IsCancellationRequested
+                    ? "Stopped waiting; inspect per-project evidence. Cancellation does not undo writes."
+                    : $"Stopped after {acknowledged} of {projectIds.Count} — environment changed; reconnect required.";
+                if (!_disposed && !Current(session))
                 {
-                    return false;
+                    Status = ReconnectRequired;
+                    Log($"Environment changed: {session.Profile.Name} to {_activeEnv()?.Name ?? "none"}; reconnect before further operations.",
+                        LogKind.Warn, traceText: "Environment changed; reconnect before further operations.");
                 }
-
-                DebugStatus = applied == 0
-                    ? ReconnectRequired
-                    : $"Stopped after {applied} of {projectIds.Count} — environment changed; reconnect required.";
                 return true;
             }
-
-            foreach (var pid in projectIds)
-            {
-                if (StopIfEnvChanged(ok))
-                {
-                    return;
-                }
-
-                // OData string-literal escaping doubles single quotes (not %27); GUID ids are URL-safe.
-                var getPath = $"data/{set}?$filter=ProjectId eq '{pid.Replace("'", "''")}'";
-                var get = await _odata.SendAsync("GET", getPath, null, getHeaders, ct).ConfigureAwait(true);
-                if (!get.IsSuccess)
-                {
-                    failures.Add($"{pid}: query failed ({get.StatusLine})");
-                    continue;
-                }
-
-                var record = DualWriteDebugMode.ReadFirstRecord(get.Body);
-                if (record is null)
-                {
-                    failures.Add($"{pid}: no project-config record found");
-                    continue;
-                }
-
-                if (StopIfEnvChanged(ok))
-                {
-                    return;
-                }
-
-                var patch = await _odata.SendAsync("PATCH", record.ODataId, body, patchHeaders, ct).ConfigureAwait(true);
-                if (patch.IsSuccess)
-                {
-                    ok++;
-                }
-                else
-                {
-                    failures.Add($"{pid}: {patch.StatusLine}");
-                }
-            }
-
-            var verb = enabled ? "enabled" : "disabled";
-            DebugStatus = failures.Count == 0
-                ? $"Debug mode {verb} for {ok} project(s)."
-                : ok == 0
-                    ? $"Debug mode not {verb}: {string.Join("; ", failures)}"
-                    : $"Debug mode {verb} for {ok} project(s); {failures.Count} failed: {string.Join("; ", failures)}";
+            return false;
         }
-        catch (OperationCanceledException)
+        void Leg(int index, WriteObservation observation, bool pending = false)
         {
-            DebugStatus = "Cancelled.";
+            if (_disposed || !ReferenceEquals(session, _session) || LastDebugReceipt is not { } r || r.AttemptId != attempt.AttemptId) return;
+            LastDebugReceipt = r with { Projects = r.Projects.SetItem(index, r.Projects[index] with { Observation = observation, Stage = pending ? "Pending" : "Observed" }) };
+        }
+        try
+        {
+            if (Stop()) return;
+            if (_metadata.GetEntities().Count == 0) await _metadata.LoadEntitiesAsync(ct);
+            if (Stop()) return;
+            var set = _metadata.GetEntities().Select(e => e.Name)
+                .FirstOrDefault(n => n.Contains(DualWriteDebugMode.EntityLogicalName, StringComparison.OrdinalIgnoreCase));
+            if (set is null)
+            { DebugStatus = $"This environment's OData metadata exposes no '{DualWriteDebugMode.EntityLogicalName}' entity, so debug mode can't be toggled from here."; return; }
+            LastDebugReceipt = LastDebugReceipt with { EntitySet = set };
+            var getHeaders = new Dictionary<string, string> { ["Accept"] = "application/json;odata.metadata=full" };
+            var patchHeaders = new Dictionary<string, string> { ["If-Match"] = "*" };
+            for (var i = 0; i < projectIds.Count; i++)
+            {
+                activeIndex = i;
+                patchInvoked = false;
+                if (Stop()) return;
+                var get = await _odata.SendAsync("GET", DebugReadPath(set, projectIds[i]), null, getHeaders, ct);
+                if (Stop()) return;
+                var record = get.IsSuccess ? DualWriteDebugMode.ReadFirstRecord(get.Body) : null;
+                if (record is null) { Leg(i, new WriteObservation(false)); continue; }
+                if (Stop()) return;
+                Leg(i, new WriteObservation(null), pending: true);
+                patchInvoked = true;
+                var patch = await _odata.SendAsync("PATCH", record.ODataId, DualWriteDebugMode.BuildPatchBody(enabled), patchHeaders, ct);
+                Leg(i, WriteObservation.From(patch));
+                if (patch.IsSuccess) acknowledged++;
+                if (!Current(session)) { Stop(); return; }
+                if (ct.IsCancellationRequested || WriteObservation.From(patch).Unconfirmed) break;
+            }
+            DebugStatus = $"Debug mode {(enabled ? "enabled" : "disabled")} request: {acknowledged} HTTP acknowledgment(s). Inspect per-project evidence; unconfirmed writes must not be replayed automatically.";
         }
         catch (Exception ex)
         {
-            DebugStatus = $"Debug-mode toggle failed: {ex.Message}";
+            if (_disposed || !ReferenceEquals(session, _session)) return;
+            if (activeIndex >= 0)
+            {
+                var observation = ex is ODataWriteCanceledException cancelled
+                    ? cancelled.ObservedResponse is { } observed ? WriteObservation.From(observed) : new WriteObservation(cancelled.DispatchStarted)
+                    : new WriteObservation(patchInvoked ? null : false);
+                Leg(activeIndex, observation);
+            }
+            if (!Current(session)) { Stop(); return; }
+            DebugStatus = patchInvoked ? "Debug write outcome unknown or incompletely observed — stopped waiting. Inspect per-project evidence; remaining projects were not attempted."
+                : "Debug reads stopped before the next write; inspect per-project evidence.";
         }
     }
 
+    private static string DebugReadPath(string set, string pid) =>
+        $"data/{set}?$filter=ProjectId eq '{pid.Replace("'", "''")}'";
+
+    private async Task Reconcile(CancellationToken ct)
+    {
+        var session = _lastWasDebug ? _debugSession : _lifecycleSession;
+        if (!Current(session) || ReconcileReason.Length != 0) return;
+        var debug = _lastWasDebug ? LastDebugReceipt : null;
+        var lifecycle = _lastWasDebug ? null : LastLifecycleReceipt;
+        ReadbackText = "Reading current state…";
+        try
+        {
+            if (debug is not null)
+            {
+                var observations = new List<string>();
+                var headers = new Dictionary<string, string> { ["Accept"] = "application/json;odata.metadata=full" };
+                foreach (var project in debug.Projects)
+                {
+                    if (ct.IsCancellationRequested || !Current(session)) return;
+                    var response = await _odata.SendAsync("GET", DebugReadPath(debug.EntitySet!, project.ProjectId), null, headers, ct);
+                    if (ct.IsCancellationRequested || !Current(session)) return;
+                    var record = response.IsSuccess ? DualWriteDebugMode.ReadFirstRecord(response.Body) : null;
+                    var flag = record?.IsDebugMode is { } value ? value ? "enabled" : "disabled" : "unknown";
+                    observations.Add($"{project.ProjectId}: current debug flag {flag}; desired {(project.DesiredValue ? "enabled" : "disabled")}. Original: {project.Observation?.Summary ?? project.Stage}");
+                }
+                ReadbackText = "Current state only — does not prove which request caused it. Original evidence is unchanged.\n" + string.Join("\n", observations);
+            }
+            else if (lifecycle is not null)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!string.IsNullOrWhiteSpace(lifecycle.RequestId))
+                {
+                    var status = await session!.Gateway.GetStatusAsync(lifecycle.RequestId, ct);
+                    if (ct.IsCancellationRequested || !Current(session)) return;
+                    ReadbackText = $"Current request {lifecycle.RequestId}: {status.State}; terminal: {status.IsTerminal}. Original submission evidence is unchanged.";
+                }
+                else
+                {
+                    var maps = await session!.Gateway.GetMapsAsync(lifecycle.Cid, ct);
+                    if (ct.IsCancellationRequested || !Current(session)) return;
+                    ReadbackText = "Current map states only — not proof of which request caused them. Original evidence is unchanged.\n" +
+                        string.Join("\n", lifecycle.Targets.Select(t => $"{t.Name}: {maps.FirstOrDefault(m => m.Id == t.Id)?.State ?? "not returned"}"));
+                }
+            }
+        }
+        catch (Exception)
+        {
+            if (Current(session)) ReadbackText = "Current-state read stopped or failed. Original write evidence is unchanged.";
+        }
+        finally
+        {
+            if (ct.IsCancellationRequested && Current(session))
+                ReadbackText = "Current-state read cancelled. Original write evidence is unchanged.";
+            else if (!_disposed && !Current(session))
+                ReadbackText = "Readback discarded: the captured session or environment changed. Original write evidence is unchanged.";
+        }
+    }
     // Rebuilds the rows, re-subscribing to selection changes and restoring prior selection by id.
     private void PopulateMaps(IReadOnlyList<DualWriteMap> maps, ISet<string>? keepSelectedIds)
     {
@@ -850,6 +880,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         if (_disposed) return;
         _disposed = true;
         Interlocked.Increment(ref _generation);
+        _acceptedCancellation?.Cancel();
         LoadCommand.Cancel();
         DisposeSession();
     }

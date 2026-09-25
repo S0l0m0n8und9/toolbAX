@@ -5,15 +5,16 @@
              x:Class="ToolBax.App.Views.DualWriteOpsView"
              x:DataType="vm:DualWriteOpsViewModel">
 
-  <Grid RowDefinitions="Auto,Auto,Auto,Auto,*,Auto" Margin="20,16">
+  <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*,Auto" Margin="20,16">
 
     <!-- Title + connect -->
     <Grid Grid.Row="0" ColumnDefinitions="*,Auto">
       <TextBlock Grid.Column="0" Text="Dual-Write Operations" VerticalAlignment="Center"
                  FontSize="24" FontWeight="SemiBold" Foreground="{StaticResource Text0Brush}" />
       <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-        <TextBlock Text="{Binding Status}" VerticalAlignment="Center" FontSize="11.5"
+        <TextBlock Text="{Binding Status}" VerticalAlignment="Center" FontSize="11.5" MaxWidth="380" TextWrapping="Wrap"
                    Foreground="{StaticResource Text2Brush}" />
+        <Button Content="Stop waiting" Command="{Binding RunActionCancelCommand}" IsVisible="{Binding IsBusy}" />
         <Button Content="Connect" Command="{Binding LoadCommand}"
                 Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}" />
       </StackPanel>
@@ -68,8 +69,23 @@
                  IsVisible="{Binding DebugStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
     </StackPanel>
 
+    <!-- The captured write and later GET observation are independent, measured rows. -->
+    <Border Grid.Row="4" x:Name="WriteReceiptPanel" IsVisible="{Binding HasWriteReceipt}" Margin="0,6,0,8"
+            Padding="10" CornerRadius="6" Background="{StaticResource WarnBgBrush}" BorderBrush="{StaticResource WarnBrush}" BorderThickness="1">
+      <StackPanel Spacing="6">
+        <TextBlock Text="Last write evidence — cancellation does not roll back a write" FontWeight="SemiBold" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap" />
+        <ScrollViewer MaxHeight="90"><TextBlock x:Name="ReceiptText" Text="{Binding WriteReceiptText}" TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}" /></ScrollViewer>
+        <Button x:Name="ReconcileButton" Content="Read current state" Command="{Binding ReconcileCommand}" HorizontalAlignment="Left" />
+        <TextBlock Text="{Binding ReconcileReason}" TextWrapping="Wrap" Foreground="{StaticResource Text2Brush}"
+                   IsVisible="{Binding ReconcileReason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        <Border x:Name="ReadbackPanel" IsVisible="{Binding ReadbackText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                Padding="8" Background="{StaticResource Layer1Brush}">
+          <ScrollViewer MaxHeight="90"><TextBlock x:Name="ReadbackText" Text="{Binding ReadbackText}" TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}" /></ScrollViewer>
+        </Border>
+      </StackPanel>
+    </Border>
     <!-- Maps grid -->
-    <DataGrid Grid.Row="4" x:Name="MapsGrid" Margin="0,12,0,0"
+    <DataGrid Grid.Row="5" x:Name="MapsGrid" Margin="0,12,0,0"
               IsVisible="{Binding HasMaps}"
               ItemsSource="{Binding Maps}" IsReadOnly="False"
               CanUserReorderColumns="False" CanUserResizeColumns="True"
@@ -89,7 +105,7 @@
          "no connection / cid" failure is diagnosable in-app without a network trace. -->
     <!-- The log is scoped per connect (cleared at the start of Load), so no manual clear is needed;
          collapse the Expander to declutter. -->
-    <Expander Grid.Row="5" Margin="0,12,0,0" IsVisible="{Binding HasGatewayLog}" IsExpanded="True"
+    <Expander Grid.Row="6" Margin="0,12,0,0" IsVisible="{Binding HasGatewayLog}" IsExpanded="True"
               Header="Gateway log">
       <ScrollViewer MaxHeight="180" VerticalScrollBarVisibility="Auto">
         <ItemsControl ItemsSource="{Binding GatewayLog}">
