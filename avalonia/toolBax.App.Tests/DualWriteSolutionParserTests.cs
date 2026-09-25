@@ -85,6 +85,12 @@ public class DualWriteSolutionParserTests
         Assert.Throws<MetadataResponseFormatException>(() => DualWriteMapParser.ParseSolutionPage("{}"));
     }
 
+    [Theory]
+    [InlineData("{\"value\":[{}]}")]
+    [InlineData("{\"value\":[{\"objectid\":\"not-a-guid\"}]}")]
+    public void ParseComponentIdPage_rejects_missing_or_invalid_required_objectid(string json) =>
+        Assert.Throws<MetadataResponseFormatException>(() => DualWriteMapParser.ParseComponentIdPage(json));
+
     [Fact]
     public void SolutionComponentsPath_filters_by_component_type_500_and_solution_unique_name()
     {
@@ -115,15 +121,14 @@ public class DualWriteSolutionParserTests
           "@odata.nextLink": "https://x/api/data/v9.2/solutioncomponents?$skiptoken=p2",
           "value": [
             { "objectid": "11111111-1111-1111-1111-111111111111" },
-            { "objectid": "22222222-2222-2222-2222-222222222222" },
-            { "objectid": "not-a-guid" }
+            { "objectid": "22222222-2222-2222-2222-222222222222" }
           ]
         }
         """;
 
         var page = DualWriteMapParser.ParseComponentIdPage(json);
 
-        Assert.Equal(2, page.ObjectIds.Count); // the non-guid is skipped
+        Assert.Equal(2, page.ObjectIds.Count);
         Assert.Contains(System.Guid.Parse("11111111-1111-1111-1111-111111111111"), page.ObjectIds);
         Assert.Equal("https://x/api/data/v9.2/solutioncomponents?$skiptoken=p2", page.NextLink);
     }

@@ -1096,6 +1096,24 @@ public class DualWriteMapViewModelTests
             Task.FromResult(DwCountResult.Ok(0));
     }
 
+    private sealed class RecoveringSolutionWarningReader : IDualWriteMapReader
+    {
+        private int _solutionCalls;
+        private int _mapCalls;
+        private static readonly DwMapRecord Incomplete = DualWriteMapParser.ParsePage(
+            "{\"value\":[{\"msdyn_name\":\"Map\",\"msdyn_mapping\":\"{bad\"}]}").Records.Single();
+        private static readonly DwMapRecord Healthy = DualWriteMapParser.ParsePage(
+            "{\"value\":[{\"msdyn_name\":\"Map\",\"msdyn_mapping\":\"{}\"}]}").Records.Single();
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) =>
+            Task.FromResult(++_solutionCalls == 1
+                ? DwSolutionLoadResult.Fail("solution failure")
+                : DwSolutionLoadResult.Ok(Array.Empty<DwSolution>()));
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            Task.FromResult(DwMapLoadResult.Ok(new[] { ++_mapCalls == 1 ? Incomplete : Healthy }));
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) =>
+            Task.FromResult(DwCountResult.Ok(0));
+    }
+
     [Fact]
     public async Task Solution_failure_and_incomplete_map_details_have_independent_warnings()
     {
@@ -1108,6 +1126,32 @@ public class DualWriteMapViewModelTests
         Assert.Contains("Solutions", vm.SolutionWarning);
         Assert.Equal(1, vm.IncompleteDetailsCount);
         Assert.Contains("msdyn_mapping", vm.SelectedDetailsWarning);
+    }
+
+    [Fact]
+    public async Task Explicit_refresh_retries_solutions_and_clears_solution_and_detail_warnings_on_success()
+    {
+        var vm = MakeVm(new RecoveringSolutionWarningReader());
+        await vm.InitializeCommand.ExecuteAsync(null);
+        Assert.NotEmpty(vm.SolutionWarning);
+        Assert.Equal(1, vm.IncompleteDetailsCount);
+
+        await vm.ReloadMapsCommand.ExecuteAsync(null);
+
+        Assert.Empty(vm.SolutionWarning);
+        Assert.Equal(0, vm.IncompleteDetailsCount);
+        Assert.Empty(vm.SelectedDetailsWarning);
+    }
+
+    [Fact]
+    public async Task Explicit_refresh_that_fails_solutions_again_retains_warning()
+    {
+        var vm = MakeVm(new SolutionWarningReader());
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        await vm.ReloadMapsCommand.ExecuteAsync(null);
+
+        Assert.NotEmpty(vm.SolutionWarning);
     }
 
     private sealed class ThrowingClipboard : IClipboardService

@@ -279,7 +279,7 @@ public static class DualWriteMapParser
         return $"solutioncomponents?$select=objectid&$filter={Uri.EscapeDataString(filter)}";
     }
 
-    /// <summary>Parses one page of solutions (tolerates null/blank/malformed input).</summary>
+    /// <summary>Parses one structurally valid page of solutions.</summary>
     public static DwSolutionPage ParseSolutionPage(string? json)
     {
         GetValueArray(json, "solutions", out var valueArray, out var root);
@@ -293,7 +293,7 @@ public static class DualWriteMapParser
         return new DwSolutionPage(solutions, ReadNextLink(root, "solutions"));
     }
 
-    /// <summary>Parses one page of solution-component object ids (tolerates null/blank/malformed input).</summary>
+    /// <summary>Parses one structurally valid page of required solution-component object ids.</summary>
     public static DwComponentIdPage ParseComponentIdPage(string? json)
     {
         GetValueArray(json, "solution components", out var valueArray, out var root);
@@ -301,10 +301,9 @@ public static class DualWriteMapParser
         var ids = new List<Guid>();
         foreach (var item in valueArray.EnumerateArray())
         {
-            if (Guid.TryParse(GetValueAsString(item, "objectid"), out var id))
-            {
-                ids.Add(id);
-            }
+            if (!Guid.TryParse(GetValueAsString(item, "objectid"), out var id))
+                throw new MetadataResponseFormatException("solution components response contained an invalid objectid.");
+            ids.Add(id);
         }
 
         return new DwComponentIdPage(ids, ReadNextLink(root, "solution components"));
@@ -379,12 +378,14 @@ public static class DualWriteMapParser
         if (!root.TryGetProperty("@odata.nextLink", out var link) || link.ValueKind == JsonValueKind.Null) return null;
         if (link.ValueKind != JsonValueKind.String)
             throw new MetadataResponseFormatException($"{location} response had an invalid @odata.nextLink.");
-        return link.GetString();
+        var value = link.GetString();
+        if (string.IsNullOrWhiteSpace(value))
+            throw new MetadataResponseFormatException($"{location} response had an invalid @odata.nextLink.");
+        return value;
     }
 
     /// <summary>
-    /// Parses one Web API response page. Tolerates null/blank/malformed input (returns an empty page)
-    /// so a transient bad response never throws into the UI.
+    /// Parses one structurally valid Web API response page.
     /// </summary>
     public static DwMapPage ParsePage(string? json)
     {

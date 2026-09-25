@@ -213,6 +213,18 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     private async Task ReloadMaps(CancellationToken ct)
     {
         if (_disposed) return;
+        if (!string.IsNullOrEmpty(SolutionWarning))
+        {
+            try
+            {
+                await LoadSolutionsAsync(ct);
+            }
+            catch (OperationCanceledException) { throw; }
+            catch (Exception ex)
+            {
+                SolutionWarning = $"Couldn't load solutions: {ex.Message}";
+            }
+        }
         await LoadMapsAsync(ct);
     }
 
@@ -316,6 +328,8 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     {
         if (_disposed) return;
         var generation = Volatile.Read(ref _generation);
+        var publisherId = SelectedPublisher?.UniqueName;
+        var solutionId = SelectedSolution?.UniqueName;
         var result = await _reader.GetSolutionsAsync(ct);
         if (_disposed || generation != Volatile.Read(ref _generation)) return;
         // A solutions failure shouldn't block the maps; just leave the picker with only "All".
@@ -324,9 +338,9 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
 
         _suppressReload = true;
         RebuildPublishers();
-        SelectedPublisher = Publishers.FirstOrDefault();
+        SelectedPublisher = Publishers.FirstOrDefault(p => p.UniqueName == publisherId) ?? Publishers.FirstOrDefault();
         RebuildSolutions();
-        SelectedSolution = Solutions.FirstOrDefault();
+        SelectedSolution = Solutions.FirstOrDefault(s => s.UniqueName == solutionId) ?? Solutions.FirstOrDefault();
         _suppressReload = false;
     }
 

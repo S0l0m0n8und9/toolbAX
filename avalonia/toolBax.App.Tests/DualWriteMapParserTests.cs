@@ -20,6 +20,7 @@ public class DualWriteMapParserTests
     [InlineData("{\"value\":{}}")]
     [InlineData("{\"value\":[{},7]}")]
     [InlineData("{\"value\":[],\"@odata.nextLink\":7}")]
+    [InlineData("{\"value\":[],\"@odata.nextLink\":\"   \"}")]
     public void Malformed_collection_is_not_a_valid_empty_page(string json) =>
         Assert.Throws<MetadataResponseFormatException>(() => DualWriteMapParser.ParsePage(json));
 

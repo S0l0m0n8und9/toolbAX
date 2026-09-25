@@ -13,6 +13,8 @@ public class VirtualTableMetadataParserTests
     [InlineData("{}")]
     [InlineData("{\"value\":{}}")]
     [InlineData("{\"value\":[{},false]}")]
+    [InlineData("{\"value\":[],\"@odata.nextLink\":7}")]
+    [InlineData("{\"value\":[],\"@odata.nextLink\":\" \"}")]
     public void Malformed_collection_is_not_a_valid_empty_result(string json) =>
         Assert.Throws<MetadataResponseFormatException>(() => VirtualTableMetadataParser.Parse(json));
 

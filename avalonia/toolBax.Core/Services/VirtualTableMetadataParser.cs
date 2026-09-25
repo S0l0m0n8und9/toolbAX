@@ -51,6 +51,12 @@ public static class VirtualTableMetadataParser
             {
                 throw new MetadataResponseFormatException("virtual table metadata response had no array at value.");
             }
+            if (doc.RootElement.TryGetProperty("@odata.nextLink", out var nextLink)
+                && nextLink.ValueKind != JsonValueKind.Null
+                && (nextLink.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(nextLink.GetString())))
+            {
+                throw new MetadataResponseFormatException("virtual table metadata response had an invalid @odata.nextLink.");
+            }
 
             foreach (var item in value.EnumerateArray())
             {
