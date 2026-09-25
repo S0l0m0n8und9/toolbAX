@@ -34,7 +34,7 @@
 - Shell serializes header/Profile activation and active-identity saves, rechecks mutation and target drift after confirmation, persists before publishing, rolls back visible selection on failure, and invalidates cached tools only after a successful commit.
 - Query, POST, Metadata, Compare, Operations, Map Browser, Virtual Tables, and `EntityCatalogLoader` capture immutable operation scope and use cancellation, generation, and disposal checks at entry and after awaits. A discarded VM cannot dispatch a later leg, publish a late result/error, open a picker, copy/open a stale link, or retain a late gateway.
 - POST sends the exact approved request snapshot. Dual-write sessions carry a get-only captured profile and identity. Retained Map/Virtual links use their loaded profile, while disposed commands refuse to act.
-- Operations lifecycle, both debug commands, and connect/load share one atomic, non-queuing operation lease. Only the acquirer clears `MutationInProgress`/`IsBusy`; direct competing commands cannot queue, dispatch, reconnect, or remove Shell's active-write guard.
+- Operations lifecycle, both debug commands, and connect/load share one atomic, non-queuing operation lease. Write acquirers own `MutationInProgress` and `IsBusy`; connect/load owns only the shared lease and busy state. Direct competing commands cannot queue, dispatch, reconnect, or remove Shell's active-write guard.
 
 ## Global Constraints
 

@@ -41,6 +41,6 @@ bounded watchdogs where necessary, and no sleeps or live tenant calls. Focused R
 the complete post-freeze solution gates are recorded below.
 
 The behavioral RED retained five partition groups where the configured bound required three. The focused
-retention suite passes 49/49 after implementation. At the combined source head both CI-strict Release
+Catalog/retention suite passes 49/49 after implementation. At the combined source head both CI-strict Release
 solutions build with 0 warnings/errors; the complete App suite passes 1,131/1,131 and Core passes 403/403,
 with no failures or skips.

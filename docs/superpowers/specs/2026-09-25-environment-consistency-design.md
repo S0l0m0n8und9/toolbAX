@@ -126,7 +126,7 @@ POST captures identity and the exact approved method, path, body, and headers be
 
 Operations compares the session identity with the current full identity at every existing guard. Connect/load also uses a local generation and disposed flag. A session returned after invalidation is disposed before assignment. Lifecycle actions and debug toggles expose a mutation-in-progress flag covering their confirmation and all network phases, allowing Shell to reject a switch rather than disposing an accepted write.
 
-Lifecycle actions, both debug commands, and connect/load also share one atomic non-queuing operation lease. The successful acquirer sets `MutationInProgress` and `IsBusy` before any confirmation or network await and alone clears them in `finally`. Direct command calls that bypass `CanExecute` are refused without queueing, dispatching, reconnecting, or clearing another operation's Shell guard.
+Lifecycle actions, both debug commands, and connect/load also share one atomic non-queuing operation lease. For writes, the successful acquirer sets `MutationInProgress` and `IsBusy` before any confirmation or network await and alone clears them in `finally`; connect/load shares the lease and busy state without setting the mutation flag. Direct command calls that bypass `CanExecute` are refused without queueing, dispatching, reconnecting, or clearing another operation's Shell guard.
 
 `CoreDualWriteMapReader` reuses `EnvironmentIdentity` instead of its private string recipe. Multi-page loads pin the Dataverse API base derived from their single captured profile and stop/discard when current identity changes.
 
