@@ -8,9 +8,8 @@ namespace ToolBax.Core.Services;
 public sealed record ConnectionTestResult(bool Success, string Message);
 
 /// <summary>
-/// Verifies that a profile can actually reach its data endpoint — not just that a token can be minted.
-/// The real implementation forces a fresh token and calls the same endpoint the tools use (F&amp;O
-/// <c>/data/$metadata</c>, Dataverse <c>/WhoAmI</c>), so a green test means the tool screens will load.
+/// Probes F&amp;O <c>/data/$metadata</c> or Dataverse <c>/WhoAmI</c> with a fresh token.
+/// Success confirms only that endpoint probe; it does not guarantee access to every tool or operation.
 /// Behind an interface so the Profiles view-model stays headless-testable.
 /// </summary>
 public interface IConnectionTester

@@ -24,7 +24,7 @@ public sealed record DegradedMode(string Reason);
 /// host, the active environment, busy state, and the Ctrl+K command palette. Tool screens plug into
 /// <see cref="CurrentTool"/> as they are built; for now the content host shows the tool title.
 /// </summary>
-public partial class ShellViewModel : ObservableObject
+public partial class ShellViewModel : ObservableObject, IDisposable
 {
     public IReadOnlyList<NavTool> Tools { get; }
     public ObservableCollection<EnvProfile> Environments { get; }
@@ -473,6 +473,22 @@ public partial class ShellViewModel : ObservableObject
         BackgroundError = message;
         OnPropertyChanged(nameof(ActiveEnvironment));
         return message;
+    }
+
+    private bool _disposed;
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        (_profilesContent as IDisposable)?.Dispose();
+        (_operationsContent as IDisposable)?.Dispose();
+        (_metadataContent as IDisposable)?.Dispose();
+        (_postContent as IDisposable)?.Dispose();
+        (_queryContent as IDisposable)?.Dispose();
+        (_mapBrowserContent as IDisposable)?.Dispose();
+        (_compareContent as IDisposable)?.Dispose();
+        (_virtualTablesContent as IDisposable)?.Dispose();
     }
 
     // Drops the cached data-tool view-models so they rebuild against the active environment on next view.

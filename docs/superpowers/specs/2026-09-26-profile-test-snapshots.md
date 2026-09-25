@@ -1,0 +1,33 @@
+# Profile connection test snapshots (H08a)
+
+## Accepted scope
+
+Test the displayed draft, without saving or activating it. H07 already removed the former draft-persistence path; current tests do not save profiles. Zero persistence is an invariant to prove, not a remaining bug claim. No auth-cache/signout changes, package additions, live calls, remote actions or unrelated hardening. D03 URL prefix handling and H09 aggregate persistence remain separate.
+
+Build one immutable EnvProfile draft at probe entry using the same field/default/null handling as Save through a narrow shared pure builder. Capture profile ID, full connection identity and displayed name/endpoint. FO and Dataverse have independent visible statuses; the gateway keeps DiStatus. Test completion never overwrites global save/activation Status.
+
+FO/Dataverse tests refuse unsupported target modes and nonempty pending target-secret input before any probe/auth call, with explicit Store guidance. ClientSecret also requires the saved mode/effective client ID/tenant to match the draft and an available stored credential; changed auth requires Save then Store before Test. URL/name-only drafts can use that stored credential. Interactive tests need no stored principal. Portal gateway testing retains H07's interactive portal policy and never consumes FO/Dataverse typed secret input or legacy DI settings as a new credential.
+
+Draft edits, selection/null/removal and saves invalidate all three results through one monotonic generation, cancel pending work and discard late success/errors, including A-B-A. Each target has a separate accepted owner/private cancellation source and non-queuing admission before token allocation; targets may run concurrently without stealing each other's status or cancellation. No reactive framework or pending-secret API.
+
+Profiles disposal invalidates/cancels all probes. Parent approved the missing production lifecycle hookup: idempotent Shell IDisposable disposes only already-cached Profiles and IDisposable tools, without resolving new content; MainWindow.Closed invokes it. CoreConnectionTester preserves probe endpoints/forceRefresh/normalization, rethrows caller cancellation and checks it before auth, after auth/before HTTP, and after response. Timeout without caller cancellation remains a failed probe. A passing endpoint probe is not a guarantee that every tool/capability will work.
+
+## Five pre-mortems
+
+1. Visible drafts are ignored: assert exact captured draft arguments for all three probes.
+2. Test accidentally saves or activates: recording profile/secret stores assert zero writes and unchanged active ID/credentials.
+3. Selection/null/same-ID edit/A-B-A misattributes a late result: generation plus captured identity/name and profile membership guards.
+4. Concurrent targets or reruns steal status/Cancel: independent accepted-owner commands, per-target results and cancellation controls.
+5. Cancellation or close continues HTTP: Core token checks and real attached-window disposal tests, including cancellation-ignoring fakes.
+
+## Verification
+
+Use gated local fakes and isolated stores, no sleeps/live services. Capture completed behavioral RED/GREEN for draft arguments, no persistence on success/failure/cancel, secret-policy refusal/controls, drift/null/delete/save/A-B-A, completed-result invalidation, same-target overlap, cross-target independence, cancellation/disposal, Core cancelled-auth zero HTTP and cancelled late-response no success, and attached attribution/cancel/close behavior. Save focused CI=true Release logs/TRX under artifacts/h08a. Parent reviews source and runs full gates after source freeze.
+
+## Source-ready verification
+
+Completed behavioral baseline RED: `draft-red.trx` failed 5/5 for ignored draft fields and pending-secret probes. `probe-cancellation-red.trx` failed 4/5 caller-cancellation cases while its genuine-timeout control passed. Parent/local pre-review then identified credential presence lookup outside the guarded path; `credential-lookup-red.trx` failed both FO/DV throwing-store cases. That lookup now reports an attributed per-target failure with zero probes/writes. Shared URL normalization uses Uri.TryCreate fallback and null-safe identifier handling; explicit malformed draft controls for all three probe kinds complete without a current-scope validation fault.
+
+Final CI=true Release focused validation passed 238/238, zero failed/skipped (`artifacts/h08a/source-ready-green.log` and `.trx`). Coverage includes exact full draft arguments/modes and Save-equivalent null/default handling; recording-store invariants on success/failure/cancel; stored-credential policy; 54 gated changed-context success/error cases across all three targets; completed-result invalidation; same-target ownership and concurrent-target independence; disposal; cancelled auth/late HTTP; real attached MainWindow close; and visible per-target attribution/Cancel controls. Existing H07 and Shell VM/render controls passed in the same run. No live services, full-suite run or remote action was performed.
+
+`ProfilesViewModel` now implements IDisposable. The approved narrow missing-host hookup adds idempotent Shell disposal of only existing cached Profiles/IDisposable tools and invokes it from MainWindow.Closed; it never resolves/recreates a tool or changes navigation/cache policy. Save still performs its original persistence and auth-cache eviction only when explicitly invoked. The shared pure draft builder does not add persistence to Test. Parent review/integration/full gates remain before PR delivery.

@@ -549,7 +549,7 @@ public class ProfilesViewModelTests
 
         await vm.TestConnectionCommand.ExecuteAsync(null);
 
-        Assert.Contains("Connected", vm.Status);
+        Assert.Contains("Connected", vm.FoTestStatus);
         Assert.False(vm.IsTestingFoConnection);
     }
 
@@ -564,8 +564,8 @@ public class ProfilesViewModelTests
 
         await vm.TestConnectionCommand.ExecuteAsync(null);
 
-        Assert.Contains("failed", vm.Status);
-        Assert.Contains("AADSTS700016", vm.Status);
+        Assert.Contains("failed", vm.FoTestStatus);
+        Assert.Contains("AADSTS700016", vm.FoTestStatus);
         Assert.False(vm.IsTestingFoConnection);
     }
 
@@ -577,8 +577,8 @@ public class ProfilesViewModelTests
 
         await vm.TestDataverseConnectionCommand.ExecuteAsync(null);
 
-        Assert.Contains("Dataverse", vm.Status);
-        Assert.Contains("Connected", vm.Status);
+        Assert.Contains("Dataverse", vm.DataverseTestStatus);
+        Assert.Contains("Connected", vm.DataverseTestStatus);
         Assert.False(vm.IsTestingDataverseConnection);
     }
 
@@ -591,9 +591,9 @@ public class ProfilesViewModelTests
 
         await vm.TestDataverseConnectionCommand.ExecuteAsync(null);
 
-        Assert.Contains("Dataverse", vm.Status);
-        Assert.Contains("failed", vm.Status);
-        Assert.Contains("AADSTS500011", vm.Status);
+        Assert.Contains("Dataverse", vm.DataverseTestStatus);
+        Assert.Contains("failed", vm.DataverseTestStatus);
+        Assert.Contains("AADSTS500011", vm.DataverseTestStatus);
         Assert.False(vm.IsTestingDataverseConnection);
     }
 
@@ -830,7 +830,8 @@ public class ProfilesViewModelTests
 
         await vm.TestGatewayCommand.ExecuteAsync(null);
 
-        Assert.Equal("Linked: Contoso (cid abc).", vm.DiStatus);
+        Assert.Contains("Linked: Contoso (cid abc).", vm.DiStatus);
+        Assert.Contains(vm.DraftName, vm.DiStatus);
         Assert.False(vm.IsTestingGateway);
     }
 

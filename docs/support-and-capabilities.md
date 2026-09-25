@@ -8,6 +8,12 @@ WebView2 is compiled for Windows but its Runtime is separate. Confirm availabili
 
 Releases are unsigned. The published SHA256 checks downloaded bytes against the published checksum; it is not a publisher signature. Follow organisation policy for download approval and SmartScreen.
 
+## Profile connection tests
+
+Test uses the displayed draft connection fields without saving or activating the profile. F&O, Dataverse and portal gateway results identify the captured environment and endpoint; editing or changing the selected profile invalidates older results. Each test has its own Cancel control. A successful probe confirms that endpoint at that time, not every tool, permission or business operation.
+
+Client-secret tests use the stored credential only when the saved authentication settings still match the draft. Save changed authentication settings and explicitly Store a new secret before testing; Test neither stores nor silently uses a typed secret. Interactive and portal tests retain their normal sign-in/token-cache behavior.
+
 ## App capabilities
 
 | Surface | Current App capability | Boundary |
