@@ -1114,6 +1114,26 @@ public class DualWriteMapViewModelTests
             Task.FromResult(DwCountResult.Ok(0));
     }
 
+    private sealed class GatedSolutionRetryReader(bool ignoreCancellation) : IDualWriteMapReader
+    {
+        private int _solutionCalls;
+        public int MapCalls { get; private set; }
+        public TaskCompletionSource<DwSolutionLoadResult> Retry { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default)
+        {
+            if (++_solutionCalls == 1) return Task.FromResult(DwSolutionLoadResult.Fail("original warning"));
+            return ignoreCancellation ? Retry.Task : Retry.Task.WaitAsync(ct);
+        }
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default)
+        {
+            MapCalls++;
+            return Task.FromResult(DwMapLoadResult.Ok(Array.Empty<DwMapRecord>()));
+        }
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) =>
+            Task.FromResult(DwCountResult.Ok(0));
+    }
+
     [Fact]
     public async Task Solution_failure_and_incomplete_map_details_have_independent_warnings()
     {
@@ -1151,6 +1171,34 @@ public class DualWriteMapViewModelTests
 
         await vm.ReloadMapsCommand.ExecuteAsync(null);
 
+        Assert.NotEmpty(vm.SolutionWarning);
+    }
+
+    [Fact]
+    public async Task Disposed_solution_retry_discards_late_fault_and_skips_maps()
+    {
+        var reader = new GatedSolutionRetryReader(ignoreCancellation: true);
+        var vm = MakeVm(reader);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        var warning = vm.SolutionWarning;
+        var reload = vm.ReloadMapsCommand.ExecuteAsync(null);
+        vm.Dispose();
+        reader.Retry.TrySetException(new InvalidOperationException("late fault"));
+        await reload.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(warning, vm.SolutionWarning);
+        Assert.Equal(1, reader.MapCalls);
+    }
+
+    [Fact]
+    public async Task Cancelled_solution_retry_completes_quietly_and_skips_maps()
+    {
+        var reader = new GatedSolutionRetryReader(ignoreCancellation: false);
+        var vm = MakeVm(reader);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        var reload = vm.ReloadMapsCommand.ExecuteAsync(null);
+        vm.ReloadMapsCancelCommand.Execute(null);
+        await reload.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(1, reader.MapCalls);
         Assert.NotEmpty(vm.SolutionWarning);
     }
 

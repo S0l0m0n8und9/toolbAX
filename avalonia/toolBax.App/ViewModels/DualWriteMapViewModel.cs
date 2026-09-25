@@ -213,17 +213,25 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     private async Task ReloadMaps(CancellationToken ct)
     {
         if (_disposed) return;
+        var retryGeneration = Volatile.Read(ref _generation);
         if (!string.IsNullOrEmpty(SolutionWarning))
         {
             try
             {
                 await LoadSolutionsAsync(ct);
             }
-            catch (OperationCanceledException) { throw; }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                return;
+            }
             catch (Exception ex)
             {
+                if (_disposed || ct.IsCancellationRequested
+                    || retryGeneration != Volatile.Read(ref _generation)) return;
                 SolutionWarning = $"Couldn't load solutions: {ex.Message}";
             }
+            if (_disposed || ct.IsCancellationRequested
+                || retryGeneration != Volatile.Read(ref _generation)) return;
         }
         await LoadMapsAsync(ct);
     }

@@ -48,6 +48,9 @@ public class DualWriteMapViewRenderTests
             Assert.True(incomplete.IsEffectivelyVisible);
             Assert.True(detail.IsEffectivelyVisible);
             Assert.Contains(solution, window.GetVisualDescendants());
+            Assert.True(solution.Bounds.Width > 0 && solution.Bounds.Height > 0);
+            Assert.True(incomplete.Bounds.Width > 0 && incomplete.Bounds.Height > 0);
+            Assert.True(detail.Bounds.Width > 0 && detail.Bounds.Height > 0);
             Assert.True(solution.Bounds.Bottom <= incomplete.Bounds.Top);
             Assert.True(incomplete.Bounds.Bottom <= detail.Bounds.Top);
         }
