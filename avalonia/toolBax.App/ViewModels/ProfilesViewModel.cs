@@ -628,16 +628,21 @@ public partial class ProfilesViewModel : ObservableObject
             return;
         }
 
+        var effectiveFoClientId = string.IsNullOrWhiteSpace(DraftClientId) ? null : DraftClientId;
+        var effectiveDataverseClientId = string.IsNullOrWhiteSpace(DraftDataverseClientId)
+            ? null
+            : DraftDataverseClientId;
+
         if (!IsSupportedAuthMode(DraftAuthMode)
             && (DraftAuthMode != selected.AuthMode
-                || !string.Equals(DraftClientId, selected.ClientId, StringComparison.Ordinal)))
+                || !string.Equals(effectiveFoClientId, selected.ClientId, StringComparison.Ordinal)))
         {
             Status = "The saved F&O authentication mode is unsupported. Choose a supported mode before changing its client ID or mode.";
             return;
         }
         if (!IsSupportedAuthMode(DraftDataverseAuthMode)
             && (DraftDataverseAuthMode != selected.DataverseAuthMode
-                || !string.Equals(DraftDataverseClientId, selected.DataverseClientId, StringComparison.Ordinal)))
+                || !string.Equals(effectiveDataverseClientId, selected.DataverseClientId, StringComparison.Ordinal)))
         {
             Status = "The saved Dataverse authentication mode is unsupported. Choose a supported mode before changing its client ID or mode.";
             return;
@@ -657,9 +662,9 @@ public partial class ProfilesViewModel : ObservableObject
             Legal = DraftLegal,
             Tier = DraftEnvironmentType,
             DataverseUrl = string.IsNullOrWhiteSpace(DraftDataverseUrl) ? null : DraftDataverseUrl,
-            DataverseClientId = string.IsNullOrWhiteSpace(DraftDataverseClientId) ? null : DraftDataverseClientId,
+            DataverseClientId = effectiveDataverseClientId,
             DataverseAuthMode = DraftDataverseAuthMode,
-            ClientId = string.IsNullOrWhiteSpace(DraftClientId) ? null : DraftClientId,
+            ClientId = effectiveFoClientId,
             AuthMode = DraftAuthMode,
         };
 

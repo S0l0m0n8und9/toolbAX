@@ -21,14 +21,14 @@ public enum DiAuthMode
     Ropc = 1,
 }
 
-/// <summary>Friendly labels for the Data Integrator auth modes (Profiles DI tab dropdown).</summary>
+/// <summary>Friendly labels retained for legacy Data Integrator values and diagnostics.</summary>
 public static class DiAuthModeExtensions
 {
     /// <summary>
     /// The well-known first-party Data Integrator client id. The dual-write sign-in uses this fixed
-    /// Microsoft app (the WPF/original tool never asks the user for a client id); kept in sync with
+    /// Microsoft app used by Core/legacy profiles; kept in sync with
     /// <c>FoToolbox.Core.DualWrite.Auth.DualWriteAuthConstants.ClientId</c> (a drift guard test asserts
-    /// the two match). It's the default for the Profiles DI Client ID field, but stays editable.
+    /// the two match). The current App portal sign-in does not expose an editable DI client ID.
     /// </summary>
     public const string DefaultDataIntegratorClientId = "2e49aa60-1bd3-43b6-8ab6-03ada3d9f08b";
 

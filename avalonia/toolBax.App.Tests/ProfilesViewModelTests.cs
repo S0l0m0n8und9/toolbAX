@@ -40,6 +40,36 @@ public class ProfilesViewModelTests
         Assert.Contains("supported mode", vm.Status, StringComparison.OrdinalIgnoreCase);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Unrelated_legacy_null_client_rename_preserves_mode_secret_and_avoids_auth(bool dataverse)
+    {
+        var original = new EnvProfile("legacy", "Legacy", "https://legacy", "tenant", "USMF", "Tier 1",
+            EnvStatus.Disconnected, DataverseUrl: "https://legacy.crm.dynamics.com",
+            ClientId: dataverse ? "fo-client" : null,
+            AuthMode: dataverse ? FoAuthMode.Interactive : FoAuthMode.Certificate,
+            DataverseClientId: dataverse ? null : "dv-client",
+            DataverseAuthMode: dataverse ? FoAuthMode.Certificate : FoAuthMode.Interactive);
+        var store = new FakeProfileStore(new[] { original }) { ActiveId = original.Id };
+        var secrets = new FakeSecretStore();
+        var target = dataverse ? SecretTarget.Dataverse : SecretTarget.Fo;
+        secrets.SetSecret(original.Id, "legacy-secret", target);
+        var auth = new FakeAuthService();
+        var vm = new ProfilesViewModel(store, secrets, auth: auth);
+        vm.DraftName = "Renamed";
+
+        await vm.SaveCommand.ExecuteAsync(null);
+
+        var saved = Assert.Single(store.GetAll());
+        Assert.Equal("Renamed", saved.Name);
+        Assert.Equal(dataverse ? FoAuthMode.Interactive : FoAuthMode.Certificate, saved.AuthMode);
+        Assert.Equal(dataverse ? FoAuthMode.Certificate : FoAuthMode.Interactive, saved.DataverseAuthMode);
+        Assert.Null(dataverse ? saved.DataverseClientId : saved.ClientId);
+        Assert.True(secrets.HasSecret(original.Id, target));
+        Assert.Equal(0, auth.SignOutCount);
+    }
+
     [Fact]
     public async Task Declined_active_legacy_replacement_preserves_profile_and_supported_mode_draft()
     {

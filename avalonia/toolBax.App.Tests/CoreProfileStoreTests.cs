@@ -523,9 +523,8 @@ public sealed class CoreProfileStoreTests : IDisposable
     [Fact]
     public async Task Bearer_token_with_no_client_id_remains_unsupported_without_inventing_a_client()
     {
-        // A delegated (Interactive) environment with no configured client id (e.g. a legacy bearer-token
-        // profile whose SP carried no client id) gets Microsoft's global public client so an interactive
-        // sign-in has a usable client id out of the box — matching the Profiles UI default.
+        // A legacy bearer-token SP with no client id remains visibly unsupported. Inventing the global
+        // interactive client here would silently present a different authentication mode as configured.
         var ct = TestContext.Current.CancellationToken;
         var seed = NewService();
         await seed.EnsureCreatedAsync(ct);
