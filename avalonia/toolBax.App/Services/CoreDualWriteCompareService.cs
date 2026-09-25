@@ -28,11 +28,11 @@ public sealed class CoreDualWriteCompareService : IDualWriteCompareService
         // capture can be attributed to the wrong environment. One sign-in at a time, each named after the
         // environment it belongs to (see DualWriteSignInTitle). The extra wall-clock cost is a round-trip
         // the user spends signing in anyway.
-        var sourceSession = await _connector.ConnectAsync(source, ct).ConfigureAwait(false);
+        var sourceSession = await _connector.ConnectAsync(source, ct);
         DualWriteSession targetSession;
         try
         {
-            targetSession = await _connector.ConnectAsync(target, ct).ConfigureAwait(false);
+            targetSession = await _connector.ConnectAsync(target, ct);
         }
         catch
         {
