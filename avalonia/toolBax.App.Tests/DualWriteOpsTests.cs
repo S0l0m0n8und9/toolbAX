@@ -194,6 +194,27 @@ public class DualWriteOpsTests
         Assert.False(vm.IsBusy);
     }
 
+    [Fact]
+    public async Task Visible_stop_waiting_cancels_the_accepted_connect_and_discards_a_late_session()
+    {
+        var connector = new GatedDisposableConnector();
+        var vm = MakeVm(connector);
+
+        var load = vm.LoadCommand.ExecuteAsync(null);
+        await connector.Entered.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        vm.RunActionCancelCommand.Execute(null);
+        connector.Release(Env()); // models a provider that completes successfully despite cancellation
+        await load.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.True(connector.ConnectToken.IsCancellationRequested);
+        Assert.True(connector.Gateway.Disposed);
+        Assert.False(vm.IsConnected);
+        Assert.Empty(vm.Maps);
+        Assert.Contains("cancel", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.False(vm.IsBusy);
+    }
+
     // #166: an HttpClient timeout surfaces as an OperationCanceledException with the caller's token still
     // live. Reporting that as "Cancelled." with no error banner told the user they'd done it themselves.
     [Fact]
@@ -1475,9 +1496,11 @@ public class DualWriteOpsTests
             new(TaskCreationOptions.RunContinuationsAsynchronously);
         public Task Entered => _entered.Task;
         public DisposableGateway Gateway { get; } = new();
+        public CancellationToken ConnectToken { get; private set; }
 
         public Task<DualWriteSession> ConnectAsync(EnvProfile env, CancellationToken ct = default)
         {
+            ConnectToken = ct;
             _entered.TrySetResult();
             return _session.Task;
         }

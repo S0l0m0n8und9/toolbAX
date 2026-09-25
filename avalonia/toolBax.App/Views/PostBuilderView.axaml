@@ -27,7 +27,7 @@
               Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}" />
       <!-- Cancellation belongs to the accepted send/readback; rejected direct calls cannot replace it. -->
       <Button Grid.Column="6" Content="Cancel" Command="{Binding SendCancelCommand}" IsVisible="{Binding IsBusy}"
-              ToolTip.Tip="Cancel the in-flight send" />
+              ToolTip.Tip="Cancel the in-flight send or readback" />
     </Grid>
 
     <!-- If-Match conditional write — only relevant for PATCH/DELETE -->
@@ -54,7 +54,7 @@
       <StackPanel Spacing="6">
         <TextBlock Text="Last write evidence — cancellation does not roll back a write" FontWeight="SemiBold" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap" />
         <ScrollViewer MaxHeight="90"><TextBlock x:Name="ReceiptText" Text="{Binding WriteReceiptText}" TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}" /></ScrollViewer>
-        <Button x:Name="ReconcileButton" Content="Read current state" Command="{Binding ReconcileCommand}" HorizontalAlignment="Left" />
+        <Button x:Name="ReconcileButton" Content="Read latest write state" Command="{Binding ReconcileCommand}" HorizontalAlignment="Left" />
         <TextBlock Text="{Binding ReconcileReason}" TextWrapping="Wrap" Foreground="{StaticResource Text2Brush}"
                    IsVisible="{Binding ReconcileReason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
         <Border x:Name="ReadbackPanel" IsVisible="{Binding ReadbackText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"

@@ -286,12 +286,14 @@ public sealed class WriteOutcomeTests
             Dispatcher.UIThread.RunJobs();
             var receipt = view.FindControl<TextBlock>("ReceiptText")!;
             var readback = view.FindControl<TextBlock>("ReadbackText")!;
+            var reconcile = view.FindControl<Button>("ReconcileButton")!;
             Assert.True(receipt.IsEffectivelyVisible);
             Assert.True(readback.IsEffectivelyVisible);
             Assert.True(receipt.Bounds.Height > 0);
             Assert.True(readback.Bounds.Height > 0);
             Assert.Contains("unknown", receipt.Text);
             Assert.Contains("does not prove", readback.Text);
+            Assert.Equal("Read latest write state", reconcile.Content);
         }
         finally { window.Close(); }
     }
@@ -311,10 +313,12 @@ public sealed class WriteOutcomeTests
             Dispatcher.UIThread.RunJobs();
             var receipt = view.FindControl<TextBlock>("ReceiptText")!;
             var readback = view.FindControl<TextBlock>("ReadbackText")!;
+            var reconcile = view.FindControl<Button>("ReconcileButton")!;
             Assert.True(receipt.IsEffectivelyVisible && receipt.Bounds.Height > 0);
             Assert.True(readback.IsEffectivelyVisible && readback.Bounds.Height > 0);
             Assert.Contains("unconfirmed", receipt.Text);
             Assert.Contains("not proof", readback.Text);
+            Assert.Equal("Read latest write state", reconcile.Content);
         }
         finally { window.Close(); }
     }    private sealed class Gateway : IDualWriteGateway

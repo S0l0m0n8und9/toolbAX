@@ -159,7 +159,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             () => TryBeginOperation(true), () => EndOperation(true), c => _acceptedCancellation = c);
         ReconcileCommand = new WriteOperationCommand((_, ct) => Reconcile(ct), _ => !IsBusy && HasWriteReceipt && ReconcileReason.Length == 0,
             () => TryBeginOperation(false), () => EndOperation(false), c => _acceptedCancellation = c);
-        RunActionCancelCommand = new RelayCommand(() => _acceptedCancellation?.Cancel());
+        RunActionCancelCommand = new RelayCommand(CancelAcceptedOperation);
         _connector = connector;
         _activeEnv = activeEnv;
         _dialogs = dialogs;
@@ -263,6 +263,11 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         try
         {
             var session = await _connector.ConnectAsync(env, ct);
+            if (ct.IsCancellationRequested)
+            {
+                DisposeGateway(session);
+                ct.ThrowIfCancellationRequested();
+            }
             if (!CanCommitLoad(identity, generation))
             {
                 DisposeGateway(session);
@@ -279,6 +284,14 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             Log($"Connected: {session.Cname} (cid {session.Cid}).", LogKind.Ok);
 
             var maps = await session.Gateway.GetMapsAsync(session.Cid, ct);
+            if (ct.IsCancellationRequested)
+            {
+                if (ReferenceEquals(_session, session))
+                {
+                    DisposeSession();
+                }
+                ct.ThrowIfCancellationRequested();
+            }
             if (!CanCommitLoad(identity, generation) || !ReferenceEquals(_session, session))
             {
                 if (ReferenceEquals(_session, session))
@@ -485,6 +498,19 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         if (isMutation) MutationInProgress = true;
         IsBusy = true;
         return true;
+    }
+
+    private void CancelAcceptedOperation()
+    {
+        // The shared visible control belongs to the one accepted lease owner. Load uses the Toolkit
+        // command's cancellation source; writes and readback use WriteOperationCommand's private source.
+        if (LoadCommand.IsRunning)
+        {
+            LoadCommand.Cancel();
+            return;
+        }
+
+        _acceptedCancellation?.Cancel();
     }
 
     private void EndOperation(bool isMutation)

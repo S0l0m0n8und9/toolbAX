@@ -132,6 +132,7 @@ public class PostBuilderViewRenderTests
             var cancel = view.GetVisualDescendants().OfType<Button>()
                 .Single(b => (b.Content as string) == "Cancel");
             Assert.False(cancel.IsVisible); // idle: nothing to cancel
+            Assert.Equal("Cancel the in-flight send or readback", ToolTip.GetTip(cancel));
 
             var send = vm.SendCommand.ExecuteAsync(null);
             Dispatcher.UIThread.RunJobs();
