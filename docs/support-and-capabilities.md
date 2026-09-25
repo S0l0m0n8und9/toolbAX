@@ -1,13 +1,43 @@
 # Support and capabilities
 
-`toolbAX-win-x64.zip` is a self-contained Windows x64 release. The SDK in `global.json` is for building source, not running it. WebView2 is a separate prerequisite; use [Microsoft's guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution) and organisation policy. A bundled .NET runtime does not ensure WebView2 Runtime.
+## Runtime prerequisites
 
-Releases are unsigned. SHA256 compares downloaded bytes with the published checksum; it is not a publisher signature. Follow organisation security policy.
+The published `toolbAX-win-x64.zip` is self-contained: it bundles its .NET runtime. The SDK in [`global.json`](../global.json) is for building source, not normal release use.
 
-The App supports Profiles, OData query/CSV, confirmed POST/PATCH/DELETE with specific ETag where supported, metadata, map browser, operations/debug lifecycle, map presence/version/state Compare including Unknown/Ambiguous, and virtual-table inspection. It does not generate virtual tables. The profiler is experimental and not shipped.
+WebView2 is compiled for Windows but its Runtime is separate. Confirm availability through [Microsoft's WebView2 distribution guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution); follow organisation policy for installation and security prompts. A bundled .NET runtime does not imply WebView2 Runtime availability.
 
-Saved queries/API requests, template switching, table refresh, link reset, and integration-key application are Core-only APIs with no App UI.
+Releases are unsigned. The published SHA256 checks downloaded bytes against the published checksum; it is not a publisher signature. Follow organisation policy for download approval and SmartScreen.
 
-Windows uses real services; non-Windows or unavailable profile-store startup is explicit degraded/fake mode. User data is usually under `%LocalAppData%\FoToolbox`; DPAPI is CurrentUser, so moving a database is not credential migration. Review/redact logs before sharing while H14 is pending.
+## App capabilities
 
-CI/packaging does not prove tenant permissions, portal behavior, or live authentication. H04 improvements remain pending. [Dual-write automations](https://github.com/microsoft/Dual-write-automations) are provided as-is and may break with API changes. See [issue #168](https://github.com/S0l0m0n8und9/toolbAX/issues/168), [SECURITY.md](../SECURITY.md), and [CONTRIBUTING.md](../CONTRIBUTING.md).
+| Surface | Current App capability | Boundary |
+|---|---|---|
+| Profiles | Interactive and Client secret authentication | Legacy Certificate/ROPC values are preserved as unsupported until explicitly replaced; dual-write uses portal-only sign-in. |
+| Query Builder | OData query composition and CSV export | Live outcome depends on environment permissions. |
+| POST Builder | POST/PATCH/DELETE with confirmation | `If-Match: *` checks existence; a specific ETag requests a version check where supported. |
+| Metadata | Entity, field, navigation, enum and key inspection | Live metadata depends on environment access. |
+| Map Browser | Map bindings, counts, and field details | Counts can be capped, snapshot-derived, or not-comparable. |
+| Operations | Lifecycle actions and project debug flags | Actions are live writes and require confirmation. |
+| Compare | Map presence and reported version/state | Includes Unknown/Ambiguous; it is not row-count or configuration-parity certification. |
+| Virtual Tables | Inspect F&O-backed virtual tables | The App does not generate virtual tables. |
+| Profiler | Experimental CLI | Not shipped in the supported desktop release. |
+
+The visible catalog is defined in [`BuiltInToolCatalog.cs`](../avalonia/toolBax.App/Services/BuiltInToolCatalog.cs). App startup uses real composition on Windows; non-Windows or unavailable profile-store startup enters explicit degraded/fake mode ([`App.axaml.cs`](../avalonia/toolBax.App/App.axaml.cs)). This does not imply every Windows startup succeeds.
+
+## Core-only APIs
+
+The following Core capabilities have no current App UI: saved queries/API requests, template switching, table refresh, link reset, and integration-key application. They remain implementation APIs, not advertised product screens. Profile persistence is in [`ProfileStore.cs`](../src/FoToolbox.Core/Profiles/ProfileStore.cs); gateway client behavior is in [`DualWriteGatewayClient.cs`](../src/FoToolbox.Core/DualWrite/DualWriteGatewayClient.cs).
+
+## Data, logs, and evidence limits
+
+User data is usually under `%LocalAppData%\FoToolbox`; portable-base handling can place `profile.db` differently ([`ProfilePaths.cs`](../src/FoToolbox.Core/Profiles/ProfilePaths.cs)). Secrets use CurrentUser DPAPI ([`SecretVaultService.cs`](../src/FoToolbox.Core/Profiles/SecretVaultService.cs)), so moving a zip/database is not cross-user credential migration.
+
+Logs omit tokens, request/response bodies, and headers, but may contain endpoint paths or business identifiers. Review/redact before sharing.
+
+Deterministic CI and packaging evidence does not prove live authentication, portal behavior, tenant policy, permissions, or every feature. See the [hardening tracker](production-readiness/2026-09-25-hardening.md) for current delivery evidence.
+
+Microsoft does not support the referenced [Dual-write automations](https://github.com/microsoft/Dual-write-automations) project; it is provided as-is and warns API changes may break it. This statement applies to that project, not all Dataverse APIs.
+
+Two live unknowns remain in [issue #168](https://github.com/S0l0m0n8und9/toolbAX/issues/168): the Resume `skipInitialSync` format and `reversedSourceFilter` format. They are not validated claims.
+
+For security reporting see [`SECURITY.md`](../SECURITY.md); contribution guidance is in [`CONTRIBUTING.md`](../CONTRIBUTING.md).

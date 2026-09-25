@@ -35,14 +35,21 @@ Download `toolbAX-win-x64.zip` from the assets, extract it anywhere, and run `to
 
 ### Logs
 
-Each run writes a log, usually under `%LocalAppData%\FoToolbox\logs`. Review and redact business identifiers before sharing while H14 is pending.
+Each run writes `toolbax-<date>-<time>.log`, usually under `%LocalAppData%\FoToolbox\logs`; the newest 20 and 14 days are retained. Logs omit tokens, request/response bodies, and headers, but endpoint paths or business identifiers may still be present. Review and redact before sharing.
 
 The header records which Windows composition backend the run asked for (requested, not negotiated); if the window ever freezes, set `TOOLBAX_COMPOSITION` to `dxgi` (the default), `surface` (maximum compatibility) or `winui` (Avalonia's own default, which deadlocked in [#212](https://github.com/S0l0m0n8und9/toolbAX/issues/212)) before launching to change it without a rebuild — an unrecognised value is ignored rather than fatal.
 
 ## Requirements
 
-- Windows 10/11 to run the released build (the app itself is built on cross-platform Avalonia)
-- .NET SDK from `global.json` (currently `10.0.201` with `latestPatch` roll-forward)
+### Running the release
+
+- The published Windows x64 zip includes its .NET runtime.
+- WebView2 Runtime is a separate prerequisite; see [Microsoft's distribution guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution) and follow your organisation's installation/security policy.
+- Releases are unsigned; use your organisation's download approval policy.
+
+### Building source
+
+- The SDK in `global.json` (currently `10.0.201` with `latestPatch` roll-forward) is required to build source.
 
 ## Quick Start
 
