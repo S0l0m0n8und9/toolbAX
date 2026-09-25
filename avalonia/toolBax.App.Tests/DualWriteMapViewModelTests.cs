@@ -1880,10 +1880,11 @@ public class DualWriteMapViewModelTests
         };
         if (fault)
             reader.Gate.SetException(new InvalidOperationException("OLD_SCOPE_FAILURE"));
-        else reader.Gate.SetResult(DwSolutionLoadResult.Ok(new[]
-        {
-            new DwSolution("old-id", "OLD_SCOPE_SOLUTION", "Old", "1", "publisher", "Publisher")
-        }));
+        else
+            reader.Gate.SetResult(DwSolutionLoadResult.Ok(new[]
+            {
+                new DwSolution("old-id", "OLD_SCOPE_SOLUTION", "Old", "1", "publisher", "Publisher")
+            }));
         await operation.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.Equal(publishers, vm.Publishers);
         Assert.Equal(solutions, vm.Solutions);
