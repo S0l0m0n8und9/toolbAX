@@ -50,9 +50,12 @@
           <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsBusy}" Width="120" Height="4"
                        VerticalAlignment="Center" />
           <TextBlock FontSize="12" Foreground="{StaticResource Text3Brush}"
-                     Text="shared Data Integrator credential" />
+                     Text="read-only comparison" />
         </StackPanel>
       </Grid>
+      <TextBlock x:Name="ComparisonScope" FontSize="11.5" Foreground="{StaticResource Text3Brush}"
+                 TextWrapping="Wrap"
+                 Text="Compares reported map presence, active version and state. Field mappings, filters, integration keys and other configuration are not compared." />
     </StackPanel>
 
     <!-- Result scale + summary chips -->
@@ -118,25 +121,20 @@
           <DataGridTextColumn Header="Src · state" Binding="{Binding LeftState}" Width="*" />
           <DataGridTextColumn Header="Tgt · version" Binding="{Binding RightVersion}" Width="*" />
           <DataGridTextColumn Header="Tgt · state" Binding="{Binding RightState}" Width="*" />
-          <DataGridTemplateColumn Header="Diff" Width="*">
+          <DataGridTemplateColumn Header="Diff" Width="1.5*">
             <DataGridTemplateColumn.CellTemplate>
               <DataTemplate x:DataType="dw:DualWriteMapComparisonRow">
-                <!-- An Ambiguous row reads "cannot compare", which is only actionable with the reason
-                     attached: Note (#178) says WHICH unpairable case it is — duplicate name + CE target
-                     inside one environment, a map with neither, or two gateway response shapes that
-                     cannot be lined up. Carried as a marker + tooltip rather than inline text (the Ops
-                     view's gateway-log note) because the note is a full sentence and this column is one
-                     grid unit wide. The marker is the tooltip host and is gated on a non-empty Note, so
-                     an ordinary row has nothing to hover and gains no empty tooltip. -->
-                <StackPanel Orientation="Horizontal" Spacing="5" Margin="8,0" VerticalAlignment="Center">
+                <!-- Ambiguous and Unknown rows carry the precise pairing/evidence reason in Note.
+                     Keep the existing marker/tooltip; wrap the reported-values label within the cell. -->
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="5" Margin="8,0" VerticalAlignment="Center">
                   <TextBlock Text="{Binding Verdict, Converter={x:Static conv:VerdictToLabelConverter.Instance}}"
-                             VerticalAlignment="Center" FontSize="12"
+                             VerticalAlignment="Center" FontSize="12" TextWrapping="Wrap"
                              Foreground="{Binding Verdict, Converter={x:Static conv:VerdictToBrushConverter.Instance}}" />
-                  <TextBlock Text="&#x24D8;" VerticalAlignment="Center" FontSize="12"
+                  <TextBlock Grid.Column="1" Text="&#x24D8;" VerticalAlignment="Center" FontSize="12"
                              Foreground="{Binding Verdict, Converter={x:Static conv:VerdictToBrushConverter.Instance}}"
                              IsVisible="{Binding Note, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
                              ToolTip.Tip="{Binding Note}" />
-                </StackPanel>
+                </Grid>
               </DataTemplate>
             </DataGridTemplateColumn.CellTemplate>
           </DataGridTemplateColumn>

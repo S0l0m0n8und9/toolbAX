@@ -254,15 +254,39 @@ public class DualWriteCompareViewModelTests
     }
 
     [Theory]
-    [InlineData(DualWriteComparisonVerdict.Identical, "identical")]
+    [InlineData(DualWriteComparisonVerdict.Identical, "reported values match")]
     [InlineData(DualWriteComparisonVerdict.VersionMismatch, "version mismatch")]
     [InlineData(DualWriteComparisonVerdict.StateMismatch, "state mismatch")]
     [InlineData(DualWriteComparisonVerdict.OnlyInLeft, "only in source")]
     [InlineData(DualWriteComparisonVerdict.OnlyInRight, "only in target")]
     // #160: the unpairable verdict needs a label of its own, or the grid falls back to the enum name.
     [InlineData(DualWriteComparisonVerdict.Ambiguous, "cannot compare")]
+    [InlineData(DualWriteComparisonVerdict.Unknown, "unknown")]
     public void Verdict_labels_are_friendly(DualWriteComparisonVerdict verdict, string expected) =>
         Assert.Equal(expected, CompareVerdict.Label(verdict));
+
+    [Fact]
+    public async Task Unknown_rows_have_their_own_summary_bucket_without_claiming_they_were_comparable()
+    {
+        var unknown = DualWriteComparisonVerdict.Unknown;
+        var vm = MakeVm(new StubCompareService(
+            new DualWriteMapComparisonRow("Missing source", true, true, "1", "1", "", "Running", unknown)
+                { Note = "Missing reported values: source state." },
+            new DualWriteMapComparisonRow("Missing target", true, true, "1", "", "Running", "Running", unknown)
+                { Note = "Missing reported values: target active version." },
+            new DualWriteMapComparisonRow("Complete", true, true, "1", "1", "Running", "Running", DualWriteComparisonVerdict.Identical)));
+
+        await vm.CompareCommand.ExecuteAsync(null);
+
+        var bucket = Assert.Single(vm.Summary, b => b.Verdict == unknown);
+        Assert.Equal(2, bucket.Count);
+        Assert.Equal("2 unknown", bucket.Label);
+        Assert.Equal("3 map rows", vm.ComparedSummary);
+        Assert.Equal(3, vm.ComparedCount);
+        Assert.Equal("Missing reported values: source state.", vm.DiffRows[0].Note);
+        Assert.Equal("Missing reported values: target active version.", vm.DiffRows[1].Note);
+        Assert.True(vm.ShowDiffGrid);
+    }
 
     // ── Result scale + the empty result (#168 lows): an empty grid with no chips and no count was
     // indistinguishable from "every map is identical", i.e. it read as parity. ────────────────────────
@@ -279,7 +303,7 @@ public class DualWriteCompareViewModelTests
         Assert.Empty(vm.DiffRows);
         Assert.Empty(vm.Summary);               // no verdict occurred, so there are no chips to read
         Assert.Equal(0, vm.ComparedCount);
-        Assert.Equal("0 maps compared", vm.ComparedSummary);
+        Assert.Equal("0 map rows", vm.ComparedSummary);
         Assert.True(vm.ShowEmptyResult);
         Assert.False(vm.ShowDiffGrid);          // the bare grid is exactly what looked like "all in sync"
     }
@@ -293,7 +317,7 @@ public class DualWriteCompareViewModelTests
 
         Assert.NotEmpty(vm.DiffRows);
         Assert.Equal(vm.DiffRows.Count, vm.ComparedCount);
-        Assert.Equal($"{vm.DiffRows.Count} maps compared", vm.ComparedSummary);
+        Assert.Equal($"{vm.DiffRows.Count} map rows", vm.ComparedSummary);
         Assert.True(vm.ShowDiffGrid);
         Assert.False(vm.ShowEmptyResult);
     }
@@ -307,7 +331,7 @@ public class DualWriteCompareViewModelTests
 
         await vm.CompareCommand.ExecuteAsync(null);
 
-        Assert.Equal("1 map compared", vm.ComparedSummary);
+        Assert.Equal("1 map row", vm.ComparedSummary);
         Assert.True(vm.ShowDiffGrid);
         Assert.False(vm.ShowEmptyResult);
     }

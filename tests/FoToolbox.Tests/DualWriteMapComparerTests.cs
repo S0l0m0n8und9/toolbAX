@@ -21,6 +21,134 @@ public class DualWriteMapComparerTests
     private static DualWriteMapComparisonRow Row(IReadOnlyList<DualWriteMapComparisonRow> rows, string name) =>
         rows.Single(r => r.MapName == name);
 
+    [Theory]
+    [InlineData("source active version", null)]
+    [InlineData("source active version", "")]
+    [InlineData("source active version", " \t")]
+    [InlineData("target active version", null)]
+    [InlineData("target active version", "")]
+    [InlineData("target active version", " \t")]
+    [InlineData("source state", null)]
+    [InlineData("source state", "")]
+    [InlineData("source state", " \t")]
+    [InlineData("target state", null)]
+    [InlineData("target state", "")]
+    [InlineData("target state", " \t")]
+    public void Missing_evidence_on_either_side_is_unknown_and_names_the_exact_field(string field, string? missing)
+    {
+        var leftVersion = field == "source active version" ? missing : "1.0";
+        var rightVersion = field == "target active version" ? missing : "1.0";
+        var leftState = field == "source state" ? missing : "Running";
+        var rightState = field == "target state" ? missing : "Running";
+        var row = Assert.Single(DualWriteMapComparer.Compare(
+            new[] { Map("Customers", leftVersion!, leftState!, "accounts") },
+            new[] { Map("Customers", rightVersion!, rightState!, "accounts") }));
+
+        Assert.Equal(DualWriteComparisonVerdict.Unknown, row.Verdict);
+        Assert.Equal($"Missing reported values: {field}.", row.Note);
+        Assert.Equal(leftVersion ?? string.Empty, row.LeftVersion);
+        Assert.Equal(rightVersion ?? string.Empty, row.RightVersion);
+        Assert.Equal(leftState ?? string.Empty, row.LeftState);
+        Assert.Equal(rightState ?? string.Empty, row.RightState);
+        Assert.True(row.InLeft && row.InRight);
+        Assert.True(row.IsDifference); // compatibility attention flag, not proven drift
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Missing_active_template_is_unknown(bool sourceMissing)
+    {
+        var populated = Map("Customers", "1.0", "Running");
+        var absent = populated with { ActiveTemplate = null };
+        var row = Assert.Single(DualWriteMapComparer.Compare(
+            new[] { sourceMissing ? absent : populated }, new[] { sourceMissing ? populated : absent }));
+        Assert.Equal(DualWriteComparisonVerdict.Unknown, row.Verdict);
+        Assert.Equal($"Missing reported values: {(sourceMissing ? "source" : "target")} active version.", row.Note);
+    }
+
+    [Fact]
+    public void All_missing_fields_are_unknown_rather_than_matching_blanks()
+    {
+        var row = Assert.Single(DualWriteMapComparer.Compare(
+            new[] { Map("Customers", " ", null!) }, new[] { Map("Customers", null!, "\t") }));
+        Assert.Equal(DualWriteComparisonVerdict.Unknown, row.Verdict);
+        Assert.Equal("Missing reported values: source active version; source state; target active version; target state.", row.Note);
+        Assert.Equal(" ", row.LeftVersion);
+        Assert.Equal("\t", row.RightState);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData(" \t")]
+    public void Matching_missing_values_on_both_sides_are_not_reported_as_a_match(string? missing)
+    {
+        var map = Map("Customers", missing!, missing!);
+        var row = Assert.Single(DualWriteMapComparer.Compare(new[] { map }, new[] { map }));
+        Assert.Equal(DualWriteComparisonVerdict.Unknown, row.Verdict);
+        Assert.Equal("Missing reported values: source active version; source state; target active version; target state.", row.Note);
+    }
+
+    [Theory]
+    [InlineData("1.0", "2.0", "", "Running", "source state")]
+    [InlineData("1.0", "2.0", "Running", "", "target state")]
+    [InlineData("", "2.0", "Paused", "Running", "source active version")]
+    [InlineData("1.0", "", "Paused", "Running", "target active version")]
+    public void Missing_evidence_precedes_known_version_or_state_mismatches(string lv, string rv, string ls, string rs, string field)
+    {
+        var row = Assert.Single(DualWriteMapComparer.Compare(new[] { Map("Customers", lv, ls) }, new[] { Map("Customers", rv, rs) }));
+        Assert.Equal(DualWriteComparisonVerdict.Unknown, row.Verdict);
+        Assert.Equal($"Missing reported values: {field}.", row.Note);
+        Assert.Equal(lv, row.LeftVersion);
+        Assert.Equal(rv, row.RightVersion);
+        Assert.Equal(ls, row.LeftState);
+        Assert.Equal(rs, row.RightState);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void Missing_metadata_does_not_replace_one_sided_presence(bool sourceOnly)
+    {
+        var missing = new[] { Map("Customers", "", "") };
+        var row = Assert.Single(DualWriteMapComparer.Compare(sourceOnly ? missing : Array.Empty<DualWriteMap>(),
+            sourceOnly ? Array.Empty<DualWriteMap>() : missing));
+        Assert.Equal(sourceOnly ? DualWriteComparisonVerdict.OnlyInLeft : DualWriteComparisonVerdict.OnlyInRight, row.Verdict);
+        Assert.Empty(row.Note);
+    }
+
+    [Fact]
+    public void Missing_metadata_does_not_replace_ambiguous_identity()
+    {
+        var map = Map("Customers", "", "", "accounts");
+        var rows = DualWriteMapComparer.Compare(new[] { map, map with { Id = "duplicate" } }, new[] { map });
+        Assert.Equal(3, rows.Count);
+        Assert.All(rows, row => Assert.Equal(DualWriteComparisonVerdict.Ambiguous, row.Verdict));
+        Assert.All(rows, row => Assert.Contains("cannot be paired", row.Note));
+    }
+
+    [Fact]
+    public void Unique_degraded_target_pairing_still_checks_missing_evidence()
+    {
+        var row = Assert.Single(DualWriteMapComparer.Compare(
+            new[] { Map("Customers", "1.0", "", "") }, new[] { Map("Customers", "1.0", "Running", "accounts") }));
+        Assert.True(row.InLeft && row.InRight);
+        Assert.Equal(DualWriteComparisonVerdict.Unknown, row.Verdict);
+        Assert.Equal("Missing reported values: source state.", row.Note);
+    }
+
+    [Theory]
+    [InlineData("future-version", "FUTURE-VERSION", "FutureState", "futurestate", DualWriteComparisonVerdict.Identical)]
+    [InlineData("1.0", "2.0", "Running", "Paused", DualWriteComparisonVerdict.VersionMismatch)]
+    [InlineData("1.0", "1.0", "FutureState", "OtherState", DualWriteComparisonVerdict.StateMismatch)]
+    public void Nonblank_reported_values_keep_existing_comparison_semantics(string lv, string rv, string ls, string rs, DualWriteComparisonVerdict expected)
+    {
+        var row = Assert.Single(DualWriteMapComparer.Compare(new[] { Map("Customers", lv, ls) }, new[] { Map("Customers", rv, rs) }));
+        Assert.Equal(expected, row.Verdict);
+        Assert.Empty(row.Note);
+    }
+
     [Trait("Category", "DualWrite")]
     [Fact]
     public void Compare_IdenticalMaps_AreIdentical()
