@@ -379,7 +379,7 @@ public sealed class CoreProfileStore : IProfileStore
 
     private static DiAuthMode ParseDiMode(string? mode)
     {
-        if (string.IsNullOrWhiteSpace(mode)) return DiAuthMode.Interactive;
+        if (mode is null) return DiAuthMode.Interactive;
         return Enum.TryParse<DiAuthMode>(mode, out var parsed)
             && parsed is DiAuthMode.Interactive or DiAuthMode.Ropc
                 ? parsed
@@ -438,7 +438,7 @@ public sealed class CoreProfileStore : IProfileStore
     // derived from a legacy app-only SP, or defaults to Interactive when neither exists.
     private static FoAuthMode ResolveAuthMode(string? setting, ServicePrincipal? sp)
     {
-        if (string.IsNullOrWhiteSpace(setting))
+        if (setting is null)
         {
             return sp is null ? FoAuthMode.Interactive : FromCoreAuthMode(sp.AuthMode);
         }

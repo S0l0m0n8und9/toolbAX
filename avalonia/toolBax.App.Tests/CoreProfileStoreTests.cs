@@ -362,6 +362,32 @@ public sealed class CoreProfileStoreTests : IDisposable
     }
 
     [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Present_blank_mode_settings_are_unsupported_and_preserved_on_unrelated_save(string rawMode)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var seed = NewService();
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "Legacy", "https://legacy", "tenant", "USMF"), ct);
+        await seed.SetSettingAsync("fo.authMode:env1", rawMode, ct);
+        await seed.SetSettingAsync("dv.authMode:env1", rawMode, ct);
+        await seed.SetSettingAsync("di.mode:env1", rawMode, ct);
+
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+        var loaded = Assert.Single(store.GetAll());
+        Assert.Equal(FoAuthMode.Unsupported, loaded.AuthMode);
+        Assert.Equal(FoAuthMode.Unsupported, loaded.DataverseAuthMode);
+        Assert.Equal(DiAuthMode.Unsupported, loaded.DataIntegratorMode);
+
+        store.Save(loaded with { Name = "Renamed" });
+
+        Assert.Equal(rawMode, await NewService().GetSettingAsync("fo.authMode:env1", ct));
+        Assert.Equal(rawMode, await NewService().GetSettingAsync("dv.authMode:env1", ct));
+        Assert.Equal(rawMode, await NewService().GetSettingAsync("di.mode:env1", ct));
+    }
+
+    [Theory]
     [InlineData(AuthTarget.Fo)]
     [InlineData(AuthTarget.Dataverse)]
     public async Task Same_client_legacy_mode_replacement_unbinds_incompatible_credentials_after_upsert(AuthTarget target)
