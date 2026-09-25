@@ -419,8 +419,20 @@ public class DualWriteMapParserTests
         Assert.Null(DualWriteMapParser.ParseTotalRecordCount("not json", "account"));
         Assert.Null(DualWriteMapParser.ParseTotalRecordCount(null, "account"));
     }
+
     private static ToolBax.Core.Models.DwMapRecord StructuralRecord(string mapping) => Assert.Single(DualWriteMapParser.ParsePage(
-        System.Text.Json.JsonSerializer.Serialize(new { value = new[] { new { msdyn_name = "Header", msdyn_mapping = mapping, msdyn_properties = "{\"healthy\":true}" } } })).Records);
+        System.Text.Json.JsonSerializer.Serialize(new
+        {
+            value = new[]
+            {
+                new
+                {
+                    msdyn_name = "Header",
+                    msdyn_mapping = mapping,
+                    msdyn_properties = "{\"healthy\":true}"
+                }
+            }
+        })).Records);
 
     [Theory]
     [InlineData("[]")]
@@ -441,6 +453,7 @@ public class DualWriteMapParserTests
         Assert.Contains(record.Properties, p => p.Key == "healthy");
         Assert.All(record.DetailWarnings, warning => Assert.Contains("msdyn_mapping", warning));
     }
+
     [Theory]
     [InlineData("{\"legs\":[]}")]
     [InlineData("{\"legs\":[{}]}")]
@@ -461,9 +474,12 @@ public class DualWriteMapParserTests
         Assert.Equal("Copy", Assert.Single(record.ValueTransforms).TransformType);
         Assert.Equal(3, record.DetailWarnings.Count);
         Assert.Equal(3, record.DetailWarnings.Distinct().Count());
-    }    [Theory]
+    }
+
+    [Theory]
     [InlineData("true")]
     [InlineData("42")]
     [InlineData("\"scalar\"")]
     public void Structural_mapping_primitive_json_root_is_incomplete(string mapping)
-        => Assert.Contains(StructuralRecord(mapping).DetailWarnings, warning => warning.Contains("root is not an object"));}
+        => Assert.Contains(StructuralRecord(mapping).DetailWarnings, warning => warning.Contains("root is not an object"));
+}
