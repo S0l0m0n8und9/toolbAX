@@ -1,6 +1,6 @@
 # Debug-write confirmation
 
-Status: Accepted for implementation. Campaign H13a, 2026-09-25.
+Status: Implemented and locally validated; PR, review and merge pending. Campaign H13a, 2026-09-25.
 
 Enable and disable both change project-level F&O debug flags and must confirm before metadata or HTTP work. The operation retains its H01 owner-held mutation lease, captures project IDs/labels and identity before the dialog, then revalidates cancellation, disposal, and identity before dispatch.
 
@@ -26,6 +26,11 @@ logging policy and authentication are unchanged.
 | A failed or competing command clears the operation owner's busy state. | Preserve the H01 lease/finally; held confirmation rejects direct reconnect, lifecycle and debug calls without extra dialogs; fault/cancel releases the gate for a later confirmed operation. |
 | The scope message overstates or understates affected projects. | Duplicate project IDs count once; list actual selected map/project labels and disclose skipped missing IDs; assert the request before releasing the dialog. |
 
-Tests use fake connectors, metadata, OData and dialogs only. The preserved partial source lives under
-ignored `artifacts/h13a`; baseline `684e6bc` must fail the new confirmation behavior tests before the
-completed implementation is tested. Root runs complete solution gates after the source checkpoint.
+Tests use fake connectors, metadata, OData and dialogs only. All 14 new confirmation cases failed on
+baseline `684e6bc`, then the completed implementation passed the focused 115/115 Ops/Shell suite.
+
+Full `CI=true` Release validation passed at source `c3f072a9ae2458f8700abc0aa8224720060cb324`:
+both solution builds had 0 warnings/errors; App tests passed 1,150/1,150 and Core tests passed 403/403,
+with 0 failed/skipped. Evidence is saved under `artifacts/h13a/full-{app,core}-{build,test}.log` and
+`artifacts/h13a/full-{app,core}.trx`. No live authentication or environment calls were used.
+These gates establish local completion; the separate PR, Greptile review and merge remain pending.
