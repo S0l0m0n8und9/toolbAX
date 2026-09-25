@@ -11,6 +11,7 @@ function Convert-ReleaseTag {
         if (-not [int]::TryParse($match.Groups[$part].Value, [ref]$number) -or $number -gt 65534) { throw 'Version component exceeds the numeric assembly/file-version range.' }
     }
     [pscustomobject]@{ Tag = $Tag; PackageVersion = $Tag.Substring(1)
+        IsPrerelease = $match.Groups['major'].Value -eq '0' -or $match.Groups['pre'].Success
         FileVersion = '{0}.{1}.{2}.0' -f $match.Groups['major'].Value, $match.Groups['minor'].Value, $match.Groups['patch'].Value }
 }
 

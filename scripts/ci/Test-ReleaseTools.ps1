@@ -19,6 +19,18 @@ Check 'prerelease and build metadata never enter FileVersion' {
     $v = Convert-ReleaseTag 'v12.34.56-rc.2+build.7'
     if ($v.PackageVersion -ne '12.34.56-rc.2+build.7' -or $v.FileVersion -ne '12.34.56.0') { throw 'Unsafe numeric version.' }
 }
+foreach ($case in @(
+    @{ Tag = 'v1.2.3+build-7'; Expected = $false },
+    @{ Tag = 'v1.2.3-rc.1+build-7'; Expected = $true },
+    @{ Tag = 'v0.1.0'; Expected = $true }
+)) {
+    Check "validated prerelease label for $($case.Tag)" {
+        $version = Convert-ReleaseTag $case.Tag
+        if ($version.IsPrerelease -isnot [bool] -or $version.IsPrerelease -ne $case.Expected) {
+            throw "Incorrect prerelease decision for $($case.Tag)."
+        }
+    }
+}
 foreach ($tag in @('1.2.3', 'vv1.2.3', 'v01.2.3', 'v1.2', 'v1.2.3-01', 'v70000.2.3', 'v1.2.3;Write-Output bad', 'v1.2.3$(whoami)', "v1.2.3`nversion=bad")) {
     Check "reject tag [$tag]" { Reject { Convert-ReleaseTag $tag } }
 }
