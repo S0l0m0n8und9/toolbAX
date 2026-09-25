@@ -77,6 +77,33 @@ public class DualWriteOpsTests
                 : Task.FromResult(true);
     }
 
+    private sealed class DeclineOnceDialogs : IDialogService
+    {
+        private int _calls;
+        public Task<bool> ConfirmAsync(ConfirmRequest request) =>
+            Task.FromResult(Interlocked.Increment(ref _calls) != 1);
+    }
+
+    private sealed class ControlledDebugDialogs : IDialogService
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> Answer { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public List<ConfirmRequest> Requests { get; } = new();
+        public Task<bool> ConfirmAsync(ConfirmRequest request)
+        {
+            Requests.Add(request);
+            Entered.TrySetResult();
+            return Requests.Count == 1 ? Answer.Task : Task.FromResult(true);
+        }
+    }
+
+    private static async Task WaitForDebugConfirmation(Task operation, ControlledDebugDialogs dialogs)
+    {
+        // Baseline finishes without asking; fail promptly rather than waiting forever for a missing dialog.
+        await Task.WhenAny(operation, dialogs.Entered.Task).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.True(dialogs.Entered.Task.IsCompleted, "Debug operation did not request confirmation.");
+    }
+
     private sealed class CountingConnector : IDualWriteConnector
     {
         private readonly FakeDualWriteConnector _inner = new();
@@ -354,7 +381,7 @@ public class DualWriteOpsTests
         odata.Release();
         await debug;
 
-        Assert.Equal(0, dialogs.Calls);
+        Assert.Equal(1, dialogs.Calls); // the owning debug operation's confirmation only
         Assert.Equal(0, connector.LastGateway!.StartCount);
         Assert.True(stillOwned);
         Assert.True(stillBusy);
@@ -365,7 +392,7 @@ public class DualWriteOpsTests
     [Fact]
     public async Task Declined_or_failed_lifecycle_confirmation_releases_the_gate_for_a_later_debug_toggle()
     {
-        foreach (var dialogs in new IDialogService[] { new FakeDialogs(confirm: false), new ThrowOnceDialogs() })
+        foreach (var dialogs in new IDialogService[] { new DeclineOnceDialogs(), new ThrowOnceDialogs() })
         {
             var connector = new FakeDualWriteConnector();
             var odata = new ScriptedODataClient(DebugRecord);
@@ -747,9 +774,253 @@ public class DualWriteOpsTests
     }
 
     private static DualWriteOpsViewModel MakeDebugVm(IODataClient odata, IMetadataService metadata) =>
-        new(new FakeDualWriteConnector(), Env, new FakeDialogs(false),
+        new(new FakeDualWriteConnector(), Env, new FakeDialogs(true),
             pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5),
             odata: odata, metadata: metadata);
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Debug_confirmation_decline_has_zero_metadata_and_HTTP_side_effects(bool enabled)
+    {
+        var dialogs = new FakeDialogs(false);
+        var metadata = new CountingMetadata("DualWriteProjectConfigurations");
+        var odata = new ScriptedODataClient(DebugRecord);
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), Env, dialogs, odata: odata, metadata: metadata);
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.First().IsSelected = true;
+
+        await (enabled ? vm.EnableDebugForSelectedCommand : vm.DisableDebugForSelectedCommand).ExecuteAsync(null);
+
+        Assert.Equal(1, dialogs.Calls);
+        Assert.Equal(0, metadata.Calls);
+        Assert.Empty(odata.Calls);
+        Assert.Contains("No debug changes sent", vm.DebugStatus);
+        Assert.False(vm.MutationInProgress);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Theory]
+    [InlineData("noSession")]
+    [InlineData("identityChanged")]
+    [InlineData("noSelection")]
+    [InlineData("noUrl")]
+    [InlineData("noProject")]
+    public async Task Invalid_debug_target_is_rejected_before_confirmation_or_metadata(string invalid)
+    {
+        var env = new EnvSwitch();
+        if (invalid == "noUrl") env.Current = env.Current! with { Url = string.Empty };
+        var maps = new[] { MapWith("One", "Running") with { ProjectId = invalid == "noProject" ? " " : "project-a" } };
+        var dialogs = new FakeDialogs(true);
+        var metadata = new CountingMetadata("DualWriteProjectConfigurations");
+        var odata = new ScriptedODataClient(DebugRecord);
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(maps), env.Get, dialogs, odata: odata, metadata: metadata);
+        if (invalid != "noSession")
+        {
+            await vm.LoadCommand.ExecuteAsync(null);
+            vm.Maps.Single().IsSelected = invalid != "noSelection";
+        }
+        if (invalid == "identityChanged") env.Current = env.Current! with { Tenant = "other-tenant" };
+
+        await vm.EnableDebugForSelectedCommand.ExecuteAsync(null);
+        await vm.DisableDebugForSelectedCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, dialogs.Calls);
+        Assert.Equal(0, metadata.Calls);
+        Assert.Empty(odata.Calls);
+        Assert.False(vm.MutationInProgress);
+        Assert.False(vm.IsBusy);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Debug_confirmation_acceptance_uses_the_exact_captured_projects_and_scope(bool enabled)
+    {
+        var maps = new[]
+        {
+            MapWith("One", "Running") with { ProjectId = "project-a" },
+            MapWith("Also one", "Running") with { ProjectId = "project-a" },
+            MapWith("Two", "Running") with { ProjectId = "project-b" },
+            MapWith("Missing", "Running") with { ProjectId = " " },
+            MapWith("Unselected", "Running") with { ProjectId = "project-c" },
+        };
+        var dialogs = new ControlledDebugDialogs();
+        var metadata = new CountingMetadata("DualWriteProjectConfigurations");
+        var odata = new ScriptedODataClient(DebugRecord);
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(maps), Env, dialogs, odata: odata, metadata: metadata);
+        await vm.LoadCommand.ExecuteAsync(null);
+        foreach (var row in vm.Maps) row.IsSelected = row.Name != "Unselected";
+
+        var operation = (enabled ? vm.EnableDebugForSelectedCommand : vm.DisableDebugForSelectedCommand).ExecuteAsync(null);
+        await WaitForDebugConfirmation(operation, dialogs);
+        var request = Assert.Single(dialogs.Requests);
+        Assert.Equal($"{(enabled ? "Enable" : "Disable")} debug mode for 2 project(s)?", request.Title);
+        Assert.Contains("Contoso", request.Message);
+        Assert.Contains("https://contoso.operations.dynamics.com", request.Message);
+        Assert.Contains("project-level", request.Message);
+        Assert.Contains("logging", request.Message);
+        Assert.Equal(new[] { "One · project-a", "Also one · project-a", "Two · project-b" }, request.Targets);
+        Assert.Contains("1 selected map(s) without a project id", request.Caveat);
+        Assert.Equal(0, metadata.Calls);
+        Assert.Empty(odata.Calls);
+        foreach (var row in vm.Maps) row.IsSelected = row.Name == "Unselected";
+        dialogs.Answer.TrySetResult(true);
+        await operation;
+
+        Assert.Equal(new[]
+        {
+            "data/DualWriteProjectConfigurations?$filter=ProjectId eq 'project-a'",
+            "data/DualWriteProjectConfigurations?$filter=ProjectId eq 'project-b'",
+        }, odata.Calls.Where(c => c.Method == "GET").Select(c => c.Path));
+        var patches = odata.Calls.Where(c => c.Method == "PATCH").ToList();
+        Assert.Equal(2, patches.Count);
+        Assert.All(patches, p => Assert.Equal(enabled ? "{\"IsDebugMode\":\"Yes\"}" : "{\"IsDebugMode\":\"No\"}", p.Body));
+        Assert.False(vm.MutationInProgress);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Debug_confirmation_identity_change_sends_nothing(bool enabled)
+    {
+        var env = new EnvSwitch();
+        var dialogs = new ControlledDebugDialogs();
+        var metadata = new CountingMetadata("DualWriteProjectConfigurations");
+        var odata = new ScriptedODataClient(DebugRecord);
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), env.Get, dialogs, odata: odata, metadata: metadata);
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.First().IsSelected = true;
+        var operation = (enabled ? vm.EnableDebugForSelectedCommand : vm.DisableDebugForSelectedCommand).ExecuteAsync(null);
+        await WaitForDebugConfirmation(operation, dialogs);
+        env.Current = env.Current! with { Tenant = "different-tenant" };
+        dialogs.Answer.TrySetResult(true);
+        await operation;
+
+        Assert.Equal(0, metadata.Calls);
+        Assert.Empty(odata.Calls);
+        Assert.Contains("not sent", vm.DebugStatus, StringComparison.OrdinalIgnoreCase);
+        Assert.False(vm.MutationInProgress);
+    }
+
+    [Theory]
+    [InlineData(true, "accept")]
+    [InlineData(false, "decline")]
+    [InlineData(true, "fault")]
+    [InlineData(false, "cancel")]
+    public async Task Debug_confirmation_disposal_never_dispatches_or_publishes_late_status(bool enabled, string outcome)
+    {
+        var dialogs = new ControlledDebugDialogs();
+        var metadata = new CountingMetadata("DualWriteProjectConfigurations");
+        var odata = new ScriptedODataClient(DebugRecord);
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), Env, dialogs, odata: odata, metadata: metadata);
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.First().IsSelected = true;
+        var operation = (enabled ? vm.EnableDebugForSelectedCommand : vm.DisableDebugForSelectedCommand).ExecuteAsync(null);
+        await WaitForDebugConfirmation(operation, dialogs);
+        vm.Dispose();
+        vm.DebugStatus = "state after disposal";
+        if (outcome == "fault") dialogs.Answer.TrySetException(new InvalidOperationException("dialog failed"));
+        else if (outcome == "cancel") dialogs.Answer.TrySetException(new OperationCanceledException());
+        else dialogs.Answer.TrySetResult(outcome == "accept");
+        await operation;
+
+        Assert.Equal("state after disposal", vm.DebugStatus);
+        Assert.Equal(0, metadata.Calls);
+        Assert.Empty(odata.Calls);
+        Assert.False(vm.MutationInProgress);
+    }
+
+    [Theory]
+    [InlineData(true, "fault")]
+    [InlineData(false, "dialogCancel")]
+    [InlineData(true, "commandCancel")]
+    public async Task Debug_confirmation_fault_or_cancel_releases_the_lease_for_a_later_operation(bool enabled, string outcome)
+    {
+        var dialogs = new ControlledDebugDialogs();
+        var metadata = new CountingMetadata("DualWriteProjectConfigurations");
+        var odata = new ScriptedODataClient(DebugRecord);
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), Env, dialogs, odata: odata, metadata: metadata);
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.First().IsSelected = true;
+        var command = enabled ? vm.EnableDebugForSelectedCommand : vm.DisableDebugForSelectedCommand;
+        var operation = command.ExecuteAsync(null);
+        await WaitForDebugConfirmation(operation, dialogs);
+        if (outcome == "fault") dialogs.Answer.TrySetException(new InvalidOperationException("dialog failed"));
+        else if (outcome == "dialogCancel") dialogs.Answer.TrySetException(new OperationCanceledException());
+        else { command.Cancel(); dialogs.Answer.TrySetResult(true); }
+        await operation;
+
+        Assert.Empty(odata.Calls);
+        Assert.Equal(0, metadata.Calls);
+        Assert.Contains("sent", vm.DebugStatus, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("reconnect", vm.DebugStatus, StringComparison.OrdinalIgnoreCase);
+        Assert.False(vm.MutationInProgress);
+        Assert.True(vm.EnableDebugForSelectedCommand.CanExecute(null));
+        await vm.EnableDebugForSelectedCommand.ExecuteAsync(null);
+        Assert.Single(odata.Calls, c => c.Method == "PATCH");
+        Assert.Equal(2, dialogs.Requests.Count);
+    }
+
+    [Fact]
+    public async Task Debug_command_cancel_completes_without_answering_confirmation_and_late_approval_cannot_dispatch()
+    {
+        var dialogs = new ControlledDebugDialogs();
+        var metadata = new CountingMetadata("DualWriteProjectConfigurations");
+        var odata = new ScriptedODataClient(DebugRecord);
+        var connector = new CountingConnector();
+        var vm = new DualWriteOpsViewModel(connector, Env, dialogs, odata: odata, metadata: metadata);
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.First().IsSelected = true;
+
+        var operation = vm.EnableDebugForSelectedCommand.ExecuteAsync(null);
+        await WaitForDebugConfirmation(operation, dialogs);
+        vm.EnableDebugForSelectedCommand.Cancel();
+        var winner = await Task.WhenAny(operation, Task.Delay(TimeSpan.FromSeconds(2), TestContext.Current.CancellationToken));
+        var completedWithoutAnswer = ReferenceEquals(winner, operation);
+
+        // Always release the legacy fake for RED cleanup. After the fix this is a late answer to an
+        // abandoned confirmation and must have no effect.
+        dialogs.Answer.TrySetResult(true);
+        await operation;
+
+        Assert.True(completedWithoutAnswer);
+        Assert.Equal(0, metadata.Calls);
+        Assert.Empty(odata.Calls);
+        Assert.False(vm.MutationInProgress);
+        Assert.False(vm.IsBusy);
+        Assert.True(vm.EnableDebugForSelectedCommand.CanExecute(null));
+        Assert.Equal(1, connector.Calls);
+    }
+
+    [Fact]
+    public async Task Debug_confirmation_owner_refuses_direct_competitors_without_extra_dialogs()
+    {
+        var dialogs = new ControlledDebugDialogs();
+        var connector = new CountingConnector();
+        var metadata = new CountingMetadata("DualWriteProjectConfigurations");
+        var odata = new ScriptedODataClient(DebugRecord);
+        var vm = new DualWriteOpsViewModel(connector, Env, dialogs, odata: odata, metadata: metadata);
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.First().IsSelected = true;
+        var operation = vm.EnableDebugForSelectedCommand.ExecuteAsync(null);
+        await WaitForDebugConfirmation(operation, dialogs);
+        await vm.LoadCommand.ExecuteAsync(null);
+        await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+        await vm.DisableDebugForSelectedCommand.ExecuteAsync(null);
+
+        Assert.Single(dialogs.Requests);
+        Assert.Equal(1, connector.Calls);
+        Assert.Equal(0, connector.LastGateway!.StartCount);
+        Assert.Equal(0, metadata.Calls);
+        Assert.Empty(odata.Calls);
+        Assert.True(vm.MutationInProgress);
+        Assert.True(vm.IsBusy);
+        dialogs.Answer.TrySetResult(false);
+        await operation;
+        Assert.False(vm.MutationInProgress);
+        Assert.True(vm.LoadCommand.CanExecute(null));
+    }
 
     [Fact]
     public void Debug_toggle_is_disabled_until_connected_with_a_selection()
@@ -832,7 +1103,7 @@ public class DualWriteOpsTests
                 env.Current = OtherEnv();
             }
         });
-        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), env.Get, new FakeDialogs(false),
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), env.Get, new FakeDialogs(true),
             pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5),
             odata: odata, metadata: new FixedMetadata("DualWriteProjectConfigurations"));
         await vm.LoadCommand.ExecuteAsync(null);
@@ -861,7 +1132,7 @@ public class DualWriteOpsTests
                 env.Current = OtherEnv();
             }
         });
-        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), env.Get, new FakeDialogs(false),
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), env.Get, new FakeDialogs(true),
             pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5),
             odata: odata, metadata: new FixedMetadata("DualWriteProjectConfigurations"));
         await vm.LoadCommand.ExecuteAsync(null);
