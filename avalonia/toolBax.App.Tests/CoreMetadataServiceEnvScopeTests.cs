@@ -24,6 +24,9 @@ public class CoreMetadataServiceEnvScopeTests
     private static EnvProfile Env(string id) =>
         new(id, id, $"{id}.operations.dynamics.com", "tenant", "USMF", "Tier 1", EnvStatus.Connected);
 
+    private static EnvProfile EnvAt(string id, string url) =>
+        new(id, id, url, "tenant", "USMF", "Tier 1", EnvStatus.Connected);
+
     // Both environments expose the same entity name but different property and enum names, so metadata
     // leaking across a switch shows up as the wrong names rather than merely as a stale cache hit.
     private static ODataMetadata Seed(string envId) => new(
@@ -108,6 +111,25 @@ public class CoreMetadataServiceEnvScopeTests
     }
 
     [Fact]
+    public async Task Editing_the_active_profiles_endpoint_under_the_same_id_empties_the_caches()
+    {
+        var active = EnvAt("envA", "https://first.operations.dynamics.com");
+        var svc = new CoreMetadataService(new PerEnvCatalog(), () => active);
+        var ct = TestContext.Current.CancellationToken;
+
+        await svc.LoadEntitiesAsync(ct);
+        await svc.LoadFieldsAsync(EntityName, ct);
+        Assert.NotEmpty(svc.GetEntities());
+        Assert.NotNull(svc.GetFields(EntityName));
+
+        active = EnvAt("envA", "https://second.operations.dynamics.com");
+
+        Assert.Empty(svc.GetEntities());
+        Assert.Null(svc.GetFields(EntityName));
+        Assert.Null(svc.GetNavigations(EntityName));
+    }
+
+    [Fact]
     public async Task Reloading_after_a_switch_serves_the_new_environments_metadata()
     {
         var active = Env("envA");
@@ -166,6 +188,48 @@ public class CoreMetadataServiceEnvScopeTests
         await load;
 
         // envA's result arrived too late to belong to anything: it must not resurface as envB's.
+        Assert.Empty(svc.GetEntities());
+        Assert.Null(svc.GetEnumMembers("envAEnum"));
+    }
+
+    [Fact]
+    public async Task Invalidate_discards_a_late_entity_load_without_a_getter_observing_the_switch()
+    {
+        var active = Env("envA");
+        var gate = new FetchGate();
+        var svc = new CoreMetadataService(new PerEnvCatalog(gate.Hold), () => active);
+        var ct = TestContext.Current.CancellationToken;
+
+        var load = svc.LoadEntitiesAsync(ct);
+        await gate.Entered;
+        active = Env("envB");
+        svc.Invalidate();
+
+        gate.Release();
+        await load;
+
+        Assert.Empty(svc.GetEntities());
+        Assert.Null(svc.GetEnumMembers("envAEnum"));
+    }
+
+    [Fact]
+    public async Task A_to_B_to_A_invalidations_discard_the_original_A_generation()
+    {
+        var active = Env("envA");
+        var gate = new FetchGate();
+        var svc = new CoreMetadataService(new PerEnvCatalog(gate.Hold), () => active);
+        var ct = TestContext.Current.CancellationToken;
+
+        var oldA = svc.LoadEntitiesAsync(ct);
+        await gate.Entered;
+        active = Env("envB");
+        svc.Invalidate();
+        active = Env("envA");
+        svc.Invalidate();
+
+        gate.Release();
+        await oldA;
+
         Assert.Empty(svc.GetEntities());
         Assert.Null(svc.GetEnumMembers("envAEnum"));
     }

@@ -61,6 +61,8 @@ public class ShellViewModelTests
     // (not a hidden per-VM FakeMetadataService) to the Metadata Browser / Query Builder.
     private sealed class OneEntityMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         public IReadOnlyList<EntitySet> GetEntities() =>
             new[] { new EntitySet("ZZTopEntity", "M", 1, "k", false, "t") };
         public IReadOnlyList<EntityField>? GetFields(string entityName) => null;

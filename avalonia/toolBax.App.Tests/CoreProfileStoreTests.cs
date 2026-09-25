@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.Profiles;
+using Microsoft.Data.Sqlite;
 using ToolBax.App.Services;
 using ToolBax.Core.Models;
 using Xunit;
@@ -143,6 +144,47 @@ public sealed class CoreProfileStoreTests : IDisposable
         Assert.Equal("env1", store.ActiveId);
         var reopened = await CoreProfileStore.CreateAsync(NewService(), ct);
         Assert.Equal("env1", reopened.ActiveId);
+    }
+
+    [Fact]
+    public async Task Active_id_cache_stays_old_when_persistence_fails()
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var seed = NewService();
+        await seed.EnsureCreatedAsync(ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env1", "One", "https://one", "t", null), ct);
+        await seed.UpsertEnvironmentAsync(new FoEnvironment("env2", "Two", "https://two", "t", null), ct);
+        await seed.SetDefaultEnvironmentAsync("env1", ct);
+        var store = await CoreProfileStore.CreateAsync(NewService(), ct);
+
+        await using var connection = new SqliteConnection(ConnectionString);
+        await connection.OpenAsync(ct);
+        await using (var create = connection.CreateCommand())
+        {
+            create.CommandText = """
+                CREATE TRIGGER BlockDefaultEnvironmentUpdate
+                BEFORE UPDATE OF Value ON Settings
+                WHEN OLD.Key = 'DefaultEnvId'
+                BEGIN
+                    SELECT RAISE(ABORT, 'blocked default env update');
+                END;
+                """;
+            await create.ExecuteNonQueryAsync(ct);
+        }
+
+        try
+        {
+            var error = Assert.Throws<SqliteException>(() => store.ActiveId = "env2");
+            Assert.Contains("blocked default env update", error.Message);
+            Assert.Equal("env1", store.ActiveId);
+            Assert.Equal("env1", await NewService().GetDefaultEnvironmentIdAsync(ct));
+        }
+        finally
+        {
+            await using var drop = connection.CreateCommand();
+            drop.CommandText = "DROP TRIGGER BlockDefaultEnvironmentUpdate";
+            await drop.ExecuteNonQueryAsync(ct);
+        }
     }
 
     [Fact]

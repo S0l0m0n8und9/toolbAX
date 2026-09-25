@@ -63,6 +63,8 @@ public class QueryBuilderViewModelTests
     // Mimics the real service: nothing until LoadEntitiesAsync runs, then one entity with fields.
     private sealed class DeferredMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private bool _loaded;
         private static readonly EntitySet[] Late = { new("LateEntity", "M", 1, "k", false, "odata") };
         private static readonly EntityField[] LateFields =
@@ -946,6 +948,8 @@ public class QueryBuilderViewModelTests
     // bare-quoted rendering has to survive untouched.
     private sealed class UnqualifiedEnumMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly EntitySet[] Sets =
             { new("Things", string.Empty, 3, string.Empty, CompanyAware: false, "odata") };
 
@@ -1268,6 +1272,8 @@ public class QueryBuilderViewModelTests
     // load reveals a dataAreaId — so that, not the flag, is what company scoping has to be gated on.
     private sealed class IndexShapedMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly EntitySet[] Sets =
         {
             new("CustomersV3", string.Empty, 2, string.Empty, CompanyAware: false, "odata"),
@@ -1343,6 +1349,8 @@ public class QueryBuilderViewModelTests
     // shape). Company-awareness therefore can't be known at selection time — only when the fields land.
     private sealed class DeferredCompanyMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private bool _loaded;
         private static readonly EntitySet[] Late =
             { new("CustomersV3", string.Empty, 2, string.Empty, CompanyAware: false, "odata") };
@@ -1385,6 +1393,8 @@ public class QueryBuilderViewModelTests
     // projection: scalars and collections side by side on one entity, plus an entity that's all collection.
     private sealed class CollectionFieldMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly EntitySet[] Sets =
         {
             new("Products", string.Empty, 4, string.Empty, CompanyAware: false, "odata"),

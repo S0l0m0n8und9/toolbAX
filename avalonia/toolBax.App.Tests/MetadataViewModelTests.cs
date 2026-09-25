@@ -19,6 +19,8 @@ public class MetadataViewModelTests
     // fields appears — so InitializeAsync (not the ctor) is what populates the browser.
     private sealed class DeferredMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private bool _loaded;
         private static readonly EntitySet[] Late = { new("LateEntity", "M", 1, "k", false, "odata") };
         private static readonly EntityField[] LateFields = { new("Id", "String", false, IsKey: true, Length: 10) };
@@ -47,6 +49,8 @@ public class MetadataViewModelTests
     // Mimics a live failure (token denied / OData unreachable) so the fetch can't silently no-op.
     private sealed class ThrowingMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         public IReadOnlyList<EntitySet> GetEntities() => Array.Empty<EntitySet>();
         public IReadOnlyList<EntityField>? GetFields(string entityName) => null;
         public Task LoadEntitiesAsync(CancellationToken ct = default) =>
@@ -70,6 +74,8 @@ public class MetadataViewModelTests
     // than just re-reading them.
     private sealed class RecordingMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly EntitySet[] All =
         {
             new("Alpha", "M", 1, "k", false, "odata"),
@@ -136,6 +142,8 @@ public class MetadataViewModelTests
     // (a profile repointed at an environment without OData metadata, or a cache emptied by the switch).
     private sealed class EmptyingMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly EntitySet[] Initial = { new("Alpha", "M", 1, "k", false, "odata") };
         private static readonly EntityField[] Props = { new("Id", "String", false, IsKey: true, Length: 10) };
         private bool _emptied;
@@ -196,6 +204,8 @@ public class MetadataViewModelTests
     // read against a document that can be tens of MB, which is the whole reason the pane needs an indicator.
     private sealed class BlockingFieldsMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly EntitySet[] All =
         {
             new("Alpha", "M", 1, "k", false, "odata"),
@@ -266,6 +276,8 @@ public class MetadataViewModelTests
     // like the real service, so a superseded fetch actually unwinds instead of hanging.
     private sealed class GatedFieldsMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly EntitySet[] All =
         {
             new("Alpha", "M", 1, "k", false, "odata"),

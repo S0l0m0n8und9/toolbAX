@@ -66,6 +66,8 @@ public sealed class CoreDataverseClient : IDataverseClient, IDisposable
                 "Configure a Dataverse URL on the CE/Dataverse tab for this environment.", (int)sw.ElapsedMilliseconds);
         }
 
+        var identity = EnvironmentIdentity.Create(env);
+
         var uri = BuildUri(env.DataverseUrl, pathOrUrl);
 
         // A server-driven @odata.nextLink is used verbatim, but only if it stays on the Dataverse
@@ -86,6 +88,12 @@ public sealed class CoreDataverseClient : IDataverseClient, IDisposable
         catch (Exception ex)
         {
             return new ODataResponse(401, "Unauthorized", ex.Message, (int)sw.ElapsedMilliseconds);
+        }
+
+        if (!identity.IsCurrent(_activeEnv()))
+        {
+            return new ODataResponse(0, "Environment changed",
+                "The active environment changed before the request was sent.", (int)sw.ElapsedMilliseconds);
         }
 
         try

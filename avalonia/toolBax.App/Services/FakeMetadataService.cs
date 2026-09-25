@@ -15,6 +15,9 @@ namespace ToolBax.App.Services;
 /// </summary>
 public sealed class FakeMetadataService : IMetadataService
 {
+    /// <summary>The design-time catalogue is immutable seed data, so invalidation is explicitly a no-op.</summary>
+    public void Invalidate() { }
+
     private static readonly IReadOnlyList<EntitySet> Entities = new[]
     {
         new EntitySet("CustomersV3", "AR", 87, "dataAreaId,CustomerAccount", true, "common"),

@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using ToolBax.App.Services;
 using ToolBax.Core.Models;
+using ToolBax.Core.Services;
 using Xunit;
 
 namespace ToolBax.App.Tests;
@@ -35,6 +36,23 @@ public class CoreDataverseClientTests
         }
     }
 
+    private sealed class GatedDataverseAuth : IAuthService
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<string> _token = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Entered => _entered.Task;
+        public void Release(string token = "token-a") => _token.TrySetResult(token);
+        public Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default) =>
+            Task.FromResult("fo-token");
+        public Task<string> AcquireDataverseTokenAsync(EnvProfile env, CancellationToken ct = default)
+        {
+            _entered.TrySetResult();
+            return _token.Task;
+        }
+        public Task<string> AcquireDualWriteTokenAsync(EnvProfile env, CancellationToken ct = default) =>
+            Task.FromResult("dw-token");
+    }
+
     [Fact]
     public async Task Get_sends_dataverse_bearer_token_and_composed_web_api_url()
     {
@@ -51,6 +69,26 @@ public class CoreDataverseClientTests
         Assert.Equal(
             "https://contoso.crm.dynamics.com/api/data/v9.2/msdyn_dualwriteentitymaps?$select=msdyn_name",
             handler.LastRequest.RequestUri!.ToString());
+    }
+
+    [Fact]
+    public async Task Token_completion_after_same_id_endpoint_edit_sends_no_request_to_old_environment()
+    {
+        var active = Env("https://first.crm.dynamics.com");
+        var auth = new GatedDataverseAuth();
+        var handler = new StubHandler(HttpStatusCode.OK, "{\"value\":[]}");
+        var client = new CoreDataverseClient(auth, () => active, new HttpClient(handler));
+
+        var send = client.GetAsync("accounts?$top=1", TestContext.Current.CancellationToken);
+        await auth.Entered;
+        active = active with { DataverseUrl = "https://second.crm.dynamics.com" };
+        auth.Release();
+
+        var result = await send;
+
+        Assert.Equal(0, result.StatusCode);
+        Assert.Contains("Environment changed", result.ReasonPhrase);
+        Assert.Null(handler.LastRequest);
     }
 
     [Fact]

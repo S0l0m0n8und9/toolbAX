@@ -561,6 +561,8 @@ public class DualWriteOpsTests
 
     private sealed class FixedMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private readonly IReadOnlyList<EntitySet> _entities;
         public FixedMetadata(params string[] names) =>
             _entities = names.Select(n => new EntitySet(n, "DualWrite", 5, "Id", false, string.Empty)).ToList();

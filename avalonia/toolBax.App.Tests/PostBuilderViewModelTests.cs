@@ -23,6 +23,7 @@ public class PostBuilderViewModelTests
     private sealed class CountingMetadata : IMetadataService
     {
         private readonly FakeMetadataService _inner = new();
+        public void Invalidate() => _inner.Invalidate();
         public int GetFieldsCalls { get; private set; }
         public IReadOnlyList<EntitySet> GetEntities() => _inner.GetEntities();
         public IReadOnlyList<EntityField>? GetFields(string entityName)
@@ -40,6 +41,8 @@ public class PostBuilderViewModelTests
     // FakeMetadataService can express neither — its entities and CustomersV3 fields are always there.
     private sealed class DeferredMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly EntityField[] Schema =
         {
             new("Id", "String", false, IsKey: true, Length: 10),
@@ -88,6 +91,8 @@ public class PostBuilderViewModelTests
     // is app (not test) code, so the shape lives here.
     private sealed class DateFieldMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly IReadOnlyList<EntitySet> Sets =
             new[] { new EntitySet("WorkerV2", "HR", 2, "PersonnelNumber", false, "hr") };
 
@@ -111,6 +116,8 @@ public class PostBuilderViewModelTests
     // thing under test.
     private sealed class NumericKeyMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly IReadOnlyList<EntitySet> Sets =
             new[] { new EntitySet("Counters", "SYS", 2, "Id", false, "system") };
 
@@ -625,6 +632,8 @@ public class PostBuilderViewModelTests
     // An entity whose metadata declares NO key fields at all (some F&O services expose these unkeyed).
     private sealed class KeylessMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly IReadOnlyList<EntitySet> Sets =
             new[] { new EntitySet("LogEntries", "SYS", 1, string.Empty, false, "system") };
 
@@ -763,6 +772,8 @@ public class PostBuilderViewModelTests
     // real service's failure mode is), the way Initialize would encounter it.
     private sealed class FailingCatalogueMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         public IReadOnlyList<EntitySet> GetEntities() => Array.Empty<EntitySet>();
         public IReadOnlyList<EntityField>? GetFields(string entityName) => null;
         public Task LoadEntitiesAsync(CancellationToken ct = default) =>
@@ -775,6 +786,8 @@ public class PostBuilderViewModelTests
     // than Initialize's catalogue load.
     private sealed class FailingFieldMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly IReadOnlyList<EntitySet> Sets =
             new[] { new EntitySet("Widgets", "SYS", 1, "Id", false, "system") };
 
@@ -839,6 +852,8 @@ public class PostBuilderViewModelTests
     // selection can't be trusted to inherit anything from _loader.LastError.
     private sealed class MixedFieldMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         private static readonly IReadOnlyList<EntitySet> Sets =
             new[]
             {
@@ -887,6 +902,8 @@ public class PostBuilderViewModelTests
     // is still in flight.
     private sealed class GatedFieldMetadata : IMetadataService
     {
+        public void Invalidate() { }
+
         public readonly TaskCompletionSource Gate = new();
 
         private static readonly IReadOnlyList<EntitySet> Sets =

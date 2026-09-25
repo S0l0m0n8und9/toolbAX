@@ -469,6 +469,8 @@ public class DualWriteMapViewModelTests
     // Metadata service exposing a fixed entity catalogue for F&O-entity resolution.
     private sealed class StubMetadataService : IMetadataService
     {
+        public void Invalidate() { }
+
         private readonly List<EntitySet> _entities;
         public StubMetadataService(params string[] names) =>
             _entities = names.Select(n => new EntitySet(n, "Module", 0, "Id", false, "Table")).ToList();
@@ -1010,6 +1012,8 @@ public class DualWriteMapViewModelTests
     // fetch them for the counted entity like it does against a real environment.
     private sealed class FieldMetadataService : IMetadataService
     {
+        public void Invalidate() { }
+
         private readonly string _entity;
         private readonly List<EntityField> _fields;
         private readonly Dictionary<string, IReadOnlyList<string>> _enumMembers =
@@ -1184,6 +1188,8 @@ public class DualWriteMapViewModelTests
     // middle of it — the one await CountFoAsync gained in #204.
     private sealed class GatedFieldMetadataService : IMetadataService
     {
+        public void Invalidate() { }
+
         private readonly string _entity;
         private readonly IReadOnlyList<EntityField> _fields;
         private bool _loaded;
@@ -1299,6 +1305,8 @@ public class DualWriteMapViewModelTests
     // load on a gate, so an environment switch can land inside the load the count run now performs.
     private sealed class LateEntityMetadataService : IMetadataService
     {
+        public void Invalidate() { }
+
         private readonly string[] _names;
         private readonly bool _gateSecondLoad;
         private bool _loaded;

@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using ToolBax.App.Services;
 using ToolBax.Core.Models;
+using ToolBax.Core.Services;
 using Xunit;
 
 namespace ToolBax.App.Tests;
@@ -43,6 +44,23 @@ public class CoreODataClientTests
         }
     }
 
+    private sealed class GatedFoAuth : IAuthService
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<string> _token = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Entered => _entered.Task;
+        public void Release(string token = "token-a") => _token.TrySetResult(token);
+        public Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default)
+        {
+            _entered.TrySetResult();
+            return _token.Task;
+        }
+        public Task<string> AcquireDataverseTokenAsync(EnvProfile env, CancellationToken ct = default) =>
+            Task.FromResult("dv-token");
+        public Task<string> AcquireDualWriteTokenAsync(EnvProfile env, CancellationToken ct = default) =>
+            Task.FromResult("dw-token");
+    }
+
     [Fact]
     public async Task Get_sends_bearer_token_and_composed_url_and_maps_response()
     {
@@ -58,6 +76,26 @@ public class CoreODataClientTests
         Assert.Equal("https://contoso.operations.dynamics.com/data/CustomersV3?$top=1",
             handler.LastRequest.RequestUri!.ToString());
         Assert.Null(handler.LastBody); // GET carries no body
+    }
+
+    [Fact]
+    public async Task Token_completion_after_same_id_endpoint_edit_sends_no_request_to_old_environment()
+    {
+        var active = Env("https://first.operations.dynamics.com");
+        var auth = new GatedFoAuth();
+        var handler = new StubHandler(HttpStatusCode.OK, "{\"value\":[]}");
+        var client = new CoreODataClient(auth, () => active, new HttpClient(handler));
+
+        var send = client.SendAsync("GET", "/data/CustomersV3", body: null, TestContext.Current.CancellationToken);
+        await auth.Entered;
+        active = active with { Url = "https://second.operations.dynamics.com" };
+        auth.Release();
+
+        var result = await send;
+
+        Assert.Equal(0, result.StatusCode);
+        Assert.Contains("Environment changed", result.ReasonPhrase);
+        Assert.Null(handler.LastRequest);
     }
 
     [Fact]

@@ -19,6 +19,8 @@ public class EntityCatalogLoaderTests
 {
     private sealed class StubMeta : IMetadataService
     {
+        public void Invalidate() { }
+
         public readonly List<EntitySet> Entities = new();
         public readonly Dictionary<string, IReadOnlyList<EntityField>> Fields = new();
         public Exception? EntitiesError;
