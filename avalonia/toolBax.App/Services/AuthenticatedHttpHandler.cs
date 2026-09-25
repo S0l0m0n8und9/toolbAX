@@ -38,7 +38,7 @@ public sealed class AuthenticatedHttpHandler : DelegatingHandler
             // caller-supplied bearer can bypass that ownership or select credentials from another profile.
             var identity = EnvironmentIdentity.TryCreate(env);
             if (identity is null || !string.Equals(partition, identity.ToMetadataCachePartition(), StringComparison.Ordinal)
-                || !RequestOriginGuard.IsSameOrigin(env!.Url, request.RequestUri))
+                || !RequestOriginGuard.IsSameOrigin(identity.FoEndpoint, request.RequestUri))
             {
                 throw new InvalidOperationException("The metadata request no longer matches the active environment.");
             }

@@ -25,8 +25,10 @@ public class AuthenticatedHttpHandlerTests
     private sealed class CapturingHandler : HttpMessageHandler
     {
         public HttpRequestMessage? LastRequest { get; private set; }
+        public int Calls { get; private set; }
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            Calls++;
             LastRequest = request;
             return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK));
         }
@@ -36,6 +38,22 @@ public class AuthenticatedHttpHandlerTests
     {
         handler.InnerHandler = inner;
         return new HttpClient(handler);
+    }
+
+    [Fact]
+    public async Task Tagged_metadata_authenticates_a_bare_hostname_starting_with_http()
+    {
+        var profile = Env("http-preview.operations.dynamics.com");
+        var inner = new CapturingHandler();
+        using var http = Client(new AuthenticatedHttpHandler(new FakeAuthService(_ => "captured-token"), () => profile), inner);
+        using var request = new HttpRequestMessage(HttpMethod.Get, "https://http-preview.operations.dynamics.com/data/$metadata");
+        request.Options.Set(CatalogRequestContext.MetadataCachePartition, EnvironmentIdentity.Create(profile).ToMetadataCachePartition());
+
+        using var response = await http.SendAsync(request, TestContext.Current.CancellationToken);
+
+        Assert.Equal(1, inner.Calls);
+        Assert.Equal("captured-token", inner.LastRequest!.Headers.Authorization!.Parameter);
+        Assert.Equal("https://http-preview.operations.dynamics.com/data/$metadata", inner.LastRequest.RequestUri!.ToString());
     }
 
     [Theory]
