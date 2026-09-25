@@ -17,6 +17,7 @@ namespace ToolBax.App.Tests;
 /// Exercises the real <see cref="CoreProfileStore"/> against a throwaway SQLite database — the same
 /// store/service the WPF app uses. Cross-platform (no DPAPI on this path), so it runs on Linux CI.
 /// </summary>
+[Collection("Profile persistence SQLite")]
 public sealed class CoreProfileStoreTests : IDisposable
 {
     private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"toolbax-test-{Guid.NewGuid():N}.db");

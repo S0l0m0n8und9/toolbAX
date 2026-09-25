@@ -1,3 +1,6 @@
+using System.Threading;
+using System.Threading.Tasks;
+
 namespace ToolBax.Core.Services;
 
 /// <summary>
@@ -24,7 +27,30 @@ public interface ISecretStore
 {
     bool HasSecret(string key, SecretTarget target = SecretTarget.Fo);
 
+    Task<bool> HasSecretAsync(string key, SecretTarget target = SecretTarget.Fo,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.FromResult(HasSecret(key, target));
+    }
+
     void SetSecret(string key, string plaintext, SecretTarget target = SecretTarget.Fo);
 
+    Task SetSecretAsync(string key, string plaintext, SecretTarget target = SecretTarget.Fo,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        SetSecret(key, plaintext, target);
+        return Task.CompletedTask;
+    }
+
     void ClearSecret(string key, SecretTarget target = SecretTarget.Fo);
+
+    Task ClearSecretAsync(string key, SecretTarget target = SecretTarget.Fo,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        ClearSecret(key, target);
+        return Task.CompletedTask;
+    }
 }

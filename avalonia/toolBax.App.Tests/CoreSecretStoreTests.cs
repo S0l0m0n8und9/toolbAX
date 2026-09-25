@@ -14,6 +14,7 @@ namespace ToolBax.App.Tests;
 /// the F&amp;O service principal's SecretRef (no DPAPI → run on Linux CI); the SetSecret round-trip
 /// exercises the DPAPI vault and is skipped off Windows.
 /// </summary>
+[Collection("Profile persistence SQLite")]
 public sealed class CoreSecretStoreTests : IDisposable
 {
     private readonly string _dbPath = Path.Combine(Path.GetTempPath(), $"toolbax-sec-{Guid.NewGuid():N}.db");
