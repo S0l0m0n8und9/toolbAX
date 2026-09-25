@@ -81,6 +81,11 @@ public sealed class CatalogService : ICatalogService
                 var legacy = await _store.GetAsync(LegacyCacheKey(env), TablesKind, ct).ConfigureAwait(false);
                 if (legacy is not null && IsUserImport(legacy))
                 {
+                    if (!CanRecoverLegacyTableCatalog(env))
+                    {
+                        throw new LegacyTableCatalogRecoveryRequiredException(legacy.PayloadJson);
+                    }
+
                     await _store.InsertIfAbsentAsync(key, TablesKind, legacy.Version, legacy.PayloadJson,
                         legacy.ETag, legacy.UpdatedUtc, ct).ConfigureAwait(false);
                     cached = await _store.GetAsync(key, TablesKind, ct).ConfigureAwait(false);
@@ -375,6 +380,18 @@ public sealed class CatalogService : ICatalogService
         {
             return false;
         }
+    }
+
+    private static bool CanRecoverLegacyTableCatalog(FoEnvironment env)
+    {
+        var normalized = ResourceUrlNormalizer.NormalizeFoBaseUrl(env.BaseUrl);
+        return Uri.TryCreate(normalized, UriKind.Absolute, out var uri)
+            && (string.Equals(uri.Scheme, Uri.UriSchemeHttp, StringComparison.OrdinalIgnoreCase)
+                || string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase))
+            && string.IsNullOrEmpty(uri.UserInfo)
+            && uri.AbsolutePath == "/"
+            && string.IsNullOrEmpty(uri.Query)
+            && string.IsNullOrEmpty(uri.Fragment);
     }
 
     // Whether a cached per-entity details row may be served for this refresh mode, given the metadata ETag

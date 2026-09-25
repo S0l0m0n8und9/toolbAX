@@ -217,7 +217,7 @@ public class CatalogServiceTests
     {
         var profileDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db");
         var catalogDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db");
-        var env = new FoEnvironment("env", "Env", "HTTPS://CONTOSO.operations.dynamics.com:443/TenantA/data", "tenant", "USMF");
+        var env = new FoEnvironment("env", "Env", "HTTPS://CONTOSO.operations.dynamics.com:443/data", "tenant", "USMF");
         var profileStore = new ProfileStore(profileDb);
         await profileStore.EnsureCreatedAsync();
         var store = new CatalogStore(catalogDb);
@@ -228,7 +228,7 @@ public class CatalogServiceTests
 
         var firstService = new CatalogService(new HttpClient(new CountingMetadataHandler("<root />")), profileStore, store);
         var first = await firstService.GetTablesAsync(env, mode, default);
-        var copied = await store.GetAsync("catalog-v2:[\"env\",\"https://contoso.operations.dynamics.com/TenantA\"]", "Tables");
+        var copied = await store.GetAsync("catalog-v2:[\"env\",\"https://contoso.operations.dynamics.com\"]", "Tables");
 
         // Recreate both service and store to prove the recovery is a durable copy, not an in-memory escape.
         var restartedService = new CatalogService(new HttpClient(new CountingMetadataHandler("<root />")),
@@ -244,6 +244,74 @@ public class CatalogServiceTests
         Assert.Equal("UserImport", restarted.Source);
         Assert.Contains(restarted.Tables, table => table.Name == "LegacyImportedTable");
         Assert.NotNull(await store.GetAsync(LegacyCacheKey(env), "Tables"));
+    }
+
+    [Theory]
+    [InlineData("HTTPS://CONTOSO.operations.dynamics.com:443/TenantA", "https://contoso.operations.dynamics.com/TenantA", CatalogRefreshMode.UseCacheIfAvailable)]
+    [InlineData("HTTPS://CONTOSO.operations.dynamics.com:443/TenantA", "https://contoso.operations.dynamics.com/TenantA", CatalogRefreshMode.UseCacheIfFresh)]
+    [InlineData("HTTPS://CONTOSO.operations.dynamics.com:443/TenantA", "https://contoso.operations.dynamics.com/TenantA", CatalogRefreshMode.ForceRefresh)]
+    [InlineData("HTTPS://CONTOSO.operations.dynamics.com:443/tenanta", "https://contoso.operations.dynamics.com/tenanta", CatalogRefreshMode.UseCacheIfAvailable)]
+    [InlineData("HTTPS://CONTOSO.operations.dynamics.com:443/tenanta", "https://contoso.operations.dynamics.com/tenanta", CatalogRefreshMode.UseCacheIfFresh)]
+    [InlineData("HTTPS://CONTOSO.operations.dynamics.com:443/tenanta", "https://contoso.operations.dynamics.com/tenanta", CatalogRefreshMode.ForceRefresh)]
+    [InlineData("HTTPS://CONTOSO.operations.dynamics.com:443/?Query=Case", "https://contoso.operations.dynamics.com/?Query=Case", CatalogRefreshMode.UseCacheIfAvailable)]
+    [InlineData("HTTPS://CONTOSO.operations.dynamics.com:443/#Fragment", "https://contoso.operations.dynamics.com/#Fragment", CatalogRefreshMode.UseCacheIfAvailable)]
+    [InlineData("HTTPS://user@CONTOSO.operations.dynamics.com:443/data", "https://user@contoso.operations.dynamics.com", CatalogRefreshMode.UseCacheIfAvailable)]
+    public async Task GetTablesAsync_requires_explicit_reimport_when_a_legacy_user_import_has_an_ambiguous_suffix(
+        string profileUrl, string expectedBaseUrl, CatalogRefreshMode mode)
+    {
+        var profileDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db");
+        var catalogDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db");
+        var env = new FoEnvironment("env", "Env", profileUrl, "tenant", "USMF");
+        var profileStore = new ProfileStore(profileDb);
+        await profileStore.EnsureCreatedAsync();
+        var store = new CatalogStore(catalogDb);
+        await store.EnsureCreatedAsync();
+        var legacyPayload = TableCatalogJson("AmbiguousImportedTable", "UserImport");
+        await store.SaveAsync(LegacyCacheKey(env), "Tables", "legacy-import", legacyPayload, "legacy-etag", DateTime.UtcNow);
+        var service = new CatalogService(new HttpClient(new CountingMetadataHandler("<root />")), profileStore, store);
+
+        var recovery = await Assert.ThrowsAsync<LegacyTableCatalogRecoveryRequiredException>(
+            () => service.GetTablesAsync(env, mode, default));
+
+        var legacy = await store.GetAsync(LegacyCacheKey(env), "Tables");
+        var v2 = await store.GetAsync(CurrentV2Key(env.Id, expectedBaseUrl), "Tables");
+        Assert.Equal(legacyPayload, legacy!.PayloadJson);
+        Assert.Null(v2);
+        Assert.Equal(legacyPayload, recovery.OriginalJson);
+        Assert.DoesNotContain("AmbiguousImportedTable", recovery.Message);
+        Assert.DoesNotContain("AmbiguousImportedTable", recovery.ToString());
+    }
+
+    [Theory]
+    [InlineData("TenantA", "https://contoso.operations.dynamics.com/TenantA", "tenanta", "https://contoso.operations.dynamics.com/tenanta")]
+    [InlineData("tenanta", "https://contoso.operations.dynamics.com/tenanta", "TenantA", "https://contoso.operations.dynamics.com/TenantA")]
+    public async Task ImportTableCatalogAsync_explicitly_recovers_only_the_selected_ambiguous_path(
+        string selectedSuffix, string selectedBaseUrl, string otherSuffix, string otherBaseUrl)
+    {
+        var profileDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db");
+        var catalogDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db");
+        var selected = new FoEnvironment("env", "Env", $"https://contoso.operations.dynamics.com/{selectedSuffix}", "tenant", "USMF");
+        var other = new FoEnvironment("env", "Env", $"https://contoso.operations.dynamics.com/{otherSuffix}", "tenant", "USMF");
+        var profileStore = new ProfileStore(profileDb);
+        await profileStore.EnsureCreatedAsync();
+        var store = new CatalogStore(catalogDb);
+        await store.EnsureCreatedAsync();
+        var recoveredJson = TableCatalogJson("ExplicitlyRecoveredTable", "UserImport");
+        await store.SaveAsync(LegacyCacheKey(selected), "Tables", "legacy-import", recoveredJson, null, DateTime.UtcNow);
+        var service = new CatalogService(new HttpClient(new CountingMetadataHandler("<root />")), profileStore, store);
+
+        var recovery = await Assert.ThrowsAsync<LegacyTableCatalogRecoveryRequiredException>(
+            () => service.GetTablesAsync(selected, CatalogRefreshMode.UseCacheIfAvailable, default));
+        _ = await service.ImportTableCatalogAsync(selected, recovery.OriginalJson, default);
+        var selectedTables = await service.GetTablesAsync(selected, CatalogRefreshMode.ForceRefresh, default);
+
+        var otherRecovery = await Assert.ThrowsAsync<LegacyTableCatalogRecoveryRequiredException>(
+            () => service.GetTablesAsync(other, CatalogRefreshMode.UseCacheIfAvailable, default));
+
+        Assert.Contains(selectedTables.Tables, table => table.Name == "ExplicitlyRecoveredTable");
+        Assert.NotNull(await store.GetAsync(CurrentV2Key(selected.Id, selectedBaseUrl), "Tables"));
+        Assert.Null(await store.GetAsync(CurrentV2Key(other.Id, otherBaseUrl), "Tables"));
+        Assert.Equal(recoveredJson, otherRecovery.OriginalJson);
     }
 
     [Fact]
@@ -657,6 +725,9 @@ public class CatalogServiceTests
 
         return $"{env.Id}|{url.TrimEnd('/')}";
     }
+
+    private static string CurrentV2Key(string envId, string normalizedBaseUrl) =>
+        $"catalog-v2:[\"{envId}\",\"{normalizedBaseUrl}\"]";
 
     private static string TableCatalogJson(string tableName, string source) => $$"""
     {
