@@ -1,6 +1,6 @@
 # Unsupported App authentication withdrawal
 
-Status: Clear-transition review fix implemented and focused-validated; updated full gates, remote re-review and merge pending.
+Status: Clear-transition review fix source-reviewed and fully validated locally; remote re-review and merge pending.
 
 ## Objective
 
@@ -60,4 +60,4 @@ When a loaded profile has legacy DI settings, unknown raw mode text, or a stored
 
 Focused validation now passes 211/211 Release tests across Profiles view/model, active-pane headless rendering, Shell integration, real `CoreProfileStore` SQLite/vault round trips, `CoreAuthService` snapshot guards, converters, and retained legacy labels. The Store-transition RED proved both targets could overwrite a still-legacy credential before profile Save; the PR223 Clear-transition RED then proved direct Clear could delete that same credential. Entry, Store and Clear now require the saved and draft ClientSecret context to match, retain rejected input, preserve decline behavior, and block pending client-ID/tenant edits. Accepted saved context permits Store/Clear with target isolation and survives unrelated Save. Evidence is under ignored `artifacts/h07/secret-transition/` and `artifacts/h07/clear-transition/`.
 
-The earlier source `b701702149f9bfac5937eb4a02bb9ec17b7c1379` passed App 1,170/Core 403 before the Store-transition correction. Source `977d2684e6f75c06ff3c60d862c9f1932ea5f309` passed App 1,182/Core 432 before the Clear-transition correction. Both remain historical; updated full gates are pending. H09 aggregate persistence and D02 casing-only client-ID changes remain out of scope.
+The earlier source `b701702149f9bfac5937eb4a02bb9ec17b7c1379` passed App 1,170/Core 403 before the Store-transition correction. Source `977d2684e6f75c06ff3c60d862c9f1932ea5f309` passed App 1,182/Core 432 before the Clear-transition correction. Both remain historical. At corrected source `dce327cd27829588a44f6a3988ee555572c6c7fc`, both CI-strict Release builds completed with 0 warnings/errors; App passed 1,188/1,188 and Core 432/432, with no failures or skips. Remote re-review and merge remain pending. H09 aggregate persistence and D02 casing-only client-ID changes remain out of scope.
