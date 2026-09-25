@@ -25,10 +25,26 @@ function Assert-PackageAuditJson {
     param([string]$Json, [int]$ExitCode)
     if ($ExitCode -ne 0) { throw "Package audit command failed ($ExitCode)." }
     $report = ConvertFrom-Json -InputObject $Json -AsHashtable -Depth 100 -ErrorAction Stop
-    if ($report['version'] -ne 1 -or @($report['sources']).Count -eq 0 -or @($report['projects']).Count -eq 0 -or
-        $report['parameters'] -notmatch '--vulnerable' -or $report['parameters'] -notmatch '--include-transitive') { throw 'Missing or incomplete package audit output.' }
+    if ($report -isnot [System.Collections.IDictionary] -or $report['version'] -ne 1 -or
+        $report['sources'] -isnot [System.Collections.IList] -or $report['sources'].Count -eq 0 -or
+        $report['projects'] -isnot [System.Collections.IList] -or $report['projects'].Count -eq 0 -or
+        $report['parameters'] -isnot [string] -or $report['parameters'] -notmatch '--vulnerable' -or
+        $report['parameters'] -notmatch '--include-transitive') { throw 'Missing or incomplete package audit output.' }
+    foreach ($source in $report['sources']) {
+        if ($source -isnot [string] -or [string]::IsNullOrWhiteSpace($source)) { throw 'Malformed audit source.' }
+    }
     foreach ($project in $report['projects']) {
-        if (@($project['frameworks']).Count -eq 0) { throw 'A project was not audited.' }
+        if ($project -isnot [System.Collections.IDictionary] -or $project['path'] -isnot [string] -or
+            [string]::IsNullOrWhiteSpace($project['path'])) { throw 'Malformed or missing audited project.' }
+        # A clean --vulnerable report legitimately contains only a project path. If frameworks is
+        # present, however, a null/malformed collection must not masquerade as that clean omission.
+        if ($project.Contains('frameworks')) {
+            if ($project['frameworks'] -isnot [System.Collections.IList] -or $project['frameworks'].Count -eq 0) { throw 'Malformed audited frameworks.' }
+            foreach ($framework in $project['frameworks']) {
+                if ($framework -isnot [System.Collections.IDictionary] -or $framework['framework'] -isnot [string] -or
+                    [string]::IsNullOrWhiteSpace($framework['framework'])) { throw 'Malformed audited framework.' }
+            }
+        }
     }
     function Inspect-AuditNode($node) {
         if ($node -is [System.Collections.IDictionary]) {

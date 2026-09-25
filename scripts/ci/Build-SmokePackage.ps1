@@ -8,7 +8,9 @@ $head = & git rev-parse HEAD
 if ($LASTEXITCODE -ne 0 -or $head.Trim() -cne $SourceSha) { throw 'Checkout is not the immutable verified source.' }
 & git diff --quiet HEAD -- .
 if ($LASTEXITCODE -ne 0) { throw 'Tracked source must be committed before packaging provenance can be claimed.' }
-if (@(& git ls-files --others --exclude-standard).Count -ne 0) { throw 'Untracked source files must be committed or excluded before packaging.' }
+$untracked = @(& git ls-files --others --exclude-standard)
+if ($LASTEXITCODE -ne 0) { throw 'Could not verify untracked source state.' }
+if ($untracked.Count -ne 0) { throw 'Untracked source files must be committed or excluded before packaging.' }
 $output = [IO.Path]::GetFullPath($OutputDirectory)
 if (Test-Path -LiteralPath $output) {
     if (@(Get-ChildItem -LiteralPath $output -Force).Count) { throw 'Package output directory must be absent or empty.' }

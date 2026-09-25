@@ -27,6 +27,18 @@ Check 'mutable source ref is rejected' { Reject { Assert-BuildInputs 'main' '1.2
 Check 'mismatched numeric version is rejected' { Reject { Assert-BuildInputs ('a' * 40) '1.2.3' '4.5.6.0' } }
 $clean = '{"version":1,"parameters":"--vulnerable --include-transitive","sources":["https://api.nuget.org/v3/index.json"],"projects":[{"path":"App.csproj","frameworks":[{"framework":"net10.0"}]}]}'
 Check 'completed clean audit accepted' { Assert-PackageAuditJson $clean 0 }
+$pathOnly = '{"version":1,"parameters":"--vulnerable --include-transitive","sources":["https://api.nuget.org/v3/index.json"],"projects":[{"path":"App.csproj"}]}'
+Check 'genuine clean path-only project audit accepted' { Assert-PackageAuditJson $pathOnly 0 }
+foreach ($collection in @('null', '{}', '[null]', '[{}]', '[{"path":null}]', '[{"path":" "}]')) {
+    $badProjects = '{"version":1,"parameters":"--vulnerable --include-transitive","sources":["https://api.nuget.org/v3/index.json"],"projects":' + $collection + '}'
+    Check "reject malformed project collection $collection" { Reject { Assert-PackageAuditJson $badProjects 0 } }
+}
+Check 'missing project collection rejected' { Reject { Assert-PackageAuditJson '{"version":1,"parameters":"--vulnerable --include-transitive","sources":["https://api.nuget.org/v3/index.json"]}' 0 } }
+foreach ($collection in @('null', '{}', '[]', '[null]', '[" "]')) {
+    $badSources = '{"version":1,"parameters":"--vulnerable --include-transitive","sources":' + $collection + ',"projects":[{"path":"App.csproj"}]}'
+    Check "reject malformed audit sources $collection" { Reject { Assert-PackageAuditJson $badSources 0 } }
+}
+Check 'explicit null frameworks is not clean omission' { Reject { Assert-PackageAuditJson ($pathOnly.Replace('"path":"App.csproj"', '"path":"App.csproj","frameworks":null')) 0 } }
 Check 'nonzero audit exit rejected even with clean JSON' { Reject { Assert-PackageAuditJson $clean 1 } }
 Check 'malformed audit rejected' { Reject { Assert-PackageAuditJson 'not JSON' 0 } }
 Check 'empty audit rejected' { Reject { Assert-PackageAuditJson '{"version":1,"projects":[]}' 0 } }
