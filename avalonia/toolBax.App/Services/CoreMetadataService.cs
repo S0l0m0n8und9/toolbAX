@@ -137,7 +137,7 @@ public sealed class CoreMetadataService : IMetadataService
 
         var identity = EnvironmentIdentity.Create(profile);
         var generation = PrepareLoad(identity);
-        var env = ResolveEnv(profile);
+        var env = ResolveEnv(profile, identity);
 
         var index = await _catalog.GetODataEntityIndexAsync(env, RefreshMode(forceRefresh), ct).ConfigureAwait(false);
         var entities = index.Entities
@@ -181,7 +181,7 @@ public sealed class CoreMetadataService : IMetadataService
 
         var identity = EnvironmentIdentity.Create(profile);
         var generation = PrepareLoad(identity);
-        var env = ResolveEnv(profile);
+        var env = ResolveEnv(profile, identity);
 
         var entity = await _catalog.GetODataEntityDetailsAsync(env, entityName, RefreshMode(forceRefresh), ct).ConfigureAwait(false);
         if (entity is null)
@@ -227,9 +227,12 @@ public sealed class CoreMetadataService : IMetadataService
     private static CatalogRefreshMode RefreshMode(bool forceRefresh) =>
         forceRefresh ? CatalogRefreshMode.ForceRefresh : CatalogRefreshMode.UseCacheIfFresh;
 
-    private static FoEnvironment ResolveEnv(EnvProfile env) =>
+    private static FoEnvironment ResolveEnv(EnvProfile env, EnvironmentIdentity identity) =>
         new(env.Id, env.Name, env.Url, env.Tenant,
-            string.IsNullOrWhiteSpace(env.Legal) ? null : env.Legal);
+            string.IsNullOrWhiteSpace(env.Legal) ? null : env.Legal)
+        {
+            MetadataCachePartition = identity.ToMetadataCachePartition(),
+        };
 
     // ODataProperty carries the raw EDM type ("Edm.String") or a fully-qualified enum/complex type
     // ("Microsoft.Dynamics.DataEntities.NoYes"); collapse it to the short form the UI's TypeDisplay

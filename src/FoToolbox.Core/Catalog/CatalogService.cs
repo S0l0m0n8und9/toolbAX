@@ -130,7 +130,7 @@ public sealed class CatalogService : ICatalogService
     public async Task<ODataMetadata> GetODataMetadataAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)
     {
         await _store.EnsureCreatedAsync(ct).ConfigureAwait(false);
-        var key = CacheKey(env);
+        var key = MetadataCacheKey(env);
         var gate = _metadataLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -171,7 +171,7 @@ public sealed class CatalogService : ICatalogService
     public async Task<ODataEntityIndex> GetODataEntityIndexAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)
     {
         await _store.EnsureCreatedAsync(ct).ConfigureAwait(false);
-        var key = CacheKey(env);
+        var key = MetadataCacheKey(env);
         var gate = _metadataLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -216,7 +216,7 @@ public sealed class CatalogService : ICatalogService
         }
 
         await _store.EnsureCreatedAsync(ct).ConfigureAwait(false);
-        var key = CacheKey(env);
+        var key = MetadataCacheKey(env);
         var gate = _metadataLocks.GetOrAdd(key, _ => new SemaphoreSlim(1, 1));
         await gate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -359,6 +359,19 @@ public sealed class CatalogService : ICatalogService
 
     private static string NormalizedBaseUrl(FoEnvironment env) => ResourceUrlNormalizer.NormalizeFoBaseUrl(env.BaseUrl);
 
+    private static string MetadataCacheKey(FoEnvironment env) =>
+        env.MetadataCachePartition is null
+            ? CacheKey(env)
+            : "catalog-meta-v1:" + JsonSerializer.Serialize(new[] { env.Id, NormalizedBaseUrl(env), env.MetadataCachePartition });
+
+    private static void BindMetadataContext(HttpRequestMessage request, FoEnvironment env)
+    {
+        if (env.MetadataCachePartition is { } partition)
+        {
+            request.Options.Set(CatalogRequestContext.MetadataCachePartition, partition);
+        }
+    }
+
     private static string LegacyCacheKey(FoEnvironment env)
     {
         var url = env.BaseUrl.Trim().ToLowerInvariant();
@@ -493,7 +506,7 @@ public sealed class CatalogService : ICatalogService
 
     private async Task<(string Xml, string? ETag, DateTime UpdatedUtc)> GetMetadataXmlNoLockAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct)
     {
-        var key = CacheKey(env);
+        var key = MetadataCacheKey(env);
 
         // Consecutive misses for different entities under one environment would otherwise re-read (and
         // re-materialize) the same multi-MB blob out of SQLite per call.
@@ -517,6 +530,7 @@ public sealed class CatalogService : ICatalogService
         }
 
         var request = new HttpRequestMessage(HttpMethod.Get, $"{NormalizedBaseUrl(env)}/data/$metadata");
+        BindMetadataContext(request, env);
         request.Headers.Accept.ParseAdd("application/xml");
         if (cachedValid && !string.IsNullOrWhiteSpace(cached!.ETag))
         {
@@ -651,6 +665,7 @@ public sealed class CatalogService : ICatalogService
         var url = $"{NormalizedBaseUrl(env)}/metadata/PublicEntities?$filter={filter}";
 
         using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        BindMetadataContext(req, env);
         req.Headers.Accept.ParseAdd("application/json");
 
         using var resp = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);
@@ -723,6 +738,7 @@ public sealed class CatalogService : ICatalogService
         while (!string.IsNullOrWhiteSpace(nextUrl) && visited.Add(nextUrl))
         {
             using var req = new HttpRequestMessage(HttpMethod.Get, nextUrl);
+            BindMetadataContext(req, env);
             req.Headers.Accept.ParseAdd("application/json");
 
             using var resp = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);

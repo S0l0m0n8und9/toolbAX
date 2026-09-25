@@ -1,10 +1,15 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Net;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using FoToolbox.Core.Catalog;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.OData;
+using FoToolbox.Core.Profiles;
 using ToolBax.App.Services;
 using ToolBax.Core.Models;
 using Xunit;
@@ -49,8 +54,11 @@ public class CoreMetadataServiceEnvScopeTests
 
         public PerEnvCatalog(Func<Task>? gate = null) => _gate = gate;
 
+        public FoEnvironment? LastEnvironment { get; private set; }
+
         public async Task<ODataMetadata> GetODataMetadataAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)
         {
+            LastEnvironment = env;
             if (_gate is not null)
             {
                 await _gate().ConfigureAwait(false);
@@ -86,6 +94,104 @@ public class CoreMetadataServiceEnvScopeTests
         }
 
         return names;
+    }
+
+    [Fact]
+    public async Task Adapter_preserves_the_captured_profile_id_and_attaches_its_context_partition()
+    {
+        var profile = Env("Exact-Id");
+        var catalog = new PerEnvCatalog();
+        var svc = new CoreMetadataService(catalog, () => profile);
+        await svc.LoadEntitiesAsync(TestContext.Current.CancellationToken);
+        Assert.Equal("Exact-Id", catalog.LastEnvironment!.Id);
+        Assert.Equal(profile.Url, catalog.LastEnvironment.BaseUrl);
+        Assert.Equal(EnvironmentIdentity.Create(profile).ToMetadataCachePartition(), catalog.LastEnvironment.MetadataCachePartition);
+    }
+
+    [Theory]
+    [InlineData("tenant")]
+    [InlineData("foClient")]
+    [InlineData("foMode")]
+    [InlineData("dvClient")]
+    [InlineData("dvMode")]
+    [InlineData("company")]
+    public async Task Same_URL_connection_edit_isolates_real_catalog_after_restart_while_aliases_reuse(string change)
+    {
+        var ct = TestContext.Current.CancellationToken;
+        var active = Env("envA") with
+        {
+            ClientId = "fo-client", DataverseClientId = "dv-client", DataverseUrl = "https://org.crm.dynamics.com",
+        };
+        var original = active;
+        var db = Path.Combine(Path.GetTempPath(), $"h01-catalog-{Guid.NewGuid():N}.db");
+        var profiles = new ProfileStore(Path.Combine(Path.GetTempPath(), $"h01-profile-{Guid.NewGuid():N}.db"));
+        var handler = new RealMetadataHandler();
+        using var http = new HttpClient(handler);
+        CoreMetadataService Restart() => new(new CatalogService(http, profiles, new CatalogStore(db),
+            new CatalogServiceOptions(TimeSpan.FromDays(1), TimeSpan.FromDays(1))), () => active);
+
+        var first = Restart();
+        await first.LoadEntitiesAsync(ct);
+        Assert.True(await first.LoadFieldsAsync(EntityName, ct));
+        Assert.Contains("AField", FieldNames(first));
+
+        active = active with { Name = "Renamed", Url = "HTTPS://ENVA.operations.dynamics.com:443/data", Status = EnvStatus.TokenExpired };
+        var equivalent = Restart();
+        await equivalent.LoadEntitiesAsync(ct);
+        Assert.True(await equivalent.LoadFieldsAsync(EntityName, ct));
+        Assert.Contains("AField", FieldNames(equivalent));
+        Assert.Equal(1, handler.MetadataCalls);
+
+        active = change switch
+        {
+            "tenant" => active with { Tenant = "other-tenant" },
+            "foClient" => active with { ClientId = "other-fo-client" },
+            "foMode" => active with { AuthMode = FoAuthMode.ClientSecret },
+            "dvClient" => active with { DataverseClientId = "other-dv-client" },
+            "dvMode" => active with { DataverseAuthMode = FoAuthMode.ClientSecret },
+            _ => active with { Legal = "DEMF" },
+        };
+        handler.Field = "BField";
+        var changed = Restart();
+        await changed.LoadEntitiesAsync(ct);
+        Assert.True(await changed.LoadFieldsAsync(EntityName, ct));
+        Assert.Contains("BField", FieldNames(changed));
+        Assert.Equal(2, handler.MetadataCalls);
+        Assert.All(handler.MetadataUris, uri => Assert.Equal("https://enva.operations.dynamics.com/data/$metadata", uri));
+
+        // Reopening the original context must recover A, never the B rows with the very same ETag.
+        active = original;
+        var back = Restart();
+        await back.LoadEntitiesAsync(ct);
+        Assert.True(await back.LoadFieldsAsync(EntityName, ct));
+        Assert.Contains("AField", FieldNames(back));
+        Assert.Equal(2, handler.MetadataCalls);
+    }
+
+    private sealed class RealMetadataHandler : HttpMessageHandler
+    {
+        public string Field { get; set; } = "AField";
+        public int MetadataCalls { get; private set; }
+        public List<string> MetadataUris { get; } = new();
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            var isMetadata = request.RequestUri!.AbsolutePath.EndsWith("$metadata", StringComparison.Ordinal);
+            if (isMetadata)
+            {
+                MetadataCalls++;
+                MetadataUris.Add(request.RequestUri.ToString());
+            }
+            var xml = $$"""
+                <edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx"><edmx:DataServices>
+                <Schema Namespace="Default" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+                <EntityType Name="Customer"><Key><PropertyRef Name="{{Field}}"/></Key><Property Name="{{Field}}" Type="Edm.String"/></EntityType>
+                <EntityContainer Name="Container"><EntitySet Name="CustomersV3" EntityType="Default.Customer"/></EntityContainer>
+                </Schema></edmx:DataServices></edmx:Edmx>
+                """;
+            var response = new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(isMetadata ? xml : "{}") };
+            response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue("\"same-etag\"");
+            return Task.FromResult(response);
+        }
     }
 
     [Fact]

@@ -1,4 +1,8 @@
 using System;
+using System.Globalization;
+using System.IO;
+using System.Security.Cryptography;
+using System.Text;
 using FoToolbox.Core.Auth;
 using ToolBax.Core.Models;
 
@@ -39,8 +43,41 @@ public sealed record EnvironmentIdentity(
 
     public bool IsCurrent(EnvProfile? current) => Equals(TryCreate(current));
 
-    private static string NormalizeIdentifier(string? value) =>
+    internal static string NormalizeIdentifier(string? value) =>
         (value ?? string.Empty).Trim().ToLowerInvariant();
+
+    /// <summary>Stable, versioned cache scope; only connection identity enters it, never credentials.</summary>
+    public string ToMetadataCachePartition()
+    {
+        using var stream = new MemoryStream();
+        // BinaryWriter prefixes are explicit little-endian byte counts, not culture-sensitive text or
+        // delimiter joins. Names and values are both framed so opaque IDs cannot merge adjacent fields.
+        using (var writer = new BinaryWriter(stream, Encoding.UTF8, leaveOpen: true))
+        {
+            void Field(string name, string value)
+            {
+                var nameBytes = Encoding.UTF8.GetBytes(name);
+                var valueBytes = Encoding.UTF8.GetBytes(value);
+                writer.Write(nameBytes.Length);
+                writer.Write(nameBytes);
+                writer.Write(valueBytes.Length);
+                writer.Write(valueBytes);
+            }
+
+            Field("version", "envmeta-v1");
+            Field("profileId", ProfileId);
+            Field("foEndpoint", FoEndpoint);
+            Field("dataverseEndpoint", DataverseEndpoint);
+            Field("tenant", Tenant);
+            Field("foClientId", FoClientId);
+            Field("foAuthMode", ((int)FoAuthMode).ToString(CultureInfo.InvariantCulture));
+            Field("dataverseClientId", DataverseClientId);
+            Field("dataverseAuthMode", ((int)DataverseAuthMode).ToString(CultureInfo.InvariantCulture));
+            Field("defaultCompany", DefaultCompany);
+        }
+
+        return "envmeta-v1:" + Convert.ToHexStringLower(SHA256.HashData(stream.ToArray()));
+    }
 
     private static string NormalizeUrl(string value)
     {

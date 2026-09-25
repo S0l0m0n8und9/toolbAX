@@ -7,6 +7,47 @@ namespace ToolBax.App.Tests;
 
 public sealed class EnvironmentIdentityTests
 {
+    [Fact]
+    public void Metadata_partition_has_a_stable_versioned_encoding()
+    {
+        // Independently calculated from the documented UTF-8 length framing, including field names.
+        Assert.Equal("envmeta-v1:2aafe61bab4f568f9000f8f74ec5429ebd24a14254c7806f92dbe8c4871fb375",
+            EnvironmentIdentity.Create(Profile()).ToMetadataCachePartition());
+    }
+
+    [Theory]
+    [MemberData(nameof(ConnectionChanges))]
+    public void Every_connection_identity_change_isolates_metadata(Func<EnvProfile, EnvProfile> change)
+    {
+        var before = Profile();
+        Assert.NotEqual(EnvironmentIdentity.Create(before).ToMetadataCachePartition(),
+            EnvironmentIdentity.Create(change(before)).ToMetadataCachePartition());
+    }
+
+    [Theory]
+    [InlineData("profile")]
+    [InlineData("company")]
+    [InlineData("suffix")]
+    public void Exact_identifier_and_URL_suffix_case_changes_isolate_metadata(string part)
+    {
+        var before = Profile() with { Url = "https://host.example/Path?Query=Value#Fragment" };
+        var after = part switch
+        {
+            "profile" => before with { Id = "profile-a" },
+            "company" => before with { Legal = "usmf" },
+            _ => before with { Url = "https://host.example/path?query=value#fragment" },
+        };
+        Assert.NotEqual(EnvironmentIdentity.Create(before).ToMetadataCachePartition(),
+            EnvironmentIdentity.Create(after).ToMetadataCachePartition());
+    }
+
+    [Fact]
+    public void Opaque_field_separators_cannot_alias_another_partition()
+    {
+        var before = EnvironmentIdentity.Create(Profile()) with { ProfileId = "a|b", FoEndpoint = "c" };
+        var after = before with { ProfileId = "a", FoEndpoint = "b|c" };
+        Assert.NotEqual(before.ToMetadataCachePartition(), after.ToMetadataCachePartition());
+    }
     private static EnvProfile Profile() => new(
         "Profile-A", "Environment", "https://HOST.operations.dynamics.com", "Tenant.OnMicrosoft.com",
         "USMF", "Tier 1", EnvStatus.Connected, 42,
@@ -53,6 +94,7 @@ public sealed class EnvironmentIdentityTests
         };
 
         Assert.Equal(EnvironmentIdentity.Create(before), EnvironmentIdentity.Create(after));
+        Assert.Equal(EnvironmentIdentity.Create(before).ToMetadataCachePartition(), EnvironmentIdentity.Create(after).ToMetadataCachePartition());
     }
 
     [Fact]
@@ -69,6 +111,7 @@ public sealed class EnvironmentIdentityTests
         };
 
         Assert.Equal(EnvironmentIdentity.Create(before), EnvironmentIdentity.Create(after));
+        Assert.Equal(EnvironmentIdentity.Create(before).ToMetadataCachePartition(), EnvironmentIdentity.Create(after).ToMetadataCachePartition());
     }
 
     [Fact]
