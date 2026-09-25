@@ -74,22 +74,35 @@
     </Border>
 
     <!-- Detail -->
-    <Grid Grid.Column="1" Margin="24,16,24,0">
+    <Grid Grid.Column="1" RowDefinitions="Auto,*" RowSpacing="8" Margin="24,16,24,0">
 
       <!-- Load / auth error -->
+      <StackPanel Grid.Row="0" Spacing="8">
       <Border VerticalAlignment="Top" IsVisible="{Binding HasLoadError}"
               Background="{StaticResource ErrBgBrush}" BorderBrush="{StaticResource ErrBrush}"
               BorderThickness="1" CornerRadius="8" Padding="12,8">
         <TextBlock Text="{Binding LoadError}" TextWrapping="Wrap" Foreground="{StaticResource Text0Brush}" />
       </Border>
+      <Border x:Name="SolutionWarningBanner" VerticalAlignment="Top" IsVisible="{Binding SolutionWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+              Background="{StaticResource WarnBgBrush}" BorderBrush="{StaticResource WarnBrush}"
+              BorderThickness="1" CornerRadius="8" Padding="12,8" Margin="0,8,0,0">
+        <TextBlock Text="{Binding SolutionWarning}" TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}" />
+      </Border>
+      <Border x:Name="IncompleteDetailsBanner" VerticalAlignment="Top" IsVisible="{Binding HasIncompleteDetails}"
+              Background="{StaticResource WarnBgBrush}" BorderBrush="{StaticResource WarnBrush}"
+              BorderThickness="1" CornerRadius="8" Padding="12,8" Margin="0,8,0,0">
+        <TextBlock Text="{Binding IncompleteDetailsCount, StringFormat='{}{0} map(s) have incomplete embedded details.'}"
+                   TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}" />
+      </Border>
+      </StackPanel>
 
       <!-- No selection (and no error / empty / loading) -->
-      <TextBlock VerticalAlignment="Center" HorizontalAlignment="Center"
+      <TextBlock Grid.Row="1" VerticalAlignment="Center" HorizontalAlignment="Center"
                  Foreground="{StaticResource Text3Brush}" Text="Select a dual-write map to inspect it."
                  IsVisible="{Binding ShowSelectPrompt}" />
 
       <!-- Detail content -->
-      <Grid RowDefinitions="Auto,*" IsVisible="{Binding HasSelection}">
+      <Grid x:Name="DetailContent" Grid.Row="1" RowDefinitions="Auto,*" IsVisible="{Binding HasSelection}">
 
         <StackPanel Grid.Row="0" Spacing="10">
 
@@ -134,6 +147,9 @@
               <Button Content="Export Markdown" Command="{Binding ExportMarkdownCommand}" />
             </StackPanel>
           </Grid>
+          <TextBlock Text="{Binding SelectedDetailsWarning}" TextWrapping="Wrap"
+                     Foreground="{StaticResource WarnBrush}"
+                     IsVisible="{Binding SelectedDetailsWarning, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
 
           <!-- Source ↔ destination + metadata grid -->
           <StackPanel Orientation="Horizontal" Spacing="12">

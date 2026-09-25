@@ -26,6 +26,13 @@ public sealed class CoreVirtualTableReader : IVirtualTableReader
             return VirtualTableLoadResult.Fail($"Couldn't load table metadata ({response.StatusLine}).");
         }
 
-        return VirtualTableLoadResult.Ok(VirtualTableMetadataParser.Parse(response.Body));
+        try
+        {
+            return VirtualTableLoadResult.Ok(VirtualTableMetadataParser.Parse(response.Body));
+        }
+        catch (MetadataResponseFormatException ex)
+        {
+            return VirtualTableLoadResult.Fail($"Couldn't load table metadata: {ex.Message}");
+        }
     }
 }
