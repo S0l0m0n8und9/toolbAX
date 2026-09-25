@@ -861,19 +861,56 @@ public class DualWriteMapViewModelTests
             Task.FromResult(DwCountResult.Ok(0));
     }
 
-    private sealed class DisposalGatedCountReader : IDualWriteMapReader
+    private sealed class GatedSolutionSuccessReader : IDualWriteMapReader
     {
-        private readonly FakeDualWriteMapReader _inner = new();
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
-            _inner.GetMapsAsync(solutionUniqueName, ct);
-        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) =>
-            _inner.GetSolutionsAsync(ct);
-        public async Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default)
+        public int MapCalls { get; private set; }
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default)
+        {
+            MapCalls++;
+            return Task.FromResult(DwMapLoadResult.Ok(Array.Empty<DwMapRecord>()));
+        }
+        public async Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default)
         {
             Entered.TrySetResult();
             await Release.Task;
+            return DwSolutionLoadResult.Ok(Array.Empty<DwSolution>());
+        }
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) =>
+            Task.FromResult(DwCountResult.Ok(0));
+    }
+
+    private sealed class CountingLoadMetadata : IMetadataService
+    {
+        public int LoadCalls { get; private set; }
+        public void Invalidate() { }
+        public IReadOnlyList<EntitySet> GetEntities() => Array.Empty<EntitySet>();
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default)
+        {
+            LoadCalls++;
+            return Task.CompletedTask;
+        }
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) => Task.FromResult(false);
+    }
+
+    private sealed class DisposalGatedCountReader : IDualWriteMapReader
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int CeCountCalls { get; private set; }
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            Task.FromResult(DwMapLoadResult.Ok(ThreeLegMap()));
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) =>
+            Task.FromResult(NoSolutions);
+        public async Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default)
+        {
+            if (++CeCountCalls == 1)
+            {
+                Entered.TrySetResult();
+                await Release.Task;
+            }
             return DwCountResult.Ok(123);
         }
     }
@@ -910,10 +947,40 @@ public class DualWriteMapViewModelTests
     }
 
     [Fact]
+    public async Task Disposed_after_successful_solutions_load_starts_no_metadata_or_map_read()
+    {
+        var reader = new GatedSolutionSuccessReader();
+        var metadata = new CountingLoadMetadata();
+        var vm = new DualWriteMapViewModel(reader, metadata: metadata);
+
+        var initialize = vm.InitializeCommand.ExecuteAsync(null);
+        await reader.Entered.Task;
+        vm.Dispose();
+        reader.Release.TrySetResult();
+        await initialize;
+
+        Assert.Equal(0, metadata.LoadCalls);
+        Assert.Equal(0, reader.MapCalls);
+    }
+
+    [Fact]
+    public async Task Disposed_reload_starts_no_map_read()
+    {
+        var reader = new GatedSolutionSuccessReader();
+        var vm = new DualWriteMapViewModel(reader);
+        vm.Dispose();
+
+        await vm.ReloadMapsCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, reader.MapCalls);
+    }
+
+    [Fact]
     public async Task Disposed_count_completion_cannot_publish_row_values()
     {
         var reader = new DisposalGatedCountReader();
-        var vm = new DualWriteMapViewModel(reader, activeEnv: () => MapEnv("env1", "contoso"));
+        var odata = new CountODataClient(500);
+        var vm = new DualWriteMapViewModel(reader, odata: odata, activeEnv: () => MapEnv("env1", "contoso"));
         await vm.InitializeCommand.ExecuteAsync(null);
 
         var count = vm.CountAllRowsCommand.ExecuteAsync(null);
@@ -922,6 +989,8 @@ public class DualWriteMapViewModelTests
         reader.Release.TrySetResult();
         await count;
 
+        Assert.Equal(1, reader.CeCountCalls);
+        Assert.Equal(0, odata.Calls);
         Assert.All(vm.CountRows, row => Assert.Null(row.CeCount));
     }
 

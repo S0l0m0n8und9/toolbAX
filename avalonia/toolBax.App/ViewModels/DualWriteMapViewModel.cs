@@ -155,7 +155,9 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         try
         {
             await LoadSolutionsAsync(ct);
+            if (_disposed) return;
             await LoadFoEntityNamesAsync(ct);
+            if (_disposed) return;
             await LoadMapsAsync(ct);
         }
         catch (OperationCanceledException)
@@ -174,6 +176,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
 
     private async Task LoadFoEntityNamesAsync(CancellationToken ct)
     {
+        if (_disposed) return;
         var generation = Volatile.Read(ref _generation);
         // Best-effort: the F&O entity catalogue only sharpens the auto-guessed count entity. If it can't
         // be loaded (e.g. no F&O auth while Dataverse works), the Row counts tab still works with the
@@ -194,7 +197,11 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     // Reloads the maps for the current solution filter. Triggered by Refresh and by filter changes;
     // concurrent + cancellable so a newer filter selection isn't gated by an in-flight load.
     [RelayCommand(IncludeCancelCommand = true, AllowConcurrentExecutions = true)]
-    private async Task ReloadMaps(CancellationToken ct) => await LoadMapsAsync(ct);
+    private async Task ReloadMaps(CancellationToken ct)
+    {
+        if (_disposed) return;
+        await LoadMapsAsync(ct);
+    }
 
     // Exports the inspected map to a Markdown file (the screen's one "write" — to disk, not Dataverse).
     [RelayCommand(CanExecute = nameof(HasSelection))]
@@ -294,6 +301,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
 
     private async Task LoadSolutionsAsync(CancellationToken ct)
     {
+        if (_disposed) return;
         var generation = Volatile.Read(ref _generation);
         var result = await _reader.GetSolutionsAsync(ct);
         if (_disposed || generation != Volatile.Read(ref _generation)) return;
@@ -310,6 +318,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
 
     private async Task LoadMapsAsync(CancellationToken ct)
     {
+        if (_disposed) return;
         var solutionName = CurrentSolutionFilter();
         // Captured BEFORE the call, not read again after it: the reader resolves the active environment
         // internally at call time, so a switch landing mid-load would otherwise stamp environment B onto
@@ -568,6 +577,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         {
             foreach (var row in rows)
             {
+                if (_disposed) return;
                 // Re-checked immediately before EACH count: the environment can move between rows and even
                 // between one row's two legs (they are separate awaits, and _reader / _odata each resolve
                 // the active environment at call time). Tripping stops the run instead of letting the rest
@@ -580,16 +590,20 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
 
                 await CountCeAsync(row, ct);
 
+                if (_disposed) return;
+
                 if (StopCountIfEnvChanged(row, ceStillPending: false))
                 {
                     return;
                 }
 
                 await CountFoAsync(row, ct);
+                if (_disposed) return;
             }
         }
         catch (OperationCanceledException)
         {
+            if (_disposed) return;
             // Clear any "Counting…" placeholders left on rows that hadn't finished.
             foreach (var row in rows)
             {
@@ -644,6 +658,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     // active environment at call time and would otherwise count a different environment than is displayed.
     private async Task CountCeAsync(MapLegCountRow row, CancellationToken ct)
     {
+        if (_disposed) return;
         row.CeStatus = "Counting…";
         var filter = string.IsNullOrWhiteSpace(row.CeFilter) ? null : row.CeFilter;
         var result = await _reader.GetCeRowCountAsync(row.DestinationSchema, filter, ct);
@@ -665,6 +680,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
 
     private async Task CountFoAsync(MapLegCountRow row, CancellationToken ct)
     {
+        if (_disposed) return;
         if (!DualWriteFoEntityResolver.IsUsableEntityName(row.FoEntity))
         {
             // #204: without an entity the path would be "/data/?…" — the service document, which answers
