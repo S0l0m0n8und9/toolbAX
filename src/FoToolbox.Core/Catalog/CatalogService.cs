@@ -73,6 +73,20 @@ public sealed class CatalogService : ICatalogService
         try
         {
             var cached = await _store.GetAsync(key, TablesKind, ct).ConfigureAwait(false);
+            if (cached is null)
+            {
+                // H08b changed every live cache key to a case-preserving namespace. Imported table
+                // catalogs are user data, however, so recover only a valid import from the precise former
+                // Tables key. Metadata and ordinary embedded catalogs are intentionally never migrated.
+                var legacy = await _store.GetAsync(LegacyCacheKey(env), TablesKind, ct).ConfigureAwait(false);
+                if (legacy is not null && IsUserImport(legacy))
+                {
+                    await _store.InsertIfAbsentAsync(key, TablesKind, legacy.Version, legacy.PayloadJson,
+                        legacy.ETag, legacy.UpdatedUtc, ct).ConfigureAwait(false);
+                    cached = await _store.GetAsync(key, TablesKind, ct).ConfigureAwait(false);
+                }
+            }
+
             if (cached is not null)
             {
                 var cachedCatalog = DeserializeTableCatalog(cached.PayloadJson);
@@ -339,6 +353,29 @@ public sealed class CatalogService : ICatalogService
     }
 
     private static string NormalizedBaseUrl(FoEnvironment env) => ResourceUrlNormalizer.NormalizeFoBaseUrl(env.BaseUrl);
+
+    private static string LegacyCacheKey(FoEnvironment env)
+    {
+        var url = env.BaseUrl.Trim().ToLowerInvariant();
+        if (url.Length > 0 && !url.StartsWith("http", StringComparison.Ordinal))
+        {
+            url = "https://" + url;
+        }
+
+        return $"{env.Id}|{url.TrimEnd('/')}";
+    }
+
+    private static bool IsUserImport(CatalogRecord record)
+    {
+        try
+        {
+            return string.Equals(DeserializeTableCatalog(record.PayloadJson).Source, "UserImport", StringComparison.OrdinalIgnoreCase);
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
 
     // Whether a cached per-entity details row may be served for this refresh mode, given the metadata ETag
     // the XML layer reports. This is the pre-existing rule set, lifted verbatim out of

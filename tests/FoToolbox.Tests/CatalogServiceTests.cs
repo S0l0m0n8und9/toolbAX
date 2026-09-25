@@ -209,6 +209,125 @@ public class CatalogServiceTests
         Assert.Single(tables.Tables);
     }
 
+    [Theory]
+    [InlineData(CatalogRefreshMode.UseCacheIfAvailable)]
+    [InlineData(CatalogRefreshMode.UseCacheIfFresh)]
+    [InlineData(CatalogRefreshMode.ForceRefresh)]
+    public async Task GetTablesAsync_recovers_a_legacy_user_import_for_every_refresh_mode_after_restart(CatalogRefreshMode mode)
+    {
+        var profileDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db");
+        var catalogDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db");
+        var env = new FoEnvironment("env", "Env", "HTTPS://CONTOSO.operations.dynamics.com:443/TenantA/data", "tenant", "USMF");
+        var profileStore = new ProfileStore(profileDb);
+        await profileStore.EnsureCreatedAsync();
+        var store = new CatalogStore(catalogDb);
+        await store.EnsureCreatedAsync();
+        var legacyPayload = TableCatalogJson("LegacyImportedTable", "UserImport");
+        var legacyUpdated = new DateTime(2026, 9, 25, 0, 0, 0, DateTimeKind.Utc);
+        await store.SaveAsync(LegacyCacheKey(env), "Tables", "legacy-import", legacyPayload, "legacy-etag", legacyUpdated);
+
+        var firstService = new CatalogService(new HttpClient(new CountingMetadataHandler("<root />")), profileStore, store);
+        var first = await firstService.GetTablesAsync(env, mode, default);
+        var copied = await store.GetAsync("catalog-v2:[\"env\",\"https://contoso.operations.dynamics.com/TenantA\"]", "Tables");
+
+        // Recreate both service and store to prove the recovery is a durable copy, not an in-memory escape.
+        var restartedService = new CatalogService(new HttpClient(new CountingMetadataHandler("<root />")),
+            new ProfileStore(profileDb), new CatalogStore(catalogDb));
+        var restarted = await restartedService.GetTablesAsync(env, mode, default);
+
+        Assert.Equal("UserImport", first.Source);
+        Assert.Contains(first.Tables, table => table.Name == "LegacyImportedTable");
+        Assert.Equal("legacy-import", copied!.Version);
+        Assert.Equal(legacyPayload, copied.PayloadJson);
+        Assert.Equal("legacy-etag", copied.ETag);
+        Assert.Equal(legacyUpdated, copied.UpdatedUtc);
+        Assert.Equal("UserImport", restarted.Source);
+        Assert.Contains(restarted.Tables, table => table.Name == "LegacyImportedTable");
+        Assert.NotNull(await store.GetAsync(LegacyCacheKey(env), "Tables"));
+    }
+
+    [Fact]
+    public async Task GetTablesAsync_keeps_a_new_key_import_when_a_legacy_import_also_exists()
+    {
+        var profileDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db");
+        var catalogDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db");
+        var env = new FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com/TenantA/data", "tenant", "USMF");
+        var profileStore = new ProfileStore(profileDb);
+        await profileStore.EnsureCreatedAsync();
+        var store = new CatalogStore(catalogDb);
+        await store.EnsureCreatedAsync();
+        await store.SaveAsync(LegacyCacheKey(env), "Tables", "legacy-import", TableCatalogJson("LegacyImportedTable", "UserImport"),
+            null, DateTime.UtcNow);
+        var service = new CatalogService(new HttpClient(new CountingMetadataHandler("<root />")), profileStore, store);
+
+        _ = await service.ImportTableCatalogAsync(env, TableCatalogJson("NewImportedTable", "UserImport"), default);
+        var tables = await service.GetTablesAsync(env, CatalogRefreshMode.ForceRefresh, default);
+
+        Assert.Contains(tables.Tables, table => table.Name == "NewImportedTable");
+        Assert.DoesNotContain(tables.Tables, table => table.Name == "LegacyImportedTable");
+        Assert.NotNull(await store.GetAsync(LegacyCacheKey(env), "Tables"));
+    }
+
+    [Fact]
+    public async Task GetTablesAsync_does_not_promote_a_legacy_embedded_catalog()
+    {
+        var profileDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db");
+        var catalogDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db");
+        var env = new FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com/TenantA/data", "tenant", "USMF");
+        var profileStore = new ProfileStore(profileDb);
+        await profileStore.EnsureCreatedAsync();
+        var store = new CatalogStore(catalogDb);
+        await store.EnsureCreatedAsync();
+        await store.SaveAsync(LegacyCacheKey(env), "Tables", "legacy-embedded", TableCatalogJson("LegacyEmbeddedOnly", "Embedded"),
+            null, DateTime.UtcNow);
+        var service = new CatalogService(new HttpClient(new CountingMetadataHandler("<root />")), profileStore, store);
+
+        var tables = await service.GetTablesAsync(env, CatalogRefreshMode.UseCacheIfAvailable, default);
+
+        Assert.DoesNotContain(tables.Tables, table => table.Name == "LegacyEmbeddedOnly");
+        Assert.NotNull(await store.GetAsync(LegacyCacheKey(env), "Tables"));
+    }
+
+    [Fact]
+    public async Task GetTablesAsync_leaves_malformed_legacy_tables_untouched()
+    {
+        var profileDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db");
+        var catalogDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db");
+        var env = new FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com/TenantA/data", "tenant", "USMF");
+        var profileStore = new ProfileStore(profileDb);
+        await profileStore.EnsureCreatedAsync();
+        var store = new CatalogStore(catalogDb);
+        await store.EnsureCreatedAsync();
+        const string malformed = "{\"source\": \"UserImport\"";
+        await store.SaveAsync(LegacyCacheKey(env), "Tables", "legacy-import", malformed, null, DateTime.UtcNow);
+        var service = new CatalogService(new HttpClient(new CountingMetadataHandler("<root />")), profileStore, store);
+
+        var tables = await service.GetTablesAsync(env, CatalogRefreshMode.UseCacheIfAvailable, default);
+        var legacy = await store.GetAsync(LegacyCacheKey(env), "Tables");
+
+        Assert.Equal("Embedded", tables.Source);
+        Assert.Equal(malformed, legacy!.PayloadJson);
+    }
+
+    [Fact]
+    public async Task InsertIfAbsentAsync_keeps_the_existing_sqlite_row_on_conflict()
+    {
+        var store = new CatalogStore(System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db"));
+        await store.EnsureCreatedAsync();
+        var firstUpdated = new DateTime(2026, 9, 25, 1, 0, 0, DateTimeKind.Utc);
+        var secondUpdated = firstUpdated.AddMinutes(1);
+        await store.SaveAsync("key", "Tables", "first", "{\"value\":1}", "first-etag", firstUpdated);
+
+        var inserted = await store.InsertIfAbsentAsync("key", "Tables", "second", "{\"value\":2}", "second-etag", secondUpdated);
+        var winner = await store.GetAsync("key", "Tables");
+
+        Assert.False(inserted);
+        Assert.Equal("first", winner!.Version);
+        Assert.Equal("{\"value\":1}", winner.PayloadJson);
+        Assert.Equal("first-etag", winner.ETag);
+        Assert.Equal(firstUpdated, winner.UpdatedUtc);
+    }
+
     [Fact]
     public async Task GetODataEntityDetailsAsync_Enriches_Key_And_Mandatory_From_PublicEntities()
     {
@@ -527,6 +646,35 @@ public class CatalogServiceTests
         Assert.DoesNotContain(contoso!.Properties, p => p.Name == "CreditLimit");
         Assert.Contains(fabrikam!.Properties, p => p.Name == "CreditLimit");
     }
+
+    private static string LegacyCacheKey(FoEnvironment env)
+    {
+        var url = env.BaseUrl.Trim().ToLowerInvariant();
+        if (url.Length > 0 && !url.StartsWith("http", StringComparison.Ordinal))
+        {
+            url = "https://" + url;
+        }
+
+        return $"{env.Id}|{url.TrimEnd('/')}";
+    }
+
+    private static string TableCatalogJson(string tableName, string source) => $$"""
+    {
+      "version": "test",
+      "source": "{{source}}",
+      "updatedUtc": "2026-09-25T00:00:00Z",
+      "tables": [
+        {
+          "name": "{{tableName}}",
+          "label": null,
+          "isView": false,
+          "configurationKey": null,
+          "isDeprecated": false,
+          "notes": null
+        }
+      ]
+    }
+    """;
 
     // Serves a scripted sequence of $metadata responses (body + optional ETag), counting only the
     // $metadata calls; every other path answers "{}" so the best-effort enrichment round-trips stay inert.
