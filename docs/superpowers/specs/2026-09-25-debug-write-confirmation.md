@@ -1,6 +1,6 @@
 # Debug-write confirmation
 
-Status: PR 221 cancellation review fix implemented and focused-validated; latest-head full gates, review and merge pending. Campaign H13a, 2026-09-25.
+Status: PR 221 cancellation review fix implemented and fully validated locally; remote re-review and merge pending. Campaign H13a, 2026-09-25.
 
 Enable and disable both change project-level F&O debug flags and must confirm before metadata or HTTP work. The operation retains its H01 owner-held mutation lease, captures project IDs/labels and identity before the dialog, then revalidates cancellation, disposal, and identity before dispatch.
 
@@ -35,7 +35,8 @@ both solution builds had 0 warnings/errors; App tests passed 1,150/1,150 and Cor
 with 0 failed/skipped. Evidence is saved under `artifacts/h13a/full-{app,core}-{build,test}.log` and
 `artifacts/h13a/full-{app,core}.trx`. No live authentication or environment calls were used.
 The cancellation review regression failed because the held fake had to be answered after command cancel.
-After the token-aware dialog fix, the focused Operations/Shell/DialogService Release suite passes 122/122,
+Fixed locally in `9c14ab1`, the token-aware dialog implementation passes the focused Operations/Shell/DialogService Release suite 122/122,
 including actual headless window dismissal, pre-cancel/no-owner behavior, racing approval, registration
 lifetime, late fake approval, zero dispatch and lease release. Evidence is under ignored
-`artifacts/h13a/cancellation/`. Latest-head full gates, Greptile resolution and merge remain pending.
+`artifacts/h13a/cancellation/`. Latest-head full `CI=true` Release gates pass both builds with 0 warnings/errors,
+App 1,157/1,157 and Core 403/403, with no failures/skips. Remote re-review, discussion resolution and merge remain pending.
