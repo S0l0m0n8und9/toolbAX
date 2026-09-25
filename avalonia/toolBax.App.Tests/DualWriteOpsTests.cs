@@ -986,6 +986,25 @@ public class DualWriteOpsTests
     }
 
     [Fact]
+    public async Task Debug_toggle_is_refused_after_same_id_auth_edit()
+    {
+        const string record = "{\"value\":[{\"@odata.id\":\"https://contoso.operations.dynamics.com/data/DualWriteProjectConfigurations(1)\",\"IsDebugMode\":\"No\"}]}";
+        var odata = new ScriptedODataClient(record);
+        var env = new EnvSwitch();
+        var vm = new DualWriteOpsViewModel(new FakeDualWriteConnector(), env.Get, new FakeDialogs(false),
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5),
+            odata: odata, metadata: new FixedMetadata("DualWriteProjectConfigurations"));
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.First().IsSelected = true;
+
+        env.Current = env.Current! with { ClientId = "replacement-client", AuthMode = FoAuthMode.ClientSecret };
+        await vm.EnableDebugForSelectedCommand.ExecuteAsync(null);
+
+        Assert.Empty(odata.Calls);
+        Assert.Contains("reconnect", vm.DebugStatus, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task A_session_returned_after_dispose_is_disposed_and_never_assigned()
     {
         var connector = new GatedDisposableConnector();
@@ -1000,6 +1019,19 @@ public class DualWriteOpsTests
         Assert.True(connector.Gateway.Disposed);
         Assert.False(vm.IsConnected);
         Assert.Empty(vm.Maps);
+    }
+
+    [Fact]
+    public async Task Disposed_operations_refuses_a_new_connect()
+    {
+        var connector = new FakeDualWriteConnector();
+        var vm = MakeVm(connector);
+        vm.Dispose();
+
+        await vm.LoadCommand.ExecuteAsync(null);
+
+        Assert.Null(connector.LastGateway);
+        Assert.False(vm.IsConnected);
     }
 
     private sealed class GatedDisposableConnector : IDualWriteConnector

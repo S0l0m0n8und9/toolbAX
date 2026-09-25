@@ -177,7 +177,13 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task Initialize(CancellationToken ct)
     {
+        if (_disposed) return;
+        var identity = EnvironmentIdentity.TryCreate(_activeEnv());
+        var generation = Volatile.Read(ref _generation);
+        if (_environmentBound && identity is null) return;
+
         var loaded = await _loader.LoadEntitiesAsync(Entities.Select(e => e.Name).ToList(), ct);
+        if (!CanCommit(identity, generation)) return;
         LoadError = _loader.LastError;
         if (loaded is not null)
         {
@@ -198,6 +204,7 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
         }
 
         await EnsureFieldsAsync(ct);
+        if (!CanCommit(identity, generation)) return;
         if (UseFieldGrid && SelectedEntity is null)
         {
             // Grid mode with nothing to select (the catalogue is empty, or the load failed): state that
@@ -208,12 +215,17 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
 
     // Fetches the selected entity's fields if they aren't cached yet, then rebuilds the grid + payload.
     [RelayCommand]
-    private Task EnsureFields(CancellationToken ct) => EnsureFieldsAsync(ct);
+    private Task EnsureFields(CancellationToken ct) =>
+        _disposed ? Task.CompletedTask : EnsureFieldsAsync(ct);
 
     // Deliberately rebuilds via LoadFields/RebuildPayload rather than ReloadGrid: a fetch that yields no
     // fields must settle on the "hasn't loaded" block, not re-enter the fetch and loop.
     private async Task EnsureFieldsAsync(CancellationToken ct)
     {
+        if (_disposed) return;
+        var identity = EnvironmentIdentity.TryCreate(_activeEnv());
+        var generation = Volatile.Read(ref _generation);
+        if (_environmentBound && identity is null) return;
         var entity = SelectedEntity;
         if (!UseFieldGrid || entity is null || Fields.Count > 0)
         {
@@ -221,7 +233,7 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
         }
 
         var fetched = await _loader.EnsureFieldsAsync(entity.Name, ct);
-        if (SelectedEntity != entity)
+        if (!CanCommit(identity, generation) || SelectedEntity != entity)
         {
             // The user moved on; that selection's own load (ReloadGrid/EnsureFieldsAsync) owns the grid
             // AND the LoadError banner now — this fetch's outcome, success or failure, belongs to
@@ -352,6 +364,7 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
 
     partial void OnUseFieldGridChanged(bool value)
     {
+        if (_disposed) return;
         if (!value)
         {
             // Back to raw mode: the editor owns the body again, so drop the grid's validation state instead
@@ -379,7 +392,7 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
 
     partial void OnSelectedEntityChanged(EntitySet? value)
     {
-        if (_refreshingEntities)
+        if (_disposed || _refreshingEntities)
         {
             return; // a transient null/restore from rebuilding the filtered list — not a real selection change
         }
@@ -399,6 +412,7 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     // weren't cached) so the "hasn't loaded" block clears once they arrive.
     private void ReloadGrid()
     {
+        if (_disposed) return;
         // A fresh selection starts with a clean slate for the load-error banner — whatever this reload
         // finds (a cache hit needing no fetch, or the fetch EnsureFieldsAsync is about to run) owns
         // LoadError from here. Without this, switching away from an entity whose fields failed to load
@@ -703,10 +717,10 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
             }
 
             StatusText = "Sending…";
-        // Clear the PREVIOUS send's outcome up front — a cancellation never gets a real response to
-        // overwrite these with, so without this reset its "Send cancelled." status was left sitting over
-        // an unrelated earlier send's badge/body/headers, misreadable as this send's own result
-        // (PR #196 review).
+            // Clear the PREVIOUS send's outcome up front — a cancellation never gets a real response to
+            // overwrite these with, so without this reset its "Send cancelled." status was left sitting over
+            // an unrelated earlier send's badge/body/headers, misreadable as this send's own result
+            // (PR #196 review).
             SendSucceeded = false;
             StatusBadge = string.Empty;
             ResponseBody = string.Empty;
@@ -727,16 +741,22 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
         // timeout falls through to the general handler and is reported as the failure it is (#168).
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            SendSucceeded = false;
-            StatusText = "Send cancelled.";
+            if (CanCommit(identity, generation))
+            {
+                SendSucceeded = false;
+                StatusText = "Send cancelled.";
+            }
         }
         catch (Exception ex)
         {
-            StatusText = "Request failed.";
-            SendSucceeded = false;
-            StatusBadge = string.Empty;
-            ResponseBody = ex.Message;
-            ResponseHeaders = string.Empty;
+            if (CanCommit(identity, generation))
+            {
+                StatusText = "Request failed.";
+                SendSucceeded = false;
+                StatusBadge = string.Empty;
+                ResponseBody = ex.Message;
+                ResponseHeaders = string.Empty;
+            }
         }
         finally
         {
@@ -757,22 +777,29 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
                 .Select(h => $"{h.Key}: {h.Value}"));
 
     [RelayCommand]
-    private Task CopyUrl() => CopyToClipboardAsync(EffectivePath(), "Request URL copied to the clipboard.");
+    private Task CopyUrl() => _disposed
+        ? Task.CompletedTask
+        : CopyToClipboardAsync(EffectivePath(), "Request URL copied to the clipboard.");
 
     [RelayCommand]
-    private Task CopyPayload() => CopyToClipboardAsync(RequestBody, "Payload copied to the clipboard.");
+    private Task CopyPayload() => _disposed
+        ? Task.CompletedTask
+        : CopyToClipboardAsync(RequestBody, "Payload copied to the clipboard.");
 
     // A contended clipboard throws (COMException on Windows) and an AsyncRelayCommand rethrows that on the
     // dispatcher, so a failed copy has to end as a status line, not a dead app (#163).
     private async Task CopyToClipboardAsync(string text, string success)
     {
+        var generation = Volatile.Read(ref _generation);
         try
         {
             await _clipboard.SetTextAsync(text);
+            if (_disposed || generation != Volatile.Read(ref _generation)) return;
             StatusText = success;
         }
         catch (Exception ex)
         {
+            if (_disposed || generation != Volatile.Read(ref _generation)) return;
             StatusText = $"Couldn't copy to the clipboard: {ex.Message}";
         }
     }

@@ -434,6 +434,26 @@ public class ShellViewModelTests
     }
 
     [Fact]
+    public async Task Confirmed_active_company_save_invalidates_open_tools()
+    {
+        var dialogs = new RecordingDialogs(answer: true);
+        var shell = new ShellViewModel(dialogs: dialogs);
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+        var queryBefore = shell.CurrentContent;
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "profiles");
+        var profiles = Assert.IsType<ProfilesViewModel>(shell.CurrentContent);
+        profiles.Selected = profiles.Profiles.Single(p => p.Id == shell.ActiveEnvironment!.Id);
+        profiles.DraftLegal = "DEMF";
+
+        await profiles.SaveCommand.ExecuteAsync(null);
+        shell.CurrentTool = shell.Tools.Single(t => t.Id == "query");
+
+        Assert.Equal("DEMF", shell.ActiveEnvironment!.Legal);
+        Assert.NotSame(queryBefore, shell.CurrentContent);
+        Assert.Equal(1, dialogs.Calls);
+    }
+
+    [Fact]
     public async Task Pending_POST_confirmation_blocks_switch_active_save_and_active_delete()
     {
         var store = new FakeProfileStore();

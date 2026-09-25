@@ -14,6 +14,10 @@ namespace ToolBax.App.Tests;
 
 public class QueryBuilderViewModelTests
 {
+    private static EnvProfile BoundEnv() => new(
+        "env", "Env", "https://contoso.operations.dynamics.com", "tenant", "USMF", "Tier 1",
+        EnvStatus.Connected, ClientId: "client", AuthMode: FoAuthMode.Interactive);
+
     private static QueryBuilderViewModel MakeVm() =>
         new(new FakeMetadataService(), new FakeODataClient());
 
@@ -75,6 +79,21 @@ public class QueryBuilderViewModelTests
         }
     }
 
+    private sealed class CancellationObservingFileSave : IFileSaveService
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public CancellationToken ReceivedToken { get; private set; }
+        public async Task<string?> SaveTextAsync(string suggestedFileName, string content, SaveFileType fileType,
+            CancellationToken ct = default)
+        {
+            ReceivedToken = ct;
+            Entered.TrySetResult();
+            await Release.Task.WaitAsync(ct);
+            return null;
+        }
+    }
+
     // Records the path passed to SendAsync, to assert on the request the Run command issues.
     private sealed class RecordingODataClient : IODataClient
     {
@@ -83,6 +102,26 @@ public class QueryBuilderViewModelTests
         {
             LastPath = path;
             return Task.FromResult(new ODataResponse(200, "OK", "{\"value\":[]}", 5));
+        }
+    }
+
+    private sealed class SuccessThenGatedFailureClient : IODataClient
+    {
+        private int _calls;
+        public TaskCompletionSource EnteredFailure { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseFailure { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int Calls => _calls;
+        public async Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
+        {
+            if (Interlocked.Increment(ref _calls) == 1)
+            {
+                return new ODataResponse(200, "OK",
+                    "{\"@odata.nextLink\":\"https://contoso.operations.dynamics.com/data/CustomersV3?$skiptoken=p2\",\"value\":[{\"CustomerAccount\":\"US-1\"}]}", 1);
+            }
+
+            EnteredFailure.TrySetResult();
+            await ReleaseFailure.Task;
+            throw new InvalidOperationException("obsolete request failed");
         }
     }
 
@@ -1914,6 +1953,122 @@ public class QueryBuilderViewModelTests
         Assert.Equal("Not run yet.", vm.StatusText);
         Assert.Equal("Results", vm.ResultsTabHeader);
         Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task Same_id_tenant_drift_blocks_LoadMore_before_dispatch()
+    {
+        var active = BoundEnv();
+        var client = new PagingODataClient(
+            new ODataResponse(200, "OK",
+                "{\"@odata.nextLink\":\"https://contoso.operations.dynamics.com/data/CustomersV3?$skiptoken=p2\",\"value\":[{\"CustomerAccount\":\"US-1\"}]}", 1),
+            new ODataResponse(200, "OK", "{\"value\":[]}", 1));
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client,
+            activeEnvironment: () => active);
+
+        await vm.RunCommand.ExecuteAsync(null);
+        Assert.Single(client.Requested);
+        active = active with { Tenant = "other-tenant" };
+        await vm.LoadMoreCommand.ExecuteAsync(null);
+
+        Assert.Single(client.Requested);
+        AssertCleanSlate(vm);
+    }
+
+    [Fact]
+    public async Task Same_id_client_drift_blocks_clipboard_export()
+    {
+        var active = BoundEnv();
+        var clipboard = new FakeClipboardService();
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient(), clipboard,
+            activeEnvironment: () => active);
+        await vm.RunCommand.ExecuteAsync(null);
+        active = active with { ClientId = "other-client" };
+
+        await vm.ExportCsvCommand.ExecuteAsync(null);
+
+        Assert.Null(clipboard.LastText);
+        AssertCleanSlate(vm);
+    }
+
+    [Fact]
+    public async Task Same_id_company_drift_blocks_file_export_before_picker()
+    {
+        var active = BoundEnv();
+        var fileSave = new FakeFileSaveService("C:/tmp/result.csv");
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient(),
+            fileSave: fileSave, activeEnvironment: () => active);
+        await vm.RunCommand.ExecuteAsync(null);
+        active = active with { Legal = "DEMF" };
+
+        await vm.ExportCsvFileCommand.ExecuteAsync(null);
+
+        Assert.Null(fileSave.LastContent);
+        AssertCleanSlate(vm);
+    }
+
+    [Fact]
+    public async Task Dispose_cancels_an_inflight_file_export_token()
+    {
+        var fileSave = new CancellationObservingFileSave();
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient(), fileSave: fileSave);
+        await vm.RunCommand.ExecuteAsync(null);
+
+        var export = vm.ExportCsvFileCommand.ExecuteAsync(null);
+        await fileSave.Entered.Task;
+        vm.Dispose();
+        Assert.True(fileSave.ReceivedToken.IsCancellationRequested);
+        fileSave.Release.TrySetResult();
+        await export;
+
+        Assert.False(vm.ExportCsvFileCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Disposed_CopyUrl_refuses_clipboard_side_effect()
+    {
+        var clipboard = new FakeClipboardService();
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new FakeODataClient(), clipboard);
+        Assert.NotEmpty(vm.QueryUrl);
+        vm.Dispose();
+
+        await vm.CopyUrlCommand.ExecuteAsync(null);
+
+        Assert.Null(clipboard.LastText);
+    }
+
+    [Fact]
+    public async Task Obsolete_run_failure_after_entity_switch_does_not_publish_error()
+    {
+        var client = new SuccessThenGatedFailureClient();
+        // Consume the first success so this run uses the gated failure.
+        _ = await client.SendAsync("GET", "warmup", null, TestContext.Current.CancellationToken);
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        var run = vm.RunCommand.ExecuteAsync(null);
+        await client.EnteredFailure.Task;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "VendorsV2");
+        client.ReleaseFailure.TrySetResult();
+        await run;
+
+        AssertCleanSlate(vm);
+    }
+
+    [Fact]
+    public async Task Obsolete_LoadMore_failure_after_entity_switch_does_not_publish_error()
+    {
+        var client = new SuccessThenGatedFailureClient();
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+        await vm.RunCommand.ExecuteAsync(null);
+
+        var more = vm.LoadMoreCommand.ExecuteAsync(null);
+        await client.EnteredFailure.Task;
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "VendorsV2");
+        client.ReleaseFailure.TrySetResult();
+        await more;
+
+        AssertCleanSlate(vm);
     }
 
     [Fact]

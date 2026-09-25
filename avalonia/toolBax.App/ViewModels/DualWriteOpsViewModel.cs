@@ -179,6 +179,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanLoad))]
     private async Task Load(CancellationToken ct)
     {
+        if (_disposed) return;
         var env = _activeEnv();
         if (env is null)
         {
@@ -262,11 +263,10 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     /// <summary>Message shown (and logged) when the session and the active environment have diverged.</summary>
     private const string ReconnectRequired = "Connected to a different environment — reconnect required.";
 
-    // True when the live session belongs to an environment other than the one that's now active. The shell
-    // can switch the active environment while this cached VM keeps its session (the "Refresh open tools?"
-    // prompt is declinable), which would otherwise leave the gateway/cid pointing at the old environment
-    // while the header shows the new one — and, for the debug toggle, straddle both in one operation
-    // (project ids from the old session, the PATCH through an _odata that resolves the active env per call).
+    // True when the live session's captured connection identity differs from the current profile. Shell
+    // switches normally dispose this VM, while this guard also covers same-id profile edits and any direct
+    // caller retaining the VM — especially debug mode, whose project ids and OData client must never straddle
+    // two identities.
     private bool SessionEnvMismatch() =>
         _session is not null && !_session.Identity.IsCurrent(_activeEnv());
 

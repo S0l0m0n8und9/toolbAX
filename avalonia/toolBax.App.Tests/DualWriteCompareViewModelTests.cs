@@ -44,6 +44,22 @@ public class DualWriteCompareViewModelTests
     }
 
     [Fact]
+    public void Disposed_compare_refuses_environment_refresh_side_effects()
+    {
+        var store = new FakeProfileStore();
+        var vm = new DualWriteCompareViewModel(store, new FakeDualWriteCompareService());
+        var before = vm.Environments.Count;
+        vm.Dispose();
+        store.Save(new EnvProfile("late", "Late", "late.operations.dynamics.com", "tenant", "USMF",
+            "Tier 1", EnvStatus.Connected));
+
+        vm.RefreshEnvironmentsCommand.Execute(null);
+
+        Assert.Equal(before, vm.Environments.Count);
+        Assert.DoesNotContain(vm.Environments, env => env.Id == "late");
+    }
+
+    [Fact]
     public void Defaults_pick_two_different_environments()
     {
         var vm = MakeVm();

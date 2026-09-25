@@ -30,10 +30,8 @@ public partial class VirtualTablesViewModel : ObservableObject, IDisposable
     // Whether any load has completed (drives the empty state, and separates "never loaded" from
     // "loaded while no environment was active" — both have a null environment stamp).
     private bool _loaded;
-    // The environment the listed tables were loaded from. The shell can switch the active environment under
-    // this cached VM (the "Refresh open tools?" prompt is declinable) while SelectedTableUrl resolves the
-    // ACTIVE environment at click time — so a stale list would deep-link "Open in Dataverse" into a
-    // different environment than the one whose tables are on screen. Re-stamped by each successful load.
+    // The immutable profile/identity the listed tables were loaded from. Deep links use that captured
+    // profile, never whichever environment later becomes active. Re-stamped by each successful load.
     private EnvProfile? _loadedProfile;
     private EnvironmentIdentity? _loadedIdentity;
     private int _generation;
@@ -111,10 +109,9 @@ public partial class VirtualTablesViewModel : ObservableObject, IDisposable
 
     public bool HasSelectionLink => SelectedTableUrl is not null;
 
-    // Loads on first activation AND after an environment switch — deliberately not a one-shot. The shell
-    // keeps this VM alive across a declined "Refresh open tools?" prompt, so re-activating under a different
-    // environment must reload; otherwise the grid keeps environment A's tables while the deep link (which
-    // resolves the ACTIVE environment) points into environment B.
+    // Loads on first activation and whenever the complete active identity differs from the loaded identity.
+    // Production switches dispose cached tools, while this check also protects direct callers and same-id
+    // profile edits.
     [RelayCommand]
     private async Task Initialize(CancellationToken ct)
     {
@@ -130,10 +127,11 @@ public partial class VirtualTablesViewModel : ObservableObject, IDisposable
         _environmentBound && !Equals(_loadedIdentity, EnvironmentIdentity.TryCreate(_activeEnv()));
 
     [RelayCommand]
-    private Task Refresh(CancellationToken ct) => ReloadAsync(ct);
+    private Task Refresh(CancellationToken ct) => _disposed ? Task.CompletedTask : ReloadAsync(ct);
 
     private async Task ReloadAsync(CancellationToken ct)
     {
+        if (_disposed) return;
         // Captured BEFORE the read (same pattern as DualWriteMapViewModel.LoadMapsAsync): the reader resolves
         // the active environment internally at call time, so this is which environment the load is FOR — used
         // both to stamp the tables it returns and to detect, once it returns, that the environment has moved

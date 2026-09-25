@@ -587,6 +587,7 @@ public class DualWriteMapViewModelTests
     private sealed class GatedLoadReader : IDualWriteMapReader
     {
         private readonly FakeDualWriteMapReader _inner = new();
+        public Exception? Failure { get; init; }
         public TaskCompletionSource Entered { get; } = new();
         public TaskCompletionSource Gate { get; } = new();
         public int CeCountCalls { get; private set; }
@@ -595,6 +596,7 @@ public class DualWriteMapViewModelTests
         {
             Entered.TrySetResult();
             await Gate.Task;
+            if (Failure is not null) throw Failure;
             return await _inner.GetMapsAsync(solutionUniqueName, ct);
         }
 
@@ -841,6 +843,86 @@ public class DualWriteMapViewModelTests
 
         await vm.CopyMapLinkCommand.ExecuteAsync(null);
         Assert.Equal(url, clipboard.LastText);
+    }
+
+    private sealed class GatedSolutionFailureReader : IDualWriteMapReader
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            Task.FromResult(DwMapLoadResult.Ok(Array.Empty<DwMapRecord>()));
+        public async Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default)
+        {
+            Entered.TrySetResult();
+            await Release.Task;
+            throw new InvalidOperationException("late solution failure");
+        }
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) =>
+            Task.FromResult(DwCountResult.Ok(0));
+    }
+
+    private sealed class DisposalGatedCountReader : IDualWriteMapReader
+    {
+        private readonly FakeDualWriteMapReader _inner = new();
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            _inner.GetMapsAsync(solutionUniqueName, ct);
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) =>
+            _inner.GetSolutionsAsync(ct);
+        public async Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default)
+        {
+            Entered.TrySetResult();
+            await Release.Task;
+            return DwCountResult.Ok(123);
+        }
+    }
+
+    [Fact]
+    public async Task A_stale_map_load_failure_cannot_overwrite_current_environment_state()
+    {
+        var env = new EnvSwitch();
+        var reader = new GatedLoadReader { Failure = new InvalidOperationException("old environment failed") };
+        var vm = new DualWriteMapViewModel(reader, activeEnv: env.Get) { LoadError = "current environment state" };
+
+        var loading = vm.ReloadMapsCommand.ExecuteAsync(null);
+        await reader.Entered.Task;
+        env.Current = MapEnv("env2", "fabrikam");
+        reader.Gate.TrySetResult();
+        await loading;
+
+        Assert.Equal("current environment state", vm.LoadError);
+    }
+
+    [Fact]
+    public async Task Disposed_initialize_failure_cannot_publish_error()
+    {
+        var reader = new GatedSolutionFailureReader();
+        var vm = new DualWriteMapViewModel(reader) { LoadError = "preserve me" };
+
+        var initialize = vm.InitializeCommand.ExecuteAsync(null);
+        await reader.Entered.Task;
+        vm.Dispose();
+        reader.Release.TrySetResult();
+        await initialize;
+
+        Assert.Equal("preserve me", vm.LoadError);
+    }
+
+    [Fact]
+    public async Task Disposed_count_completion_cannot_publish_row_values()
+    {
+        var reader = new DisposalGatedCountReader();
+        var vm = new DualWriteMapViewModel(reader, activeEnv: () => MapEnv("env1", "contoso"));
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        var count = vm.CountAllRowsCommand.ExecuteAsync(null);
+        await reader.Entered.Task;
+        vm.Dispose();
+        reader.Release.TrySetResult();
+        await count;
+
+        Assert.All(vm.CountRows, row => Assert.Null(row.CeCount));
     }
 
     [Fact]

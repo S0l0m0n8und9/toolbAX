@@ -120,12 +120,15 @@ public partial class MetadataViewModel : ObservableObject, IDisposable
 
         _disposed = true;
         Interlocked.Increment(ref _lifecycleGeneration);
+        InitializeCommand.Cancel();
+        RefreshCommand.Cancel();
+        LoadSelectedFieldsCommand.Cancel();
         _loader.Dispose();
     }
 
     // Fetches the entity list (and the selected entity's fields) from the active environment's live
     // $metadata. The view calls this on load; with the fake it's a no-op over already-seeded data.
-    [RelayCommand]
+    [RelayCommand(IncludeCancelCommand = true)]
     private async Task Initialize(CancellationToken ct)
     {
         if (!TryCaptureLifecycle(out var identity, out var lifecycleGeneration)) return;
@@ -152,7 +155,7 @@ public partial class MetadataViewModel : ObservableObject, IDisposable
     // bypassing the cached copies. The escape hatch for metadata that changed since it was cached (a
     // deployed entity, or a profile repointed at another environment) — Initialize alone would keep
     // serving the cache.
-    [RelayCommand(CanExecute = nameof(CanRefresh))]
+    [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanRefresh))]
     private async Task Refresh(CancellationToken ct)
     {
         if (!TryCaptureLifecycle(out var identity, out var lifecycleGeneration)) return;
@@ -211,7 +214,7 @@ public partial class MetadataViewModel : ObservableObject, IDisposable
     private bool CanRefresh() => !_disposed && !IsBusy && (_activeEnvironment is null || _activeEnvironment() is not null);
 
     // Fetches the selected entity's fields if they aren't cached yet, then refreshes the grid.
-    [RelayCommand]
+    [RelayCommand(IncludeCancelCommand = true)]
     private Task LoadSelectedFields(CancellationToken ct) => LoadSelectedFieldsAsync(ct);
 
     private async Task LoadSelectedFieldsAsync(CancellationToken ct)
@@ -282,6 +285,10 @@ public partial class MetadataViewModel : ObservableObject, IDisposable
 
     partial void OnSelectedChanged(EntitySet? value)
     {
+        if (_disposed)
+        {
+            return;
+        }
         LoadFields();                              // show what's cached immediately
         LoadSelectedFieldsCommand.Execute(null);   // then fetch from $metadata if not cached yet
     }

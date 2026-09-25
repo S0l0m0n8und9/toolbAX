@@ -127,6 +127,10 @@ public partial class DualWriteCompareViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void RefreshEnvironments()
     {
+        if (_disposed)
+        {
+            return;
+        }
         var sourceId = SelectedSource?.Id;
         var targetId = SelectedTarget?.Id;
 

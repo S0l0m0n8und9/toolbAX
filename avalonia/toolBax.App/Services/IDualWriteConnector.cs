@@ -10,10 +10,9 @@ namespace ToolBax.App.Services;
 /// connection id/name for the environment, and the (auto-discovered) gateway host it's bound to.
 /// <see cref="Cid"/> is passed to the gateway's map/action calls; <see cref="GatewayBaseUrl"/> is surfaced
 /// in the in-app gateway log so a wrong/region host is visible.
-/// <see cref="EnvId"/> stamps the <see cref="EnvProfile.Id"/> the session was established for: the shell can
-/// switch the active environment under a cached tool view-model (the user may decline the "refresh open
-/// tools?" prompt), so every use site compares this against the *current* active environment before issuing
-/// a call — otherwise a session bound to environment A would act while the header shows environment B.
+/// <see cref="Profile"/> and <see cref="Identity"/> capture the immutable connection context the gateway was
+/// established for. Every use site compares the complete identity with the current active environment before
+/// issuing a call, so a same-id endpoint/auth/company edit cannot retarget an existing gateway session.
 /// </summary>
 public sealed class DualWriteSession
 {

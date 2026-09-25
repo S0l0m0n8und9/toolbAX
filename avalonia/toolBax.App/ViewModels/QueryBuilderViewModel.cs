@@ -29,6 +29,8 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
     private readonly Func<EnvProfile?>? _activeEnvironment;
     private bool _disposed;
     private int _lifecycleGeneration;
+    private EnvironmentIdentity? _loadedResultsIdentity;
+    private int _loadedResultsGeneration = -1;
 
     // Hard cap on pages an "export all" will follow, so a misbehaving nextLink can't loop forever.
     private const int MaxExportPages = 500;
@@ -376,7 +378,7 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
 
     // Fetches the entity list (and the selected entity's fields) from the active environment's live
     // $metadata. The view calls this on load; with the fake it's a no-op over already-seeded data.
-    [RelayCommand]
+    [RelayCommand(IncludeCancelCommand = true)]
     private async Task Initialize(CancellationToken ct)
     {
         if (!TryCaptureLifecycle(out var identity, out var lifecycleGeneration))
@@ -409,6 +411,10 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
 
     partial void OnSelectedEntityChanged(EntitySet? value)
     {
+        if (_disposed)
+        {
+            return;
+        }
         if (_refreshingEntities)
         {
             return; // a transient null/restore from rebuilding the filtered list — not a real selection change
@@ -442,6 +448,8 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
         // the grid the switch just emptied (PR #193 review).
         _resultsGeneration++;
         _derivedColumnNames = null; // no header to grow until the next run establishes one
+        _loadedResultsIdentity = null;
+        _loadedResultsGeneration = -1;
         ResultRows.Clear();
         ResultColumns = Array.Empty<string>();
         NextLink = null;                 // also disables Load more (NotifyCanExecuteChangedFor)
@@ -584,26 +592,29 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task CopyUrl()
     {
-        if (string.IsNullOrEmpty(QueryUrl))
+        if (string.IsNullOrEmpty(QueryUrl) || !TryCaptureLifecycle(out var identity, out var lifecycleGeneration))
         {
             return;
         }
 
+        var url = QueryUrl;
         // A contended clipboard throws (COMException on Windows), and an AsyncRelayCommand rethrows a
         // faulted command task on the dispatcher — which kills the app. A failed copy is a status line.
         try
         {
-            await _clipboard.SetTextAsync(QueryUrl);
+            await _clipboard.SetTextAsync(url);
+            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             StatusText = "Query URL copied to the clipboard.";
         }
         catch (Exception ex)
         {
+            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             StatusText = $"Couldn't copy to the clipboard: {ex.Message}";
         }
     }
 
     // Fetches the selected entity's fields if they aren't cached yet, then rebuilds the field chips.
-    [RelayCommand]
+    [RelayCommand(IncludeCancelCommand = true)]
     private Task LoadSelectedFields(CancellationToken ct) => LoadSelectedFieldsAsync(ct);
 
     private async Task LoadSelectedFieldsAsync(CancellationToken ct)
@@ -907,19 +918,21 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
             StatusBadge = $"{response.StatusCode} {response.ReasonPhrase}";
             StatusText = $"{DescribeCount()} · {response.StatusLine}";
             HasRun = true;
+            _loadedResultsIdentity = response.IsSuccess ? identity : null;
+            _loadedResultsGeneration = response.IsSuccess ? lifecycleGeneration : -1;
         }
         // An HTTP/socket timeout also arrives as an OperationCanceledException, but with OUR token still
         // live — only a cancelled token means the user pressed Cancel. A timeout falls through to the
         // general handler and is reported as the failure it is.
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            if (!IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             RunSucceeded = false;
             StatusText = "Run cancelled.";
         }
         catch (Exception ex)
         {
-            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            if (!IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             RunSucceeded = false;
             StatusText = $"Query failed: {ex.Message}";
         }
@@ -995,6 +1008,12 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (!HasCurrentLoadedResults(identity, lifecycleGeneration))
+        {
+            ClearResults();
+            return;
+        }
+
         var link = NextLink;
         if (string.IsNullOrEmpty(link))
         {
@@ -1059,12 +1078,12 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
         // failure (see Run).
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            if (!IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             StatusText = "Load more cancelled.";
         }
         catch (Exception ex)
         {
-            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            if (!IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             StatusText = $"Load more failed: {ex.Message}";
         }
         finally
@@ -1138,6 +1157,12 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (!HasCurrentLoadedResults(identity, lifecycleGeneration))
+        {
+            ClearResults();
+            return;
+        }
+
         var csv = QueryCsv.Build(ResultColumns, ResultRows);
         try
         {
@@ -1153,11 +1178,17 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
     }
 
     // Saves the currently-loaded rows to a .csv file the user picks.
-    [RelayCommand(CanExecute = nameof(CanExportCsv))]
+    [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanExportCsv))]
     private async Task ExportCsvFile(CancellationToken ct)
     {
         if (!TryCaptureLifecycle(out var identity, out var lifecycleGeneration))
         {
+            return;
+        }
+
+        if (!HasCurrentLoadedResults(identity, lifecycleGeneration))
+        {
+            ClearResults();
             return;
         }
 
@@ -1315,7 +1346,8 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void CancelBusy()
     {
-        foreach (var cancel in new[] { RunCancelCommand, LoadMoreCancelCommand, ExportAllCsvCancelCommand })
+        foreach (var cancel in new[] { InitializeCancelCommand, LoadSelectedFieldsCancelCommand, RunCancelCommand,
+            LoadMoreCancelCommand, ExportCsvFileCancelCommand, ExportAllCsvCancelCommand })
         {
             if (cancel.CanExecute(null))
             {
@@ -1323,6 +1355,11 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
             }
         }
     }
+
+    private bool HasCurrentLoadedResults(EnvironmentIdentity? identity, int lifecycleGeneration) =>
+        _activeEnvironment is null || (_loadedResultsIdentity is not null
+            && _loadedResultsGeneration == lifecycleGeneration
+            && _loadedResultsIdentity == identity);
 
     // Projects an OData {"value":[ {...} ]} payload onto the selected columns.
     private static IEnumerable<QueryResultRow> ParseRows(string body, IReadOnlyList<string> columns)

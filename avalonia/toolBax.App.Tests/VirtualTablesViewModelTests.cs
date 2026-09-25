@@ -273,6 +273,19 @@ public class VirtualTablesViewModelTests
     }
 
     [Fact]
+    public async Task Disposed_refresh_refuses_a_new_reader_call()
+    {
+        var reader = new CountingReader();
+        var vm = new VirtualTablesViewModel(reader);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.Dispose();
+
+        await vm.RefreshCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, reader.Calls);
+    }
+
+    [Fact]
     public async Task An_environment_switch_landing_mid_load_discards_the_result_it_arrived_too_late_for()
     {
         var reader = new GatedReader();

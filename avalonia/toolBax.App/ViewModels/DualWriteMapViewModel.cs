@@ -32,10 +32,9 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     private readonly IClipboardService _clipboard;
     private readonly IUrlLauncher _launcher;
     private IReadOnlyList<string> _foEntityNames = Array.Empty<string>();
-    // The environment the currently-displayed maps were loaded from. The shell can switch the active
-    // environment under this cached VM (the "Refresh open tools?" prompt is declinable), and the count
-    // clients resolve the ACTIVE environment at call time — so counting after a switch would fill
-    // environment A's maps with environment B's numbers. Re-stamped by each successful load.
+    // The immutable profile/identity the displayed maps were loaded from. Counts resolve the active
+    // environment at call time, so every count is refused once that complete identity diverges. Re-stamped
+    // by each successful load and retained for correctly attributed links.
     private EnvProfile? _loadedProfile;
     private EnvironmentIdentity? _loadedIdentity;
     private int _generation;
@@ -166,12 +165,16 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            LoadError = $"Couldn't load the dual-write catalogue: {ex.Message}";
+            if (!_disposed)
+            {
+                LoadError = $"Couldn't load the dual-write catalogue: {ex.Message}";
+            }
         }
     }
 
     private async Task LoadFoEntityNamesAsync(CancellationToken ct)
     {
+        var generation = Volatile.Read(ref _generation);
         // Best-effort: the F&O entity catalogue only sharpens the auto-guessed count entity. If it can't
         // be loaded (e.g. no F&O auth while Dataverse works), the Row counts tab still works with the
         // simple fallback guess + manual edit, so a failure here is non-fatal.
@@ -184,6 +187,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
             // keep whatever entity names are already cached
         }
 
+        if (_disposed || generation != Volatile.Read(ref _generation)) return;
         _foEntityNames = _metadata.GetEntities().Select(e => e.Name).ToList();
     }
 
@@ -373,13 +377,16 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         {
             // Also the shared body behind ReloadMaps: a reader that throws (rather than returning a failure
             // result) must banner, not fault the command task — that lands on the dispatcher and kills the app.
-            LoadError = $"Couldn't load dual-write maps: {ex.Message}";
+            if (CanCommit(identity, generation))
+            {
+                LoadError = $"Couldn't load dual-write maps: {ex.Message}";
+            }
         }
         finally
         {
             // Only the last overlapping load clears the indicator, so a cancelled/stale load finishing
             // first doesn't switch it off while a newer load is still running.
-            if (--_activeLoads == 0)
+            if (--_activeLoads == 0 && !_disposed)
             {
                 IsLoading = false;
             }
@@ -640,6 +647,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         row.CeStatus = "Counting…";
         var filter = string.IsNullOrWhiteSpace(row.CeFilter) ? null : row.CeFilter;
         var result = await _reader.GetCeRowCountAsync(row.DestinationSchema, filter, ct);
+        if (_disposed) return;
         if (result.IsSuccess)
         {
             // Set the cap/snapshot flags first so the count label/verdict never renders an uncapped-looking
@@ -706,6 +714,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         }
 
         var response = await _odata.SendAsync("GET", DualWriteMapParser.FoCountPath(row.FoEntity, filter), null, ct);
+        if (_disposed) return;
         if (!response.IsSuccess)
         {
             row.FoStatus = $"{response.StatusCode} {response.ReasonPhrase}";

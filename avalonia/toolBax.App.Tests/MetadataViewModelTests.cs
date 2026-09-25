@@ -72,6 +72,25 @@ public class MetadataViewModelTests
 
     // Records the forceRefresh flag of every load, so Refresh can be shown to bypass the caches rather
     // than just re-reading them.
+    private sealed class CancellationObservingRefreshMetadata : IMetadataService
+    {
+        private static readonly EntitySet[] Entities = { new("Alpha", "M", 1, "k", false, "odata") };
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public CancellationToken ReceivedToken { get; private set; }
+        public void Invalidate() { }
+        public IReadOnlyList<EntitySet> GetEntities() => Entities;
+        public IReadOnlyList<EntityField>? GetFields(string entityName) => null;
+        public Task LoadEntitiesAsync(CancellationToken ct = default) => Task.CompletedTask;
+        public Task<bool> LoadFieldsAsync(string entityName, CancellationToken ct = default) => Task.FromResult(false);
+        public async Task LoadEntitiesAsync(bool forceRefresh, CancellationToken ct = default)
+        {
+            ReceivedToken = ct;
+            Entered.TrySetResult();
+            await Release.Task.WaitAsync(ct);
+        }
+    }
+
     private sealed class RecordingMetadata : IMetadataService
     {
         public void Invalidate() { }
@@ -198,6 +217,22 @@ public class MetadataViewModelTests
 
         Assert.Contains("unreachable", vm.LoadError);
         Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task Dispose_cancels_an_inflight_refresh_token()
+    {
+        var metadata = new CancellationObservingRefreshMetadata();
+        var vm = new MetadataViewModel(metadata);
+
+        var refresh = vm.RefreshCommand.ExecuteAsync(null);
+        await metadata.Entered.Task;
+        vm.Dispose();
+        Assert.True(metadata.ReceivedToken.IsCancellationRequested);
+        metadata.Release.TrySetResult();
+        await refresh;
+
+        Assert.False(vm.RefreshCommand.CanExecute(null));
     }
 
     // Holds a field fetch open so the in-flight state is observable. The real service is a live $metadata

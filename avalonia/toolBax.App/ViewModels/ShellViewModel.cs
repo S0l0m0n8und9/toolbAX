@@ -291,9 +291,8 @@ public partial class ShellViewModel : ObservableObject
     // active"). Profile rename/delete update ActiveEnvironment directly and intentionally bypass this —
     // they aren't switches, so they must not raise this prompt (rename must not discard open tool state
     // at all; deletion refreshes unconditionally — see the ProfileDeleted handler). The switch is
-    // all-or-nothing: it moves the shell AND persists the choice, or it moves neither and reports why.
-    // Only once it has committed is refreshing the open tools (which discards their unsaved input)
-    // offered, gated behind a confirm prompt.
+    // all-or-nothing: before changing either shell or persistence it confirms discarding open data-tool
+    // state; only an accepted confirmation and successful ActiveId write commit the switch and invalidate.
     private async Task<string?> ApplyActiveEnvironmentSwitchAsync(EnvProfile? target)
     {
         if (target is null)
