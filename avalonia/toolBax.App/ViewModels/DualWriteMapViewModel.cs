@@ -165,12 +165,13 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var identity = EnvironmentIdentity.TryCreate(_activeEnv());
+        var generation = Volatile.Read(ref _generation);
         try
         {
-            await LoadSolutionsAsync(ct);
-            if (_disposed) return;
+            if (!await LoadSolutionsAsync(ct) || ct.IsCancellationRequested || !CanCommit(identity, generation)) return;
             await LoadFoEntityNamesAsync(ct);
-            if (_disposed) return;
+            if (ct.IsCancellationRequested || !CanCommit(identity, generation)) return;
             await LoadMapsAsync(ct);
         }
         catch (OperationCanceledException)
@@ -180,7 +181,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            if (!_disposed)
+            if (!ct.IsCancellationRequested && CanCommit(identity, generation))
             {
                 LoadError = $"Couldn't load the dual-write catalogue: {ex.Message}";
             }
@@ -191,6 +192,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     {
         if (_disposed) return;
         var generation = Volatile.Read(ref _generation);
+        var identity = EnvironmentIdentity.TryCreate(_activeEnv());
         // Best-effort: the F&O entity catalogue only sharpens the auto-guessed count entity. If it can't
         // be loaded (e.g. no F&O auth while Dataverse works), the Row counts tab still works with the
         // simple fallback guess + manual edit, so a failure here is non-fatal.
@@ -203,7 +205,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
             // keep whatever entity names are already cached
         }
 
-        if (_disposed || generation != Volatile.Read(ref _generation)) return;
+        if (ct.IsCancellationRequested || !CanCommit(identity, generation)) return;
         _foEntityNames = _metadata.GetEntities().Select(e => e.Name).ToList();
     }
 
@@ -214,11 +216,12 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     {
         if (_disposed) return;
         var retryGeneration = Volatile.Read(ref _generation);
+        var identity = EnvironmentIdentity.TryCreate(_activeEnv());
         if (!string.IsNullOrEmpty(SolutionWarning))
         {
             try
             {
-                await LoadSolutionsAsync(ct);
+                if (!await LoadSolutionsAsync(ct)) return;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -226,13 +229,12 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
             }
             catch (Exception ex)
             {
-                if (_disposed || ct.IsCancellationRequested
-                    || retryGeneration != Volatile.Read(ref _generation)) return;
+                if (ct.IsCancellationRequested || !CanCommit(identity, retryGeneration)) return;
                 SolutionWarning = $"Couldn't load solutions: {ex.Message}";
             }
-            if (_disposed || ct.IsCancellationRequested
-                || retryGeneration != Volatile.Read(ref _generation)) return;
+            if (ct.IsCancellationRequested || !CanCommit(identity, retryGeneration)) return;
         }
+        if (ct.IsCancellationRequested || !CanCommit(identity, retryGeneration)) return;
         await LoadMapsAsync(ct);
     }
 
@@ -332,14 +334,21 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         }
     }
 
-    private async Task LoadSolutionsAsync(CancellationToken ct)
+    private async Task<bool> LoadSolutionsAsync(CancellationToken ct)
     {
-        if (_disposed) return;
+        if (_disposed || ct.IsCancellationRequested) return false;
         var generation = Volatile.Read(ref _generation);
+        var identity = EnvironmentIdentity.TryCreate(_activeEnv());
         var publisherId = SelectedPublisher?.UniqueName;
         var solutionId = SelectedSolution?.UniqueName;
-        var result = await _reader.GetSolutionsAsync(ct);
-        if (_disposed || ct.IsCancellationRequested || generation != Volatile.Read(ref _generation)) return;
+        DwSolutionLoadResult result;
+        try { result = await _reader.GetSolutionsAsync(ct); }
+        catch (Exception ex)
+        {
+            if (ct.IsCancellationRequested || !CanCommit(identity, generation)) return false;
+            result = DwSolutionLoadResult.Fail($"Couldn't load solutions: {ex.Message}");
+        }
+        if (ct.IsCancellationRequested || !CanCommit(identity, generation)) return false;
         // A solutions failure shouldn't block the maps; just leave the picker with only "All".
         _allSolutions = result.IsSuccess ? result.Solutions.ToList() : new List<DwSolution>();
         SolutionWarning = result.IsSuccess ? string.Empty : result.Error ?? "Couldn't load solutions.";
@@ -350,6 +359,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         RebuildSolutions();
         SelectedSolution = Solutions.FirstOrDefault(s => s.UniqueName == solutionId) ?? Solutions.FirstOrDefault();
         _suppressReload = false;
+        return true;
     }
 
     private async Task LoadMapsAsync(CancellationToken ct)

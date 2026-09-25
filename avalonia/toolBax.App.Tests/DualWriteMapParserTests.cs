@@ -419,4 +419,51 @@ public class DualWriteMapParserTests
         Assert.Null(DualWriteMapParser.ParseTotalRecordCount("not json", "account"));
         Assert.Null(DualWriteMapParser.ParseTotalRecordCount(null, "account"));
     }
-}
+    private static ToolBax.Core.Models.DwMapRecord StructuralRecord(string mapping) => Assert.Single(DualWriteMapParser.ParsePage(
+        System.Text.Json.JsonSerializer.Serialize(new { value = new[] { new { msdyn_name = "Header", msdyn_mapping = mapping, msdyn_properties = "{\"healthy\":true}" } } })).Records);
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("{}")]
+    [InlineData("{\"legs\":{}}")]
+    [InlineData("{\"legs\":null}")]
+    [InlineData("{\"legs\":[1]}")]
+    [InlineData("{\"legs\":[{\"fieldMappings\":{}}]}")]
+    [InlineData("{\"legs\":[{\"fieldMappings\":[false]}]}")]
+    [InlineData("{\"legs\":[{\"fieldMappings\":[{\"valueTransforms\":{}}]}]}")]
+    [InlineData("{\"legs\":[{\"fieldMappings\":[{\"valueTransforms\":[7]}]}]}")]
+    public void Structural_mapping_shape_warns_without_losing_the_row(string mapping)
+    {
+        var record = StructuralRecord(mapping);
+        Assert.True(record.HasIncompleteDetails);
+        Assert.Equal("Header", record.Title);
+        Assert.Equal(mapping, record.RawMapping);
+        Assert.Contains(record.Properties, p => p.Key == "healthy");
+        Assert.All(record.DetailWarnings, warning => Assert.Contains("msdyn_mapping", warning));
+    }
+    [Theory]
+    [InlineData("{\"legs\":[]}")]
+    [InlineData("{\"legs\":[{}]}")]
+    [InlineData("{\"legs\":[{\"fieldMappings\":[]}]}")]
+    [InlineData("{\"legs\":[{\"fieldMappings\":[{}]}]}")]
+    [InlineData("{\"legs\":[{\"fieldMappings\":[{\"valueTransforms\":[]}]}]}")]
+    public void Structural_mapping_empty_and_sparse_controls_remain_valid(string mapping)
+        => Assert.False(StructuralRecord(mapping).HasIncompleteDetails);
+
+    [Fact]
+    public void Structural_mapping_mixed_members_preserve_valid_portions_and_bound_warnings()
+    {
+        var badMembers = string.Join(",", Enumerable.Repeat("false", 1000));
+        var mapping = "{\"legs\":[" + badMembers + ",{\"id\":\"leg\",\"fieldMappings\":[" + badMembers + ",{\"sourceField\":\"Valid\",\"valueTransforms\":[" + badMembers + ",{\"transformType\":\"Copy\"}]}]}]}";
+        var record = StructuralRecord(mapping);
+        Assert.Single(record.Legs);
+        Assert.Equal("Valid", Assert.Single(record.Fields).SourceField);
+        Assert.Equal("Copy", Assert.Single(record.ValueTransforms).TransformType);
+        Assert.Equal(3, record.DetailWarnings.Count);
+        Assert.Equal(3, record.DetailWarnings.Distinct().Count());
+    }    [Theory]
+    [InlineData("true")]
+    [InlineData("42")]
+    [InlineData("\"scalar\"")]
+    public void Structural_mapping_primitive_json_root_is_incomplete(string mapping)
+        => Assert.Contains(StructuralRecord(mapping).DetailWarnings, warning => warning.Contains("root is not an object"));}
