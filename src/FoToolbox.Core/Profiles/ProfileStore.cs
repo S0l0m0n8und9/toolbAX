@@ -25,6 +25,46 @@ public sealed class ProfileStore
 
     public string ConnectionString => _connectionString;
 
+    /// <summary>
+    /// Runs typed profile/vault operations on one offloaded SQLite write transaction. The callback must
+    /// contain synchronous database operations and pure preparation only; no network or async waits.
+    /// </summary>
+    public Task<T> RunProfileMutationAsync<T>(
+        Func<ProfileMutationSession, T> mutation,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mutation);
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            cancellationToken.ThrowIfCancellationRequested();
+            using var transaction = connection.BeginTransaction(deferred: false);
+            var session = new ProfileMutationSession(connection, transaction, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            var committed = false;
+            try
+            {
+                var result = mutation(session);
+                cancellationToken.ThrowIfCancellationRequested();
+                transaction.Commit();
+                committed = true;
+                return result;
+            }
+            finally
+            {
+                session.EndScope();
+                if (!committed)
+                {
+                    try { transaction.Rollback(); }
+                    catch (InvalidOperationException) { /* Transaction already settled while unwinding. */ }
+                }
+            }
+        }, CancellationToken.None);
+    }
+
     /// <summary>Current schema version. Increment when adding a new migration.</summary>
     internal const int LatestSchemaVersion = 1;
 
