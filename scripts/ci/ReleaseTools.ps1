@@ -91,3 +91,21 @@ function Assert-SmokeReport {
         [string]::IsNullOrWhiteSpace($o['webView2']['version'])) { throw 'WebView2 loader/runtime capability unavailable.' }
     return $report
 }
+
+function Assert-ReleaseSourceEligibility {
+    param([string[]]$Paths)
+    $required = @(
+        '.github/workflows/ci.yml',
+        'scripts/ci/ReleaseTools.ps1', 'scripts/ci/Test-ReleaseTools.ps1',
+        'scripts/ci/Assert-PackageAudit.ps1', 'scripts/ci/Build-SmokePackage.ps1',
+        'scripts/ci/Invoke-PackageSmoke.ps1', 'scripts/ci/Resolve-ReleaseTag.ps1',
+        'avalonia/toolBax.App/StartupSmoke.cs', 'avalonia/toolBax.App/Program.cs',
+        'avalonia/toolBax.App/App.axaml.cs'
+    )
+    $missing = @($required | Where-Object { $Paths -cnotcontains $_ })
+    if ($missing.Count -gt 0) {
+        throw ('Selected tag predates or lacks the required release verification contract: ' +
+            ($missing -join ', ') + '. Select a tag whose source includes the CI helpers and startup smoke entry point. ' +
+            'Historical tags/releases are unchanged; this workflow cannot retroactively verify them or inject newer app code.')
+    }
+}

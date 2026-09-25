@@ -7,6 +7,9 @@ if ($LASTEXITCODE -ne 0 -or @($sha).Count -ne 1) { throw 'The validated tag does
 $sha = $sha.Trim().ToLowerInvariant()
 Assert-BuildInputs $sha $version.PackageVersion $version.FileVersion
 if ($ExpectedSha -and $sha -cne $ExpectedSha) { throw 'The tag no longer points at the verified source SHA.' }
+$sourceFiles = & git -C $RepositoryRoot ls-tree -r --name-only $sha 2>$null
+if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect the selected immutable source for release eligibility.' }
+Assert-ReleaseSourceEligibility $sourceFiles
 if ($env:GITHUB_OUTPUT) {
     @("source_sha=$sha", "package_version=$($version.PackageVersion)", "file_version=$($version.FileVersion)", "tag=$Tag", "is_prerelease=$($version.IsPrerelease.ToString().ToLowerInvariant())") |
         Add-Content -LiteralPath $env:GITHUB_OUTPUT -Encoding utf8

@@ -37,6 +37,24 @@ foreach ($tag in @('1.2.3', 'vv1.2.3', 'v01.2.3', 'v1.2', 'v1.2.3-01', 'v70000.2
 Check 'immutable build input accepts matching versions' { Assert-BuildInputs ('a' * 40) '1.2.3-beta+build' '1.2.3.0' }
 Check 'mutable source ref is rejected' { Reject { Assert-BuildInputs 'main' '1.2.3' '1.2.3.0' } }
 Check 'mismatched numeric version is rejected' { Reject { Assert-BuildInputs ('a' * 40) '1.2.3' '4.5.6.0' } }
+$eligibleFiles = @(
+    '.github/workflows/ci.yml',
+    'scripts/ci/ReleaseTools.ps1', 'scripts/ci/Test-ReleaseTools.ps1',
+    'scripts/ci/Assert-PackageAudit.ps1', 'scripts/ci/Build-SmokePackage.ps1',
+    'scripts/ci/Invoke-PackageSmoke.ps1', 'scripts/ci/Resolve-ReleaseTag.ps1',
+    'avalonia/toolBax.App/StartupSmoke.cs', 'avalonia/toolBax.App/Program.cs',
+    'avalonia/toolBax.App/App.axaml.cs'
+)
+Check 'complete release verification contract eligible' { Assert-ReleaseSourceEligibility $eligibleFiles }
+foreach ($missing in $eligibleFiles) {
+    Check "release source missing $missing rejected" {
+        Reject { Assert-ReleaseSourceEligibility @($eligibleFiles | Where-Object { $_ -cne $missing }) }
+    }
+}
+Check 'empty source is not eligible' { Reject { Assert-ReleaseSourceEligibility @() } }
+Check 'wrong-case source paths do not satisfy release contract' {
+    Reject { Assert-ReleaseSourceEligibility @($eligibleFiles | ForEach-Object { $_.ToUpperInvariant() }) }
+}
 $clean = '{"version":1,"parameters":"--vulnerable --include-transitive","sources":["https://api.nuget.org/v3/index.json"],"projects":[{"path":"App.csproj","frameworks":[{"framework":"net10.0"}]}]}'
 Check 'completed clean audit accepted' { Assert-PackageAuditJson $clean 0 }
 $pathOnly = '{"version":1,"parameters":"--vulnerable --include-transitive","sources":["https://api.nuget.org/v3/index.json"],"projects":[{"path":"App.csproj"}]}'

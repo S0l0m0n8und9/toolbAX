@@ -7,4 +7,4 @@ $errorsPath = "$OutputPath.stderr"
 $code = $LASTEXITCODE
 if ((Get-Item -LiteralPath $errorsPath).Length -gt 0) { throw "Package audit wrote diagnostics; see $errorsPath." }
 Assert-PackageAuditJson (Get-Content -LiteralPath $OutputPath -Raw) $code
-Write-Output 'Shipping dependency audit completed with no reported vulnerabilities.'
+Write-Output 'Dependency audit completed with no reported vulnerabilities.'

@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: Existing vMAJOR.MINOR.PATCH tag (optional prerelease/build metadata)
+        description: Existing vMAJOR.MINOR.PATCH tag containing CI helpers and startup smoke (historical tags unsupported)
         required: true
         type: string
 
