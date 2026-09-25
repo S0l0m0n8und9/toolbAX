@@ -9,7 +9,7 @@ public sealed record DualWriteSignInResult(DualWriteToken Token, string GatewayB
 /// Pure state machine driven by an embedded browser during interactive sign-in. The browser
 /// feeds it (a) the body of every Entra token-endpoint response and (b) the URL of every
 /// request; this captures the delegated token from the token body and the regional gateway
-/// host from the first <c>projectmanagementservice</c> URL it sees. UI-free so it is fully
+/// host from trusted <c>projectmanagementservice</c> traffic. UI-free so it is fully
 /// unit-testable; the WebView2 window is a thin adapter over it.
 /// </summary>
 public sealed class DualWriteSignInCapture
@@ -74,37 +74,29 @@ public sealed class DualWriteSignInCapture
             return false;
         }
 
-        // Anchor the match so the delegated token can only be pinned to an https host whose HOST LABEL
-        // carries the gateway marker — not any URL that merely contains the marker in its path/query
-        // (e.g. https://attacker.example/projectmanagementservice/DualWriteManagement). Require https so
-        // the bearer is never pinned to a cleartext host.
-        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-            uri.Host.IndexOf(DualWriteAuthConstants.GatewayHostMarker, StringComparison.OrdinalIgnoreCase) < 0)
+        if (!DualWriteEndpointPolicy.TryGetGatewayOrigin(uri, out var gatewayOrigin))
         {
             return false;
         }
 
-        var host = $"{uri.Scheme}://{uri.Host}";
-
         // Only the host serving the DualWriteManagement API (marker in the request PATH) is the
         // environment's real regional gateway. The first bare projectmanagementservice host may be a
         // global/routing endpoint that returns an empty environment list, so keep it only as a fallback.
-        if (uri.AbsolutePath.IndexOf(DualWriteAuthConstants.GatewayApiMarker, StringComparison.OrdinalIgnoreCase) >= 0)
+        if (DualWriteEndpointPolicy.IsGatewayApiRequest(uri))
         {
-            GatewayBaseUrl = host;
+            GatewayBaseUrl = gatewayOrigin.AbsoluteUri;
             return true;
         }
 
-        _fallbackGatewayBaseUrl ??= host;
+        _fallbackGatewayBaseUrl ??= gatewayOrigin.AbsoluteUri;
         return false;
     }
 
     /// <summary>True if the URL is an Entra token endpoint (whose body should be observed).</summary>
     public static bool IsTokenEndpoint(string? url) =>
         !string.IsNullOrWhiteSpace(url) &&
-        url!.IndexOf("/oauth2/v2.0/token", StringComparison.OrdinalIgnoreCase) >= 0 &&
-        (url.IndexOf("login.microsoftonline.com", StringComparison.OrdinalIgnoreCase) >= 0 ||
-         url.IndexOf("login.microsoft.com", StringComparison.OrdinalIgnoreCase) >= 0);
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+        DualWriteEndpointPolicy.IsTokenEndpoint(uri);
 
     /// <summary>The captured result, or null if not yet complete.</summary>
     public DualWriteSignInResult? Result =>

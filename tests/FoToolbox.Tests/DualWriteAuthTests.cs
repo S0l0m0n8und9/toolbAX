@@ -122,6 +122,9 @@ public class DualWriteRefreshTokenProviderTests
 
 public class RefreshingBearerTokenHandlerTests
 {
+    private static readonly Uri GatewayOrigin =
+        new("https://projectmanagementservice.weu.gateway.prod.island.powerapps.com/");
+
     private sealed class StubInner : HttpMessageHandler
     {
         public AuthenticationHeaderValue? LastAuth { get; private set; }
@@ -156,13 +159,13 @@ public class RefreshingBearerTokenHandlerTests
         var refresher = new DualWriteRefreshTokenProvider(new HttpClient(new TokenEndpointHandler())) { Clock = () => now };
         DualWriteToken? persisted = null;
         var inner = new StubInner();
-        var handler = new RefreshingBearerTokenHandler(expired, refresher, t => { persisted = t; return Task.CompletedTask; }, () => now)
+        var handler = new RefreshingBearerTokenHandler(expired, refresher, GatewayOrigin, t => { persisted = t; return Task.CompletedTask; }, () => now)
         {
             InnerHandler = inner
         };
 
         var response = await new HttpMessageInvoker(handler).SendAsync(
-            new HttpRequestMessage(HttpMethod.Get, "https://gw.example/x"), CancellationToken.None);
+            new HttpRequestMessage(HttpMethod.Get, new Uri(GatewayOrigin, "x")), CancellationToken.None);
 
         Assert.Equal("fresh", inner.LastAuth!.Parameter);
         Assert.NotNull(persisted);
@@ -178,13 +181,13 @@ public class RefreshingBearerTokenHandlerTests
         var refresher = new DualWriteRefreshTokenProvider(new HttpClient(new TokenEndpointHandler())) { Clock = () => now };
         var persisted = false;
         var inner = new StubInner();
-        var handler = new RefreshingBearerTokenHandler(fresh, refresher, _ => { persisted = true; return Task.CompletedTask; }, () => now)
+        var handler = new RefreshingBearerTokenHandler(fresh, refresher, GatewayOrigin, _ => { persisted = true; return Task.CompletedTask; }, () => now)
         {
             InnerHandler = inner
         };
 
         await new HttpMessageInvoker(handler).SendAsync(
-            new HttpRequestMessage(HttpMethod.Get, "https://gw.example/x"), CancellationToken.None);
+            new HttpRequestMessage(HttpMethod.Get, new Uri(GatewayOrigin, "x")), CancellationToken.None);
 
         Assert.Equal("good", inner.LastAuth!.Parameter);
         Assert.False(persisted);
@@ -237,13 +240,13 @@ public class RefreshingBearerTokenHandlerTests
         var refresher = new DualWriteRefreshTokenProvider(new HttpClient(tokenEndpoint)) { Clock = () => now };
         DualWriteToken? persisted = null;
         var inner = new UnauthorizedThenOkHandler(unauthorizedCount: 1);
-        var handler = new RefreshingBearerTokenHandler(live, refresher, t => { persisted = t; return Task.CompletedTask; }, () => now)
+        var handler = new RefreshingBearerTokenHandler(live, refresher, GatewayOrigin, t => { persisted = t; return Task.CompletedTask; }, () => now)
         {
             InnerHandler = inner
         };
 
         var response = await new HttpMessageInvoker(handler).SendAsync(
-            new HttpRequestMessage(HttpMethod.Post, "https://gw.example/x") { Content = new StringContent("{}") },
+            new HttpRequestMessage(HttpMethod.Post, new Uri(GatewayOrigin, "x")) { Content = new StringContent("{}") },
             CancellationToken.None);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -261,13 +264,13 @@ public class RefreshingBearerTokenHandlerTests
         var tokenEndpoint = new CountingTokenEndpointHandler();
         var refresher = new DualWriteRefreshTokenProvider(new HttpClient(tokenEndpoint)) { Clock = () => now };
         var inner = new UnauthorizedThenOkHandler(unauthorizedCount: int.MaxValue);
-        var handler = new RefreshingBearerTokenHandler(live, refresher, null, () => now)
+        var handler = new RefreshingBearerTokenHandler(live, refresher, GatewayOrigin, null, () => now)
         {
             InnerHandler = inner
         };
 
         var response = await new HttpMessageInvoker(handler).SendAsync(
-            new HttpRequestMessage(HttpMethod.Get, "https://gw.example/x"), CancellationToken.None);
+            new HttpRequestMessage(HttpMethod.Get, new Uri(GatewayOrigin, "x")), CancellationToken.None);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);   // surfaced, not swallowed
         Assert.Equal(2, inner.Sends);                                      // one retry only
@@ -283,13 +286,13 @@ public class RefreshingBearerTokenHandlerTests
         var tokenEndpoint = new CountingTokenEndpointHandler();
         var refresher = new DualWriteRefreshTokenProvider(new HttpClient(tokenEndpoint)) { Clock = () => now };
         var inner = new UnauthorizedThenOkHandler(unauthorizedCount: 1);
-        var handler = new RefreshingBearerTokenHandler(pasted, refresher, null, () => now)
+        var handler = new RefreshingBearerTokenHandler(pasted, refresher, GatewayOrigin, null, () => now)
         {
             InnerHandler = inner
         };
 
         var response = await new HttpMessageInvoker(handler).SendAsync(
-            new HttpRequestMessage(HttpMethod.Get, "https://gw.example/x"), CancellationToken.None);
+            new HttpRequestMessage(HttpMethod.Get, new Uri(GatewayOrigin, "x")), CancellationToken.None);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal(1, inner.Sends);       // nothing to refresh with, so nothing to retry
@@ -305,7 +308,7 @@ public class RefreshingBearerTokenHandlerTests
         var refresher = new DualWriteRefreshTokenProvider(
             new HttpClient(new FailingTokenEndpointHandler())) { Clock = () => now };
         var inner = new UnauthorizedThenOkHandler(unauthorizedCount: 1);
-        var handler = new RefreshingBearerTokenHandler(live, refresher, null, () => now)
+        var handler = new RefreshingBearerTokenHandler(live, refresher, GatewayOrigin, null, () => now)
         {
             InnerHandler = inner
         };
@@ -313,7 +316,7 @@ public class RefreshingBearerTokenHandlerTests
         // A refresh failure must not replace the gateway's own 401 with an auth exception from a retry the
         // caller never asked for — the gateway client turns the 401 into its usual message.
         var response = await new HttpMessageInvoker(handler).SendAsync(
-            new HttpRequestMessage(HttpMethod.Get, "https://gw.example/x"), CancellationToken.None);
+            new HttpRequestMessage(HttpMethod.Get, new Uri(GatewayOrigin, "x")), CancellationToken.None);
 
         Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
         Assert.Equal(1, inner.Sends);
@@ -348,7 +351,7 @@ public class DualWriteSignInCaptureTests
 
         var result = capture.Result!;
         Assert.Equal("abc", result.Token.AccessToken);
-        Assert.Equal("https://projectmanagementservice.weu-il107.gateway.prod.island.powerapps.com", result.GatewayBaseUrl);
+        Assert.Equal("https://projectmanagementservice.weu-il107.gateway.prod.island.powerapps.com/", result.GatewayBaseUrl);
     }
 
     [Trait("Category", "DualWrite")]
