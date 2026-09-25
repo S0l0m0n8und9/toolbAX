@@ -99,6 +99,21 @@ public class CoreDualWriteMapReaderTests
     }
 
     [Fact]
+    public async Task A_malformed_later_page_discards_prior_page_rows()
+    {
+        const string page1 = """
+        { "@odata.nextLink": "https://x/api/data/v9.2/page2", "value": [ { "msdyn_dualwriteentitymapid": "a", "msdyn_name": "alpha" } ] }
+        """;
+        var reader = new CoreDualWriteMapReader(new FakeDataverseClient(Ok(page1), Ok("{}")));
+
+        var result = await reader.GetMapsAsync(ct: TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(result.Maps);
+        Assert.Contains("value", result.Error);
+    }
+
+    [Fact]
     public async Task GetSolutions_queries_the_solutions_entity_set()
     {
         const string solutions = """

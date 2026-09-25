@@ -78,11 +78,11 @@ public class DualWriteSolutionParserTests
     }
 
     [Fact]
-    public void ParseSolutionPage_tolerates_garbage()
+    public void ParseSolutionPage_rejects_garbage()
     {
-        Assert.Empty(DualWriteMapParser.ParseSolutionPage(null).Solutions);
-        Assert.Empty(DualWriteMapParser.ParseSolutionPage("nonsense").Solutions);
-        Assert.Null(DualWriteMapParser.ParseSolutionPage("{}").NextLink);
+        Assert.Throws<MetadataResponseFormatException>(() => DualWriteMapParser.ParseSolutionPage(null));
+        Assert.Throws<MetadataResponseFormatException>(() => DualWriteMapParser.ParseSolutionPage("nonsense"));
+        Assert.Throws<MetadataResponseFormatException>(() => DualWriteMapParser.ParseSolutionPage("{}"));
     }
 
     [Fact]

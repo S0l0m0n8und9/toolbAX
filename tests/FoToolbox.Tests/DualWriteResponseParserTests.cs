@@ -14,6 +14,20 @@ namespace FoToolbox.Tests;
 /// </summary>
 public class DualWriteResponseParserTests
 {
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"value\":{}}")]
+    [InlineData("{\"value\":[{},3]}")]
+    public void Map_collection_structural_errors_are_explicit(string json) =>
+        Assert.Throws<DualWriteGatewayResponseException>(() => DualWriteResponseParser.ParseMaps(json));
+
+    [Theory]
+    [InlineData("[]")]
+    [InlineData("{\"value\":[]}")]
+    [InlineData("{\"entities\":[]}")]
+    [InlineData("{\"items\":[]}")]
+    public void Supported_empty_map_collection_shapes_are_success(string json) =>
+        Assert.Empty(DualWriteResponseParser.ParseMaps(json));
     // Trimmed from a live response. Two maps share the same leftEntity ("Customers V3")
     // but target different CE tables (accounts, contacts) — so the map identity must be the
     // composite name, not the F&O entity alone.

@@ -1084,6 +1084,32 @@ public class DualWriteMapViewModelTests
             Task.FromResult(DwCountResult.Ok(0));
     }
 
+    private sealed class SolutionWarningReader : IDualWriteMapReader
+    {
+        private static readonly DwMapRecord Incomplete = DualWriteMapParser.ParsePage(
+            "{\"value\":[{\"msdyn_name\":\"Map\",\"msdyn_mapping\":\"{bad\"}]}").Records.Single();
+        public Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default) =>
+            Task.FromResult(DwMapLoadResult.Ok(new[] { Incomplete }));
+        public Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default) =>
+            Task.FromResult(DwSolutionLoadResult.Fail("Solutions response had no array at value."));
+        public Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default) =>
+            Task.FromResult(DwCountResult.Ok(0));
+    }
+
+    [Fact]
+    public async Task Solution_failure_and_incomplete_map_details_have_independent_warnings()
+    {
+        var vm = MakeVm(new SolutionWarningReader());
+
+        await vm.InitializeCommand.ExecuteAsync(null);
+
+        Assert.Single(vm.Maps);
+        Assert.Empty(vm.LoadError);
+        Assert.Contains("Solutions", vm.SolutionWarning);
+        Assert.Equal(1, vm.IncompleteDetailsCount);
+        Assert.Contains("msdyn_mapping", vm.SelectedDetailsWarning);
+    }
+
     private sealed class ThrowingClipboard : IClipboardService
     {
         public Task SetTextAsync(string text) => throw new InvalidOperationException("clipboard is busy");

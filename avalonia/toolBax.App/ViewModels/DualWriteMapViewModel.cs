@@ -103,6 +103,13 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     [NotifyPropertyChangedFor(nameof(ShowSelectPrompt))]
     private string _loadError = string.Empty;
 
+    [ObservableProperty]
+    private string _solutionWarning = string.Empty;
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasIncompleteDetails))]
+    private int _incompleteDetailsCount;
+
     public DualWriteMapViewModel(IDualWriteMapReader reader, IFileSaveService? fileSave = null,
         IODataClient? odata = null, IMetadataService? metadata = null,
         Func<EnvProfile?>? activeEnv = null, IClipboardService? clipboard = null, IUrlLauncher? launcher = null)
@@ -133,6 +140,12 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     public bool HasMaps => Maps.Count > 0;
 
     public bool HasLoadError => !string.IsNullOrEmpty(LoadError);
+
+    public bool HasIncompleteDetails => IncompleteDetailsCount > 0;
+
+    public string SelectedDetailsWarning => DetailMap is { HasIncompleteDetails: true }
+        ? string.Join(" ", DetailMap.DetailWarnings)
+        : string.Empty;
 
     public bool HasSelection => DetailMap is not null;
 
@@ -307,6 +320,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         if (_disposed || generation != Volatile.Read(ref _generation)) return;
         // A solutions failure shouldn't block the maps; just leave the picker with only "All".
         _allSolutions = result.IsSuccess ? result.Solutions.ToList() : new List<DwSolution>();
+        SolutionWarning = result.IsSuccess ? string.Empty : result.Error ?? "Couldn't load solutions.";
 
         _suppressReload = true;
         RebuildPublishers();
@@ -359,6 +373,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
                 }
 
                 LoadError = string.Empty;
+                IncompleteDetailsCount = result.Maps.Count(m => m.HasIncompleteDetails);
                 _loaded = true;
                 // Stamp what these maps belong to — the environment captured before the read, not whatever
                 // is active now (a failed load keeps the previous stamp along with the stale-but-useful
@@ -504,6 +519,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         }
         // A stale "Exported to …" message shouldn't linger once a different map is inspected.
         ExportStatus = string.Empty;
+        OnPropertyChanged(nameof(SelectedDetailsWarning));
 
         // Stop any in-flight count before mutating the collection it iterates, then rebuild the
         // (un-counted) row-count rows for the newly inspected map.

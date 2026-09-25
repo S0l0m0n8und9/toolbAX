@@ -13,6 +13,33 @@ namespace ToolBax.App.Tests;
 /// </summary>
 public class DualWriteMapParserTests
 {
+    [Theory]
+    [InlineData("")]
+    [InlineData("not-json")]
+    [InlineData("{}")]
+    [InlineData("{\"value\":{}}")]
+    [InlineData("{\"value\":[{},7]}")]
+    [InlineData("{\"value\":[],\"@odata.nextLink\":7}")]
+    public void Malformed_collection_is_not_a_valid_empty_page(string json) =>
+        Assert.Throws<MetadataResponseFormatException>(() => DualWriteMapParser.ParsePage(json));
+
+    [Fact]
+    public void Valid_empty_collection_is_success() =>
+        Assert.Empty(DualWriteMapParser.ParsePage("{\"value\":[]}").Records);
+
+    [Fact]
+    public void Invalid_embedded_json_preserves_header_raw_and_warns_while_parsing_healthy_counterpart()
+    {
+        var page = DualWriteMapParser.ParsePage("""
+            {"value":[{"msdyn_name":"Map","msdyn_mapping":"{bad","msdyn_properties":"{\"Healthy\":true}"}]}
+            """);
+        var record = Assert.Single(page.Records);
+        Assert.Equal("Map", record.Title);
+        Assert.Equal("{bad", record.RawMapping);
+        Assert.True(record.HasIncompleteDetails);
+        Assert.Contains(record.DetailWarnings, warning => warning.Contains("msdyn_mapping"));
+        Assert.Contains(record.Properties, property => property.Key == "Healthy");
+    }
     // A representative single-record response with formatted values + a two-leg-ish mapping document.
     private const string SampleResponse = """
     {
@@ -293,11 +320,11 @@ public class DualWriteMapParserTests
     }
 
     [Fact]
-    public void ParsePage_tolerates_empty_or_null_input()
+    public void ParsePage_rejects_empty_or_malformed_input()
     {
-        Assert.Empty(DualWriteMapParser.ParsePage(null).Records);
-        Assert.Empty(DualWriteMapParser.ParsePage("").Records);
-        Assert.Empty(DualWriteMapParser.ParsePage("not json at all").Records);
+        Assert.Throws<MetadataResponseFormatException>(() => DualWriteMapParser.ParsePage(null));
+        Assert.Throws<MetadataResponseFormatException>(() => DualWriteMapParser.ParsePage(""));
+        Assert.Throws<MetadataResponseFormatException>(() => DualWriteMapParser.ParsePage("not json at all"));
     }
 
     // --- #210: the RetrieveTotalRecordCount upgrade for a capped, unfiltered CE count ---

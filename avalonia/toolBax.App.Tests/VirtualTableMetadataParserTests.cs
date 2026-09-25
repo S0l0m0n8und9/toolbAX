@@ -7,6 +7,18 @@ namespace ToolBax.App.Tests;
 
 public class VirtualTableMetadataParserTests
 {
+    [Theory]
+    [InlineData("")]
+    [InlineData("not-json")]
+    [InlineData("{}")]
+    [InlineData("{\"value\":{}}")]
+    [InlineData("{\"value\":[{},false]}")]
+    public void Malformed_collection_is_not_a_valid_empty_result(string json) =>
+        Assert.Throws<MetadataResponseFormatException>(() => VirtualTableMetadataParser.Parse(json));
+
+    [Fact]
+    public void Valid_empty_collection_is_success() =>
+        Assert.Empty(VirtualTableMetadataParser.Parse("{\"value\":[]}"));
     private const string Sample = """
     {"value":[
       {"LogicalName":"mserp_custcustomerv3entity","DisplayName":{"UserLocalizedLabel":{"Label":"Customer V3"}},"ExternalName":"CustCustomerV3Entity","ExternalCollectionName":"mserp_custcustomerv3entities","DataProviderId":"11111111-1111-1111-1111-111111111111","DataSourceId":"22222222-2222-2222-2222-222222222222","IsManaged":true},
@@ -47,14 +59,9 @@ public class VirtualTableMetadataParserTests
         Assert.False(other.IsManaged);
     }
 
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("not json")]
-    [InlineData("{\"value\":[]}")]
-    [InlineData("{\"foo\":1}")]
-    public void Returns_empty_for_missing_or_malformed_input(string? json)
-        => Assert.Empty(VirtualTableMetadataParser.Parse(json));
+    [Fact]
+    public void Returns_empty_for_valid_empty_collection() =>
+        Assert.Empty(VirtualTableMetadataParser.Parse("{\"value\":[]}"));
 
     [Fact]
     public void A_virtual_table_with_only_an_external_name_is_still_included()

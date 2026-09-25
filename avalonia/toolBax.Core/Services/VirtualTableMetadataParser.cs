@@ -30,7 +30,7 @@ public static class VirtualTableMetadataParser
         var tables = new List<VirtualTableInfo>();
         if (string.IsNullOrWhiteSpace(json))
         {
-            return tables;
+            throw new MetadataResponseFormatException("virtual table metadata response was blank.");
         }
 
         JsonDocument doc;
@@ -40,7 +40,7 @@ public static class VirtualTableMetadataParser
         }
         catch (JsonException)
         {
-            return tables;
+            throw new MetadataResponseFormatException("virtual table metadata response was not valid JSON.");
         }
 
         using (doc)
@@ -49,14 +49,14 @@ public static class VirtualTableMetadataParser
                 || !doc.RootElement.TryGetProperty("value", out var value)
                 || value.ValueKind != JsonValueKind.Array)
             {
-                return tables;
+                throw new MetadataResponseFormatException("virtual table metadata response had no array at value.");
             }
 
             foreach (var item in value.EnumerateArray())
             {
                 if (item.ValueKind != JsonValueKind.Object)
                 {
-                    continue;
+                    throw new MetadataResponseFormatException("virtual table metadata value contained a non-object item.");
                 }
 
                 var logicalName = ReadString(item, "LogicalName");
