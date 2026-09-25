@@ -1,6 +1,6 @@
 # Compare result context (H06c proposal)
 
-## Status: implemented and focused-validated; parent review, full gates, PR and merge pending
+## Status: locally validated; PR, remote review and merge pending
 
 The accepted design is implemented in `DualWriteCompareViewModel` and its Compare view. Result rows carry immutable captured attribution and completion time; meaningful selection/store changes invalidate immediately with monotonic generation and owned cancellation; batched cosmetic refresh preserves valid results.
 
@@ -36,4 +36,4 @@ Keep matching/verdict/scope behavior and same-host eligibility. Do not change ga
 
 Use gated-service tests for clearing and late result/error rejection after source/target edits, A/B/A, same-ID store edits, deletion, disposal, cancellation, and rejected overlap. Prove unchanged refresh preserves results, invalid entry makes zero service calls and never falls back, and attached headless selectors/result attribution show the captured pair. No sleeps or live calls.
 
-The repaired complete baseline class executed 15 tests: 13 behavioral failures and 2 controls passed, with bounded cleanup and no orphaned tasks. Parent-review additions separately failed 3/3 for Toolkit token ownership and direct same/missing-host eligibility. The final focused Compare view-model/service/fake/render Release suite passes 60/60. Evidence is saved under ignored `artifacts/h06c/`; no live calls were used. Complete solution gates remain a parent step.
+The repaired complete baseline class executed 15 tests: 13 behavioral failures and 2 controls passed, with bounded cleanup and no orphaned tasks. Parent-review additions separately failed 3/3 for Toolkit token ownership and direct same/missing-host eligibility. The final focused Compare view-model/service/fake/render Release suite passes 60/60. At source `8d2b325f166c6c1b97ad7f2ec1766d2b601168e0`, both CI-strict Release builds completed with 0 warnings/errors; Windows App passed 1,233/1,233 and Core 432/432, with no failed or skipped tests. Evidence is saved under ignored `artifacts/h06c/`; no live calls were used. PR, remote review and merge remain pending.
