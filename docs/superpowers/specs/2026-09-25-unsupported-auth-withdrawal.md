@@ -1,6 +1,6 @@
 # Unsupported App authentication withdrawal
 
-Status: Implemented and focused-validated; parent review, latest-main integration, full gates, PR, and merge pending.
+Status: Implemented, reviewed and fully validated locally; PR, remote review and merge pending.
 
 ## Objective
 
@@ -57,4 +57,4 @@ When a loaded profile has legacy DI settings, unknown raw mode text, or a stored
 - README and current model comments describe the supported App surface without rewriting historical design archives.
 - Validation is deterministic and offline with headless Avalonia, temporary SQLite/vault data, injected profile/token seams, and `CI=true` Release tests. No live service, authentication, or sign-in is used.
 
-Focused validation passes 197/197 Release tests across Profiles view/model, active-pane headless rendering, Shell integration, real `CoreProfileStore` SQLite round trips, `CoreAuthService` snapshot guards, converters, and retained legacy labels. Behavioral RED artifacts and final focused logs/TRX are stored under ignored `artifacts/h07/`. Complete solution gates remain a parent step after integrating the latest main branch.
+Focused validation passes 197/197 Release tests across Profiles view/model, active-pane headless rendering, Shell integration, real `CoreProfileStore` SQLite round trips, `CoreAuthService` snapshot guards, converters, and retained legacy labels. Behavioral RED artifacts and final focused logs/TRX are stored under ignored `artifacts/h07/`. At source `b701702149f9bfac5937eb4a02bb9ec17b7c1379`, both CI-strict Release solution builds completed with 0 warnings/errors; App passed 1,170/1,170 and Core 403/403, with no failures or skips. The subsequent PR221 merge integration `9b191123bcac77c91ab6c3dbf0d3e34b24431352` is graph-only: `git diff b701702..HEAD` is empty, so the validated content is unchanged. H07's own PR, remote review and merge remain pending.
