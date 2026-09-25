@@ -37,7 +37,7 @@ Current H02 branch validation: both solutions build in Release with `CI=true`, 0
 | H10b | Add bounded retries for safe reads, including throttling-aware delay and cancellation. | Pending | Pending | Pending |
 | H10c | Detect paging cycles and report incomplete paging honestly. | Pending | Pending | Pending |
 | H11 | Bound export memory, expose truthful progress/cancellation, and verify large-data behaviour. | Pending | Pending | Pending |
-| H12 | Mark the profiler CLI experimental; document its current auth, output, scope, deterministic-test, and CI limitations without presenting it as a complete production profiler. | Pending | Pending | Pending |
+| H12 | Mark the profiler CLI experimental; document its current auth, output, scope, deterministic-test, and CI limitations without presenting it as a complete production profiler. | In progress | Local experimental-status preparation documents the capture-only output and offline fixture boundary; final merge/review evidence is pending. | Pending |
 | H13a | Make debug-write confirmation behaviour consistent across every write entry point. | Pending | Pending | Pending |
 | H13b | Make `If-Match` and concurrency behaviour truthful and visible to the caller. | Pending | Pending | Pending |
 | H14 | Redact record keys and business identifiers from logs. | Pending | Pending | Pending |

@@ -29,14 +29,16 @@ const argv = yargs
     type: 'string'
   })
   .option('skip-auth', {
-    describe: 'Skip authentication (testing only)',
+    describe: 'Write an offline fixture without authentication or live data verification',
     type: 'boolean',
     default: false
   })
+  .epilog('EXPERIMENTAL: emits capture metadata only. It does not inventory maps, analyse integration keys, or produce risk reports. --skip-auth is an offline fixture, not a connectivity check.')
   .help()
   .parseSync();
 
 async function main() {
+  console.error('EXPERIMENTAL: this CLI captures metadata only and is not a supported production profiler.');
   const config = validateConfig({
     envUrl: argv['env-url'],
     tenant: argv['tenant'],
@@ -53,10 +55,10 @@ async function main() {
     let envInfo: { name: string; version: string };
 
     if (argv['skip-auth']) {
-      // Skip authentication for testing/validation only
+      // An intentionally offline fixture: no authentication or environment/API capability is verified.
       envInfo = {
-        name: 'test-environment',
-        version: '1.0.0'
+        name: 'offline fixture',
+        version: 'not verified'
       };
     } else {
       envInfo = await authenticateAndFetchEnvironmentInfo(config);
@@ -68,12 +70,16 @@ async function main() {
       sourceEnvironmentUrl: config.envUrl
     };
 
-    console.log(`Connected to environment: ${envInfo.name}`);
-    console.log(`Dual-write API version: ${envInfo.version}`);
+    if (argv['skip-auth']) {
+      console.log('Offline fixture written: authentication and environment data were not verified.');
+    } else {
+      console.log(`Environment response name: ${envInfo.name}`);
+      console.log(`Reported version: ${envInfo.version} (server header or fallback; not a verified Dual-write API capability).`);
+    }
 
     const profilePath = path.join(config.outputDir, 'dualwrite-profile.json');
     fs.writeFileSync(profilePath, JSON.stringify(metadata, null, 2));
-    console.log(`Profile metadata written to ${profilePath}`);
+    console.log(`Capture metadata written to ${profilePath}`);
 
     console.log(`Output directory: ${config.outputDir}`);
   } catch (error: unknown) {
