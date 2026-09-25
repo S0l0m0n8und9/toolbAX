@@ -12,7 +12,7 @@ Releases are unsigned. The published SHA256 checks downloaded bytes against the 
 
 | Surface | Current App capability | Boundary |
 |---|---|---|
-| Profiles | Interactive and Client secret authentication | Legacy Certificate/ROPC values are preserved as unsupported until explicitly replaced; dual-write uses portal-only sign-in. |
+| Profiles | Interactive and Client secret authentication | Legacy Certificate values are preserved as unsupported until explicitly replaced. Dual-write uses portal-only sign-in; unused legacy DI ROPC settings are preserved with explicit legacy-password clearing. |
 | Query Builder | OData query composition and CSV export | Live outcome depends on environment permissions. |
 | POST Builder | POST/PATCH/DELETE with confirmation | `If-Match: *` checks existence; a specific ETag requests a version check where supported. |
 | Metadata | Entity, field, navigation, enum and key inspection | Live metadata depends on environment access. |
@@ -20,7 +20,7 @@ Releases are unsigned. The published SHA256 checks downloaded bytes against the 
 | Operations | Lifecycle actions and project debug flags | Actions are live writes and require confirmation. |
 | Compare | Map presence and reported version/state | Includes Unknown/Ambiguous; it is not row-count or configuration-parity certification. |
 | Virtual Tables | Inspect F&O-backed virtual tables | The App does not generate virtual tables. |
-| Profiler | Experimental CLI | Not shipped in the supported desktop release. |
+| Profiler | [Experimental CLI](../profiler/README.md) | Not shipped in the supported desktop release. |
 
 The visible catalog is defined in [`BuiltInToolCatalog.cs`](../avalonia/toolBax.App/Services/BuiltInToolCatalog.cs). App startup uses real composition on Windows; non-Windows or unavailable profile-store startup enters explicit degraded/fake mode ([`App.axaml.cs`](../avalonia/toolBax.App/App.axaml.cs)). This does not imply every Windows startup succeeds.
 
@@ -38,6 +38,6 @@ Deterministic CI and packaging evidence does not prove live authentication, port
 
 Microsoft does not support the referenced [Dual-write automations](https://github.com/microsoft/Dual-write-automations) project; it is provided as-is and warns API changes may break it. This statement applies to that project, not all Dataverse APIs.
 
-Two live unknowns remain in [issue #168](https://github.com/S0l0m0n8und9/toolbAX/issues/168): the Resume `skipInitialSync` format and `reversedSourceFilter` format. They are not validated claims.
+Two live unknowns remain in [issue #168](https://github.com/S0l0m0n8und9/toolbAX/issues/168): Resume `skipInitialSync` behavior and `reversedSourceFilter` format. They are not validated claims.
 
 For security reporting see [`SECURITY.md`](../SECURITY.md); contribution guidance is in [`CONTRIBUTING.md`](../CONTRIBUTING.md).
