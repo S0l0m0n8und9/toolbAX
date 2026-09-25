@@ -1614,17 +1614,7 @@ public class PostBuilderViewModelTests
         Assert.Equal("preserve me", vm.StatusText);
     }
 
-    // --- A cancelled send is reported as cancelled, not a failure (issue #168) ---
-    //
-    // CoreODataClient doesn't yet rethrow genuine cancellation on main (that lands separately, alongside
-    // the Query Builder's own cancellation fix) — it currently folds an OperationCanceledException into a
-    // "Request failed" response like any other exception. These tests drive the OCE through the
-    // IODataClient test seam directly, so they're valid regardless of merge order: once CoreODataClient
-    // rethrows for real, the same catch clause covers the end-to-end path too.
-
-    // Holds the request open, then honours the caller's token the way CoreODataClient will once it
-    // rethrows genuine cancellation instead of folding it into a response — mirrors the Query Builder's
-    // own CancellableGatedODataClient test seam.
+    // Legacy clients may throw cancellation without dispatch evidence. H03 must preserve unknown outcomes.
     private sealed class GatedSendClient : IODataClient
     {
         public readonly TaskCompletionSource Gate = new();
@@ -1637,9 +1627,7 @@ public class PostBuilderViewModelTests
         }
     }
 
-    // An OperationCanceledException that arrives with OUR token still live — the shape an HTTP/socket
-    // timeout takes. Must NOT be reported as "Send cancelled." (that phrase means the user pressed
-    // Cancel); it's a genuine failure and has to fall through to the general handler.
+    // A timeout-shaped cancellation also leaves the write outcome unknown without transport evidence.
     private sealed class TimeoutShapedODataClient : IODataClient
     {
         public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
@@ -1647,19 +1635,18 @@ public class PostBuilderViewModelTests
     }
 
     [Fact]
-    public async Task Cancelling_a_send_reports_cancellation_not_a_request_failure()
+    public async Task Cancelling_a_send_without_dispatch_evidence_keeps_outcome_unknown()
     {
-        // Red-check: before the fix, Send's bare `catch (Exception ex)` reported this as
-        // "Request failed." — a lie, since nothing about the request failed; the user asked to stop it.
+        // Cancellation alone says nothing about whether the server applied the write.
         var client = new GatedSendClient();
         var vm = new PostBuilderViewModel(client) { Method = "POST" };
 
         var send = vm.SendCommand.ExecuteAsync(null);
-        vm.SendCancelCommand.Execute(null); // the generated cancel command — now actually bound in the view
+        vm.SendCancelCommand.Execute(null); // the accepted-owner cancel command bound in the view
         client.Gate.SetResult();
         await send;
 
-        Assert.Equal("Send cancelled.", vm.StatusText); // not "Request failed."
+        Assert.Contains("Outcome unknown", vm.StatusText); // not "Request failed."
         Assert.False(vm.SendSucceeded);
         Assert.False(vm.IsBusy);
     }
@@ -1682,17 +1669,16 @@ public class PostBuilderViewModelTests
     }
 
     [Fact]
-    public async Task A_timeout_shaped_cancellation_still_reports_as_a_failure()
+    public async Task A_timeout_shaped_cancellation_keeps_the_write_outcome_unknown()
     {
-        // Guard: an OperationCanceledException whose token was never cancelled (a timeout, not a user
-        // Cancel) must not be swallowed by the new "Send cancelled." branch — it's a real failure.
+        // A transport timeout without dispatch evidence is an unknown write outcome.
         var vm = new PostBuilderViewModel(new TimeoutShapedODataClient()) { Method = "POST" };
 
         await vm.SendCommand.ExecuteAsync(null);
 
-        Assert.Equal("Request failed.", vm.StatusText);
+        Assert.Contains("Outcome unknown", vm.StatusText);
         Assert.False(vm.SendSucceeded);
-        Assert.Contains("socket timeout", vm.ResponseBody);
+        Assert.NotNull(vm.LastReceipt);
     }
 
     // Succeeds on the first call (to seed a "previous send" outcome on screen), then gates every
@@ -1736,7 +1722,7 @@ public class PostBuilderViewModelTests
         client.Gate.SetResult();
         await send;
 
-        Assert.Equal("Send cancelled.", vm.StatusText);
+        Assert.Contains("Outcome unknown", vm.StatusText);
         Assert.False(vm.SendSucceeded);
         Assert.Equal(string.Empty, vm.StatusBadge);
         Assert.Equal(string.Empty, vm.ResponseBody);

@@ -5,7 +5,7 @@
              x:Class="ToolBax.App.Views.PostBuilderView"
              x:DataType="vm:PostBuilderViewModel">
 
-  <Grid RowDefinitions="Auto,Auto,Auto,Auto,*" Margin="20,16">
+  <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" Margin="20,16">
 
     <TextBlock Grid.Row="0" Text="POST Builder" FontSize="24" FontWeight="SemiBold"
                Foreground="{StaticResource Text0Brush}" />
@@ -25,10 +25,9 @@
       <!-- SendCommand (AsyncRelayCommand) disables itself while running, so no explicit IsEnabled. -->
       <Button Grid.Column="5" x:Name="SendButton" Content="Send" Command="{Binding SendCommand}"
               Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}" />
-      <!-- IncludeCancelCommand generates SendCancelCommand, but it was bound nowhere — leaving a send
-           uncancellable in production. Visible only while sending (matches Query Builder's Cancel). -->
+      <!-- Cancellation belongs to the accepted send/readback; rejected direct calls cannot replace it. -->
       <Button Grid.Column="6" Content="Cancel" Command="{Binding SendCancelCommand}" IsVisible="{Binding IsBusy}"
-              ToolTip.Tip="Cancel the in-flight send" />
+              ToolTip.Tip="Cancel the in-flight send or readback" />
     </Grid>
 
     <!-- If-Match conditional write — only relevant for PATCH/DELETE -->
@@ -49,8 +48,23 @@
     <TextBox Grid.Row="3" Text="{Binding RequestUrl, Mode=OneWay}" IsReadOnly="True" Margin="0,0,0,6"
              FontFamily="Cascadia Code,Consolas,monospace" FontSize="12" Foreground="{StaticResource Text2Brush}" />
 
+    <!-- The captured write and later GET observation are independent, measured rows. -->
+    <Border Grid.Row="4" x:Name="WriteReceiptPanel" IsVisible="{Binding HasWriteReceipt}" Margin="0,6,0,8"
+            Padding="10" CornerRadius="6" Background="{StaticResource WarnBgBrush}" BorderBrush="{StaticResource WarnBrush}" BorderThickness="1">
+      <StackPanel Spacing="6">
+        <TextBlock Text="Last write evidence — cancellation does not roll back a write" FontWeight="SemiBold" Foreground="{StaticResource WarnBrush}" TextWrapping="Wrap" />
+        <ScrollViewer MaxHeight="90"><TextBlock x:Name="ReceiptText" Text="{Binding WriteReceiptText}" TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}" /></ScrollViewer>
+        <Button x:Name="ReconcileButton" Content="Read latest write state" Command="{Binding ReconcileCommand}" HorizontalAlignment="Left" />
+        <TextBlock Text="{Binding ReconcileReason}" TextWrapping="Wrap" Foreground="{StaticResource Text2Brush}"
+                   IsVisible="{Binding ReconcileReason, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        <Border x:Name="ReadbackPanel" IsVisible="{Binding ReadbackText, Converter={x:Static StringConverters.IsNotNullOrEmpty}}"
+                Padding="8" Background="{StaticResource Layer1Brush}">
+          <ScrollViewer MaxHeight="90"><TextBlock x:Name="ReadbackText" Text="{Binding ReadbackText}" TextWrapping="Wrap" Foreground="{StaticResource Text1Brush}" /></ScrollViewer>
+        </Border>
+      </StackPanel>
+    </Border>
     <!-- Request | response -->
-    <Grid Grid.Row="4" ColumnDefinitions="*,*" ColumnSpacing="12">
+    <Grid Grid.Row="5" ColumnDefinitions="*,*" ColumnSpacing="12">
       <DockPanel Grid.Column="0">
         <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" Margin="0,0,0,4">
           <TextBlock Grid.Column="0" Text="REQUEST" FontSize="11" VerticalAlignment="Center"
@@ -148,14 +162,14 @@
       </DockPanel>
 
       <DockPanel Grid.Column="1">
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Spacing="8" Margin="0,0,0,4">
-          <TextBlock x:Name="StatusText" Text="{Binding StatusText}" FontSize="11.5" VerticalAlignment="Center"
+        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="0,0,0,4">
+          <TextBlock Grid.Column="0" TextWrapping="Wrap" x:Name="StatusText" Text="{Binding StatusText}" FontSize="11.5" VerticalAlignment="Center"
                      FontFamily="Cascadia Code,Consolas,monospace" Foreground="{StaticResource Text2Brush}" />
-          <Border IsVisible="{Binding SendSucceeded}" Background="{StaticResource OkBgBrush}"
+          <Border Grid.Column="1" IsVisible="{Binding SendSucceeded}" Background="{StaticResource OkBgBrush}"
                   CornerRadius="999" Padding="8,1" VerticalAlignment="Center">
             <TextBlock Text="{Binding StatusBadge}" FontSize="11" Foreground="{StaticResource OkBrush}" />
           </Border>
-        </StackPanel>
+        </Grid>
         <!-- Response headers (ETag, OData-EntityId, Location, …) above the body -->
         <Border DockPanel.Dock="Top" IsVisible="{Binding HasResponseHeaders}" Margin="0,0,0,6"
                 Background="{StaticResource Layer1Brush}" BorderBrush="{StaticResource StrokeBrush}"

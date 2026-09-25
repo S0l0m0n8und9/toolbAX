@@ -24,6 +24,14 @@ Releases are unsigned. The published SHA256 checks downloaded bytes against the 
 
 The visible catalog is defined in [`BuiltInToolCatalog.cs`](../avalonia/toolBax.App/Services/BuiltInToolCatalog.cs). App startup uses real composition on Windows; non-Windows or unavailable profile-store startup enters explicit degraded/fake mode ([`App.axaml.cs`](../avalonia/toolBax.App/App.axaml.cs)). This does not imply every Windows startup succeeds.
 
+## Write outcomes and inspection
+
+Cancelling or timing out after dispatch does not roll back a write: the server may already have applied it. POST Builder and Operations retain the captured environment, target and observed outcome. An HTTP acknowledgment is separate from completed processing (particularly HTTP 202), and debug changes show per-project progress so a partial batch is not mistaken for all-or-nothing success.
+
+Use the explicit readback control to GET current state in the captured scope. Readback does not prove which request caused that state and does not erase an uncertain original outcome. The app does not automatically resend a write to resolve an uncertain outcome; a newly confirmed write is a separate attempt. A POST without a safe server-provided record locator requires manual inspection in Query Builder before deciding whether another write is needed.
+
+Receipts are memory-only. They disappear when the tool is recreated or the app closes and are not a durable journal. These safeguards and offline tests do not establish live tenant acceptance.
+
 ## Core-only APIs
 
 The following Core capabilities have no current App UI: saved queries/API requests, template switching, table refresh, link reset, and integration-key application. They remain implementation APIs, not advertised product screens. Profile persistence is in [`ProfileStore.cs`](../src/FoToolbox.Core/Profiles/ProfileStore.cs); gateway client behavior is in [`DualWriteGatewayClient.cs`](../src/FoToolbox.Core/DualWrite/DualWriteGatewayClient.cs).
