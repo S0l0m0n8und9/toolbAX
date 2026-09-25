@@ -1202,6 +1202,30 @@ public class DualWriteMapViewModelTests
         Assert.NotEmpty(vm.SolutionWarning);
     }
 
+    [Fact]
+    public async Task Cancellation_ignoring_solution_retry_cannot_commit_success_after_cancel()
+    {
+        var reader = new GatedSolutionRetryReader(ignoreCancellation: true);
+        var vm = MakeVm(reader);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        var warning = vm.SolutionWarning;
+        var selectedPublisher = vm.SelectedPublisher;
+        var selectedSolution = vm.SelectedSolution;
+        var reload = vm.ReloadMapsCommand.ExecuteAsync(null);
+        vm.ReloadMapsCancelCommand.Execute(null);
+        reader.Retry.TrySetResult(DwSolutionLoadResult.Ok(new[]
+        {
+            new DwSolution("id", "new_solution", "New", "1", "publisher", "Publisher"),
+        }));
+
+        await reload.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal(warning, vm.SolutionWarning);
+        Assert.Same(selectedPublisher, vm.SelectedPublisher);
+        Assert.Same(selectedSolution, vm.SelectedSolution);
+        Assert.Equal(1, reader.MapCalls);
+    }
+
     private sealed class ThrowingClipboard : IClipboardService
     {
         public Task SetTextAsync(string text) => throw new InvalidOperationException("clipboard is busy");

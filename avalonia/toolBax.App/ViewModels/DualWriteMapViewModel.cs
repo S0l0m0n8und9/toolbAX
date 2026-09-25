@@ -339,7 +339,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         var publisherId = SelectedPublisher?.UniqueName;
         var solutionId = SelectedSolution?.UniqueName;
         var result = await _reader.GetSolutionsAsync(ct);
-        if (_disposed || generation != Volatile.Read(ref _generation)) return;
+        if (_disposed || ct.IsCancellationRequested || generation != Volatile.Read(ref _generation)) return;
         // A solutions failure shouldn't block the maps; just leave the picker with only "All".
         _allSolutions = result.IsSuccess ? result.Solutions.ToList() : new List<DwSolution>();
         SolutionWarning = result.IsSuccess ? string.Empty : result.Error ?? "Couldn't load solutions.";
