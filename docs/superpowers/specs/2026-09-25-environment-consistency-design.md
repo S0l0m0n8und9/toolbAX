@@ -18,6 +18,8 @@ H01 makes environment identity explicit, routes activation and active-profile id
 - `ProfilesViewModel.SetActive` writes its own `ActiveId` and `_store.ActiveId`, then raises an `Action<string>` that the shell handles fire-and-forget.
 - `CoreProfileStore.ActiveId` changes `_activeId` before persistence; a failed SQLite write therefore leaves its in-memory value ahead of durable state.
 - `CoreMetadataService` keys and commits by profile id. Its post-await check compares only `_cacheEnvId`; if no getter runs during a switch, the cache stamp never changes and an old result can commit.
+- Clearing `CoreMetadataService`'s front cache is insufficient for tenant/client/mode/company edits: `ResolveEnv` still supplies raw profile id and `CatalogService` persists metadata under id+URL, so `UseCacheIfFresh` can immediately rehydrate metadata obtained under the old auth/company context. That persistent cache survives a new App service instance.
+- `CoreAuthService` app-only F&O/Dataverse acquisition looks up a service principal by `env.Id` after an await and then trusts the returned row. It does not verify the row still belongs to the captured environment id/target/client id/auth mode, so an A-B-A transition can hand B's persisted principal to A's broker call.
 - `DualWriteSession`, `DualWriteOpsViewModel`, `DualWriteMapViewModel`, and `VirtualTablesViewModel` use profile ids as their environment stamp. Same-id endpoint/auth edits are invisible.
 - `CoreDualWriteMapReader` has a private id-plus-Dataverse-URL string identity for one cache. It does not cover the complete identity and duplicates normalization rules.
 - `CoreODataClient` and `CoreDataverseClient` capture an `EnvProfile` for a call, but do not recheck the current identity after asynchronous token acquisition and before dispatch.
@@ -83,6 +85,29 @@ The existing best-effort old-auth-session eviction remains after successful pers
 
 Each load captures one profile, its identity, the derived `FoEnvironment`, and the generation under the cache lock. A result commits only when both generation and current complete identity still match. This rejects same-id edits, A-B-A transitions, and a late completion even when nobody called a getter during the switch.
 
+#### Locked design addendum: persistent catalog partition
+
+`FoToolbox.Core.Models.FoEnvironment` gains one optional init-only `[JsonIgnore] string? MetadataCachePartition`. It does not alter `Id`, request routing, authentication, or the SQL profile schema. `CoreMetadataService` derives the value from the same single captured `EnvironmentIdentity` used for its front-cache generation and attaches it to the captured `FoEnvironment`.
+
+The partition is deterministic and explicitly versioned. Serialize the identity fields in a fixed declared order using field names plus UTF-8 byte lengths and bytes; serialize auth enums with invariant numeric values. Hash those bytes with SHA-256 and emit a stable value such as `envmeta-v1:<lowercase hex>`. Do not use `GetHashCode()`, record/object `ToString()`, runtime-dependent JSON defaults, or a delimiter-only concatenation. Normalized endpoint aliases and cosmetic profile edits therefore reuse a partition; profile id, case-sensitive URL suffix, tenant/client/mode, and exact company changes produce a different partition.
+
+`CatalogService` separates table identity from metadata identity:
+
+- Tables, user imports, and the H08b Tables-only `UserImport` migration keep their existing key and migration rules unchanged.
+- When `MetadataCachePartition` is present, every OData metadata representation uses the partitioned metadata key: parsed metadata, entity index, entity details, raw XML, in-memory XML memo, ETag/max-age records, and per-key load locks.
+- A partitioned lookup never falls back to an unpartitioned or different-partition metadata entry.
+- A legacy Core caller that leaves `MetadataCachePartition` unset retains the existing catalog-v2 id+URL behavior.
+
+All three Catalog HTTP request-construction sites tag the request with the same immutable partition using one small public Core `HttpRequestOptionsKey<string>` owned by the Catalog boundary. App `AuthenticatedHttpHandler` treats that tag as an authenticated environment-bound request: before any token acquisition it captures the active profile, derives its full identity/expected partition, rejects a missing or mismatched active identity, and applies the existing same-origin rule. A tagged request cannot bypass this gate through an anonymous marker or a pre-existing `Authorization` header. After token acquisition and before inner-handler dispatch, it re-derives the current full identity/partition and rejects any drift. Untagged request behavior and existing origin protections remain unchanged.
+
+This handler gate closes changes that land inside Catalog's own awaits. The App adapter's post-await generation still decides whether a successful response may update the UI, while the tagged handler guarantees no request is sent after its captured context becomes stale.
+
+Acceptance uses the real `CatalogService` with a temporary `CatalogStore` and a fake HTTP handler serving distinct metadata documents with the same ETag. It must cover full metadata, entity index, entity details, and a warmed raw-XML memo; repeat the reads after constructing a fresh Catalog service over the same store; prove tenant/client/mode/company partitions are isolated; prove cosmetic and normalized endpoint aliases reuse; prove request URI and actual `FoEnvironment.Id` are unchanged; and prove Tables `UserImport` migration data remains present and independent.
+
+### App-only principal binding
+
+After each app-only F&O or Dataverse principal lookup, `CoreAuthService` validates the returned principal before invoking the token broker. The principal's environment id, target, normalized client id, and auth mode must match the single captured profile. Client-id normalization uses the same trim/case semantics as `EnvironmentIdentity`. A missing or mismatched principal fails closed with no broker call. A controlled A-B-A test gates principal lookup, returns B's row to A's captured request, and proves no token-acquisition delegate is invoked with B. Narrow injected principal-lookup and token-acquisition delegates, or an equivalent existing internal seam, are permitted solely to make this deterministic without live auth. Same-client secret rotation remains H09 and secrets do not enter `EnvironmentIdentity`.
+
 ### HTTP clients
 
 `CoreODataClient` and `CoreDataverseClient` capture one profile and identity at entry. They build every URL from that profile. After token acquisition they compare the current complete identity before constructing/sending the request. A mismatch returns a non-success "environment changed" response without calling `HttpClient`; it never rebuilds against the new environment. Existing same-origin guards remain in force.
@@ -113,10 +138,10 @@ This applies to Query, POST read initialization, Metadata, Map Browser, Virtual 
 
 | Failure mechanism | User-visible failure | Mitigation and deterministic proof |
 |---|---|---|
-| Same profile id survives an endpoint/auth edit | Old metadata/session is accepted against a newly repointed profile. | Compare complete `EnvironmentIdentity`; invalidate metadata and tool sessions after a confirmed save. Table-driven identity tests cover same-id F&O URL, Dataverse URL, tenant, both client ids/modes, and company changes; cosmetic fields remain equal. |
+| Same profile id survives an endpoint/auth edit | Old front-cache or persistent metadata/session is accepted against a newly repointed profile. | Compare complete `EnvironmentIdentity`, invalidate tool state, and attach the stable identity SHA-256 partition to every Catalog metadata layer and lock. Real-store restart tests use distinct same-ETag documents and prove no cross-partition fallback while Tables/imports remain unchanged. |
 | Cancelled switch has already changed persistence/header | Header shows B while store or tools remain on A; ComboBox stays on the rejected choice. | Confirm before persistence/header assignment; use one awaited activation funnel; explicitly notify `ActiveEnvironment` on rejection. Headless switcher tests cover decline, dialog error, and failure-injected store persistence. |
-| Token acquisition completes after context changes | The client correctly pins A's token and A's URL, but can still dispatch to old A after the UI context has moved to B. | Capture A profile/identity and URL once; after token acquisition refuse dispatch unless current complete identity still matches. Gated-auth client tests assert the HTTP handler receives zero requests after a switch. |
-| Slow A result arrives after B or A-B-A | A metadata/results overwrite the current B/A generation. | Pair complete identity checks with monotonic generation/disposed checks. Controlled `TaskCompletionSource` tests complete requests out of order, including A-B-A and metadata completion without an intervening getter. |
+| Token or principal lookup completes after context changes | The client can dispatch old-A catalog work after the UI moved to B, or B's looked-up app-only principal can reach A's broker during A-B-A. | Tagged Catalog requests must pass full identity/partition/origin checks before auth and again after token await; app-only principals must match captured env/target/normalized client/mode before broker invocation. Gated tests assert zero HTTP and zero wrong-principal broker calls. |
+| Slow A result arrives after B or A-B-A | A metadata/results overwrite the current B/A generation or warm a cache later reused as current. | Pair adapter generation/disposal checks with partitioned persistent keys, XML memo, ETag state, and load locks. Controlled task gates plus real-store restart tests cover A-B-A and completion without an intervening getter. |
 | Discard disposes a live mutation, or a late connect leaks/revives a session | Accepted POST/gateway action is interrupted ambiguously, or discarded Ops VM regains a live gateway. | Shell refuses switches, active identity saves, and active-profile deletion while mutation flags are set; read commands cancel on discard; Ops disposes any gateway acquired after generation/disposal changed. Tests hold confirmation/connect on gates and assert refusal or disposal. |
 
 ## Acceptance cases
@@ -132,6 +157,9 @@ This applies to Query, POST read initialization, Metadata, Map Browser, Virtual 
 - Same-id profile edits block stale gateway lifecycle actions, debug requests, map counts, and links.
 - Map and Virtual Tables links remain attributed to the loaded environment.
 - A metadata result cannot commit after a switch even when no getter observed the switch.
+- A same-id/same-URL tenant, client, auth-mode, or company change cannot reuse parsed/index/details/raw-XML metadata, warmed memo state, ETag freshness, or locks from the prior partition, including after service restart.
+- Tagged Catalog requests dispatch zero HTTP when identity/partition changes before auth or during token acquisition; anonymous/pre-authorized tags do not bypass the gate.
+- App-only principal lookup validates environment id, target, normalized client id, and auth mode; an A-B-A lookup returning B's principal invokes no token broker.
 - A-B-A cannot commit an older generation.
 - Disposal prevents a late export picker and disposes a gateway obtained after disposal.
 - Existing origin-guard, cancellation, disposal-on-failure, and H02 sequential-sign-in tests remain green.
