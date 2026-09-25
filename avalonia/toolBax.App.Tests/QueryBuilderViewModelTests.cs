@@ -734,16 +734,26 @@ public class QueryBuilderViewModelTests
     [Fact]
     public async Task Export_all_reports_cancellation_cleanly()
     {
-        var vm = new QueryBuilderViewModel(new FakeMetadataService(), new CancelingODataClient(),
+        var client = new CancellableGatedODataClient();
+        using var vm = new QueryBuilderViewModel(new FakeMetadataService(), client,
             fileSave: new FakeFileSaveService());
-        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
-
-        await vm.ExportAllCsvCommand.ExecuteAsync(null);
-
-        Assert.Equal("Export cancelled.", vm.StatusText); // not "Export failed: …canceled"
+        var export = vm.ExportAllCsvCommand.ExecuteAsync(null);
+        vm.ExportAllCsvCommand.Cancel();
+        client.Gate.SetResult();
+        await export;
+        Assert.Equal("Export cancelled.", vm.StatusText);
         Assert.False(vm.IsBusy);
     }
 
+    [Fact]
+    public async Task Export_all_live_token_timeout_is_a_failure()
+    {
+        using var vm = new QueryBuilderViewModel(new FakeMetadataService(), new CancelingODataClient(),
+            fileSave: new FakeFileSaveService());
+        await vm.ExportAllCsvCommand.ExecuteAsync(null);
+        Assert.StartsWith("Export failed:", vm.StatusText);
+        Assert.False(vm.IsBusy);
+    }
     [Fact]
     public async Task Run_is_disabled_while_a_run_is_in_flight()
     {
