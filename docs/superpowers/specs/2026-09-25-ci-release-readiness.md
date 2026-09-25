@@ -2,7 +2,7 @@
 
 ## Status and boundary
 
-Accepted for implementation by the parent with the locked clarifications below. No signing, package/SDK
+Implemented and locally validated; parent full gates, hosted CI, review and merge remain pending. No signing, package/SDK
 version changes, machine-global runtime installation, tag creation/push or release publication is authorized.
 
 Keep `build-test` and Linux `avalonia-tests` check names. Reusable CI and release verification use one
@@ -20,7 +20,7 @@ app-data override, runs the extracted executable, validates exit/report/provenan
 own process tree on timeout. No report-supplied path deletion or global installation. This is not live-auth,
 portal, full-rendering or business-feature acceptance. Parent runs full solution/remote CI gates after freeze.
 
-Verified source facts:
+Verified baseline source facts (corrected by this implementation):
 
 - Current CI runs Core tests on Windows and App tests only on Linux, omitting the Windows/WebView2 path.
 - `release.yml` packages an executable/zip without the normal test suites.
@@ -68,6 +68,10 @@ The JSON report and CLI isolation lifecycle need meaningful tests. The smoke is 
 
 Require CLI isolation/report lifecycle tests, release-tag validation tests, local Windows package smoke, workflow validation, and observed PR CI on Linux and Windows. Release publication remains unexecuted unless separately authorised.
 
-## Open implementation checks
+## Local verification
 
-Confirm supported Avalonia hidden-window/startup-report APIs, WebView2 loader/runtime probe API, current action README archive compatibility, and the exact vulnerability command/input graph before implementation. Use [reusable workflow guidance](https://docs.github.com/en/actions/how-tos/reuse-automations/reuse-workflows) and [WebView2 distribution guidance](https://learn.microsoft.com/microsoft-edge/webview2/concepts/distribution).
+At source `1cc22ff786d9ecd5c52d73700889212893e797fb`, the local Windows self-contained publish, zip, fresh extraction and real desktop smoke exited 0. The report records real composition, loaded MainWindow/home, every expected tool, zero profiles/no active environment, and all three runtime assemblies in Release with that exact source SHA. WebView2 availability reported `154.0.4258.37`; no browser, navigation or sign-in was created and no runtime was installed.
+
+Focused smoke tests passed 26/26 after meaningful RED (25 failures, one normal-launch control passed). Release-helper checks passed 44/44; the audit-shape regression first failed 11 cases, then accepted genuine clean path-only project reports while rejecting null/empty/malformed collections. The actual shipping dependency audit passed with no stderr. The App solution Release build emitted shared Core in Release with zero warnings/errors. Official workspace-local actionlint 1.7.12 accepted both workflows. All XML/config assets remain in the archive; only PDBs are excluded.
+
+Evidence is retained under ignored `artifacts/h04/`: `smoke-integrated-green.trx`, `audit-shape-{red,green}.log`, `shipping-audit-final.json`, `actionlint-final.log`, `native-package-final.log`, and `package-final/smoke-dc4e6de8134447adbee1e545bfbe34fb/report.json`. This proves local startup/package readiness only. Hosted Windows WebView2 availability, Linux/Windows remote jobs, full solution gates and release publication are not claimed by this checkpoint. Parent will integrate H15 and perform final gates before delivery. Distribution remains unsigned and requires an available WebView2 Runtime.
