@@ -582,7 +582,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 
     private async Task SetDebugForSelectedExclusiveAsync(bool enabled, CancellationToken ct)
     {
-        if (_session is null)
+        var session = _session;
+        if (session is null)
         {
             DebugStatus = "Connect to the gateway first.";
             return;
@@ -621,6 +622,58 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         if (projectIds.Count == 0)
         {
             DebugStatus = "The selected map(s) have no project id, so debug mode can't be targeted.";
+            return;
+        }
+
+        var identity = EnvironmentIdentity.Create(env);
+        if (session.Identity != identity)
+        {
+            DebugStatus = ReconnectRequired;
+            return;
+        }
+
+        var skipped = targets.Count - targets.Count(m => !string.IsNullOrWhiteSpace(m.ProjectId));
+        var actionVerb = enabled ? "Enable" : "Disable";
+        var request = new ConfirmRequest(
+            Title: $"{actionVerb} debug mode for {projectIds.Count} project(s)?",
+            Message: $"This changes project-level debug flags and dual-write logging for {env.Name} ({env.Url}).",
+            Targets: targets.Where(m => !string.IsNullOrWhiteSpace(m.ProjectId))
+                .Select(m => $"{m.Name} · {m.ProjectId}").ToList(),
+            ConfirmLabel: actionVerb + " debug mode",
+            IsDanger: true,
+            Caveat: skipped == 0 ? null : $"{skipped} selected map(s) without a project id will be skipped.");
+        if (ct.IsCancellationRequested)
+        {
+            DebugStatus = "No debug changes sent.";
+            return;
+        }
+
+        bool confirmed;
+        try
+        {
+            confirmed = await _dialogs.ConfirmAsync(request).ConfigureAwait(true);
+        }
+        catch (OperationCanceledException)
+        {
+            if (!_disposed) DebugStatus = "No debug changes sent.";
+            return;
+        }
+        catch (Exception ex)
+        {
+            if (!_disposed) DebugStatus = $"Debug-mode toggle not sent: {ex.Message}";
+            return;
+        }
+
+        if (_disposed) return;
+        if (!confirmed || ct.IsCancellationRequested)
+        {
+            DebugStatus = "No debug changes sent.";
+            return;
+        }
+
+        if (!ReferenceEquals(session, _session) || !identity.IsCurrent(_activeEnv()))
+        {
+            DebugStatus = "Debug-mode toggle not sent — the active environment changed; reconnect required.";
             return;
         }
 
