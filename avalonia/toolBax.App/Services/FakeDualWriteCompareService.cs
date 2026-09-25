@@ -8,8 +8,8 @@ namespace ToolBax.App.Services;
 
 /// <summary>
 /// In-memory <see cref="IDualWriteCompareService"/> for design-mode/tests. Returns an illustrative diff
-/// that exercises every <see cref="DualWriteComparisonVerdict"/> (identical / version mismatch / state
-/// mismatch / only-in-source / only-in-target / cannot-compare) for any source≠target pair.
+/// that exercises every <see cref="DualWriteComparisonVerdict"/> (reported values match / version mismatch /
+/// state mismatch / only-in-source / only-in-target / cannot-compare / unknown) for any source≠target pair.
 /// </summary>
 public sealed class FakeDualWriteCompareService : IDualWriteCompareService
 {
@@ -29,6 +29,8 @@ public sealed class FakeDualWriteCompareService : IDualWriteCompareService
         Row("Sales order headers", true, true, "1.0.0.15", "1.0.0.15", "Running", "Paused", DualWriteComparisonVerdict.StateMismatch),
         Row("Purchase order headers", true, false, "1.0.0.6", "", "Running", "", DualWriteComparisonVerdict.OnlyInLeft),
         Row("Exchange rates", false, true, "", "1.0.0.2", "", "Stopped", DualWriteComparisonVerdict.OnlyInRight),
+        Row("Journal lines", true, true, "1.0.0.3", "", "Running", "Running", DualWriteComparisonVerdict.Unknown,
+            "Missing reported values: target active version."),
         // Unpairable (#160): two source maps and one target map all share this name + CE target, so no
         // pairing among them is defensible — each is listed on its own row, on the side it actually came
         // from, with no version/state verdict reached (mirrors DualWriteMapComparer.AmbiguousRows, which
