@@ -99,7 +99,7 @@ public sealed class FakeDualWriteConnector : IDualWriteConnector
         LastGateway = gateway;
         // Stamp the environment connected to (as the real connector does), so env-gating is exercisable.
         return new DualWriteSession(gateway, "fake-cid", "Contoso (AUMF · APAC Prod)",
-            env.Id, "https://fake-gateway.dual-write.example");
+            env, "https://fake-gateway.dual-write.example");
     }
 
     /// <summary>

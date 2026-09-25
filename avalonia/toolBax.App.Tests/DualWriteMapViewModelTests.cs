@@ -709,7 +709,7 @@ public class DualWriteMapViewModelTests
     // The guards above are entry-only; these cover a switch that lands ACROSS the awaits of one operation.
 
     [Fact]
-    public async Task A_mid_load_switch_stamps_the_environment_the_maps_were_read_for()
+    public async Task A_mid_load_switch_discards_maps_read_for_the_previous_environment()
     {
         var env = new EnvSwitch();
         var reader = new GatedLoadReader();
@@ -722,17 +722,15 @@ public class DualWriteMapViewModelTests
         reader.Gate.SetResult();
         await loading;
 
-        // The load itself still succeeds — a switch mid-load is not an error…
-        Assert.NotEmpty(vm.Maps);
+        // The old environment's completion is not an error, but it no longer belongs on this screen.
+        Assert.Empty(vm.Maps);
         Assert.False(vm.HasLoadError);
 
-        // …but these maps are stamped with the environment they were READ for (env1), not whatever became
-        // active while the read was in flight — so counting them under env2 is refused until a reload.
+        // With no stale maps committed, neither count client can be reached.
         await vm.CountAllRowsCommand.ExecuteAsync(null);
 
         Assert.Equal(0, reader.CeCountCalls);
         Assert.Equal(0, odata.Calls);
-        Assert.Contains("reload maps", vm.LoadError, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -843,6 +841,19 @@ public class DualWriteMapViewModelTests
 
         await vm.CopyMapLinkCommand.ExecuteAsync(null);
         Assert.Equal(url, clipboard.LastText);
+    }
+
+    [Fact]
+    public void Map_link_stays_attributed_to_the_profile_that_supplied_the_selected_map()
+    {
+        var active = EnvWithDataverse("https://first.crm.dynamics.com");
+        var vm = new DualWriteMapViewModel(new FakeDualWriteMapReader(), activeEnv: () => active);
+        vm.SelectedMap = MapWithId("11111111-1111-1111-1111-111111111111");
+
+        active = active with { DataverseUrl = "https://second.crm.dynamics.com" };
+
+        Assert.Contains("first.crm.dynamics.com", vm.MapRecordUrl);
+        Assert.DoesNotContain("second.crm.dynamics.com", vm.MapRecordUrl);
     }
 
     [Fact]

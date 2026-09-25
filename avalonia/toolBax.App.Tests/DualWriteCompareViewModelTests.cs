@@ -415,7 +415,7 @@ public class DualWriteCompareViewModelTests
 
             return new DualWriteSession(
                 new FakeCoreDualWriteGateway(FakeDualWriteConnector.SeedMaps()),
-                "fake-cid", "Contoso", env.Id, "https://fake-gateway.dual-write.example");
+                "fake-cid", "Contoso", env, "https://fake-gateway.dual-write.example");
         }
     }
 
@@ -436,7 +436,7 @@ public class DualWriteCompareViewModelTests
         {
             var gateway = env.Id == "src" ? _sourceGateway : _targetGateway;
             return Task.FromResult(
-                new DualWriteSession(gateway, "fake-cid", "Contoso", env.Id, "https://fake-gateway.dual-write.example"));
+                new DualWriteSession(gateway, "fake-cid", "Contoso", env, "https://fake-gateway.dual-write.example"));
         }
     }
 
@@ -456,7 +456,7 @@ public class DualWriteCompareViewModelTests
         public Task<DualWriteSession> ConnectAsync(EnvProfile env, CancellationToken ct = default) =>
             env.Id == "src"
                 ? Task.FromResult(new DualWriteSession(
-                    _sourceGateway, "fake-cid", "Contoso", env.Id, "https://fake-gateway.dual-write.example"))
+                    _sourceGateway, "fake-cid", "Contoso", env, "https://fake-gateway.dual-write.example"))
                 : Task.FromException<DualWriteSession>(_targetFailure);
     }
 

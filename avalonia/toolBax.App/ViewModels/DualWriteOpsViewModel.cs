@@ -39,6 +39,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     private readonly IODataClient _odata;
     private readonly IMetadataService _metadata;
     private DualWriteSession? _session;
+    private int _generation;
+    private bool _disposed;
 
     public ObservableCollection<MapRowViewModel> Maps { get; } = new();
 
@@ -71,6 +73,10 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     [NotifyCanExecuteChangedFor(nameof(EnableDebugForSelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(DisableDebugForSelectedCommand))]
     private bool _isBusy;
+
+    /// <summary>True from the start of mutation confirmation/auth through submit, polling, and refresh.</summary>
+    [ObservableProperty]
+    private bool _mutationInProgress;
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsConnected))]
@@ -167,7 +173,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         _ => Concise(ex),
     };
 
-    private bool CanLoad() => !IsBusy;
+    private bool CanLoad() => !_disposed && !IsBusy;
 
     /// <summary>Connects to the gateway for the active environment and loads its maps.</summary>
     [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanLoad))]
@@ -181,6 +187,9 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             return;
         }
 
+        var identity = EnvironmentIdentity.Create(env);
+        var generation = Volatile.Read(ref _generation);
+
         IsBusy = true;
         LoadError = null;
         Status = "Connecting…";
@@ -191,6 +200,12 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         try
         {
             var session = await _connector.ConnectAsync(env, ct);
+            if (!CanCommitLoad(identity, generation))
+            {
+                DisposeGateway(session);
+                return;
+            }
+
             DisposeSession();
             _session = session;
             ConnectionName = session.Cname;
@@ -201,6 +216,15 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             Log($"Connected: {session.Cname} (cid {session.Cid}).", LogKind.Ok);
 
             var maps = await session.Gateway.GetMapsAsync(session.Cid, ct);
+            if (!CanCommitLoad(identity, generation) || !ReferenceEquals(_session, session))
+            {
+                if (ReferenceEquals(_session, session))
+                {
+                    DisposeSession();
+                }
+                return;
+            }
+
             PopulateMaps(maps, keepSelectedIds: null);
             Status = Maps.Count == 0 ? "No maps on this connection." : $"{Maps.Count} map(s).";
             Log($"Loaded {Maps.Count} map(s).", Maps.Count == 0 ? LogKind.Warn : LogKind.Ok);
@@ -210,6 +234,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         // had cancelled a connect that in fact silently timed out, and showed no error banner to correct it.
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
+            if (_disposed || generation != Volatile.Read(ref _generation)) return;
             const string timedOut = "Gateway did not respond (timed out).";
             LoadError = timedOut;
             ResetDisconnected(timedOut);
@@ -217,11 +242,13 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         }
         catch (OperationCanceledException)
         {
+            if (_disposed || generation != Volatile.Read(ref _generation)) return;
             ResetDisconnected("Cancelled.");
             Log("Cancelled.", LogKind.Warn);
         }
         catch (Exception ex)
         {
+            if (_disposed || generation != Volatile.Read(ref _generation)) return;
             LoadError = ex.Message;
             ResetDisconnected("Connection failed.");
             Log(ex.Message, LogKind.Err, traceText: Traceable(ex));
@@ -241,7 +268,10 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     // while the header shows the new one — and, for the debug toggle, straddle both in one operation
     // (project ids from the old session, the PATCH through an _odata that resolves the active env per call).
     private bool SessionEnvMismatch() =>
-        _session is not null && !string.Equals(_session.EnvId, _activeEnv()?.Id, StringComparison.Ordinal);
+        _session is not null && !_session.Identity.IsCurrent(_activeEnv());
+
+    private bool CanCommitLoad(EnvironmentIdentity identity, int generation) =>
+        !_disposed && generation == Volatile.Read(ref _generation) && identity.IsCurrent(_activeEnv());
 
     // Hard guard for every use site. Nothing re-raises CanExecuteChanged on an environment switch, so the
     // CanExecute gating below is a UI courtesy only — this is what actually stops the call. Returns true
@@ -329,8 +359,15 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             IsDanger: action.Danger,
             Caveat: action.Caveat);
 
-        if (!await _dialogs.ConfirmAsync(request))
+        if (!await BeginMutationAsync(request))
         {
+            return;
+        }
+
+        // Confirmation is an await: an external profile edit can land while the dialog is open.
+        if (BlockedByEnvMismatch())
+        {
+            MutationInProgress = false;
             return;
         }
 
@@ -397,6 +434,27 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             }
 
             IsBusy = false;
+            MutationInProgress = false;
+        }
+    }
+
+    private async Task<bool> BeginMutationAsync(ConfirmRequest request)
+    {
+        MutationInProgress = true;
+        try
+        {
+            if (await _dialogs.ConfirmAsync(request))
+            {
+                return true;
+            }
+
+            MutationInProgress = false;
+            return false;
+        }
+        catch
+        {
+            MutationInProgress = false;
+            throw;
         }
     }
 
@@ -526,6 +584,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             return;
         }
 
+        MutationInProgress = true;
         IsBusy = true;
         DebugStatus = enabled ? "Enabling debug mode…" : "Disabling debug mode…";
         try
@@ -630,6 +689,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         finally
         {
             IsBusy = false;
+            MutationInProgress = false;
         }
     }
 
@@ -692,7 +752,19 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         _session = null;
     }
 
+    private static void DisposeGateway(DualWriteSession session)
+    {
+        (session.Gateway as IDisposable)?.Dispose();
+    }
+
     // The shell discards this VM (without finalization) when the active environment changes; dispose the
     // live gateway session so its owned HttpClient / connection pool isn't leaked for the app's lifetime.
-    public void Dispose() => DisposeSession();
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Interlocked.Increment(ref _generation);
+        LoadCommand.Cancel();
+        DisposeSession();
+    }
 }

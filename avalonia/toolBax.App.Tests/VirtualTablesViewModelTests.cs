@@ -145,6 +145,20 @@ public class VirtualTablesViewModelTests
     }
 
     [Fact]
+    public async Task Selected_table_link_stays_attributed_to_the_loaded_profile()
+    {
+        var active = EnvWith("https://first.crm.dynamics.com");
+        var vm = new VirtualTablesViewModel(new FakeVirtualTableReader(), activeEnv: () => active);
+        await vm.InitializeCommand.ExecuteAsync(null);
+        vm.SelectedTable = vm.Tables.First();
+
+        active = active with { DataverseUrl = "https://second.crm.dynamics.com" };
+
+        Assert.Contains("first.crm.dynamics.com", vm.SelectedTableUrl);
+        Assert.DoesNotContain("second.crm.dynamics.com", vm.SelectedTableUrl);
+    }
+
+    [Fact]
     public async Task Without_a_dataverse_url_the_open_link_is_unavailable()
     {
         var vm = new VirtualTablesViewModel(new FakeVirtualTableReader(), activeEnv: () => EnvWith(null));

@@ -21,10 +21,11 @@ namespace ToolBax.App.ViewModels;
 /// deliberately distinct from the Dual-Write Map Browser (which inspects data-copy maps). No mutations —
 /// virtual tables are generated/configured in the maker portal, linked here via "Open in Dataverse".
 /// </summary>
-public partial class VirtualTablesViewModel : ObservableObject
+public partial class VirtualTablesViewModel : ObservableObject, IDisposable
 {
     private readonly IVirtualTableReader _reader;
     private readonly Func<EnvProfile?> _activeEnv;
+    private readonly bool _environmentBound;
     private readonly IUrlLauncher _launcher;
     // Whether any load has completed (drives the empty state, and separates "never loaded" from
     // "loaded while no environment was active" — both have a null environment stamp).
@@ -33,7 +34,10 @@ public partial class VirtualTablesViewModel : ObservableObject
     // this cached VM (the "Refresh open tools?" prompt is declinable) while SelectedTableUrl resolves the
     // ACTIVE environment at click time — so a stale list would deep-link "Open in Dataverse" into a
     // different environment than the one whose tables are on screen. Re-stamped by each successful load.
-    private string? _loadedEnvId;
+    private EnvProfile? _loadedProfile;
+    private EnvironmentIdentity? _loadedIdentity;
+    private int _generation;
+    private bool _disposed;
 
     public ObservableCollection<VirtualTableInfo> Tables { get; } = new();
 
@@ -75,6 +79,7 @@ public partial class VirtualTablesViewModel : ObservableObject
     public VirtualTablesViewModel(IVirtualTableReader reader, Func<EnvProfile?>? activeEnv = null, IUrlLauncher? launcher = null)
     {
         _reader = reader;
+        _environmentBound = activeEnv is not null;
         _activeEnv = activeEnv ?? (() => null);
         _launcher = launcher ?? new FakeUrlLauncher();
         Tables.CollectionChanged += (_, _) =>
@@ -102,7 +107,7 @@ public partial class VirtualTablesViewModel : ObservableObject
                 t.ExternalName.Contains(Search, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Deep link to the selected table's list view in the model-driven app, or null if unbuildable.</summary>
-    public string? SelectedTableUrl => BuildListUrl(_activeEnv()?.DataverseUrl, SelectedTable?.LogicalName);
+    public string? SelectedTableUrl => BuildListUrl(_loadedProfile?.DataverseUrl, SelectedTable?.LogicalName);
 
     public bool HasSelectionLink => SelectedTableUrl is not null;
 
@@ -113,6 +118,7 @@ public partial class VirtualTablesViewModel : ObservableObject
     [RelayCommand]
     private async Task Initialize(CancellationToken ct)
     {
+        if (_disposed) return;
         if (!_loaded || EnvChangedSinceLoad())
         {
             await ReloadAsync(ct);
@@ -121,7 +127,7 @@ public partial class VirtualTablesViewModel : ObservableObject
 
     // True when the active environment moved on since the listed tables were loaded.
     private bool EnvChangedSinceLoad() =>
-        !string.Equals(_activeEnv()?.Id, _loadedEnvId, StringComparison.Ordinal);
+        _environmentBound && !Equals(_loadedIdentity, EnvironmentIdentity.TryCreate(_activeEnv()));
 
     [RelayCommand]
     private Task Refresh(CancellationToken ct) => ReloadAsync(ct);
@@ -137,8 +143,9 @@ public partial class VirtualTablesViewModel : ObservableObject
         // line and the reader resolving the environment, which is as atomic as this seam allows without
         // plumbing it through the reader API.
         var env = _activeEnv();
-        var envId = env?.Id;
+        var identity = EnvironmentIdentity.TryCreate(env);
         var envName = env?.Name ?? string.Empty;
+        var generation = Interlocked.Increment(ref _generation);
         IsLoading = true;
         LoadError = string.Empty;
         try
@@ -152,7 +159,7 @@ public partial class VirtualTablesViewModel : ObservableObject
             // under A finishing after a fast read under B would otherwise replace B's tables with A's, or
             // blank B's list and show A's error.) Mirrors the cache-generation discard in
             // CoreMetadataService.IsStillCurrent (#170). IsLoading still clears in the finally below.
-            if (!string.Equals(_activeEnv()?.Id, envId, StringComparison.Ordinal))
+            if (!CanCommit(identity, generation))
             {
                 return;
             }
@@ -183,7 +190,8 @@ public partial class VirtualTablesViewModel : ObservableObject
 
             // Stamp what these tables belong to — the environment captured before the read, not whatever is
             // active now.
-            _loadedEnvId = envId;
+            _loadedProfile = env;
+            _loadedIdentity = identity;
             LoadedEnvName = envName;
             OnPropertyChanged(nameof(Filtered));
         }
@@ -193,12 +201,16 @@ public partial class VirtualTablesViewModel : ObservableObject
         }
         catch (Exception ex)
         {
+            if (!CanCommit(identity, generation)) return;
             LoadError = ex.Message;
         }
         finally
         {
-            IsLoading = false;
-            OnPropertyChanged(nameof(ShowEmptyState));
+            if (generation == Volatile.Read(ref _generation))
+            {
+                IsLoading = false;
+                OnPropertyChanged(nameof(ShowEmptyState));
+            }
         }
     }
 
@@ -206,6 +218,7 @@ public partial class VirtualTablesViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(HasSelectionLink))]
     private async Task OpenInDataverse()
     {
+        if (_disposed) return;
         if (SelectedTableUrl is { } url)
         {
             await _launcher.OpenAsync(url);
@@ -231,5 +244,18 @@ public partial class VirtualTablesViewModel : ObservableObject
         }
 
         return $"{baseUrl}/main.aspx?pagetype=entitylist&etn={Uri.EscapeDataString(logicalName)}";
+    }
+
+    private bool CanCommit(EnvironmentIdentity? identity, int generation) =>
+        !_disposed && generation == Volatile.Read(ref _generation) &&
+        (!_environmentBound || Equals(identity, EnvironmentIdentity.TryCreate(_activeEnv())));
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Interlocked.Increment(ref _generation);
+        InitializeCommand.Cancel();
+        RefreshCommand.Cancel();
     }
 }

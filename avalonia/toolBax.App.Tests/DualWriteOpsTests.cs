@@ -55,6 +55,19 @@ public class DualWriteOpsTests
         }
     }
 
+    private sealed class GatedDialogs : IDialogService
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<bool> _answer = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Entered => _entered.Task;
+        public void Release(bool answer) => _answer.TrySetResult(answer);
+        public Task<bool> ConfirmAsync(ConfirmRequest request)
+        {
+            _entered.TrySetResult();
+            return _answer.Task;
+        }
+    }
+
     // --- read-path ---
 
     [Fact]
@@ -237,6 +250,27 @@ public class DualWriteOpsTests
 
         Assert.Contains("completed", vm.Status, StringComparison.OrdinalIgnoreCase);
         Assert.False(vm.IsBusy);
+    }
+
+    [Fact]
+    public async Task Mutation_flag_covers_the_confirmation_phase()
+    {
+        var connector = new FakeDualWriteConnector();
+        var dialogs = new GatedDialogs();
+        var vm = new DualWriteOpsViewModel(connector, Env, dialogs,
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5));
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.First().IsSelected = true;
+
+        var action = vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+        await dialogs.Entered;
+        Assert.True(vm.MutationInProgress);
+
+        dialogs.Release(false);
+        await action;
+
+        Assert.False(vm.MutationInProgress);
+        Assert.Equal(0, connector.LastGateway!.StartCount);
     }
 
     // --- #168: the gateway's per-map action eligibility (detail.actions) ---
@@ -490,6 +524,26 @@ public class DualWriteOpsTests
         Assert.Contains("reconnect", vm.Status, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Warn
             && e.Text.Contains("Contoso") && e.Text.Contains("Fabrikam"));
+    }
+
+    [Fact]
+    public async Task An_action_is_refused_after_the_same_profile_id_is_repointed()
+    {
+        var connector = new FakeDualWriteConnector();
+        var dialogs = new FakeDialogs(confirm: true);
+        var env = new EnvSwitch();
+        var vm = new DualWriteOpsViewModel(connector, env.Get, dialogs,
+            pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5));
+        await vm.LoadCommand.ExecuteAsync(null);
+        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
+
+        env.Current = env.Current! with { Url = "https://replacement.operations.dynamics.com" };
+
+        Assert.False(vm.RunActionCommand.CanExecute(vm.StopAction));
+        await vm.RunActionCommand.ExecuteAsync(vm.StopAction);
+        Assert.Equal(0, connector.LastGateway!.StartCount);
+        Assert.Equal(0, dialogs.Calls);
+        Assert.Contains("reconnect", vm.Status, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -929,5 +983,67 @@ public class DualWriteOpsTests
 
         // Exactly one "Connecting…" line — the prior attempt's entries were cleared, not appended to.
         Assert.Equal(1, vm2.GatewayLog.Count(e => e.Text.StartsWith("Connecting")));
+    }
+
+    [Fact]
+    public async Task A_session_returned_after_dispose_is_disposed_and_never_assigned()
+    {
+        var connector = new GatedDisposableConnector();
+        var vm = MakeVm(connector);
+
+        var load = vm.LoadCommand.ExecuteAsync(null);
+        await connector.Entered;
+        vm.Dispose();
+        connector.Release(Env());
+        await load;
+
+        Assert.True(connector.Gateway.Disposed);
+        Assert.False(vm.IsConnected);
+        Assert.Empty(vm.Maps);
+    }
+
+    private sealed class GatedDisposableConnector : IDualWriteConnector
+    {
+        private readonly TaskCompletionSource _entered = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<DualWriteSession> _session =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task Entered => _entered.Task;
+        public DisposableGateway Gateway { get; } = new();
+
+        public Task<DualWriteSession> ConnectAsync(EnvProfile env, CancellationToken ct = default)
+        {
+            _entered.TrySetResult();
+            return _session.Task;
+        }
+
+        public void Release(EnvProfile env) => _session.TrySetResult(
+            new DualWriteSession(Gateway, "cid", "Connection", env, "https://gateway.example"));
+    }
+
+    private sealed class DisposableGateway : IDualWriteGateway, IDisposable
+    {
+        private readonly FakeCoreDualWriteGateway _inner = new(FakeDualWriteConnector.SeedMaps());
+        public bool Disposed { get; private set; }
+        public void Dispose() => Disposed = true;
+        public Task<DualWriteEnvironment> GetEnvironmentAsync(string foIdentifier, CancellationToken cancellationToken = default) =>
+            _inner.GetEnvironmentAsync(foIdentifier, cancellationToken);
+        public Task<IReadOnlyList<DualWriteMap>> GetMapsAsync(string cid, CancellationToken cancellationToken = default) =>
+            _inner.GetMapsAsync(cid, cancellationToken);
+        public Task<DualWriteActionResponse> StartActionAsync(DualWriteActionType action, IReadOnlyList<DualWriteMap> maps, string cid, CancellationToken cancellationToken = default) =>
+            _inner.StartActionAsync(action, maps, cid, cancellationToken);
+        public Task<DualWriteRequestStatus> GetStatusAsync(string requestId, CancellationToken cancellationToken = default) =>
+            _inner.GetStatusAsync(requestId, cancellationToken);
+        public Task<DualWriteActionResponse> SwitchActiveTemplateAsync(string cid, string projectId, string templateId, CancellationToken cancellationToken = default) =>
+            _inner.SwitchActiveTemplateAsync(cid, projectId, templateId, cancellationToken);
+        public Task<IReadOnlyList<DualWriteFieldMapping>> GetFieldMappingsAsync(string projectId, CancellationToken cancellationToken = default) =>
+            _inner.GetFieldMappingsAsync(projectId, cancellationToken);
+        public Task RefreshTablesAsync(string fieldMappingName, CancellationToken cancellationToken = default) =>
+            _inner.RefreshTablesAsync(fieldMappingName, cancellationToken);
+        public Task<DualWriteConnectionSet> GetConnectionSetAsync(string cname, CancellationToken cancellationToken = default) =>
+            _inner.GetConnectionSetAsync(cname, cancellationToken);
+        public Task ResetLinksAsync(string cid, DualWriteConnectionSet connectionSet, IReadOnlyList<string> legalEntities, bool forceReset, CancellationToken cancellationToken = default) =>
+            _inner.ResetLinksAsync(cid, connectionSet, legalEntities, forceReset, cancellationToken);
+        public Task ApplyIntegrationKeysAsync(string datasetName, string ceEntityName, IReadOnlyList<string> keyFields, CancellationToken cancellationToken = default) =>
+            _inner.ApplyIntegrationKeysAsync(datasetName, ceEntityName, keyFields, cancellationToken);
     }
 }

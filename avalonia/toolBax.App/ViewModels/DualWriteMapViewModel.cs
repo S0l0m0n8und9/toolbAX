@@ -21,13 +21,14 @@ namespace ToolBax.App.ViewModels;
 /// No mutations — acting on a map is the Operations screen's job. Maps load on first view (Initialize)
 /// and reload on filter change / Refresh. A load/auth failure surfaces in <see cref="LoadError"/>.
 /// </summary>
-public partial class DualWriteMapViewModel : ObservableObject
+public partial class DualWriteMapViewModel : ObservableObject, IDisposable
 {
     private readonly IDualWriteMapReader _reader;
     private readonly IFileSaveService _fileSave;
     private readonly IODataClient _odata;
     private readonly IMetadataService _metadata;
     private readonly Func<EnvProfile?> _activeEnv;
+    private readonly bool _environmentBound;
     private readonly IClipboardService _clipboard;
     private readonly IUrlLauncher _launcher;
     private IReadOnlyList<string> _foEntityNames = Array.Empty<string>();
@@ -35,7 +36,10 @@ public partial class DualWriteMapViewModel : ObservableObject
     // environment under this cached VM (the "Refresh open tools?" prompt is declinable), and the count
     // clients resolve the ACTIVE environment at call time — so counting after a switch would fill
     // environment A's maps with environment B's numbers. Re-stamped by each successful load.
-    private string? _loadedEnvId;
+    private EnvProfile? _loadedProfile;
+    private EnvironmentIdentity? _loadedIdentity;
+    private int _generation;
+    private bool _disposed;
     private bool _loaded;
     private bool _suppressReload;          // guards the initial selection setup from triggering reloads
     private int _activeLoads;              // overlapping reloads in flight; the last to finish clears IsLoading
@@ -108,6 +112,7 @@ public partial class DualWriteMapViewModel : ObservableObject
         _fileSave = fileSave ?? new FakeFileSaveService();
         _odata = odata ?? new FakeODataClient();
         _metadata = metadata ?? new FakeMetadataService();
+        _environmentBound = activeEnv is not null;
         _activeEnv = activeEnv ?? (() => null);
         _clipboard = clipboard ?? new FakeClipboardService();
         _launcher = launcher ?? new FakeUrlLauncher();
@@ -143,7 +148,7 @@ public partial class DualWriteMapViewModel : ObservableObject
     [RelayCommand]
     private async Task Initialize(CancellationToken ct)
     {
-        if (_loaded)
+        if (_disposed || _loaded)
         {
             return;
         }
@@ -191,6 +196,7 @@ public partial class DualWriteMapViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(HasSelection))]
     private async Task ExportMarkdown(CancellationToken ct)
     {
+        if (_disposed) return;
         var map = DetailMap;
         if (map is null)
         {
@@ -201,7 +207,9 @@ public partial class DualWriteMapViewModel : ObservableObject
         var fileName = DualWriteMapMarkdownExporter.SuggestedFileName(map);
         try
         {
+            var generation = Volatile.Read(ref _generation);
             var path = await _fileSave.SaveTextAsync(fileName, markdown, SaveFileType.Markdown, ct);
+            if (_disposed || generation != Volatile.Read(ref _generation)) return;
             ExportStatus = path is null ? "Export cancelled." : $"Exported to {path}";
         }
         catch (OperationCanceledException)
@@ -220,7 +228,7 @@ public partial class DualWriteMapViewModel : ObservableObject
     /// no/invalid map id).
     /// </summary>
     public string? MapRecordUrl =>
-        DualWriteMapLink.BuildMapRecordUrl(_activeEnv()?.DataverseUrl, DetailMap?.Id);
+        DualWriteMapLink.BuildMapRecordUrl(_loadedProfile?.DataverseUrl, DetailMap?.Id);
 
     /// <summary>True when the inspected map has an openable/copyable Dataverse record link.</summary>
     public bool HasMapLink => MapRecordUrl is not null;
@@ -248,6 +256,7 @@ public partial class DualWriteMapViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(HasMapLink))]
     private async Task OpenMapLink()
     {
+        if (_disposed) return;
         try
         {
             await _launcher.OpenAsync(MapRecordUrl);
@@ -262,6 +271,7 @@ public partial class DualWriteMapViewModel : ObservableObject
     [RelayCommand(CanExecute = nameof(HasMapLink))]
     private async Task CopyMapLink()
     {
+        if (_disposed) return;
         if (MapRecordUrl is not { } url)
         {
             return;
@@ -280,7 +290,9 @@ public partial class DualWriteMapViewModel : ObservableObject
 
     private async Task LoadSolutionsAsync(CancellationToken ct)
     {
+        var generation = Volatile.Read(ref _generation);
         var result = await _reader.GetSolutionsAsync(ct);
+        if (_disposed || generation != Volatile.Read(ref _generation)) return;
         // A solutions failure shouldn't block the maps; just leave the picker with only "All".
         _allSolutions = result.IsSuccess ? result.Solutions.ToList() : new List<DwSolution>();
 
@@ -302,12 +314,19 @@ public partial class DualWriteMapViewModel : ObservableObject
         // window is the microseconds between this line and the reader resolving the environment — and it
         // now errs the safe way: a mid-load switch leaves stamp = A while active = B, so counting is
         // blocked until an explicit reload.
-        var envId = _activeEnv()?.Id;
+        var profile = _activeEnv();
+        var identity = EnvironmentIdentity.TryCreate(profile);
+        var generation = Interlocked.Increment(ref _generation);
         _activeLoads++;
         IsLoading = true;
         try
         {
             var result = await _reader.GetMapsAsync(solutionName, ct);
+
+            if (!CanCommit(identity, generation))
+            {
+                return;
+            }
 
             // Drop a stale result if the solution filter moved on while this load was in flight.
             if (CurrentSolutionFilter() != solutionName)
@@ -331,7 +350,8 @@ public partial class DualWriteMapViewModel : ObservableObject
                 // Stamp what these maps belong to — the environment captured before the read, not whatever
                 // is active now (a failed load keeps the previous stamp along with the stale-but-useful
                 // catalogue, so counting stays blocked until a load actually succeeds).
-                _loadedEnvId = envId;
+                _loadedProfile = profile;
+                _loadedIdentity = identity;
                 OnPropertyChanged(nameof(Filtered));
                 OnPropertyChanged(nameof(HasMaps));
 
@@ -461,6 +481,11 @@ public partial class DualWriteMapViewModel : ObservableObject
 
     partial void OnDetailMapChanged(DwMapRecord? value)
     {
+        if (value is not null && _loadedProfile is null)
+        {
+            _loadedProfile = _activeEnv();
+            _loadedIdentity = EnvironmentIdentity.TryCreate(_loadedProfile);
+        }
         // A stale "Exported to …" message shouldn't linger once a different map is inspected.
         ExportStatus = string.Empty;
 
@@ -486,13 +511,18 @@ public partial class DualWriteMapViewModel : ObservableObject
 
     // True when the displayed maps came from a different environment than the one now active.
     private bool EnvChangedSinceLoad() =>
-        !string.Equals(_activeEnv()?.Id, _loadedEnvId, StringComparison.Ordinal);
+        _environmentBound && !Equals(_loadedIdentity, EnvironmentIdentity.TryCreate(_activeEnv()));
+
+    private bool CanCommit(EnvironmentIdentity? identity, int generation) =>
+        !_disposed && generation == Volatile.Read(ref _generation) &&
+        (!_environmentBound || Equals(identity, EnvironmentIdentity.TryCreate(_activeEnv())));
 
     // Counts the F&O and Dataverse (CE) rows for each leg (applying the leg's source / reversed-source
     // filters) and compares them. Concurrent-safe via the cancel command.
     [RelayCommand(IncludeCancelCommand = true)]
     private async Task CountAllRows(CancellationToken ct)
     {
+        if (_disposed) return;
         // Checked up front so a run that is already stale never starts, then re-checked before every
         // single request below. Bails before any request so no row is filled with another environment's
         // numbers.
@@ -715,5 +745,16 @@ public partial class DualWriteMapViewModel : ObservableObject
         }
 
         return _metadata.GetFields(entity);
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Interlocked.Increment(ref _generation);
+        InitializeCommand.Cancel();
+        ReloadMapsCommand.Cancel();
+        CountAllRowsCommand.Cancel();
+        ExportMarkdownCommand.Cancel();
     }
 }

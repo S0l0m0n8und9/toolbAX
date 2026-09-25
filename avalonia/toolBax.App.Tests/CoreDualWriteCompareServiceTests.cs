@@ -82,7 +82,7 @@ public class CoreDualWriteCompareServiceTests
 
             return new DualWriteSession(
                 new FakeCoreDualWriteGateway(FakeDualWriteConnector.SeedMaps()),
-                "fake-cid", "Contoso", env.Id, "https://fake-gateway.dual-write.example");
+                "fake-cid", "Contoso", env, "https://fake-gateway.dual-write.example");
         }
     }
 }

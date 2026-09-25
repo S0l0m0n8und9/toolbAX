@@ -1116,6 +1116,30 @@ public class PostBuilderViewModelTests
         }
     }
 
+    private sealed class CallbackDialogs : IDialogService
+    {
+        private readonly Action _duringConfirmation;
+        public CallbackDialogs(Action duringConfirmation) => _duringConfirmation = duringConfirmation;
+        public Task<bool> ConfirmAsync(ConfirmRequest request)
+        {
+            _duringConfirmation();
+            return Task.FromResult(true);
+        }
+    }
+
+    private sealed class RequestSnapshotClient : IODataClient
+    {
+        public (string Method, string Path, string? Body, IReadOnlyDictionary<string, string>? Headers)? Last { get; private set; }
+        public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default) =>
+            SendAsync(method, path, body, null, ct);
+        public Task<ODataResponse> SendAsync(string method, string path, string? body,
+            IReadOnlyDictionary<string, string>? headers, CancellationToken ct = default)
+        {
+            Last = (method, path, body, headers);
+            return Task.FromResult(new ODataResponse(204, "No Content", string.Empty, 1));
+        }
+    }
+
     [Fact]
     public async Task Send_is_blocked_when_the_confirm_dialog_is_declined()
     {
@@ -1140,6 +1164,37 @@ public class PostBuilderViewModelTests
         await vm.SendCommand.ExecuteAsync(null);
 
         Assert.Equal("/data/E(1)", recorder.LastPath);
+    }
+
+    [Fact]
+    public async Task Send_uses_the_exact_request_snapshot_that_was_confirmed()
+    {
+        var client = new RequestSnapshotClient();
+        PostBuilderViewModel? vm = null;
+        var dialogs = new CallbackDialogs(() =>
+        {
+            vm!.Method = "DELETE";
+            vm.Path = "/data/Changed(2)";
+            vm.RequestBody = "{\"changed\":true}";
+            vm.IfMatch = "changed-etag";
+        });
+        vm = new PostBuilderViewModel(client, dialogs: dialogs)
+        {
+            Method = "PATCH",
+            Path = "/data/Original(1)",
+            RequestBody = "{\"original\":true}",
+            UseIfMatch = true,
+            IfMatch = "original-etag",
+        };
+
+        await vm.SendCommand.ExecuteAsync(null);
+
+        var sent = Assert.IsType<(string Method, string Path, string? Body,
+            IReadOnlyDictionary<string, string>? Headers)>(client.Last);
+        Assert.Equal("PATCH", sent.Method);
+        Assert.Equal("/data/Original(1)", sent.Path);
+        Assert.Equal("{\"original\":true}", sent.Body);
+        Assert.Equal("original-etag", sent.Headers!["If-Match"]);
     }
 
     [Fact]
