@@ -1,8 +1,8 @@
 # Compare result context (H06c proposal)
 
-## Status and verified baseline
+## Status: accepted for implementation
 
-This is a specification only; no source, tests, UI, or tracker state changes are proposed here.
+This design is accepted. The next stage starts with baseline-failing behavioral tests; production implementation remains separate.
 
 `DualWriteCompareViewModel` snapshots source/target for service invocation but commits by lifecycle generation only. Selector changes do not invalidate prior/in-flight results. `RefreshEnvironments` reloads/rebinds immutable profiles by ID on activation but explicitly leaves results untouched, and Shell caches the VM. Core comparison already retains H02 sequential UI-context sign-in and H06b Unknown/scope behavior; preserve both.
 
