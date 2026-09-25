@@ -66,6 +66,64 @@ public class DualWriteCompareContextTests
     }
 
     [Fact]
+    public async Task Late_error_after_target_change_does_not_publish_error()
+    {
+        var (_, vm, service) = Make();
+        var compare = vm.CompareCommand.ExecuteAsync(null);
+        vm.SelectedTarget = vm.Environments[0];
+        service.Gate.SetException(new InvalidOperationException("late failure"));
+        await compare;
+
+        Assert.Null(vm.Error);
+        Assert.False(vm.HasResult);
+    }
+
+    [Fact]
+    public async Task Changing_source_clears_completed_result_and_error()
+    {
+        var (_, vm, service) = Make();
+        var compare = vm.CompareCommand.ExecuteAsync(null);
+        service.Gate.SetResult(new[] { Row() });
+        await compare;
+        vm.Error = "old error";
+
+        vm.SelectedSource = vm.Environments[1];
+
+        Assert.False(vm.HasResult);
+        Assert.Empty(vm.DiffRows);
+        Assert.Empty(vm.Summary);
+        Assert.Equal(0, vm.ComparedCount);
+        Assert.Null(vm.Error);
+    }
+
+    [Fact]
+    public async Task Unchanged_refresh_preserves_completed_result()
+    {
+        var (_, vm, service) = Make();
+        var compare = vm.CompareCommand.ExecuteAsync(null);
+        service.Gate.SetResult(new[] { Row() });
+        await compare;
+
+        vm.RefreshEnvironmentsCommand.Execute(null);
+
+        Assert.True(vm.HasResult);
+        Assert.Single(vm.DiffRows);
+    }
+
+    [Fact]
+    public async Task Disposed_compare_rejects_late_publication()
+    {
+        var (_, vm, service) = Make();
+        var compare = vm.CompareCommand.ExecuteAsync(null);
+        vm.Dispose();
+        service.Gate.SetResult(new[] { Row() });
+        await compare;
+
+        Assert.False(vm.HasResult);
+        Assert.Empty(vm.DiffRows);
+    }
+
+    [Fact]
     public async Task Overlapping_direct_compares_start_only_one_service_call()
     {
         var (_, vm, service) = Make();
