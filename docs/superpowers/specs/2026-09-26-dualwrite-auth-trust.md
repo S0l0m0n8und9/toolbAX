@@ -126,3 +126,6 @@ Behavioral RED against the integrated pre-adapter source showed the matching dom
 ### Parent review and complete offline gates
 
 Parent review accepted Core phases 1/2a and native phase 2b at source `cab116221aa03560dc15c010bceadffb8432a53e`. With `CI=true`, both Release solutions built with zero warnings/errors; the full Windows App suite with `EnableWebView2=true` passed 1,381/1,381 and Core passed 566/566, with zero failed/skipped. Evidence is `artifacts/h05/full-{app,core}-build.log`, `full-{app,core}-test.log` and `full-{app,core}.trx`. PR creation, hosted review/CI, merge and live commercial-cloud sign-in acceptance remain pending. No browser was launched and no real WebView profile was cleared during validation.
+
+
+Integrated checkpoint after H08a PR #229 merged: at 6628d06b862fb01a336c1e42f31d01adc2778d33, CI=true Release App build with EnableWebView2=true passed with zero warnings/errors and the full App suite passed 1,491/1,491, zero failed/skipped. Evidence: rtifacts/h05/integrated-h08-app-build.log, integrated-h08-app-test.log and integrated-h08-app.trx. Core production and test files are unchanged from cab116221aa03560dc15c010bceadffb8432a53e by verified diff, so the prior 566/566 Core result remains applicable. No live browser, tenant or gateway calls were made.
