@@ -630,32 +630,49 @@ public class ProfilesViewModelTests
         Assert.DoesNotContain($"Signed out of '{vm.Selected.Name}'", vm.Status, StringComparison.Ordinal);
     }
 
-    [Fact]
-    public async Task Saving_an_auth_config_change_evicts_the_old_cached_session()
+    [Theory]
+    [InlineData("mode")]
+    [InlineData("client")]
+    [InlineData("tenant")]
+    public async Task Saving_auth_config_changes_never_implicitly_signs_out_shared_cache(string change)
     {
-        var auth = new AwaitableAuthService();
+        var auth = new FakeAuthService();
         var vm = new ProfilesViewModel(new FakeProfileStore(), auth: auth);
         vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
 
-        vm.DraftClientId = "11111111-changed-client-id";
+        if (change == "mode") vm.DraftAuthMode = FoAuthMode.ClientSecret;
+        else if (change == "client") vm.DraftClientId = "11111111-changed-client-id";
+        else vm.DraftTenant = "changed-tenant";
         await vm.SaveCommand.ExecuteAsync(null);
-        var signedOut = await auth.FirstSignedOut.Task.WaitAsync(
-            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
-        // Changing the client id makes any cached token for the old identity stale → evict it.
-        Assert.Equal("uat-eur", signedOut.Id);
+        Assert.Equal(0, auth.SignOutCount);
+        Assert.Contains("Saved", vm.Status);
     }
 
     [Fact]
     public async Task Saving_a_non_auth_change_does_not_evict_the_session()
     {
-        var auth = new AwaitableAuthService();
+        var auth = new FakeAuthService();
         var vm = new ProfilesViewModel(new FakeProfileStore(), auth: auth);
         vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
 
         // A pure rename changes nothing about the auth identity, so it must not force a re-auth.
         vm.DraftName = "EMEA UAT (renamed)";
         await vm.SaveCommand.ExecuteAsync(null);
+
+        Assert.Equal(0, auth.SignOutCount);
+    }
+
+    [Fact]
+    public async Task Disposing_immediately_after_auth_save_has_no_queued_signout()
+    {
+        var auth = new FakeAuthService();
+        var vm = new ProfilesViewModel(new FakeProfileStore(), auth: auth);
+        vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
+        vm.DraftClientId = "changed-before-dispose";
+
+        await vm.SaveCommand.ExecuteAsync(null);
+        vm.Dispose();
 
         Assert.Equal(0, auth.SignOutCount);
     }
@@ -989,25 +1006,6 @@ public class ProfilesViewModelTests
             throw new PlatformNotSupportedException("The DPAPI secret vault is Windows-only.");
 
         public void ClearSecret(string key, SecretTarget target = SecretTarget.Fo) { }
-    }
-
-    private sealed class AwaitableAuthService : IAuthService
-    {
-        public TaskCompletionSource<EnvProfile> FirstSignedOut { get; } =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public int SignOutCount { get; private set; }
-        public Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default) =>
-            Task.FromResult("fo");
-        public Task<string> AcquireDataverseTokenAsync(EnvProfile env, CancellationToken ct = default) =>
-            Task.FromResult("dv");
-        public Task<string> AcquireDualWriteTokenAsync(EnvProfile env, CancellationToken ct = default) =>
-            Task.FromResult("dw");
-        public Task SignOutAsync(EnvProfile env, CancellationToken ct = default)
-        {
-            SignOutCount++;
-            FirstSignedOut.TrySetResult(env);
-            return Task.CompletedTask;
-        }
     }
 
     [Fact]

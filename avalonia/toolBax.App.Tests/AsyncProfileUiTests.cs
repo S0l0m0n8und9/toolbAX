@@ -117,41 +117,6 @@ public sealed class AsyncProfileUiTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task Save_releases_editor_and_live_gate_before_blocking_old_identity_eviction(bool throwLate)
-    {
-        var gate = new EnvironmentWriteGate();
-        var auth = new BlockingEvictionAuth { ThrowAfterRelease = throwLate };
-        var store = new ControlledProfileStore(Profile("a", "A"), Profile("b", "Old B"));
-        using var vm = new ProfilesViewModel(store, auth: auth, environmentWriteGate: gate);
-        vm.Selected = vm.Profiles.Single(profile => profile.Id == "b");
-        var old = vm.Selected;
-        vm.DraftClientId = "replacement-client";
-
-        var saving = Task.Run(
-            () => vm.SaveCommand.ExecuteAsync(null), TestContext.Current.CancellationToken);
-        await auth.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-
-        try
-        {
-            await saving.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-            Assert.False(vm.IsPersisting);
-            Assert.True(vm.CanEditProfile);
-            Assert.Contains("Saved", vm.Status);
-            Assert.True(gate.TryAcquireLiveWrite(out var live));
-            live!.Dispose();
-            Assert.Same(old, auth.Captured);
-        }
-        finally
-        {
-            auth.Release.Set();
-        }
-        await auth.Completed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
-        Assert.Contains("Saved", vm.Status);
-    }
-
-    [Theory]
     [InlineData("selection")]
     [InlineData("draft")]
     [InlineData("aba")]
@@ -830,36 +795,6 @@ public sealed class AsyncProfileUiTests
         }
         public void SetSecret(string key, string plaintext, SecretTarget target = SecretTarget.Fo) { }
         public void ClearSecret(string key, SecretTarget target = SecretTarget.Fo) { }
-    }
-
-    private sealed class BlockingEvictionAuth : IAuthService
-    {
-        public TaskCompletionSource<bool> Started { get; } = NewGate();
-        public TaskCompletionSource<bool> Completed { get; } = NewGate();
-        public ManualResetEventSlim Release { get; } = new(false);
-        public bool ThrowAfterRelease { get; init; }
-        public EnvProfile? Captured { get; private set; }
-        public Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default) =>
-            Task.FromResult("fo");
-        public Task<string> AcquireDataverseTokenAsync(EnvProfile env, CancellationToken ct = default) =>
-            Task.FromResult("dv");
-        public Task<string> AcquireDualWriteTokenAsync(EnvProfile env, CancellationToken ct = default) =>
-            Task.FromResult("dw");
-        public Task SignOutAsync(EnvProfile env, CancellationToken ct = default)
-        {
-            Captured = env;
-            Started.TrySetResult(true);
-            try
-            {
-                Release.Wait(); // deliberate: models synchronous local token-cache work.
-                if (ThrowAfterRelease) throw new InvalidOperationException("late eviction failure");
-                return Task.CompletedTask;
-            }
-            finally
-            {
-                Completed.TrySetResult(true);
-            }
-        }
     }
 
     private sealed class CountingConnectionTester : IConnectionTester
