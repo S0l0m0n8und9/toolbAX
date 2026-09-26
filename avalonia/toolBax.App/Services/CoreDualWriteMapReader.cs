@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using FoToolbox.Core.Auth;
+using FoToolbox.Core.Net;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 
@@ -164,7 +165,9 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
     // "No Dataverse URL" message, and fabricating an absolute URL from nothing would replace that clear
     // diagnosis with an origin refusal.
     private static string Pinned(string? apiBase, string path) =>
-        apiBase is null ? path : $"{apiBase}/{path}";
+        path.StartsWith("http", StringComparison.OrdinalIgnoreCase) || apiBase is null
+            ? path
+            : $"{apiBase}/{path.TrimStart('/')}";
 
     // The captured environment's Dataverse Web API base as an ABSOLUTE url, or null when it has no endpoint.
     // Mirrors CoreDataverseClient.BuildUri including its scheme repair, so a pinned url is exactly the base
@@ -306,23 +309,32 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         CancellationToken ct)
     {
         string? pathOrUrl = Pinned(apiBase, firstPath);
+        var visits = new PageVisitTracker();
         while (pathOrUrl is not null)
         {
             ct.ThrowIfCancellationRequested();
             if (identity is not null && !identity.IsCurrent(_activeEnv()))
             {
+                sink.Clear();
                 return $"Couldn't load {subject} — the active environment changed.";
+            }
+            if (!visits.TryVisit(pathOrUrl, baseAddress: null, out _))
+            {
+                sink.Clear();
+                return $"Couldn't load {subject}: paging stopped because the service repeated a request target. Results are incomplete.";
             }
 
             var response = await ReadAsync(pathOrUrl, ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
             if (identity is not null && !identity.IsCurrent(_activeEnv()))
             {
+                sink.Clear();
                 return $"Couldn't load {subject} — the active environment changed.";
             }
 
             if (!response.IsSuccess)
             {
+                sink.Clear();
                 return DescribeFailure(response, subject);
             }
 
@@ -341,7 +353,7 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
             }
             ct.ThrowIfCancellationRequested();
             sink.AddRange(items);
-            pathOrUrl = nextLink; // absolute URL; the client uses it verbatim
+            pathOrUrl = nextLink is null ? null : Pinned(apiBase, nextLink);
         }
 
         ct.ThrowIfCancellationRequested();

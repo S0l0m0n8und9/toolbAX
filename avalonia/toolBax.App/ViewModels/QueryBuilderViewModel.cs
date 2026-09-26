@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using FoToolbox.Core.Net;
 using ToolBax.App.Services;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
@@ -33,6 +34,11 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
     private int _fieldReadSequence;
     private EnvironmentIdentity? _loadedResultsIdentity;
     private int _loadedResultsGeneration = -1;
+    private HashSet<string> _resultPageTargets = new(StringComparer.Ordinal);
+    private string? _resultRequestBase;
+    private const string PagingCycleMessage = "Paging stopped: repeated continuation; results are incomplete.";
+    private const string ExportCycleMessage = "Export stopped: repeated continuation; results are incomplete. No file was saved.";
+    private const string InvalidCollectionMessage = "Paging stopped: the service returned an invalid collection response; results are incomplete.";
 
     // Hard cap on pages an "export all" will follow, so a misbehaving nextLink can't loop forever.
     private const int MaxExportPages = 500;
@@ -450,6 +456,8 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
         // Invalidate any in-flight Run / LoadMore so its completion is discarded instead of repopulating
         // the grid the switch just emptied (PR #193 review).
         _resultsGeneration++;
+        _resultPageTargets.Clear();
+        _resultRequestBase = null;
         _derivedColumnNames = null; // no header to grow until the next run establishes one
         _loadedResultsIdentity = null;
         _loadedResultsGeneration = -1;
@@ -880,6 +888,8 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
         {
             var columns = SelectedColumns().ToList();
             var path = BuildPath(forRequest: true);
+            var requestBase = identity?.FoEndpoint;
+            var visited = new HashSet<string>(StringComparer.Ordinal) { RequestTargetKey(path, requestBase) };
             ct.ThrowIfCancellationRequested();
             var response = await _client.SendAsync("GET", path, body: null, ct);
             ct.ThrowIfCancellationRequested();
@@ -899,18 +909,21 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
                 MergeDerivedColumns(response.Body, columns, derived);
             }
             var rows = response.IsSuccess ? ParseRows(response.Body, columns).ToList() : new List<QueryResultRow>();
-            var metadata = response.IsSuccess ? ParseMeta(response.Body) : (null, (string?)null);
+            var (count, next) = response.IsSuccess ? ParseMeta(response.Body) : (null, (string?)null);
+            var cycle = next is not null && visited.Contains(RequestTargetKey(next, requestBase));
             ct.ThrowIfCancellationRequested();
             if (readOwner != Volatile.Read(ref _readSequence) || !IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             _derivedColumnNames = derived;
             ResultRows.Clear();
             ResultColumns = columns;
-            (TotalCount, NextLink) = metadata;
+            (TotalCount, NextLink) = (count, cycle ? null : next);
+            _resultPageTargets = response.IsSuccess ? visited : new HashSet<string>(StringComparer.Ordinal);
+            _resultRequestBase = response.IsSuccess ? requestBase : null;
             foreach (var row in rows) ResultRows.Add(row);
             RowCount = ResultRows.Count;
-            RunSucceeded = response.IsSuccess;
+            RunSucceeded = response.IsSuccess && !cycle;
             StatusBadge = $"{response.StatusCode} {response.ReasonPhrase}";
-            StatusText = $"{DescribeCount()} · {response.StatusLine}";
+            StatusText = cycle ? PagingCycleMessage : $"{DescribeCount()} · {response.StatusLine}";
             HasRun = true;
             _loadedResultsIdentity = response.IsSuccess ? identity : null;
             _loadedResultsGeneration = response.IsSuccess ? lifecycleGeneration : -1;
@@ -1024,6 +1037,14 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
         try
         {
             ct.ThrowIfCancellationRequested();
+            var targetKey = RequestTargetKey(link, _resultRequestBase);
+            if (_resultPageTargets.Contains(targetKey))
+            {
+                NextLink = null;
+                RunSucceeded = false;
+                StatusText = PagingCycleMessage;
+                return;
+            }
             var response = await _client.SendAsync("GET", link, body: null, ct);
             ct.ThrowIfCancellationRequested();
 
@@ -1035,6 +1056,7 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
                 return;
             }
 
+            var cycle = false;
             if (response.IsSuccess)
             {
                 var columns = ResultColumns.ToList();
@@ -1042,19 +1064,22 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
                 if (derived is not null) MergeDerivedColumns(response.Body, columns, derived);
                 var rows = ParseRows(response.Body, columns).ToList();
                 var (count, next) = ParseMeta(response.Body);
+                var visited = new HashSet<string>(_resultPageTargets, StringComparer.Ordinal) { targetKey };
+                cycle = next is not null && visited.Contains(RequestTargetKey(next, _resultRequestBase));
                 ct.ThrowIfCancellationRequested();
                 if (readOwner != Volatile.Read(ref _readSequence) || !IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
                 _derivedColumnNames = derived;
                 if (columns.Count != ResultColumns.Count) ResultColumns = columns;
                 foreach (var row in rows) ResultRows.Add(row);
                 TotalCount = count ?? TotalCount;
-                NextLink = next;
+                NextLink = cycle ? null : next;
+                _resultPageTargets = visited;
             }
             // Reflect the latest call in the badge, so a failed page doesn't keep showing the prior success.
-            RunSucceeded = response.IsSuccess;
+            RunSucceeded = response.IsSuccess && !cycle;
             StatusBadge = $"{response.StatusCode} {response.ReasonPhrase}";
             RowCount = ResultRows.Count;
-            StatusText = $"{DescribeCount()} · {response.StatusLine}";
+            StatusText = cycle ? PagingCycleMessage : $"{DescribeCount()} · {response.StatusLine}";
         }
         // Only a cancelled token is the user asking to stop; a timeout arrives the same way and is a
         // failure (see Run).
@@ -1079,6 +1104,16 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
         }
     }
 
+    // Match CoreODataClient's append-to-resource behavior, including reverse-proxy path prefixes.
+    // Passing a relative request directly to RFC URI resolution would discard those prefixes.
+    private static string RequestTargetKey(string target, string? requestBase)
+    {
+        var actual = !target.StartsWith("http", StringComparison.OrdinalIgnoreCase) && requestBase is not null
+            ? $"{requestBase.TrimEnd('/')}/{target.TrimStart('/')}"
+            : target;
+        var uri = PageVisitTracker.ResolveRequestUri(actual, null);
+        return uri?.GetComponents(UriComponents.HttpRequestUrl, UriFormat.UriEscaped) ?? actual;
+    }
     private string DescribeCount() =>
         TotalCount is { } total ? $"{RowCount} of {total} rows" : $"{RowCount} rows";
 
@@ -1087,7 +1122,7 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
     {
         if (string.IsNullOrWhiteSpace(body))
         {
-            return (null, null);
+            throw new InvalidOperationException(InvalidCollectionMessage);
         }
 
         try
@@ -1096,7 +1131,11 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
             {
-                return (null, null);
+                throw new InvalidOperationException(InvalidCollectionMessage);
+            }
+            if (!root.TryGetProperty("value", out var value) || value.ValueKind != JsonValueKind.Array)
+            {
+                throw new InvalidOperationException(InvalidCollectionMessage);
             }
 
             long? count = null;
@@ -1112,16 +1151,16 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
                 }
             }
 
-            var next = root.TryGetProperty("@odata.nextLink", out var nl) && nl.ValueKind == JsonValueKind.String
-                ? nl.GetString()
-                : null;
-
+            string? next = null;
+            if (root.TryGetProperty("@odata.nextLink", out var nl) && nl.ValueKind != JsonValueKind.Null)
+            {
+                if (nl.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(nl.GetString()))
+                    throw new InvalidOperationException("Incomplete paging response: continuation must be a nonblank string.");
+                next = nl.GetString();
+            }
             return (count, next);
         }
-        catch (JsonException)
-        {
-            return (null, null);
-        }
+        catch (JsonException) { throw; }
     }
 
     // Rows alone aren't enough: a run can land rows with no columns (a $select=* payload whose objects
@@ -1236,12 +1275,19 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
             var seen = new HashSet<string>(StringComparer.Ordinal);
             var rows = new List<QueryResultRow>();
             var path = BuildPath(forRequest: true, unbounded: true);
+            var requestBase = identity?.FoEndpoint;
+            var visited = new HashSet<string>(StringComparer.Ordinal);
             var pages = 0;
             var capped = false;
 
             while (true)
             {
                 ct.ThrowIfCancellationRequested();
+                if (!visited.Add(RequestTargetKey(path, requestBase)))
+                {
+                    StatusText = ExportCycleMessage;
+                    return;
+                }
                 var response = await _client.SendAsync("GET", path, body: null, ct);
                 ct.ThrowIfCancellationRequested();
                 if (readOwner != Volatile.Read(ref _readSequence) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
@@ -1263,6 +1309,13 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
                 if (string.IsNullOrEmpty(next))
                 {
                     break;
+                }
+
+                ct.ThrowIfCancellationRequested();
+                if (visited.Contains(RequestTargetKey(next, requestBase)))
+                {
+                    StatusText = ExportCycleMessage;
+                    return;
                 }
 
                 if (++pages >= MaxExportPages)
@@ -1355,17 +1408,24 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
     {
         if (string.IsNullOrWhiteSpace(body))
         {
-            yield break;
+            throw new InvalidOperationException(InvalidCollectionMessage);
         }
 
         using var doc = JsonDocument.Parse(body);
-        if (!doc.RootElement.TryGetProperty("value", out var value) || value.ValueKind != JsonValueKind.Array)
+        if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+            !doc.RootElement.TryGetProperty("value", out var value) ||
+            value.ValueKind != JsonValueKind.Array)
         {
-            yield break;
+            throw new InvalidOperationException(InvalidCollectionMessage);
         }
 
         foreach (var item in value.EnumerateArray())
         {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                throw new InvalidOperationException(InvalidCollectionMessage);
+            }
+
             // A column the payload omits is stored as null — the same shape an explicit JSON null takes,
             // and what QueryResultRow renders as the em-dash. Nullness stays a property of the cell
             // rather than of its display text (see QueryResultRow).

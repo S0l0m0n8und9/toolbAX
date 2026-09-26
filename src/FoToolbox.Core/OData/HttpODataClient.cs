@@ -28,16 +28,23 @@ public sealed class HttpODataClient : IODataClient
     {
         cancellationToken.ThrowIfCancellationRequested();
         var next = request.Url;
+        var visits = new PageVisitTracker();
         // The initial request defines the trusted origin: its absolute URL, or the HttpClient's
         // BaseAddress when the request URL is relative. A server-supplied @odata.nextLink must stay on
         // that origin, so the (possibly auth-bearing) HttpClient never follows a page off-origin. Every
-        // nextLink is resolved against that origin before the check (see IsSameOriginNextLink); if no
-        // origin can be determined, any nextLink is refused (fail closed).
-        var origin = Uri.TryCreate(request.Url, UriKind.Absolute, out var seed) ? seed : _httpClient.BaseAddress;
+        // nextLink is resolved against the client's actual BaseAddress before the check (see
+        // IsSameOriginNextLink); if no request target can be resolved, the continuation is refused.
+        var origin = PageVisitTracker.ResolveRequestUri(request.Url, _httpClient.BaseAddress);
         while (!string.IsNullOrWhiteSpace(next))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            using var msg = new HttpRequestMessage(HttpMethod.Get, next);
+            if (!visits.TryVisit(next, _httpClient.BaseAddress, out var resolvedRequestUri))
+            {
+                throw new InvalidOperationException(
+                    "Paging stopped because the service returned a previously visited request target. Results are incomplete.");
+            }
+
+            using var msg = new HttpRequestMessage(HttpMethod.Get, resolvedRequestUri ?? new Uri(next, UriKind.RelativeOrAbsolute));
             msg.Headers.Accept.Clear();
             msg.Headers.Accept.Add(JsonAccept);
 
@@ -88,18 +95,23 @@ public sealed class HttpODataClient : IODataClient
                     cancellationToken.ThrowIfCancellationRequested();
                     var root = doc.RootElement;
 
-                    var rows = new List<IReadOnlyDictionary<string, object?>>();
-                    if (root.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.Array)
+                    if (root.ValueKind != JsonValueKind.Object ||
+                        !root.TryGetProperty("value", out var value) ||
+                        value.ValueKind != JsonValueKind.Array)
                     {
-                        foreach (var element in value.EnumerateArray())
+                        throw new InvalidOperationException(
+                            "Paging stopped because the service returned an invalid collection response. Results are incomplete.");
+                    }
+
+                    var rows = new List<IReadOnlyDictionary<string, object?>>();
+                    foreach (var element in value.EnumerateArray())
+                    {
+                        var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+                        foreach (var prop in element.EnumerateObject())
                         {
-                            var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
-                            foreach (var prop in element.EnumerateObject())
-                            {
-                                dict[prop.Name] = JsonElementToObject(prop.Value);
-                            }
-                            rows.Add(dict);
+                            dict[prop.Name] = JsonElementToObject(prop.Value);
                         }
+                        rows.Add(dict);
                     }
 
                     long? odataCount = null;
@@ -121,10 +133,30 @@ public sealed class HttpODataClient : IODataClient
                         odataContext = ctxEl.GetString();
                     }
 
-                    root.TryGetProperty("@odata.nextLink", out var nlElement);
-                    next = nlElement.ValueKind == JsonValueKind.String ? nlElement.GetString() : null;
+                    if (!root.TryGetProperty("@odata.nextLink", out var nlElement) ||
+                        nlElement.ValueKind == JsonValueKind.Null)
+                    {
+                        next = null;
+                    }
+                    else if (nlElement.ValueKind == JsonValueKind.String)
+                    {
+                        next = nlElement.GetString();
+                        if (string.IsNullOrWhiteSpace(next))
+                        {
+                            throw new InvalidOperationException(
+                                "Paging stopped because the service returned an invalid continuation. Results are incomplete.");
+                        }
+                    }
+                    else
+                    {
+                        throw new InvalidOperationException(
+                            "Paging stopped because the service returned an invalid continuation. Results are incomplete.");
+                    }
 
-                    if (!string.IsNullOrWhiteSpace(next) && !IsSameOriginNextLink(origin, next!))
+                    var resolvedNext = next is null
+                        ? null
+                        : PageVisitTracker.ResolveRequestUri(next, _httpClient.BaseAddress);
+                    if (next is not null && !IsSameOriginNextLink(origin, resolvedNext))
                     {
                         throw new InvalidOperationException(
                             "Refusing to follow an @odata.nextLink that points to a different origin than the request: " +
@@ -150,25 +182,20 @@ public sealed class HttpODataClient : IODataClient
     /// True when a server-supplied <c>@odata.nextLink</c> is safe to follow on the (token-bearing) client.
     /// </summary>
     /// <remarks>
-    /// The link is resolved the same way <see cref="HttpClient"/> will resolve it (RFC 3986 §5.3) and the
-    /// resolved origin is then compared with the trusted one, rather than only checking links that parse
-    /// as absolute URIs. That matters for a <c>//host/path</c> network-path reference (RFC 3986 §4.2):
-    /// it keeps the base scheme but <em>replaces the authority</em>, and whether
-    /// <c>Uri.TryCreate(.., UriKind.Absolute, ..)</c> accepts it is platform-dependent — on Windows it
-    /// becomes an implicit UNC <c>file://</c> URI, elsewhere it stays "relative" and an absolute-only
-    /// check waves it through, after which <c>BaseAddress</c> resolution sends the bearer to
-    /// <c>//attacker.example/steal</c>. Resolving first removes that platform dependency.
+    /// The candidate has already been resolved against the actual <see cref="HttpClient.BaseAddress"/>
+    /// used for dispatch. Comparing that exact URI prevents validating a relative continuation against
+    /// an absolute initial request while the client would send it through a different configured base.
     /// </remarks>
-    private static bool IsSameOriginNextLink(Uri? origin, string next)
+    private static bool IsSameOriginNextLink(Uri? origin, Uri? resolved)
     {
-        if (origin is null)
+        if (origin is null || resolved is null)
         {
             // No trusted origin to compare against, so nothing can be shown safe: fail closed. (Not
             // reachable in practice — a relative request URL with no BaseAddress fails on the first send.)
             return false;
         }
 
-        return Uri.TryCreate(origin, next, out var resolved) && RequestOriginGuard.IsSameOrigin(origin, resolved);
+        return RequestOriginGuard.IsSameOrigin(origin, resolved);
     }
 
     private static Exception BuildPluginFriendlyException(Exception exception)

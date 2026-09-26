@@ -25,7 +25,9 @@ public static class VirtualTableMetadataParser
 
     private const string EmptyGuid = "00000000-0000-0000-0000-000000000000";
 
-    public static IReadOnlyList<VirtualTableInfo> Parse(string? json)
+    public static IReadOnlyList<VirtualTableInfo> Parse(string? json) => ParsePage(json).Tables;
+
+    public static VirtualTableMetadataPage ParsePage(string? json)
     {
         var tables = new List<VirtualTableInfo>();
         if (string.IsNullOrWhiteSpace(json))
@@ -43,6 +45,7 @@ public static class VirtualTableMetadataParser
             throw new MetadataResponseFormatException("virtual table metadata response was not valid JSON.");
         }
 
+        string? continuation = null;
         using (doc)
         {
             if (doc.RootElement.ValueKind != JsonValueKind.Object
@@ -52,10 +55,13 @@ public static class VirtualTableMetadataParser
                 throw new MetadataResponseFormatException("virtual table metadata response had no array at value.");
             }
             if (doc.RootElement.TryGetProperty("@odata.nextLink", out var nextLink)
-                && nextLink.ValueKind != JsonValueKind.Null
-                && (nextLink.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(nextLink.GetString())))
+                && nextLink.ValueKind != JsonValueKind.Null)
             {
-                throw new MetadataResponseFormatException("virtual table metadata response had an invalid @odata.nextLink.");
+                if (nextLink.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(nextLink.GetString()))
+                {
+                    throw new MetadataResponseFormatException("virtual table metadata response had an invalid @odata.nextLink.");
+                }
+                continuation = nextLink.GetString();
             }
 
             foreach (var item in value.EnumerateArray())
@@ -93,7 +99,7 @@ public static class VirtualTableMetadataParser
             }
         }
 
-        return tables;
+        return new VirtualTableMetadataPage(tables, continuation);
     }
 
     private static string ReadString(JsonElement item, string name) =>

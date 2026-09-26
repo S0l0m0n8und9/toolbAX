@@ -21,6 +21,18 @@ public class VirtualTableMetadataParserTests
     [Fact]
     public void Valid_empty_collection_is_success() =>
         Assert.Empty(VirtualTableMetadataParser.Parse("{\"value\":[]}"));
+
+    [Fact]
+    public void ParsePage_returns_validated_continuation_without_changing_Parse_compatibility()
+    {
+        const string json = "{\"value\":[],\"@odata.nextLink\":\"Next?Token=Case\"}";
+
+        var page = VirtualTableMetadataParser.ParsePage(json);
+
+        Assert.Empty(page.Tables);
+        Assert.Equal("Next?Token=Case", page.NextLink);
+        Assert.Empty(VirtualTableMetadataParser.Parse(json));
+    }
     private const string Sample = """
     {"value":[
       {"LogicalName":"mserp_custcustomerv3entity","DisplayName":{"UserLocalizedLabel":{"Label":"Customer V3"}},"ExternalName":"CustCustomerV3Entity","ExternalCollectionName":"mserp_custcustomerv3entities","DataProviderId":"11111111-1111-1111-1111-111111111111","DataSourceId":"22222222-2222-2222-2222-222222222222","IsManaged":true},
