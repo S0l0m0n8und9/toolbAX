@@ -1,3 +1,6 @@
+using System;
+using System.IO;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using ToolBax.Core.Services;
@@ -16,6 +19,8 @@ public sealed class FakeFileSaveService : IFileSaveService
 
     public string? LastSuggestedName { get; private set; }
     public string? LastContent { get; private set; }
+    public int TextSaveCalls { get; private set; }
+    public int StreamSaveCalls { get; private set; }
 
     /// <summary>The file type the last save asked the picker for — a CSV export must not ask for Markdown.</summary>
     public SaveFileType? LastFileType { get; private set; }
@@ -23,9 +28,25 @@ public sealed class FakeFileSaveService : IFileSaveService
     public Task<string?> SaveTextAsync(string suggestedFileName, string content, SaveFileType fileType,
         CancellationToken ct = default)
     {
+        TextSaveCalls++;
         LastSuggestedName = suggestedFileName;
         LastContent = content;
         LastFileType = fileType;
         return Task.FromResult(_resultPath);
+    }
+
+    public async Task<string?> SaveStreamAsync(string suggestedFileName, Stream content,
+        SaveFileType fileType, CancellationToken ct = default)
+    {
+        StreamSaveCalls++;
+        ArgumentNullException.ThrowIfNull(content);
+        if (!content.CanRead) throw new ArgumentException("The source stream must be readable.", nameof(content));
+        LastSuggestedName = suggestedFileName;
+        LastFileType = fileType;
+        if (_resultPath is null) return null;
+        using var reader = new StreamReader(content, Encoding.UTF8, detectEncodingFromByteOrderMarks: true,
+            bufferSize: 4096, leaveOpen: true);
+        LastContent = await reader.ReadToEndAsync(ct);
+        return _resultPath;
     }
 }

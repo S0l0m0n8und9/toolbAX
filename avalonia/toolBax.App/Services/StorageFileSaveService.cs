@@ -20,6 +20,7 @@ namespace ToolBax.App.Services;
 /// </summary>
 public sealed class StorageFileSaveService : IFileSaveService
 {
+    private const int CopyBufferSize = 81920;
     private readonly TopLevel _topLevel;
 
     public StorageFileSaveService(TopLevel topLevel) => _topLevel = topLevel;
@@ -87,5 +88,46 @@ public sealed class StorageFileSaveService : IFileSaveService
         await using var stream = await file.OpenWriteAsync();
         await WriteTextAsync(stream, content);
         return file.Path.IsAbsoluteUri ? file.Path.LocalPath : file.Name;
+    }
+
+    public async Task<string?> SaveStreamAsync(string suggestedFileName, Stream content,
+        SaveFileType fileType, CancellationToken ct = default)
+    {
+        ValidateReadable(content);
+        var storage = _topLevel.StorageProvider;
+        if (storage is null || !storage.CanSave) return null;
+
+        var file = await storage.SaveFilePickerAsync(BuildOptions(suggestedFileName, fileType));
+        if (file is null) return null;
+
+        await CopyPickedStreamAsync(content, file.OpenWriteAsync, ct);
+        return file.Path.IsAbsoluteUri ? file.Path.LocalPath : file.Name;
+    }
+
+    internal static async Task CopyPickedStreamAsync(Stream content, Func<Task<Stream>> openWrite,
+        CancellationToken cancellationToken)
+    {
+        ValidateReadable(content);
+        cancellationToken.ThrowIfCancellationRequested();
+        var destination = await openWrite();
+        try
+        {
+            await using (destination)
+            {
+                await content.CopyToAsync(destination, CopyBufferSize, CancellationToken.None);
+                await destination.FlushAsync(CancellationToken.None);
+            }
+        }
+        catch (OperationCanceledException ex)
+        {
+            throw new IOException("Saving the selected file failed after it was opened.", ex);
+        }
+    }
+
+    private static void ValidateReadable(Stream content)
+    {
+        ArgumentNullException.ThrowIfNull(content);
+        if (!content.CanRead)
+            throw new ArgumentException("The source stream must be readable.", nameof(content));
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using ToolBax.App.Services;
@@ -90,6 +91,114 @@ public class QueryBuilderViewModelTests
         }
     }
 
+    private sealed class GatedSecondExportPageClient : IODataClient
+    {
+        private int _calls;
+        public TaskCompletionSource SecondPageEntered { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource ReleaseSecondPage { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async Task<ODataResponse> SendAsync(string method, string path, string? body,
+            CancellationToken ct = default)
+        {
+            if (Interlocked.Increment(ref _calls) == 1)
+            {
+                return new ODataResponse(200, "OK",
+                    "{\"value\":[{\"A\":\"1\"}],\"@odata.nextLink\":\"https://x/data/E?$skiptoken=p2\"}", 1);
+            }
+
+            SecondPageEntered.TrySetResult();
+            await ReleaseSecondPage.Task.WaitAsync(ct);
+            return new ODataResponse(200, "OK", "{\"value\":[]}", 1);
+        }
+    }
+
+    private sealed class LargeLazyExportClient(int pageCount, int rowsPerPage) : IODataClient
+    {
+        public int Calls { get; private set; }
+        public Task<ODataResponse> SendAsync(string method, string path, string? body,
+            CancellationToken ct = default)
+        {
+            ct.ThrowIfCancellationRequested();
+            Calls++;
+            if (Calls > pageCount) throw new InvalidOperationException("dispatch limit exceeded");
+            var json = new StringBuilder("{\"value\":[");
+            for (var index = 0; index < rowsPerPage; index++)
+            {
+                if (index > 0) json.Append(',');
+                json.Append("{\"A\":\"").Append(Calls).Append(':').Append(index).Append("\"}");
+            }
+            json.Append(']');
+            if (Calls < pageCount)
+                json.Append(",\"@odata.nextLink\":\"https://x/data/E?$skiptoken=p").Append(Calls + 1).Append("\"");
+            json.Append('}');
+            return Task.FromResult(new ODataResponse(200, "OK", json.ToString(), 1));
+        }
+    }
+
+    private sealed class StreamingSaveSink : IFileSaveService
+    {
+        public int TextCalls { get; private set; }
+        public int StreamCalls { get; private set; }
+        public long BytesRead { get; private set; }
+        public int LargestRead { get; private set; }
+        public bool BorrowedWasReadable { get; private set; }
+
+        public Task<string?> SaveTextAsync(string suggestedFileName, string content, SaveFileType fileType,
+            CancellationToken ct = default)
+        {
+            TextCalls++;
+            throw new InvalidOperationException("Export All must not materialize CSV text.");
+        }
+
+        public async Task<string?> SaveStreamAsync(string suggestedFileName, Stream content,
+            SaveFileType fileType, CancellationToken ct = default)
+        {
+            StreamCalls++;
+            BorrowedWasReadable = content.CanRead;
+            var buffer = new byte[4096];
+            while (true)
+            {
+                var read = await content.ReadAsync(buffer, ct);
+                if (read == 0) break;
+                BytesRead += read;
+                LargestRead = Math.Max(LargestRead, read);
+            }
+            return "streamed.csv";
+        }
+    }
+
+    private sealed class GatedStreamingSaveSink : IFileSaveService
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task<string?> SaveTextAsync(string suggestedFileName, string content, SaveFileType fileType,
+            CancellationToken ct = default) => throw new InvalidOperationException("Expected stream save.");
+        public async Task<string?> SaveStreamAsync(string suggestedFileName, Stream content,
+            SaveFileType fileType, CancellationToken ct = default)
+        {
+            Entered.TrySetResult();
+            await Release.Task;
+            return "prepared.csv";
+        }
+    }
+
+    private sealed class CancelThenFailingStreamSave : IFileSaveService
+    {
+        public Action? OnSave { get; set; }
+        public int Calls { get; private set; }
+        public Task<string?> SaveTextAsync(string suggestedFileName, string content, SaveFileType fileType,
+            CancellationToken ct = default) => throw new InvalidOperationException("Expected stream save.");
+        public Task<string?> SaveStreamAsync(string suggestedFileName, Stream content,
+            SaveFileType fileType, CancellationToken ct = default)
+        {
+            Calls++;
+            OnSave?.Invoke();
+            throw new IOException("disk failed after destination open");
+        }
+    }
+
     private sealed class CancelThenRetryPagingClient : IODataClient
     {
         public TaskCompletionSource EnteredCancelledPage { get; } =
@@ -126,6 +235,14 @@ public class QueryBuilderViewModelTests
         public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public CancellationToken ReceivedToken { get; private set; }
         public async Task<string?> SaveTextAsync(string suggestedFileName, string content, SaveFileType fileType,
+            CancellationToken ct = default)
+        {
+            ReceivedToken = ct;
+            Entered.TrySetResult();
+            await Release.Task.WaitAsync(ct);
+            return null;
+        }
+        public async Task<string?> SaveStreamAsync(string suggestedFileName, Stream content, SaveFileType fileType,
             CancellationToken ct = default)
         {
             ReceivedToken = ct;
@@ -713,6 +830,82 @@ public class QueryBuilderViewModelTests
         Assert.Equal("https://x/data/E?$skiptoken=p2", client.Requested[1]);
         Assert.DoesNotContain("$top=", client.Requested[0]);           // export-all is unbounded
         Assert.Contains("Saved", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task Export_all_reports_rows_and_pages_before_source_completion()
+    {
+        var client = new GatedSecondExportPageClient();
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client,
+            fileSave: new FakeFileSaveService("C:/tmp/all.csv"));
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.ClearFieldsCommand.Execute(null);
+
+        var export = vm.ExportAllCsvCommand.ExecuteAsync(null);
+        await client.SecondPageEntered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Contains("1 row", vm.StatusText);
+        Assert.Contains("1 page", vm.StatusText);
+        client.ReleaseSecondPage.TrySetResult();
+        await export;
+    }
+
+    [Fact]
+    public async Task Large_lazy_export_uses_bounded_stream_save_without_materializing_csv_text()
+    {
+        const int pages = 30;
+        const int rowsPerPage = 40;
+        var client = new LargeLazyExportClient(pages, rowsPerPage);
+        var save = new StreamingSaveSink();
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, fileSave: save);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.ClearFieldsCommand.Execute(null);
+
+        await vm.ExportAllCsvCommand.ExecuteAsync(null);
+
+        Assert.Equal(pages, client.Calls);
+        Assert.Equal(0, save.TextCalls);
+        Assert.Equal(1, save.StreamCalls);
+        Assert.True(save.BorrowedWasReadable);
+        Assert.True(save.BytesRead > 4096);
+        Assert.InRange(save.LargestRead, 1, 4096);
+        Assert.Contains($"Saved {pages * rowsPerPage} rows", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task Export_all_reports_preparing_while_completed_csv_waits_for_save()
+    {
+        var save = new GatedStreamingSaveSink();
+        var client = new PagingODataClient(new ODataResponse(200, "OK", "{\"value\":[{\"A\":\"1\"}]}", 1));
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, fileSave: save);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.ClearFieldsCommand.Execute(null);
+
+        var export = vm.ExportAllCsvCommand.ExecuteAsync(null);
+        await save.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal("Preparing CSV…", vm.StatusText);
+        save.Release.TrySetResult();
+        await export;
+        Assert.Contains("Saved 1 rows", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task Late_cancel_plus_save_failure_reports_failure_not_safe_cancellation()
+    {
+        var save = new CancelThenFailingStreamSave();
+        var client = new PagingODataClient(new ODataResponse(200, "OK", "{\"value\":[{\"A\":\"1\"}]}", 1));
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, fileSave: save);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.ClearFieldsCommand.Execute(null);
+        save.OnSave = vm.ExportAllCsvCommand.Cancel;
+
+        await vm.ExportAllCsvCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, save.Calls);
+        Assert.StartsWith("Export failed:", vm.StatusText);
+        Assert.Contains("disk failed", vm.StatusText);
+        Assert.DoesNotContain("cancelled", vm.StatusText, StringComparison.OrdinalIgnoreCase);
     }
 
     // Runs a callback on each request, to simulate the user changing the selection mid-export.
@@ -1629,6 +1822,12 @@ public class QueryBuilderViewModelTests
             Calls++;
             throw _ex;
         }
+        public Task<string?> SaveStreamAsync(string suggestedFileName, Stream content, SaveFileType fileType,
+            CancellationToken ct = default)
+        {
+            Calls++;
+            throw _ex;
+        }
     }
 
     [Fact]
@@ -2453,6 +2652,7 @@ public class QueryBuilderViewModelTests
         await vm.ExportAllCsvCommand.ExecuteAsync(null);
 
         Assert.Null(save.LastContent);
+        Assert.Equal(0, save.StreamSaveCalls);
         Assert.Contains("incomplete", vm.StatusText, StringComparison.OrdinalIgnoreCase);
     }
 
@@ -2470,6 +2670,7 @@ public class QueryBuilderViewModelTests
         await vm.ExportAllCsvCommand.ExecuteAsync(null);
 
         Assert.Equal("A\r\n1", save.LastContent);
+        Assert.Equal(1, save.StreamSaveCalls);
         Assert.Contains("Saved 1 rows", vm.StatusText);
     }
 
@@ -2558,6 +2759,7 @@ public class QueryBuilderViewModelTests
 
         Assert.Equal(500, client.Requested.Count);
         Assert.NotNull(save.LastContent);
+        Assert.Equal(1, save.StreamSaveCalls);
         Assert.Contains("500-page limit", vm.StatusText);
         Assert.Contains("more rows may exist", vm.StatusText);
     }
@@ -2582,6 +2784,7 @@ public class QueryBuilderViewModelTests
 
         Assert.Single(client.Requested);
         Assert.Null(save.LastContent);
+        Assert.Equal(0, save.StreamSaveCalls);
         Assert.Contains("incomplete", vm.StatusText, StringComparison.OrdinalIgnoreCase);
         Assert.Contains("No file was saved", vm.StatusText);
     }
