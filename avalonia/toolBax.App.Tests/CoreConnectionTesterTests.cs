@@ -13,7 +13,7 @@ namespace ToolBax.App.Tests;
 
 /// <summary>
 /// Exercises <see cref="CoreConnectionTester"/> against a stub HttpMessageHandler + recording auth — no
-/// real network. Proves the test connection hits the SAME endpoint the tools use ($metadata / WhoAmI),
+/// real network. Proves the exact $metadata / WhoAmI probe endpoint,
 /// forces a fresh token, and maps the HTTP status honestly.
 /// </summary>
 public class CoreConnectionTesterTests
@@ -147,5 +147,84 @@ public class CoreConnectionTesterTests
 
         Assert.False(result.Success);
         Assert.Contains("Dataverse", result.Message);
+    }
+
+    private sealed class GatedProbeAuth : IAuthService
+    {
+        public TaskCompletionSource<string> Token { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default) => Token.Task;
+        public Task<string> AcquireDataverseTokenAsync(EnvProfile env, CancellationToken ct = default) => Token.Task;
+        public Task<string> AcquireDualWriteTokenAsync(EnvProfile env, CancellationToken ct = default) => Token.Task;
+    }
+
+    private sealed class GatedProbeHandler : HttpMessageHandler
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<HttpResponseMessage> Response { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int Calls { get; private set; }
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Calls++;
+            Entered.TrySetResult();
+            return Response.Task;
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Caller_cancelled_auth_never_dispatches_and_propagates_cancellation(bool dataverse)
+    {
+        var auth = new GatedProbeAuth();
+        using var handler = new GatedProbeHandler();
+        using var http = new HttpClient(handler);
+        handler.Response.SetResult(new HttpResponseMessage(HttpStatusCode.OK));
+        var tester = new CoreConnectionTester(auth, http);
+        using var cts = new CancellationTokenSource();
+        var pending = dataverse ? tester.TestDataverseAsync(Env(), cts.Token) : tester.TestFoAsync(Env(), cts.Token);
+        cts.Cancel();
+        auth.Token.SetResult("late-token");
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Caller_cancelled_http_cannot_publish_late_success(bool dataverse)
+    {
+        using var handler = new GatedProbeHandler();
+        using var http = new HttpClient(handler);
+        var tester = new CoreConnectionTester(new RecordingAuthService(), http);
+        using var cts = new CancellationTokenSource();
+        var pending = dataverse ? tester.TestDataverseAsync(Env(), cts.Token) : tester.TestFoAsync(Env(), cts.Token);
+        await handler.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        cts.Cancel();
+        handler.Response.SetResult(new HttpResponseMessage(HttpStatusCode.OK));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken));
+        Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public async Task Auth_timeout_without_caller_cancellation_remains_a_connection_failure()
+    {
+        using var http = new HttpClient(new StubHandler(HttpStatusCode.OK));
+        var tester = new CoreConnectionTester(new RecordingAuthService(@throw: new OperationCanceledException("auth timeout")), http);
+        var result = await tester.TestFoAsync(Env(), TestContext.Current.CancellationToken);
+        Assert.False(result.Success);
+        Assert.Contains("auth timeout", result.Message);
+    }
+
+    [Fact]
+    public async Task Http_timeout_without_caller_cancellation_remains_a_connection_failure()
+    {
+        using var handler = new GatedProbeHandler();
+        handler.Response.SetException(new TaskCanceledException("HTTP timeout", new TimeoutException()));
+        using var http = new HttpClient(handler);
+        var tester = new CoreConnectionTester(new RecordingAuthService(), http);
+        var result = await tester.TestFoAsync(Env(), TestContext.Current.CancellationToken);
+        Assert.False(result.Success);
+        Assert.Contains("timeout", result.Message);
+        Assert.Equal(1, handler.Calls);
     }
 }
