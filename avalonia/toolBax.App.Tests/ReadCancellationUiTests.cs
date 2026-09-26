@@ -590,4 +590,70 @@ public sealed class ReadCancellationUiTests
         Assert.Equal(0, client.Calls);
         Assert.Null(vm.CountRows.First().CeCount);
     }
+
+    [AvaloniaTheory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Map_overlapping_reload_cancel_or_dispose_cancels_both_transports(bool dispose)
+    {
+        var reader = new Maps();
+        var client = new Client();
+        using var vm = new DualWriteMapViewModel(reader, odata: client, metadata: new FakeMetadataService());
+        var view = new DualWriteMapView { DataContext = vm };
+        var window = new Window { Content = view, Width = 1200, Height = 800 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        var before = vm.Maps.ToArray();
+        vm.LoadError = "prior error";
+        var tokens = new List<CancellationToken>();
+        var firstGate = new TaskCompletionSource<DwMapLoadResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondGate = new TaskCompletionSource<DwMapLoadResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        reader.Read = ct =>
+        {
+            tokens.Add(ct);
+            return tokens.Count == 1 ? firstGate.Task : secondGate.Task;
+        };
+        var first = vm.ReloadMapsCommand.ExecuteAsync(null);
+        var second = vm.ReloadMapsCommand.ExecuteAsync(null);
+        try
+        {
+            Assert.Equal(2, tokens.Count);
+            TestContext.Current.TestOutputHelper!.WriteLine($"Older token canceled by second invocation: {tokens[0].IsCancellationRequested}");
+            Assert.True(vm.HasPendingReads);
+            Assert.True(vm.IsLoading);
+            if (dispose)
+            {
+                vm.Dispose();
+            }
+            else
+            {
+                Dispatcher.UIThread.RunJobs();
+                var button = Assert.IsType<Button>(view.FindControl<Button>("ReadCancelButton"));
+                Assert.True(button.IsEffectivelyVisible);
+                Assert.True(button.IsEffectivelyEnabled);
+                button.Command!.Execute(button.CommandParameter);
+            }
+            Assert.All(tokens, token => Assert.True(token.IsCancellationRequested));
+            firstGate.SetResult(DwMapLoadResult.Ok(Array.Empty<DwMapRecord>()));
+            await first.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.True(vm.HasPendingReads);
+            if (!dispose) Assert.True(vm.IsLoading);
+            secondGate.SetException(new InvalidOperationException("late overlapping reload error"));
+            await second.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.False(vm.HasPendingReads);
+            if (!dispose) Assert.False(vm.IsLoading);
+            Assert.Equal(before, vm.Maps);
+            Assert.Equal("prior error", vm.LoadError);
+            Assert.Equal(3, reader.MapCalls); // Initial catalogue plus the two accepted reloads.
+            Assert.Equal(0, reader.CountCalls);
+            Assert.Equal(0, client.Calls);
+        }
+        finally
+        {
+            firstGate.TrySetResult(DwMapLoadResult.Ok(Array.Empty<DwMapRecord>()));
+            secondGate.TrySetResult(DwMapLoadResult.Ok(Array.Empty<DwMapRecord>()));
+            await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            window.Close();
+        }
+    }
 }

@@ -26,8 +26,8 @@ public class DualWriteSignInTests
     {
         // Compare signs into two environments back to back, so a bare "Data Integrator sign-in" leaves the
         // user guessing which environment the window in front of them wants an account for.
-        Assert.Equal("USMF Dev — Data Integrator sign-in", DualWriteSignInTitle.For(Env("USMF Dev")));
-        Assert.Equal("USMF UAT — Data Integrator sign-in", DualWriteSignInTitle.For(Env("  USMF UAT  ")));
+        Assert.Equal("USMF Dev — Complete Data Integrator sign-in (close to cancel)", DualWriteSignInTitle.For(Env("USMF Dev")));
+        Assert.Equal("USMF UAT — Complete Data Integrator sign-in (close to cancel)", DualWriteSignInTitle.For(Env("  USMF UAT  ")));
     }
 
     [Fact]
@@ -58,6 +58,18 @@ public class DualWriteSignInTests
 
         Assert.Equal(DualWriteSignInFailure.BrowserUnavailable, error.Message);
         Assert.Null(error.InnerException);
+    }
+
+    [Fact]
+    public void A_profile_reset_failure_is_actionable_without_echoing_internal_detail()
+    {
+        var inner = new InvalidOperationException("RAW-RESET-INTERNAL-MARKER");
+
+        var error = DualWriteSignInFailure.BrowserPreparationError(inner);
+
+        Assert.Equal(DualWriteSignInFailure.BrowserPreparation, error.Message);
+        Assert.DoesNotContain("RAW-RESET-INTERNAL-MARKER", error.Message);
+        Assert.Same(inner, error.InnerException);
     }
 
     [Fact]
