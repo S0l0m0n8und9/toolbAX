@@ -58,6 +58,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     private object? _virtualTablesContent;
     private object? _homeContent;
     private readonly SemaphoreSlim _environmentTransition = new(1, 1);
+    private readonly EnvironmentWriteGate _environmentWriteGate = new();
 
     [ObservableProperty]
     private NavTool _currentTool;
@@ -133,6 +134,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         _dialogs = dialogs ?? new DialogService();
         _launcher = launcher ?? new FakeUrlLauncher();
         _virtualTableReader = virtualTableReader ?? new FakeVirtualTableReader();
+        _environmentWriteGate.StateChanged += OnEnvironmentWriteGateChanged;
 
         Tools = new[]
         {
@@ -192,12 +194,12 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     private object ResolveContent(NavTool tool) => tool.Id switch
     {
         "home" => _homeContent ??= new PluginsHomeViewModel(new BuiltInToolCatalog(), ActiveEnvironment?.Name, OpenToolById),
-        "ops" => _operationsContent ??= _operationsContentFactory(),
+        "ops" => _operationsContent ??= CreateOperationsContent(),
         "profiles" => _profilesContent ??= CreateProfilesContent(),
         "metadata" => _metadataContent ??= new MetadataViewModel(_metadataService, () => ActiveEnvironment),
         "virtualtables" => _virtualTablesContent ??= new VirtualTablesViewModel(_virtualTableReader, () => ActiveEnvironment, _launcher),
         "post" => _postContent ??= new PostBuilderViewModel(
-            _odataClient, _clipboard, _metadataService, _dialogs, () => ActiveEnvironment),
+            _odataClient, _clipboard, _metadataService, _dialogs, () => ActiveEnvironment, _environmentWriteGate),
         "query" => _queryContent ??= new QueryBuilderViewModel(
             _metadataService, _odataClient, _clipboard, _fileSave, () => ActiveEnvironment),
         "mapbrowser" => _mapBrowserContent ??= new DualWriteMapViewModel(_mapReader, _fileSave, _odataClient, _metadataService, () => ActiveEnvironment, _clipboard, _launcher),
@@ -211,9 +213,11 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     {
         var profiles = new ProfilesViewModel(
             _profileStore, _secretStore, _authBroker, _authService, _gatewayTester, _connectionTester,
-            requestActivation: ApplyActiveEnvironmentSwitchAsync,
-            commitActiveIdentitySave: CommitActiveIdentitySaveAsync,
-            mutationBlockReason: MutationBlockReason);
+            mutationBlockReason: MutationBlockReason,
+            environmentWriteGate: _environmentWriteGate,
+            requestActivationAsync: ApplyActiveEnvironmentSwitchAsync,
+            commitActiveIdentitySaveAsync: CommitActiveIdentitySaveAsync,
+            deleteProfileAsync: DeleteProfileAsync);
         // Shell may have fallen back to the first profile because persisted ActiveId was null/stale. Profiles
         // must classify that effective profile as active without fabricating a persisted startup choice.
         profiles.ActiveId = ActiveEnvironment?.Id;
@@ -234,44 +238,22 @@ public partial class ShellViewModel : ObservableObject, IDisposable
                 ActiveEnvironment = updated; // refresh the header / home subtitle with the new name
             }
         };
-        profiles.ProfileDeleted += id =>
-        {
-            var existing = Environments.FirstOrDefault(e => e.Id == id);
-            if (existing is not null)
-            {
-                Environments.Remove(existing);
-            }
-
-            if (ActiveEnvironment?.Id != id)
-            {
-                return; // a non-active profile went away — the switcher list is all that changes.
-            }
-
-            var replacement = Environments.FirstOrDefault(); // active env removed → pick another/none
-            ActiveEnvironment = replacement;
-
-            // Deleting the active profile made the store clear the persisted default, so the replacement
-            // has to be written back or the next launch starts with no active environment. When nothing
-            // is left (last profile deleted) the null the store already wrote is the correct answer.
-            if (replacement is not null)
-            {
-                _profileStore.ActiveId = replacement.Id;
-            }
-
-            // A deliberate switch asks before discarding open tool state; a deletion does not. Whatever
-            // those tools are showing belongs to an environment that no longer exists, so there is no
-            // unsaved input worth protecting — rebuild them unconditionally against the replacement.
-            _metadataService.Invalidate();
-            InvalidateToolContent();
-        };
         return profiles;
+    }
+
+    private object CreateOperationsContent()
+    {
+        var content = _operationsContentFactory();
+        if (content is DualWriteOpsViewModel operations)
+            operations.AttachEnvironmentWriteGate(_environmentWriteGate);
+        return content;
     }
 
     // Design-mode default: connects via the seeded fake connector (real wiring passes a
     // CoreDualWriteConnector + the shell's active-environment accessor from App.axaml.cs).
     private object DefaultOperationsContent() =>
         new DualWriteOpsViewModel(new FakeDualWriteConnector(), () => ActiveEnvironment, new DialogService(),
-            odata: _odataClient, metadata: _metadataService);
+            odata: _odataClient, metadata: _metadataService, environmentWriteGate: _environmentWriteGate);
 
     [RelayCommand]
     private void OpenCommandPalette()
@@ -283,9 +265,22 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private void CloseCommandPalette() => IsCommandPaletteOpen = false;
 
-    [RelayCommand]
-    private async Task SetActiveEnvironment(EnvProfile? env) =>
-        _ = await ApplyActiveEnvironmentSwitchAsync(env);
+    private bool CanSetActiveEnvironment(EnvProfile? env) => env is not null &&
+        !_environmentWriteGate.ProfileCommitInProgress && !_environmentWriteGate.LiveWriteInProgress;
+
+    [RelayCommand(CanExecute = nameof(CanSetActiveEnvironment))]
+    private async Task SetActiveEnvironment(EnvProfile? env, CancellationToken ct)
+    {
+        try
+        {
+            _ = await ApplyActiveEnvironmentSwitchAsync(env, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // A queued header command can be cancelled before it acquires the transition semaphore.
+            // Cancellation is an observed clean outcome and must not publish against a closing shell.
+        }
+    }
 
     // The single funnel for a deliberate active-environment switch (header switcher OR Profiles' "Set
     // active"). Profile rename/delete update ActiveEnvironment directly and intentionally bypass this —
@@ -293,16 +288,18 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     // at all; deletion refreshes unconditionally — see the ProfileDeleted handler). The switch is
     // all-or-nothing: before changing either shell or persistence it confirms discarding open data-tool
     // state; only an accepted confirmation and successful ActiveId write commit the switch and invalidate.
-    private async Task<string?> ApplyActiveEnvironmentSwitchAsync(EnvProfile? target)
+    private async Task<string?> ApplyActiveEnvironmentSwitchAsync(EnvProfile? target, CancellationToken ct)
     {
+        if (_disposed) return "The shell is closed.";
         if (target is null)
         {
             return "Select an environment first.";
         }
 
-        await _environmentTransition.WaitAsync();
+        await _environmentTransition.WaitAsync(ct);
         try
         {
+            if (_disposed) return "The shell is closed.";
             var previous = ActiveEnvironment;
             var previousIdentity = EnvironmentIdentity.TryCreate(previous);
             var targetIdentity = EnvironmentIdentity.Create(target);
@@ -331,6 +328,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
                 }
                 catch (Exception ex)
                 {
+                    if (_disposed) return "The shell is closed.";
                     return RejectEnvironmentChange($"Couldn't confirm the environment switch: {ex.Message}");
                 }
 
@@ -350,6 +348,8 @@ public partial class ShellViewModel : ObservableObject, IDisposable
                 }
             }
 
+            if (_disposed) return "The shell closed before the environment could be changed.";
+
             // The target can be edited or deleted from Profiles while confirmation is open. Re-resolve it
             // from the store and require the captured connection identity to survive; a cosmetic replacement
             // is safe and becomes the record shown after the switch.
@@ -364,22 +364,27 @@ public partial class ShellViewModel : ObservableObject, IDisposable
                 return RejectEnvironmentChange("The selected environment changed while confirmation was open. Review it and try again.");
             }
 
-            try
+            if (!_environmentWriteGate.TryAcquireProfileCommit(out var profileLease))
+                return RejectEnvironmentChange("Finish or cancel the live write before changing the active environment.");
+            using (profileLease)
             {
-                _profileStore.ActiveId = currentTarget.Id;
+                try
+                {
+                    await _profileStore.SetActiveAsync(currentTarget.Id, ct);
+                }
+                catch (Exception ex)
+                {
+                    return RejectEnvironmentChange(
+                        $"Couldn't switch environment — the profile store rejected the write: {ex.Message}");
+                }
+                if (_disposed) return null; // committed store truth survives; closed UI publishes nothing.
+                ReplaceEnvironment(currentTarget);
+                ActiveEnvironment = currentTarget;
+                BackgroundError = string.Empty;
+                _metadataService.Invalidate();
+                InvalidateToolContent();
+                return null;
             }
-            catch (Exception ex)
-            {
-                return RejectEnvironmentChange(
-                    $"Couldn't switch environment — the profile store rejected the write: {ex.Message}");
-            }
-
-            ReplaceEnvironment(currentTarget);
-            ActiveEnvironment = currentTarget;
-            BackgroundError = string.Empty;
-            _metadataService.Invalidate();
-            InvalidateToolContent();
-            return null;
         }
         finally
         {
@@ -387,11 +392,14 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         }
     }
 
-    private async Task<string?> CommitActiveIdentitySaveAsync(EnvProfile before, EnvProfile after)
+    private async Task<string?> CommitActiveIdentitySaveAsync(
+        EnvProfile before, EnvProfile after, CancellationToken ct)
     {
-        await _environmentTransition.WaitAsync();
+        if (_disposed) return "The shell is closed.";
+        await _environmentTransition.WaitAsync(ct);
         try
         {
+            if (_disposed) return "The shell is closed.";
             var beforeIdentity = EnvironmentIdentity.Create(before);
             if (!Equals(beforeIdentity, EnvironmentIdentity.TryCreate(ActiveEnvironment)))
             {
@@ -414,6 +422,7 @@ public partial class ShellViewModel : ObservableObject, IDisposable
                 }
                 catch (Exception ex)
                 {
+                    if (_disposed) return "The shell is closed.";
                     return $"Couldn't confirm the profile save: {ex.Message}";
                 }
 
@@ -423,21 +432,28 @@ public partial class ShellViewModel : ObservableObject, IDisposable
                 if (MutationBlockReason() is { } afterConfirmation) return afterConfirmation;
             }
 
-            try
-            {
-                _profileStore.Save(after);
-            }
-            catch (Exception ex)
-            {
-                return $"Couldn't save '{after.Name}': {ex.Message}";
-            }
+            if (_disposed) return "The shell closed before the profile could be saved.";
 
-            ReplaceEnvironment(after);
-            ActiveEnvironment = after;
-            BackgroundError = string.Empty;
-            _metadataService.Invalidate();
-            InvalidateToolContent();
-            return null;
+            if (!_environmentWriteGate.TryAcquireProfileCommit(out var profileLease))
+                return "Finish or cancel the live write before saving the active environment.";
+            using (profileLease)
+            {
+                try
+                {
+                    await _profileStore.SaveAsync(after, ct);
+                }
+                catch (Exception ex)
+                {
+                    return $"Couldn't save '{after.Name}': {ex.Message}";
+                }
+                if (_disposed) return null; // committed store truth survives; closed UI publishes nothing.
+                ReplaceEnvironment(after);
+                ActiveEnvironment = after;
+                BackgroundError = string.Empty;
+                _metadataService.Invalidate();
+                InvalidateToolContent();
+                return null;
+            }
         }
         finally
         {
@@ -459,7 +475,8 @@ public partial class ShellViewModel : ObservableObject, IDisposable
 
     private string? MutationBlockReason()
     {
-        if ((_postContent as PostBuilderViewModel)?.MutationInProgress == true ||
+        if (_environmentWriteGate.LiveWriteInProgress ||
+            (_postContent as PostBuilderViewModel)?.MutationInProgress == true ||
             (_operationsContent as DualWriteOpsViewModel)?.MutationInProgress == true)
         {
             return "Finish or cancel the live write before changing the active environment.";
@@ -468,8 +485,47 @@ public partial class ShellViewModel : ObservableObject, IDisposable
         return null;
     }
 
+    private async Task<ProfileDeleteOutcome> DeleteProfileAsync(EnvProfile profile, CancellationToken ct)
+    {
+        if (_disposed) return new ProfileDeleteOutcome(false, "The shell is closed.");
+        if (profile.Id == ActiveEnvironment?.Id && MutationBlockReason() is { } blocked)
+            return new ProfileDeleteOutcome(false, blocked);
+        if (!_environmentWriteGate.TryAcquireProfileCommit(out var profileLease))
+            return new ProfileDeleteOutcome(false, "Finish or cancel the live write before deleting a profile.");
+        using (profileLease)
+        {
+            await _profileStore.DeleteAsync(profile.Id, ct);
+            if (_disposed)
+                return new ProfileDeleteOutcome(true, "The profile was deleted after the shell closed; no replacement was activated.");
+            var existing = Environments.FirstOrDefault(item => item.Id == profile.Id);
+            if (existing is not null) Environments.Remove(existing);
+            if (ActiveEnvironment?.Id != profile.Id) return new ProfileDeleteOutcome(true);
+
+            ActiveEnvironment = null;
+            _metadataService.Invalidate();
+            InvalidateToolContent();
+            var replacement = Environments.FirstOrDefault();
+            if (replacement is null) return new ProfileDeleteOutcome(true);
+            try
+            {
+                await _profileStore.SetActiveAsync(replacement.Id, ct);
+                if (_disposed) return new ProfileDeleteOutcome(true);
+                ActiveEnvironment = replacement;
+                return new ProfileDeleteOutcome(true);
+            }
+            catch (Exception ex)
+            {
+                return new ProfileDeleteOutcome(true,
+                    $"The profile was deleted, but '{replacement.Name}' could not be made active: {ex.Message}");
+            }
+        }
+    }
+
+    private void OnEnvironmentWriteGateChanged() => SetActiveEnvironmentCommand.NotifyCanExecuteChanged();
+
     private string RejectEnvironmentChange(string message)
     {
+        if (_disposed) return message;
         BackgroundError = message;
         OnPropertyChanged(nameof(ActiveEnvironment));
         return message;
@@ -481,6 +537,8 @@ public partial class ShellViewModel : ObservableObject, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _environmentWriteGate.StateChanged -= OnEnvironmentWriteGateChanged;
+        SetActiveEnvironmentCommand.Cancel();
         (_profilesContent as IDisposable)?.Dispose();
         (_operationsContent as IDisposable)?.Dispose();
         (_metadataContent as IDisposable)?.Dispose();

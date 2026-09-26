@@ -25,6 +25,70 @@ public sealed class ProfileStore
 
     public string ConnectionString => _connectionString;
 
+    /// <summary>
+    /// Runs typed profile/vault operations on one offloaded SQLite write transaction. The callback must
+    /// contain synchronous database operations and pure preparation only; no network or async waits.
+    /// </summary>
+    public Task<T> RunProfileMutationAsync<T>(
+        Func<ProfileMutationSession, T> mutation,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(mutation);
+        if (IsAsyncMutationResult(typeof(T)))
+        {
+            throw new InvalidOperationException(
+                "Profile mutation callbacks must be synchronous and return a non-awaitable result; use only typed database operations and pure secret preparation inside the callback.");
+        }
+        cancellationToken.ThrowIfCancellationRequested();
+        return Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var connection = new SqliteConnection(_connectionString);
+            connection.Open();
+            cancellationToken.ThrowIfCancellationRequested();
+            using var transaction = connection.BeginTransaction(deferred: false);
+            var session = new ProfileMutationSession(connection, transaction, cancellationToken);
+            try
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                T result;
+                try
+                {
+                    result = mutation(session);
+                }
+                finally
+                {
+                    // The callback's typed DB scope ends before cancellation/commit work begins.
+                    session.EndScope();
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                transaction.Commit();
+                return result;
+            }
+            catch
+            {
+                TryRollback(transaction);
+                throw;
+            }
+            finally
+            {
+                session.EndScope();
+            }
+        }, CancellationToken.None);
+    }
+
+    private static bool IsAsyncMutationResult(Type resultType) =>
+        typeof(Task).IsAssignableFrom(resultType) ||
+        resultType == typeof(ValueTask) ||
+        resultType.IsGenericType && resultType.GetGenericTypeDefinition() == typeof(ValueTask<>);
+
+    private static void TryRollback(SqliteTransaction transaction)
+    {
+        try { transaction.Rollback(); }
+        catch (InvalidOperationException) { /* SQLite already settled the transaction. */ }
+        catch (SqliteException) { /* Preserve the original callback/command failure. */ }
+    }
+
     /// <summary>Current schema version. Increment when adding a new migration.</summary>
     internal const int LatestSchemaVersion = 1;
 
