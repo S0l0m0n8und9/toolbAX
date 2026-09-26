@@ -40,6 +40,7 @@ public sealed class CatalogService : ICatalogService
     private readonly ProfileStore _profileStore;
     private readonly CatalogStore _store;
     private readonly CatalogServiceOptions _options;
+    private readonly ReadRetryPolicy _readRetryPolicy;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _tableLocks = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _metadataLocks = new();
     private string? _tableBrowserUrlTemplate;
@@ -57,12 +58,18 @@ public sealed class CatalogService : ICatalogService
     // Ordinary external writes/deletes and other processes retain the existing snapshot semantics.
     private MetadataXmlMemo? _metadataXmlMemo;
 
-    public CatalogService(HttpClient httpClient, ProfileStore profileStore, CatalogStore store, CatalogServiceOptions? options = null)
+    public CatalogService(
+        HttpClient httpClient,
+        ProfileStore profileStore,
+        CatalogStore store,
+        CatalogServiceOptions? options = null,
+        ReadRetryPolicy? readRetryPolicy = null)
     {
         _httpClient = httpClient;
         _profileStore = profileStore;
         _store = store;
         _options = options ?? CatalogServiceOptions.Default;
+        _readRetryPolicy = readRetryPolicy ?? new ReadRetryPolicy();
     }
 
     public async Task<TableCatalog> GetTablesAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)
@@ -537,15 +544,26 @@ public sealed class CatalogService : ICatalogService
             return (cached!.PayloadJson, cached!.ETag, cached!.UpdatedUtc);
         }
 
-        var request = new HttpRequestMessage(HttpMethod.Get, $"{NormalizedBaseUrl(env)}/data/$metadata");
-        BindMetadataContext(request, env);
-        request.Headers.Accept.ParseAdd("application/xml");
-        if (cachedValid && !string.IsNullOrWhiteSpace(cached!.ETag))
+        var target = new Uri($"{NormalizedBaseUrl(env)}/data/$metadata", UriKind.Absolute);
+        var conditionalEtag = cachedValid ? cached!.ETag : null;
+        HttpRequestMessage CreateRequest()
         {
-            request.Headers.IfNoneMatch.Add(new System.Net.Http.Headers.EntityTagHeaderValue($"\"{cached!.ETag}\""));
+            var request = new HttpRequestMessage(HttpMethod.Get, target);
+            BindMetadataContext(request, env);
+            request.Headers.Accept.ParseAdd("application/xml");
+            if (!string.IsNullOrWhiteSpace(conditionalEtag))
+            {
+                request.Headers.IfNoneMatch.Add(
+                    new System.Net.Http.Headers.EntityTagHeaderValue($"\"{conditionalEtag}\""));
+            }
+            return request;
         }
 
-        var response = await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
+        using var response = await _readRetryPolicy.SendAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            ct).ConfigureAwait(false);
         if (response.StatusCode == System.Net.HttpStatusCode.NotModified && cachedValid)
         {
             var touched = await _store.TouchAsync(key, MetadataXmlKind, ct).ConfigureAwait(false);
@@ -672,11 +690,19 @@ public sealed class CatalogService : ICatalogService
         var filter = Uri.EscapeDataString($"EntitySetName eq '{escapedLiteral}'");
         var url = $"{NormalizedBaseUrl(env)}/metadata/PublicEntities?$filter={filter}";
 
-        using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        BindMetadataContext(req, env);
-        req.Headers.Accept.ParseAdd("application/json");
+        HttpRequestMessage CreateRequest()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            BindMetadataContext(request, env);
+            request.Headers.Accept.ParseAdd("application/json");
+            return request;
+        }
 
-        using var resp = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);
+        using var resp = await _readRetryPolicy.SendAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            ct).ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode)
         {
             return null;
@@ -758,12 +784,20 @@ public sealed class CatalogService : ICatalogService
             }
             firstRequest = false;
 
-            using var req = new HttpRequestMessage(HttpMethod.Get,
-                resolvedRequestUri ?? new Uri(nextUrl, UriKind.RelativeOrAbsolute));
-            BindMetadataContext(req, env);
-            req.Headers.Accept.ParseAdd("application/json");
+            var requestUri = resolvedRequestUri ?? new Uri(nextUrl, UriKind.RelativeOrAbsolute);
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+                BindMetadataContext(request, env);
+                request.Headers.Accept.ParseAdd("application/json");
+                return request;
+            }
 
-            using var resp = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);
+            using var resp = await _readRetryPolicy.SendAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
             if (!resp.IsSuccessStatusCode)
             {

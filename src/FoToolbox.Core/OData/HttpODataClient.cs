@@ -17,11 +17,13 @@ namespace FoToolbox.Core.OData;
 public sealed class HttpODataClient : IODataClient
 {
     private readonly HttpClient _httpClient;
+    private readonly ReadRetryPolicy _readRetryPolicy;
     private static readonly MediaTypeWithQualityHeaderValue JsonAccept = new("application/json");
 
-    public HttpODataClient(HttpClient httpClient)
+    public HttpODataClient(HttpClient httpClient, ReadRetryPolicy? readRetryPolicy = null)
     {
         _httpClient = httpClient;
+        _readRetryPolicy = readRetryPolicy ?? new ReadRetryPolicy();
     }
 
     public async IAsyncEnumerable<ODataPage> StreamAsync(QueryRequest request, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
@@ -44,14 +46,22 @@ public sealed class HttpODataClient : IODataClient
                     "Paging stopped because the service returned a previously visited request target. Results are incomplete.");
             }
 
-            using var msg = new HttpRequestMessage(HttpMethod.Get, resolvedRequestUri ?? new Uri(next, UriKind.RelativeOrAbsolute));
-            msg.Headers.Accept.Clear();
-            msg.Headers.Accept.Add(JsonAccept);
+            var requestUri = resolvedRequestUri ?? new Uri(next, UriKind.RelativeOrAbsolute);
+            HttpRequestMessage CreateRequest()
+            {
+                var message = new HttpRequestMessage(HttpMethod.Get, requestUri);
+                message.Headers.Accept.Add(JsonAccept);
+                return message;
+            }
 
             HttpResponseMessage response;
             try
             {
-                response = await _httpClient.SendAsync(msg, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+                response = await _readRetryPolicy.SendAsync(
+                    _httpClient,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    cancellationToken).ConfigureAwait(false);
             }
             catch (AuthRecoveryException)
             {
