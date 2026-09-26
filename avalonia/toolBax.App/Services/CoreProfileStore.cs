@@ -13,13 +13,15 @@ namespace ToolBax.App.Services;
 /// <summary>
 /// Real <see cref="IProfileStore"/> backed by the shared FoToolbox profile database (the same SQLite
 /// store the WPF app uses). Environments are loaded into memory once (<see cref="CreateAsync"/>); the
-/// synchronous <see cref="Save"/>/<see cref="ActiveId"/> members persist through the async
-/// <see cref="ProfileService"/> off the UI thread.
+/// synchronous <see cref="Save"/>/<see cref="ActiveId"/> members are compatibility wrappers and may block;
+/// production UI code uses the asynchronous members.
 /// </summary>
 public sealed class CoreProfileStore : IProfileStore
 {
     private readonly ProfileService _profiles;
     private readonly List<EnvProfile> _cache;
+    private readonly object _stateGate = new();
+    private readonly SemaphoreSlim _mutationGate = new(1, 1);
     private string? _activeId;
 
     private CoreProfileStore(ProfileService profiles, List<EnvProfile> cache, string? activeId)
@@ -32,235 +34,260 @@ public sealed class CoreProfileStore : IProfileStore
     /// <summary>Loads environments from the given profile service into memory.</summary>
     public static async Task<CoreProfileStore> CreateAsync(ProfileService profiles, CancellationToken ct = default)
     {
-        await profiles.EnsureCreatedAsync(ct).ConfigureAwait(false);
-
-        var cache = new List<EnvProfile>();
-        foreach (var env in await profiles.GetEnvironmentsAsync(ct).ConfigureAwait(false))
+        ArgumentNullException.ThrowIfNull(profiles);
+        ct.ThrowIfCancellationRequested();
+        return await Task.Run(async () =>
         {
-            var dataverse = await profiles.GetDataverseEnvironmentAsync(env.Id, ct).ConfigureAwait(false);
-            var sp = await profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Fo, ct).ConfigureAwait(false);
-            var dvSp = await profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Dataverse, ct).ConfigureAwait(false);
-            // Data Integrator / dual-write config lives in the key/value Settings table (Avalonia-only,
-            // no schema change; the WPF app ignores these keys).
-            var diClientId = await profiles.GetSettingAsync(DiClientIdKey(env.Id), ct).ConfigureAwait(false);
-            var diMode = await profiles.GetSettingAsync(DiModeKey(env.Id), ct).ConfigureAwait(false);
-            var gatewayUrl = await profiles.GetSettingAsync(GatewayUrlKey(env.Id), ct).ConfigureAwait(false);
-            var foAuthMode = await profiles.GetSettingAsync(FoAuthModeKey(env.Id), ct).ConfigureAwait(false);
-            var dvAuthMode = await profiles.GetSettingAsync(DataverseAuthModeKey(env.Id), ct).ConfigureAwait(false);
-            var foClientId = await profiles.GetSettingAsync(FoClientIdKey(env.Id), ct).ConfigureAwait(false);
-            var dvClientId = await profiles.GetSettingAsync(DataverseClientIdKey(env.Id), ct).ConfigureAwait(false);
-            var envType = await profiles.GetSettingAsync(EnvironmentTypeKey(env.Id), ct).ConfigureAwait(false);
-            cache.Add(Map(env, dataverse?.BaseUrl, sp, dvSp, diClientId, diMode, gatewayUrl, foAuthMode, dvAuthMode, foClientId, dvClientId, envType));
-        }
+            ct.ThrowIfCancellationRequested();
+            await profiles.EnsureCreatedAsync(ct).ConfigureAwait(false);
 
-        var activeId = await profiles.GetDefaultEnvironmentIdAsync(ct).ConfigureAwait(false);
-        return new CoreProfileStore(profiles, cache, string.IsNullOrEmpty(activeId) ? null : activeId);
+            var cache = new List<EnvProfile>();
+            foreach (var env in await profiles.GetEnvironmentsAsync(ct).ConfigureAwait(false))
+            {
+                ct.ThrowIfCancellationRequested();
+                var dataverse = await profiles.GetDataverseEnvironmentAsync(env.Id, ct).ConfigureAwait(false);
+                var sp = await profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Fo, ct).ConfigureAwait(false);
+                var dvSp = await profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Dataverse, ct).ConfigureAwait(false);
+                // Data Integrator / dual-write config lives in the key/value Settings table (Avalonia-only,
+                // no schema change; the WPF app ignores these keys).
+                var diClientId = await profiles.GetSettingAsync(DiClientIdKey(env.Id), ct).ConfigureAwait(false);
+                var diMode = await profiles.GetSettingAsync(DiModeKey(env.Id), ct).ConfigureAwait(false);
+                var gatewayUrl = await profiles.GetSettingAsync(GatewayUrlKey(env.Id), ct).ConfigureAwait(false);
+                var foAuthMode = await profiles.GetSettingAsync(FoAuthModeKey(env.Id), ct).ConfigureAwait(false);
+                var dvAuthMode = await profiles.GetSettingAsync(DataverseAuthModeKey(env.Id), ct).ConfigureAwait(false);
+                var foClientId = await profiles.GetSettingAsync(FoClientIdKey(env.Id), ct).ConfigureAwait(false);
+                var dvClientId = await profiles.GetSettingAsync(DataverseClientIdKey(env.Id), ct).ConfigureAwait(false);
+                var envType = await profiles.GetSettingAsync(EnvironmentTypeKey(env.Id), ct).ConfigureAwait(false);
+                cache.Add(Map(env, dataverse?.BaseUrl, sp, dvSp, diClientId, diMode, gatewayUrl, foAuthMode, dvAuthMode, foClientId, dvClientId, envType));
+            }
+
+            var activeId = await profiles.GetDefaultEnvironmentIdAsync(ct).ConfigureAwait(false);
+            return new CoreProfileStore(profiles, cache, string.IsNullOrEmpty(activeId) ? null : activeId);
+        }, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Builds a store over the default on-disk profile database (%LocalAppData%/FoToolbox).</summary>
     public static Task<CoreProfileStore> CreateDefaultAsync(CancellationToken ct = default) =>
         CreateAsync(new ProfileService(new ProfileStore(ProfilePaths.ResolveProfileDbPath())), ct);
 
-    public IReadOnlyList<EnvProfile> GetAll() => _cache;
+    public IReadOnlyList<EnvProfile> GetAll()
+    {
+        lock (_stateGate) return Array.AsReadOnly(_cache.ToArray());
+    }
 
     public string? ActiveId
     {
-        get => _activeId;
-        set
+        get { lock (_stateGate) return _activeId; }
+        set => RunBlocking(() => SetActiveAsync(value));
+    }
+
+    public void Save(EnvProfile profile) => RunBlocking(() => SaveAsync(profile));
+
+    public async Task SetActiveAsync(string? id, CancellationToken cancellationToken = default)
+    {
+        await _mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
         {
-            // Persist the cleared state too: an empty default-env id reads back as "none active".
-            RunBlocking(() => _profiles.SetDefaultEnvironmentAsync(value ?? string.Empty));
-            _activeId = value;
+            await _profiles.RunProfileMutationAsync(session =>
+            {
+                session.SetDefaultEnvironment(id ?? string.Empty);
+                return 0;
+            }, cancellationToken).ConfigureAwait(false);
+            lock (_stateGate) _activeId = id;
+        }
+        finally
+        {
+            _mutationGate.Release();
         }
     }
 
-    public void Save(EnvProfile profile)
+    public async Task SaveAsync(EnvProfile profile, CancellationToken cancellationToken = default)
     {
-        var previous = _cache.FirstOrDefault(p => string.Equals(p.Id, profile.Id, StringComparison.Ordinal));
+        ArgumentNullException.ThrowIfNull(profile);
+        await _mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await _profiles.RunProfileMutationAsync(session =>
+            {
+                SaveInTransaction(session, profile);
+                return 0;
+            }, cancellationToken).ConfigureAwait(false);
+            lock (_stateGate)
+            {
+                var index = _cache.FindIndex(existing => existing.Id == profile.Id);
+                if (index >= 0) _cache[index] = profile;
+                else _cache.Add(profile);
+            }
+        }
+        finally
+        {
+            _mutationGate.Release();
+        }
+    }
+
+    public void Delete(string id) => RunBlocking(() => DeleteAsync(id));
+
+    public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
+    {
+        await _mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            var committedActive = await _profiles.RunProfileMutationAsync(session =>
+                DeleteInTransaction(session, id), cancellationToken).ConfigureAwait(false);
+            lock (_stateGate)
+            {
+                _cache.RemoveAll(profile => profile.Id == id);
+                _activeId = committedActive;
+            }
+        }
+        finally
+        {
+            _mutationGate.Release();
+        }
+    }
+
+    private static void SaveInTransaction(ProfileMutationSession session, EnvProfile profile)
+    {
+        var previous = LoadPersistedProfile(session, profile.Id);
         ValidateAuthEditBeforeWrite(previous, profile, AuthTarget.Fo);
         ValidateAuthEditBeforeWrite(previous, profile, AuthTarget.Dataverse);
 
-        RunBlocking(() => _profiles.UpsertEnvironmentAsync(new FoEnvironment(
-            profile.Id,
-            profile.Name,
-            profile.Url,
-            profile.Tenant,
-            string.IsNullOrWhiteSpace(profile.Legal) ? null : profile.Legal)));
+        session.UpsertEnvironment(new FoEnvironment(
+            profile.Id, profile.Name, profile.Url, profile.Tenant,
+            string.IsNullOrWhiteSpace(profile.Legal) ? null : profile.Legal));
+        session.UpsertDataverseEnvironment(new DataverseEnvironment(
+            profile.Id, profile.DataverseUrl ?? string.Empty, profile.Tenant));
 
-        // Always upsert the linked Dataverse env (stored as columns on the environment row): a blank
-        // URL clears CeBaseUrl to NULL, so clearing the Dataverse link persists rather than lingering.
-        RunBlocking(() => _profiles.UpsertDataverseEnvironmentAsync(
-            new DataverseEnvironment(profile.Id, profile.DataverseUrl ?? string.Empty, profile.Tenant)));
+        SaveTargetInTransaction(session, previous, profile, AuthTarget.Fo);
+        SaveTargetInTransaction(session, previous, profile, AuthTarget.Dataverse);
 
-        if (!PreservesUnsupportedTarget(previous, profile, AuthTarget.Fo))
-        {
-            SaveFoServicePrincipal(profile);
-        }
-        if (!PreservesUnsupportedTarget(previous, profile, AuthTarget.Dataverse))
-        {
-            SaveDataverseServicePrincipal(profile);
-        }
-
-        // Data Integrator / dual-write config (key/value Settings; a blank value removes the row, so
-        // an env with no DI config leaves no orphan rows). The mode only matters with a client id.
         var preservesDi = previous is not null
             && string.Equals(previous.DataIntegratorClientId, profile.DataIntegratorClientId, StringComparison.Ordinal)
             && previous.DataIntegratorMode == profile.DataIntegratorMode
             && string.Equals(previous.DualWriteGatewayUrl, profile.DualWriteGatewayUrl, StringComparison.Ordinal);
-        if (!preservesDi && string.IsNullOrWhiteSpace(profile.DataIntegratorClientId))
+        if (!preservesDi)
         {
-            SetOrClearSetting(DiClientIdKey(profile.Id), null);
-            SetOrClearSetting(DiModeKey(profile.Id), null);
-            SetOrClearSetting(GatewayUrlKey(profile.Id), profile.DualWriteGatewayUrl);
+            if (string.IsNullOrWhiteSpace(profile.DataIntegratorClientId))
+            {
+                SetOrClearSetting(session, DiClientIdKey(profile.Id), null);
+                SetOrClearSetting(session, DiModeKey(profile.Id), null);
+            }
+            else
+            {
+                SetOrClearSetting(session, DiClientIdKey(profile.Id), profile.DataIntegratorClientId);
+                SetOrClearSetting(session, DiModeKey(profile.Id), profile.DataIntegratorMode.ToString());
+            }
+            SetOrClearSetting(session, GatewayUrlKey(profile.Id), profile.DualWriteGatewayUrl);
         }
-        else if (!preservesDi)
-        {
-            SetOrClearSetting(DiClientIdKey(profile.Id), profile.DataIntegratorClientId);
-            SetOrClearSetting(DiModeKey(profile.Id), profile.DataIntegratorMode.ToString());
-            SetOrClearSetting(GatewayUrlKey(profile.Id), profile.DualWriteGatewayUrl);
-        }
-
-        // Environment type (Production / Non-production). Persist the normalised bucket from the profile.
-        SetOrClearSetting(EnvironmentTypeKey(profile.Id), profile.Tier);
-
-        var index = _cache.FindIndex(p => p.Id == profile.Id);
-        if (index >= 0)
-        {
-            _cache[index] = profile;
-        }
-        else
-        {
-            _cache.Add(profile);
-        }
+        SetOrClearSetting(session, EnvironmentTypeKey(profile.Id), profile.Tier);
     }
 
-    public void Delete(string id)
+    private static void SaveTargetInTransaction(
+        ProfileMutationSession session,
+        EnvProfile? previous,
+        EnvProfile profile,
+        AuthTarget target)
     {
-        // Explicitly remove the env's service principals (don't rely on a FK cascade), so a reused
-        // env id can't inherit a stale SecretRef/CertThumbprint. Each one takes its secret blob with it
-        // (see DropServicePrincipal).
-        foreach (var sp in RunBlocking(() => _profiles.GetServicePrincipalsAsync(id, CancellationToken.None)))
+        if (PreservesUnsupportedTarget(previous, profile, target)) return;
+        var existing = session.GetServicePrincipal(profile.Id, target);
+        var mode = target == AuthTarget.Fo ? profile.AuthMode : profile.DataverseAuthMode;
+        var clientId = target == AuthTarget.Fo ? profile.ClientId : profile.DataverseClientId;
+        var clientSetting = target == AuthTarget.Fo ? FoClientIdKey(profile.Id) : DataverseClientIdKey(profile.Id);
+        var modeSetting = target == AuthTarget.Fo ? FoAuthModeKey(profile.Id) : DataverseAuthModeKey(profile.Id);
+
+        if (mode == FoAuthMode.Interactive || string.IsNullOrWhiteSpace(clientId))
         {
-            DropServicePrincipal(sp, id);
-        }
-
-        // The DI service-account secret is a vault blob referenced from Settings (there's no SP row to
-        // hang it off), so delete the blob before its pointer — same missing-FK-cascade reason as above.
-        DeleteSecretBlob(RunBlocking(() => _profiles.GetSettingAsync(CoreSecretStore.DiSecretRefSettingKey(id), CancellationToken.None)), id);
-        RunBlocking(() => _profiles.DeleteSettingAsync(CoreSecretStore.DiSecretRefSettingKey(id)));
-
-        // Remove the env's DI/dual-write settings so a reused env id can't inherit stale config (and
-        // no orphan Settings rows linger — the Settings table has no FK cascade to environments).
-        RunBlocking(() => _profiles.DeleteSettingAsync(DiClientIdKey(id)));
-        RunBlocking(() => _profiles.DeleteSettingAsync(DiModeKey(id)));
-        RunBlocking(() => _profiles.DeleteSettingAsync(GatewayUrlKey(id)));
-        RunBlocking(() => _profiles.DeleteSettingAsync(FoAuthModeKey(id)));
-        RunBlocking(() => _profiles.DeleteSettingAsync(DataverseAuthModeKey(id)));
-        RunBlocking(() => _profiles.DeleteSettingAsync(FoClientIdKey(id)));
-        RunBlocking(() => _profiles.DeleteSettingAsync(DataverseClientIdKey(id)));
-        RunBlocking(() => _profiles.DeleteSettingAsync(EnvironmentTypeKey(id)));
-
-        RunBlocking(() => _profiles.DeleteEnvironmentAsync(id));
-        _cache.RemoveAll(p => p.Id == id);
-        if (_activeId == id)
-        {
-            ActiveId = null; // clears the persisted default too
-        }
-    }
-
-    // Persists the F&O credential. Interactive is delegated (no app-only secret), so its (public) client
-    // id lives in Settings and no service-principal row is kept — an SP only models the app-only
-    // ClientSecret/Certificate modes (and carries the secret ref). For app-only modes the SP is
-    // upserted (preserving the SecretRef/CertThumbprint only for the SAME app registration — see
-    // ClientIdChanged) and the Settings client-id copy is cleared.
-    private void SaveFoServicePrincipal(EnvProfile profile)
-    {
-        var existing = RunBlocking(() => _profiles.GetServicePrincipalAsync(profile.Id, AuthTarget.Fo, CancellationToken.None));
-
-        if (profile.AuthMode == FoAuthMode.Interactive)
-        {
-            DropServicePrincipal(existing, profile.Id);
-            SetOrClearSetting(FoClientIdKey(profile.Id), profile.ClientId);
-            SetOrClearSetting(FoAuthModeKey(profile.Id), profile.AuthMode.ToString());
+            DropServicePrincipal(session, existing);
+            SetOrClearSetting(session, clientSetting, mode == FoAuthMode.Interactive ? clientId : null);
+            SetOrClearSetting(session, modeSetting, mode.ToString());
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(profile.ClientId))
-        {
-            DropServicePrincipal(existing, profile.Id);
-            SetOrClearSetting(FoClientIdKey(profile.Id), null);
-            SetOrClearSetting(FoAuthModeKey(profile.Id), profile.AuthMode.ToString());
-            return;
-        }
-
-        var clientIdChanged = ClientIdChanged(existing, profile.ClientId);
-        var credentialIncompatible = existing is not null && existing.AuthMode != AuthMode.ClientSecret;
-        var unbindCredential = clientIdChanged || credentialIncompatible;
-
-        // Order matters: persist the row (with the credential unbound) BEFORE deleting the blob it used
-        // to point at. Invariant: never delete a blob a still-persisted row points at — deleting first
-        // and then failing the upsert would leave the surviving row's SecretRef aimed at a blob that no
-        // longer exists (HasSecret true, secret unreadable). This way a failed upsert leaves the old row
-        // and its blob intact and consistent, so the save can simply be retried.
-        RunBlocking(() => _profiles.UpsertServicePrincipalAsync(new ServicePrincipal(
-            existing?.Id ?? $"{profile.Id}:fo",
+        var unbindCredential = ClientIdChanged(existing, clientId) ||
+                               existing is not null && existing.AuthMode != AuthMode.ClientSecret;
+        session.UpsertServicePrincipal(new ServicePrincipal(
+            existing?.Id ?? $"{profile.Id}:{(target == AuthTarget.Fo ? "fo" : "dataverse")}",
             profile.Id,
-            profile.ClientId!,
-            ToCoreAuthMode(profile.AuthMode),
+            clientId!,
+            ToCoreAuthMode(mode),
             unbindCredential ? null : existing?.SecretRef,
             unbindCredential ? null : existing?.CertThumbprint,
-            AuthTarget.Fo)));
-
-        SetOrClearSetting(FoClientIdKey(profile.Id), null); // app-only: the SP is the client-id source
-        SetOrClearSetting(FoAuthModeKey(profile.Id), profile.AuthMode.ToString());
-        if (unbindCredential)
-        {
-            DeleteSecretBlob(existing!.SecretRef, profile.Id);
-        }
+            target));
+        SetOrClearSetting(session, clientSetting, null);
+        SetOrClearSetting(session, modeSetting, mode.ToString());
+        if (unbindCredential && !string.IsNullOrEmpty(existing?.SecretRef))
+            session.DeleteSecretIfUnreferenced(existing.SecretRef);
     }
 
-    // Mirrors SaveFoServicePrincipal for the Dataverse credential (Target=Dataverse).
-    private void SaveDataverseServicePrincipal(EnvProfile profile)
+    private static string? DeleteInTransaction(ProfileMutationSession session, string id)
     {
-        var existing = RunBlocking(() => _profiles.GetServicePrincipalAsync(profile.Id, AuthTarget.Dataverse, CancellationToken.None));
+        var candidates = session.GetServicePrincipals(id)
+            .Select(principal => principal.SecretRef)
+            .Where(reference => !string.IsNullOrEmpty(reference))
+            .Cast<string>()
+            .ToList();
+        var diReference = session.GetSetting(CoreSecretStore.DiSecretRefSettingKey(id));
+        if (!string.IsNullOrEmpty(diReference)) candidates.Add(diReference);
 
-        if (profile.DataverseAuthMode == FoAuthMode.Interactive)
+        foreach (var principal in session.GetServicePrincipals(id))
+            session.DeleteServicePrincipal(principal.Id);
+        foreach (var key in KnownSettingKeys(id)) session.SetSetting(key, null);
+        session.DeleteEnvironment(id);
+
+        var persistedDefault = session.GetDefaultEnvironmentId();
+        if (string.Equals(persistedDefault, id, StringComparison.Ordinal))
         {
-            DropServicePrincipal(existing, profile.Id);
-            SetOrClearSetting(DataverseClientIdKey(profile.Id), profile.DataverseClientId);
-            SetOrClearSetting(DataverseAuthModeKey(profile.Id), profile.DataverseAuthMode.ToString());
-            return;
+            session.SetDefaultEnvironment(null);
+            persistedDefault = null;
         }
-
-        if (string.IsNullOrWhiteSpace(profile.DataverseClientId))
-        {
-            DropServicePrincipal(existing, profile.Id);
-            SetOrClearSetting(DataverseClientIdKey(profile.Id), null);
-            SetOrClearSetting(DataverseAuthModeKey(profile.Id), profile.DataverseAuthMode.ToString());
-            return;
-        }
-
-        var clientIdChanged = ClientIdChanged(existing, profile.DataverseClientId);
-        var credentialIncompatible = existing is not null && existing.AuthMode != AuthMode.ClientSecret;
-        var unbindCredential = clientIdChanged || credentialIncompatible;
-
-        // Upsert before deleting the superseded blob — see SaveFoServicePrincipal for the invariant.
-        RunBlocking(() => _profiles.UpsertServicePrincipalAsync(new ServicePrincipal(
-            existing?.Id ?? $"{profile.Id}:dataverse",
-            profile.Id,
-            profile.DataverseClientId!,
-            ToCoreAuthMode(profile.DataverseAuthMode),
-            unbindCredential ? null : existing?.SecretRef,
-            unbindCredential ? null : existing?.CertThumbprint,
-            AuthTarget.Dataverse)));
-
-        SetOrClearSetting(DataverseClientIdKey(profile.Id), null);
-        SetOrClearSetting(DataverseAuthModeKey(profile.Id), profile.DataverseAuthMode.ToString());
-        if (unbindCredential)
-        {
-            DeleteSecretBlob(existing!.SecretRef, profile.Id);
-        }
+        foreach (var reference in candidates.Distinct(StringComparer.Ordinal))
+            session.DeleteSecretIfUnreferenced(reference);
+        return string.IsNullOrEmpty(persistedDefault) ? null : persistedDefault;
     }
+
+    private static IEnumerable<string> KnownSettingKeys(string id)
+    {
+        yield return CoreSecretStore.DiSecretRefSettingKey(id);
+        yield return DiClientIdKey(id);
+        yield return DiModeKey(id);
+        yield return GatewayUrlKey(id);
+        yield return FoAuthModeKey(id);
+        yield return DataverseAuthModeKey(id);
+        yield return FoClientIdKey(id);
+        yield return DataverseClientIdKey(id);
+        yield return EnvironmentTypeKey(id);
+    }
+
+    private static EnvProfile? LoadPersistedProfile(ProfileMutationSession session, string id)
+    {
+        var environment = session.GetEnvironment(id);
+        if (environment is null) return null;
+        var dataverse = session.GetDataverseEnvironment(id);
+        return Map(
+            environment,
+            dataverse?.BaseUrl,
+            session.GetServicePrincipal(id, AuthTarget.Fo),
+            session.GetServicePrincipal(id, AuthTarget.Dataverse),
+            session.GetSetting(DiClientIdKey(id)),
+            session.GetSetting(DiModeKey(id)),
+            session.GetSetting(GatewayUrlKey(id)),
+            session.GetSetting(FoAuthModeKey(id)),
+            session.GetSetting(DataverseAuthModeKey(id)),
+            session.GetSetting(FoClientIdKey(id)),
+            session.GetSetting(DataverseClientIdKey(id)),
+            session.GetSetting(EnvironmentTypeKey(id)));
+    }
+
+    private static void DropServicePrincipal(ProfileMutationSession session, ServicePrincipal? principal)
+    {
+        if (principal is null) return;
+        session.DeleteServicePrincipal(principal.Id);
+        if (!string.IsNullOrEmpty(principal.SecretRef))
+            session.DeleteSecretIfUnreferenced(principal.SecretRef);
+    }
+
+    private static void SetOrClearSetting(ProfileMutationSession session, string key, string? value) =>
+        session.SetSetting(key, string.IsNullOrWhiteSpace(value) ? null : value);
 
     // A stored credential belongs to the app registration it was issued for — both the client secret and
     // the certificate thumbprint. When the client id changes neither is valid any more, so both are
@@ -296,45 +323,6 @@ public sealed class CoreProfileStore : IProfileStore
             $"The saved {label} authentication mode is unsupported. Choose a supported mode before changing its client ID or mode.");
     }
 
-    // Removes a service-principal row and the secret blob it points at. The SecretVault has no FK cascade
-    // to ServicePrincipals, so dropping the row alone would orphan the credential on disk forever —
-    // unreachable, because HasSecret then reads false and ClearSecret early-returns. Hence the blob
-    // deletion, and hence its order: the row goes first, on the same invariant as the client-id-change
-    // path (never delete a blob a still-persisted row points at). Deleting the blob first and then
-    // failing the row delete would leave a surviving SecretRef aimed at nothing; this way a failed row
-    // delete leaves row and blob consistent, and a failed blob delete leaves at worst an orphaned blob
-    // that a future vault scrub can collect — and which DeleteSecretBlob has already traced.
-    private void DropServicePrincipal(ServicePrincipal? existing, string envId)
-    {
-        if (existing is null)
-        {
-            return;
-        }
-
-        RunBlocking(() => _profiles.DeleteServicePrincipalAsync(existing.Id));
-        DeleteSecretBlob(existing.SecretRef, envId);
-    }
-
-    // Deletes a vault blob if there is one. A vault I/O failure must not strand the profile, so log it
-    // and carry on (the blob is at most a leftover a future vault scrub can collect).
-    private void DeleteSecretBlob(string? secretRef, string envId)
-    {
-        if (string.IsNullOrEmpty(secretRef))
-        {
-            return;
-        }
-
-        try
-        {
-            RunBlocking(() => _profiles.DeleteSecretAsync(secretRef, CancellationToken.None));
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Trace.TraceWarning(
-                $"Failed to delete secret blob '{secretRef}' for profile '{envId}'; continuing without it. {ex}");
-        }
-    }
-
     private static EnvProfile Map(FoEnvironment env, string? dataverseUrl, ServicePrincipal? sp, ServicePrincipal? dataverseSp,
         string? diClientId, string? diMode, string? gatewayUrl, string? foAuthMode, string? dataverseAuthMode,
         string? foClientId, string? dataverseClientId, string? environmentType)
@@ -362,19 +350,6 @@ public sealed class CoreProfileStore : IProfileStore
             DataverseClientId: ResolveClientId(dataverseClientId, dataverseSp?.ClientId, dvMode),
             DataverseAuthMode: dvMode,
             DualWriteGatewayUrl: string.IsNullOrWhiteSpace(gatewayUrl) ? null : gatewayUrl);
-    }
-
-    // Upserts a setting, or removes the row when the value is blank (avoids accumulating empty rows).
-    private void SetOrClearSetting(string key, string? value)
-    {
-        if (string.IsNullOrWhiteSpace(value))
-        {
-            RunBlocking(() => _profiles.DeleteSettingAsync(key));
-        }
-        else
-        {
-            RunBlocking(() => _profiles.SetSettingAsync(key, value));
-        }
     }
 
     private static DiAuthMode ParseDiMode(string? mode)

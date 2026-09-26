@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Headless.XUnit;
@@ -8,6 +11,8 @@ using Avalonia.VisualTree;
 using ToolBax.App.Services;
 using ToolBax.App.ViewModels;
 using ToolBax.App.Views;
+using ToolBax.Core.Models;
+using ToolBax.Core.Services;
 using Xunit;
 
 namespace ToolBax.App.Tests;
@@ -16,6 +21,91 @@ namespace ToolBax.App.Tests;
 /// binds the active environment.</summary>
 public class ProfilesViewRenderTests
 {
+    private sealed class GatedProfileStore : IProfileStore
+    {
+        private EnvProfile _profile = new(
+            "a", "Saved", "https://a.operations.dynamics.com", "tenant", "USMF", "Tier 1",
+            EnvStatus.Disconnected);
+        public TaskCompletionSource<bool> Started { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<bool> Release { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public IReadOnlyList<EnvProfile> GetAll() => new[] { _profile };
+        public void Save(EnvProfile profile) => _profile = profile;
+        public void Delete(string id) { }
+        public string? ActiveId { get; set; } = "a";
+        public async Task SaveAsync(EnvProfile profile, CancellationToken cancellationToken = default)
+        {
+            Started.TrySetResult(true);
+            await Release.Task.WaitAsync(cancellationToken);
+            _profile = profile;
+        }
+    }
+
+    [AvaloniaFact]
+    public async Task Pending_profile_update_exposes_attached_cancel_button_that_stops_precommit_save()
+    {
+        var store = new GatedProfileStore();
+        using var vm = new ProfilesViewModel(store);
+        var view = new ProfilesView { DataContext = vm };
+        var window = new Window { Content = view, Width = 1000, Height = 700 };
+        window.Show();
+        vm.DraftName = "Attempted";
+        var saving = vm.SaveCommand.ExecuteAsync(null);
+        await store.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            var cancel = view.FindControl<Button>("CancelPersistenceButton");
+            Assert.NotNull(cancel);
+            Assert.True(cancel!.IsEffectivelyVisible);
+            Assert.True(cancel.IsEnabled);
+            cancel.Command!.Execute(null);
+            await saving.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+            Assert.Equal("Saved", store.GetAll().Single().Name);
+            Assert.Contains("cancelled", vm.Status, StringComparison.OrdinalIgnoreCase);
+        }
+        finally
+        {
+            store.Release.TrySetResult(true);
+            await saving.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            window.Close();
+        }
+    }
+
+    private sealed class FailingPresenceStore : ISecretStore
+    {
+        public bool HasSecret(string key, SecretTarget target = SecretTarget.Fo) => false;
+        public Task<bool> HasSecretAsync(string key, SecretTarget target = SecretTarget.Fo,
+            CancellationToken cancellationToken = default) =>
+            Task.FromException<bool>(new InvalidOperationException("presence unavailable"));
+        public void SetSecret(string key, string plaintext, SecretTarget target = SecretTarget.Fo) { }
+        public void ClearSecret(string key, SecretTarget target = SecretTarget.Fo) { }
+    }
+
+    [AvaloniaFact]
+    public async Task Failed_credential_presence_exposes_bound_retry_control()
+    {
+        using var vm = new ProfilesViewModel(new FakeProfileStore(), new FailingPresenceStore());
+        var view = new ProfilesView { DataContext = vm };
+        var window = new Window { Content = view, Width = 1000, Height = 700 };
+        window.Show();
+        await vm.RefreshSecretPresenceCommand.ExecutionTask!;
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            var retry = view.FindControl<Button>("RetrySecretPresenceButton");
+            Assert.NotNull(retry);
+            Assert.True(retry!.IsEffectivelyVisible);
+            Assert.Same(vm.RefreshSecretPresenceCommand, retry.Command);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
     [AvaloniaFact]
     public void Renders_master_list_and_detail_for_the_active_profile()
     {

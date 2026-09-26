@@ -631,35 +631,33 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
-    public void Saving_an_auth_config_change_evicts_the_old_cached_session()
+    public async Task Saving_an_auth_config_change_evicts_the_old_cached_session()
     {
-        var auth = new FakeAuthService();
+        var auth = new AwaitableAuthService();
         var vm = new ProfilesViewModel(new FakeProfileStore(), auth: auth);
         vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
 
         vm.DraftClientId = "11111111-changed-client-id";
-        vm.SaveCommand.Execute(null);
+        await vm.SaveCommand.ExecuteAsync(null);
+        var signedOut = await auth.FirstSignedOut.Task.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         // Changing the client id makes any cached token for the old identity stale → evict it.
-        Assert.Equal("uat-eur", auth.LastSignedOut?.Id);
+        Assert.Equal("uat-eur", signedOut.Id);
     }
 
     [Fact]
-    public void Saving_a_non_auth_change_does_not_evict_the_session()
+    public async Task Saving_a_non_auth_change_does_not_evict_the_session()
     {
-        var auth = new FakeAuthService();
+        var auth = new AwaitableAuthService();
         var vm = new ProfilesViewModel(new FakeProfileStore(), auth: auth);
         vm.Selected = vm.Profiles.Single(p => p.Id == "uat-eur");
 
-        // First save normalises drafts↔store (a fresh interactive profile auto-fills its client id).
-        vm.SaveCommand.Execute(null);
-        var evictionsAfterNormalize = auth.SignOutCount;
-
         // A pure rename changes nothing about the auth identity, so it must not force a re-auth.
         vm.DraftName = "EMEA UAT (renamed)";
-        vm.SaveCommand.Execute(null);
+        await vm.SaveCommand.ExecuteAsync(null);
 
-        Assert.Equal(evictionsAfterNormalize, auth.SignOutCount);
+        Assert.Equal(0, auth.SignOutCount);
     }
 
     [Fact]
@@ -991,6 +989,25 @@ public class ProfilesViewModelTests
             throw new PlatformNotSupportedException("The DPAPI secret vault is Windows-only.");
 
         public void ClearSecret(string key, SecretTarget target = SecretTarget.Fo) { }
+    }
+
+    private sealed class AwaitableAuthService : IAuthService
+    {
+        public TaskCompletionSource<EnvProfile> FirstSignedOut { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public int SignOutCount { get; private set; }
+        public Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default) =>
+            Task.FromResult("fo");
+        public Task<string> AcquireDataverseTokenAsync(EnvProfile env, CancellationToken ct = default) =>
+            Task.FromResult("dv");
+        public Task<string> AcquireDualWriteTokenAsync(EnvProfile env, CancellationToken ct = default) =>
+            Task.FromResult("dw");
+        public Task SignOutAsync(EnvProfile env, CancellationToken ct = default)
+        {
+            SignOutCount++;
+            FirstSignedOut.TrySetResult(env);
+            return Task.CompletedTask;
+        }
     }
 
     [Fact]
