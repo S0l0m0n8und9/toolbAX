@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using FoToolbox.Core.Net;
 
 namespace FoToolbox.Core.DualWrite;
 
@@ -21,14 +22,19 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway, IDisposable
     public const string ApiBasePath = "api/DualWriteManagement/1.0/";
 
     private readonly HttpClient _http;
+    private readonly ReadRetryPolicy _readRetryPolicy;
     // Dispose the HttpClient only when we own it (the factory creates a dedicated one). An injected
     // client (e.g. a test's shared HttpClient) stays the caller's to dispose.
     private readonly bool _ownsHttp;
 
-    public DualWriteGatewayClient(HttpClient http, bool ownsHttpClient = false)
+    public DualWriteGatewayClient(
+        HttpClient http,
+        bool ownsHttpClient = false,
+        ReadRetryPolicy? readRetryPolicy = null)
     {
         _http = http ?? throw new ArgumentNullException(nameof(http));
         _ownsHttp = ownsHttpClient;
+        _readRetryPolicy = readRetryPolicy ?? new ReadRetryPolicy();
     }
 
     /// <summary>Resolves the F&amp;O environment identifier to its dual-write linkage (cid/cname).</summary>
@@ -291,17 +297,38 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway, IDisposable
     {
         if (method != HttpMethod.Get)
             return (await SendMutationAsync(method, relativeUri, jsonBody, cancellationToken).ConfigureAwait(false)).Content;
+
+        return await SendReadAsync(relativeUri, jsonBody, cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<string> SendReadAsync(
+        string relativeUri,
+        string? jsonBody,
+        CancellationToken cancellationToken)
+    {
         cancellationToken.ThrowIfCancellationRequested();
         try
         {
-            using var request = new HttpRequestMessage(method, relativeUri);
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            if (jsonBody is not null)
+            var target = Uri.TryCreate(relativeUri, UriKind.Absolute, out var absolute)
+                ? absolute
+                : new Uri(_http.BaseAddress
+                    ?? throw new InvalidOperationException("The dual-write gateway base address is required."), relativeUri);
+            HttpRequestMessage CreateRequest()
             {
-                request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+                var request = new HttpRequestMessage(HttpMethod.Get, target);
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                if (jsonBody is not null)
+                {
+                    request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+                }
+                return request;
             }
 
-            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
+            using var response = await _readRetryPolicy.SendAsync(
+                _http,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
             var content = response.Content is null
                 ? string.Empty

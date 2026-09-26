@@ -216,7 +216,7 @@ public class CoreConnectionTesterTests
     }
 
     [Fact]
-    public async Task Http_timeout_without_caller_cancellation_remains_a_connection_failure()
+    public async Task Http_timeout_without_caller_cancellation_exhausts_bounded_retries_as_a_failure()
     {
         using var handler = new GatedProbeHandler();
         handler.Response.SetException(new TaskCanceledException("HTTP timeout", new TimeoutException()));
@@ -225,6 +225,6 @@ public class CoreConnectionTesterTests
         var result = await tester.TestFoAsync(Env(), TestContext.Current.CancellationToken);
         Assert.False(result.Success);
         Assert.Contains("timeout", result.Message);
-        Assert.Equal(1, handler.Calls);
+        Assert.Equal(3, handler.Calls);
     }
 }

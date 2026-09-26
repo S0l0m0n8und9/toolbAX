@@ -111,7 +111,7 @@ public sealed class ReadServiceCancellationTests
     }
 
     [Fact]
-    public async Task Dataverse_real_http_timeout_with_live_caller_token_keeps_failure_result()
+    public async Task Dataverse_real_http_timeout_with_live_caller_token_exhausts_bounded_retries_as_failure()
     {
         using var handler = new Handler(async ct =>
         {
@@ -123,7 +123,7 @@ public sealed class ReadServiceCancellationTests
         var response = await client.GetAsync("accounts", TestContext.Current.CancellationToken).WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.False(response.IsSuccess);
         Assert.Equal(0, response.StatusCode);
-        Assert.Equal(1, handler.Calls);
+        Assert.Equal(3, handler.Calls);
     }
 
     private static Task ReadOperation(string kind, Dataverse source, CancellationToken ct)
