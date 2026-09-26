@@ -103,3 +103,11 @@ Final H09 cache-contract head `1890a871c864532b7c2787580eb51e3d6f04f30d`, whose 
 The final `CI=true` Release App build with `EnableWebView2=true` passed with zero warnings/errors, and the complete App suite passed 1,683/1,683 with no failures or skips. Evidence is `artifacts/h11/integrated-h09-cache-contract/app-build.log`, `app-test.log` and `app-full.trx`.
 
 Validation used local stores and deterministic tests only. No live service, authentication, browser, sign-in, profile-clear, gateway or Power Platform call occurred. H11 now waits only for dependent H10c to reach `main` before publication and hosted review.
+
+## PR #233 correction integration
+
+Verified H10c correction `aae0efd9d79c5138b2dd2338ae1ee932a3e723e1` merged into H11 checkpoint `688ce066748ab1231dac07a2e89d6e081c0b8421` as `4e91b4b284c83cba0eae961a65c9b4901123c18d`. The only conflict was the readiness tracker; resolution retained PR #233's H10c/D03 review history and H11's complete spool/save/cancellation record. There was no source conflict or H11 redesign. The correction adds canonical Dataverse base reuse and seven App test cases while preserving H11 paging, temp-spool, stream-save, progress, cancellation and committed-file truth.
+
+Core source/tests remain byte-identical to reviewed checkpoint `291a154cbed56fce8d828bd25620b9b085eaa7a2`, so the 631/631 Core gate remains applicable. The integrated `CI=true` Release App build with `EnableWebView2=true` passed with zero warnings/errors and the full App suite passed 1,690/1,690 with zero failures/skips. Evidence is `artifacts/h11/integrated-pr233/app-build.log`, `app-test.log` and `app-test.trx`.
+
+Validation used local stores and deterministic tests only. No live service, authentication, browser, sign-in, profile-clear, gateway or Power Platform call occurred. H11 remains unpublished until H10c completes hosted delivery.
