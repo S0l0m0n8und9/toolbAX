@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
 using Avalonia.Threading;
@@ -150,7 +151,7 @@ public sealed class ProfilesAuthWithdrawalRenderTests
     }
 
     [AvaloniaFact]
-    public void Data_Integrator_tab_offers_portal_test_and_explicit_legacy_password_clear_only()
+    public async Task Data_Integrator_tab_retains_legacy_clear_confirmation_after_same_profile_save()
     {
         var profile = new EnvProfile("legacy", "Legacy", "https://legacy.operations.dynamics.com", "tenant",
             "USMF", "Tier 1", EnvStatus.Disconnected, DataIntegratorClientId: "legacy-client",
@@ -183,6 +184,8 @@ public sealed class ProfilesAuthWithdrawalRenderTests
 
             vm.ClearLegacyDiPasswordCommand.Execute(null);
             vm.DraftName = "Renamed after clear";
+            await vm.SaveCommand.ExecuteAsync(null);
+            Assert.Equal("Legacy Data Integrator password cleared.", vm.LegacyDiStatus);
             Dispatcher.UIThread.RunJobs();
             window.UpdateLayout();
             var legacyStatus = view.FindControl<TextBlock>("LegacyDiClearStatus");

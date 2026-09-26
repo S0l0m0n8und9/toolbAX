@@ -314,13 +314,16 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
     private static bool IsSupportedAuthMode(FoAuthMode mode) =>
         mode is FoAuthMode.Interactive or FoAuthMode.ClientSecret;
 
-    partial void OnSelectedChanged(EnvProfile? value)
+    partial void OnSelectedChanged(EnvProfile? oldValue, EnvProfile? newValue)
     {
-        LoadDrafts(value);
+        LoadDrafts(newValue);
         SecretInput = string.Empty; // never carry an entry across environments
         DataverseSecretInput = string.Empty;
         DiStatus = string.Empty;
-        LegacyDiStatus = string.Empty;
+        if (!string.Equals(oldValue?.Id, newValue?.Id, StringComparison.Ordinal))
+        {
+            LegacyDiStatus = string.Empty;
+        }
         OnPropertyChanged(nameof(HasDiSecret));
         OnPropertyChanged(nameof(HasLegacyDiConfiguration));
     }
@@ -679,14 +682,20 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
 
         var existing = Profiles.FirstOrDefault(p => p.Id == selected.Id);
         var index = existing is null ? -1 : Profiles.IndexOf(existing);
+        var sameSelectionOwned = Selected?.Id == selected.Id;
+        var legacyDiStatus = LegacyDiStatus;
         if (index >= 0)
         {
             Profiles[index] = updated;
         }
 
-        if (Selected?.Id == selected.Id)
+        if (sameSelectionOwned && (Selected is null || Selected.Id == selected.Id))
         {
             Selected = updated;
+        }
+        if (sameSelectionOwned && Selected?.Id == selected.Id)
+        {
+            LegacyDiStatus = legacyDiStatus;
         }
         Status = $"Saved '{updated.Name}'.";
         ProfileSaved?.Invoke(updated);
