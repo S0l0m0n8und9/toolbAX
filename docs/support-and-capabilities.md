@@ -18,6 +18,8 @@ Test uses the displayed draft connection fields without saving or activating the
 
 Client-secret tests use the stored credential only when the saved authentication settings still match the draft. Save changed authentication settings and explicitly Store a new secret before testing; Test neither stores nor silently uses a typed secret. Interactive and portal tests retain their normal sign-in/token-cache behavior.
 
+Saving profile settings does not clear cached delegated sign-ins. The next acquisition is built from the newly saved client, tenant and resource context, and existing mismatch guards reject incompatible client-secret principals. Use the explicit **Sign out** action when cached interactive access must be cleared. That cache is shared by profiles using the same client ID and tenant, so the action signs out every such profile in that tenant, as stated in its status and tooltip.
+
 ## App capabilities
 
 | Surface | Current App capability | Boundary |
