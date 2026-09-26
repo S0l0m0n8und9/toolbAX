@@ -1,3 +1,4 @@
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -40,5 +41,13 @@ public interface IFileSaveService
     /// Returns the saved path, or <c>null</c> if the user cancels.
     /// </summary>
     Task<string?> SaveTextAsync(string suggestedFileName, string content, SaveFileType fileType,
+        CancellationToken ct = default);
+
+    /// <summary>
+    /// Saves a borrowed readable stream without materializing it. The caller retains stream ownership.
+    /// Cancellation is free only before the destination is opened; implementations finish a committed
+    /// copy after opening so a late cancel is not reported as rollback.
+    /// </summary>
+    Task<string?> SaveStreamAsync(string suggestedFileName, Stream content, SaveFileType fileType,
         CancellationToken ct = default);
 }

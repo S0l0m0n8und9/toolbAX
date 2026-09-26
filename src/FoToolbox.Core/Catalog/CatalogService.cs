@@ -1,6 +1,7 @@
 using FoToolbox.Core.Models;
 using FoToolbox.Core.Auth;
 using FoToolbox.Core.OData;
+using FoToolbox.Core.Net;
 using FoToolbox.Core.Profiles;
 using System;
 using System.Collections.Concurrent;
@@ -39,6 +40,7 @@ public sealed class CatalogService : ICatalogService
     private readonly ProfileStore _profileStore;
     private readonly CatalogStore _store;
     private readonly CatalogServiceOptions _options;
+    private readonly ReadRetryPolicy _readRetryPolicy;
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _tableLocks = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _metadataLocks = new();
     private string? _tableBrowserUrlTemplate;
@@ -56,12 +58,18 @@ public sealed class CatalogService : ICatalogService
     // Ordinary external writes/deletes and other processes retain the existing snapshot semantics.
     private MetadataXmlMemo? _metadataXmlMemo;
 
-    public CatalogService(HttpClient httpClient, ProfileStore profileStore, CatalogStore store, CatalogServiceOptions? options = null)
+    public CatalogService(
+        HttpClient httpClient,
+        ProfileStore profileStore,
+        CatalogStore store,
+        CatalogServiceOptions? options = null,
+        ReadRetryPolicy? readRetryPolicy = null)
     {
         _httpClient = httpClient;
         _profileStore = profileStore;
         _store = store;
         _options = options ?? CatalogServiceOptions.Default;
+        _readRetryPolicy = readRetryPolicy ?? new ReadRetryPolicy();
     }
 
     public async Task<TableCatalog> GetTablesAsync(FoEnvironment env, CatalogRefreshMode mode, CancellationToken ct = default)
@@ -536,15 +544,26 @@ public sealed class CatalogService : ICatalogService
             return (cached!.PayloadJson, cached!.ETag, cached!.UpdatedUtc);
         }
 
-        var request = new HttpRequestMessage(HttpMethod.Get, $"{NormalizedBaseUrl(env)}/data/$metadata");
-        BindMetadataContext(request, env);
-        request.Headers.Accept.ParseAdd("application/xml");
-        if (cachedValid && !string.IsNullOrWhiteSpace(cached!.ETag))
+        var target = new Uri($"{NormalizedBaseUrl(env)}/data/$metadata", UriKind.Absolute);
+        var conditionalEtag = cachedValid ? cached!.ETag : null;
+        HttpRequestMessage CreateRequest()
         {
-            request.Headers.IfNoneMatch.Add(new System.Net.Http.Headers.EntityTagHeaderValue($"\"{cached!.ETag}\""));
+            var request = new HttpRequestMessage(HttpMethod.Get, target);
+            BindMetadataContext(request, env);
+            request.Headers.Accept.ParseAdd("application/xml");
+            if (!string.IsNullOrWhiteSpace(conditionalEtag))
+            {
+                request.Headers.IfNoneMatch.Add(
+                    new System.Net.Http.Headers.EntityTagHeaderValue($"\"{conditionalEtag}\""));
+            }
+            return request;
         }
 
-        var response = await _httpClient.SendAsync(request, ct).ConfigureAwait(false);
+        using var response = await _readRetryPolicy.SendAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            ct).ConfigureAwait(false);
         if (response.StatusCode == System.Net.HttpStatusCode.NotModified && cachedValid)
         {
             var touched = await _store.TouchAsync(key, MetadataXmlKind, ct).ConfigureAwait(false);
@@ -671,11 +690,19 @@ public sealed class CatalogService : ICatalogService
         var filter = Uri.EscapeDataString($"EntitySetName eq '{escapedLiteral}'");
         var url = $"{NormalizedBaseUrl(env)}/metadata/PublicEntities?$filter={filter}";
 
-        using var req = new HttpRequestMessage(HttpMethod.Get, url);
-        BindMetadataContext(req, env);
-        req.Headers.Accept.ParseAdd("application/json");
+        HttpRequestMessage CreateRequest()
+        {
+            var request = new HttpRequestMessage(HttpMethod.Get, url);
+            BindMetadataContext(request, env);
+            request.Headers.Accept.ParseAdd("application/json");
+            return request;
+        }
 
-        using var resp = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);
+        using var resp = await _readRetryPolicy.SendAsync(
+            _httpClient,
+            CreateRequest,
+            HttpCompletionOption.ResponseContentRead,
+            ct).ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode)
         {
             return null;
@@ -740,48 +767,82 @@ public sealed class CatalogService : ICatalogService
         var filter = Uri.EscapeDataString($"Entity eq '{escapedLiteral}'");
         var select = Uri.EscapeDataString("StagingField,ShortStagingField,TargetField,FieldAOTName,DataSourceField,FieldLength");
         var nextUrl = $"{NormalizedBaseUrl(env)}/data/DataManagementTargetMapEntities?$filter={filter}&$select={select}&$top=1000&$count=true&cross-company=true";
-        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var visits = new PageVisitTracker();
+        var origin = new Uri(nextUrl, UriKind.Absolute);
+        var firstRequest = true;
 
-        while (!string.IsNullOrWhiteSpace(nextUrl) && visited.Add(nextUrl))
+        while (!string.IsNullOrWhiteSpace(nextUrl))
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, nextUrl);
-            BindMetadataContext(req, env);
-            req.Headers.Accept.ParseAdd("application/json");
+            ct.ThrowIfCancellationRequested();
+            if (!visits.TryVisit(nextUrl, baseAddress: null, out var resolvedRequestUri))
+            {
+                return new List<DataManagementTargetMapRow>();
+            }
+            if (!firstRequest && (resolvedRequestUri is null || !RequestOriginGuard.IsSameOrigin(origin, resolvedRequestUri)))
+            {
+                return new List<DataManagementTargetMapRow>();
+            }
+            firstRequest = false;
 
-            using var resp = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);
+            var requestUri = resolvedRequestUri ?? new Uri(nextUrl, UriKind.RelativeOrAbsolute);
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, requestUri);
+                BindMetadataContext(request, env);
+                request.Headers.Accept.ParseAdd("application/json");
+                return request;
+            }
+
+            using var resp = await _readRetryPolicy.SendAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
             if (!resp.IsSuccessStatusCode)
             {
-                return rows;
+                return new List<DataManagementTargetMapRow>();
             }
 
             var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
-            if (root.TryGetProperty("value", out var valueNode) && valueNode.ValueKind == JsonValueKind.Array)
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("value", out var valueNode) ||
+                valueNode.ValueKind != JsonValueKind.Array)
             {
-                foreach (var item in valueNode.EnumerateArray())
-                {
-                    var fieldLength = ReadInt32Property(item, "FieldLength");
-                    if (fieldLength is null || fieldLength <= 0)
-                    {
-                        continue;
-                    }
-
-                    rows.Add(new DataManagementTargetMapRow(
-                        ReadStringProperty(item, "StagingField"),
-                        ReadStringProperty(item, "ShortStagingField"),
-                        ReadStringProperty(item, "TargetField"),
-                        ReadStringProperty(item, "FieldAOTName"),
-                        ReadStringProperty(item, "DataSourceField"),
-                        fieldLength.Value));
-                }
+                return new List<DataManagementTargetMapRow>();
             }
 
-            var nextLink = ReadStringProperty(root, "@odata.nextLink");
-            if (string.IsNullOrWhiteSpace(nextLink))
+            foreach (var item in valueNode.EnumerateArray())
+            {
+                var fieldLength = ReadInt32Property(item, "FieldLength");
+                if (fieldLength is null || fieldLength <= 0)
+                {
+                    continue;
+                }
+
+                rows.Add(new DataManagementTargetMapRow(
+                    ReadStringProperty(item, "StagingField"),
+                    ReadStringProperty(item, "ShortStagingField"),
+                    ReadStringProperty(item, "TargetField"),
+                    ReadStringProperty(item, "FieldAOTName"),
+                    ReadStringProperty(item, "DataSourceField"),
+                    fieldLength.Value));
+            }
+
+            if (!root.TryGetProperty("@odata.nextLink", out var nextLinkNode) ||
+                nextLinkNode.ValueKind == JsonValueKind.Null)
             {
                 break;
             }
+            if (nextLinkNode.ValueKind != JsonValueKind.String ||
+                string.IsNullOrWhiteSpace(nextLinkNode.GetString()))
+            {
+                return new List<DataManagementTargetMapRow>();
+            }
+            var nextLink = nextLinkNode.GetString()!;
 
             if (Uri.TryCreate(nextLink, UriKind.Absolute, out var absolute))
             {

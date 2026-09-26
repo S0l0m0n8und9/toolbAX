@@ -1,5 +1,9 @@
+using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using FoToolbox.Core.Auth;
+using FoToolbox.Core.Net;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 
@@ -14,32 +18,47 @@ namespace ToolBax.App.Services;
 public sealed class CoreVirtualTableReader : IVirtualTableReader
 {
     private readonly IDataverseClient _dataverse;
+    private readonly Func<EnvProfile?> _activeEnv;
 
-    public CoreVirtualTableReader(IDataverseClient dataverse) => _dataverse = dataverse;
+    public CoreVirtualTableReader(IDataverseClient dataverse, Func<EnvProfile?>? activeEnv = null)
+    {
+        _dataverse = dataverse;
+        _activeEnv = activeEnv ?? (() => null);
+    }
 
     public async Task<VirtualTableLoadResult> GetVirtualTablesAsync(CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
-        var path = $"EntityDefinitions?$select={VirtualTableMetadataParser.SelectColumns}";
-        ODataResponse response;
+        var pinned = _activeEnv();
+        var identity = EnvironmentIdentity.TryCreate(pinned);
+        var apiBase = PinnedApiBase(pinned);
+        string? path = Pinned(apiBase, $"EntityDefinitions?$select={VirtualTableMetadataParser.SelectColumns}");
+        var visits = new PageVisitTracker();
+        var records = new List<VirtualTableInfo>();
         try
         {
-            response = await _dataverse.GetAsync(path, ct).ConfigureAwait(false);
-            ct.ThrowIfCancellationRequested();
-        }
-        catch
-        {
-            ct.ThrowIfCancellationRequested();
-            throw;
-        }
-        if (!response.IsSuccess)
-        {
-            return VirtualTableLoadResult.Fail($"Couldn't load table metadata ({response.StatusLine}).");
-        }
+            while (path is not null)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (identity is not null && !identity.IsCurrent(_activeEnv()))
+                    return VirtualTableLoadResult.Fail("Couldn't load table metadata — the active environment changed.");
+                if (!visits.TryVisit(path, baseAddress: null, out _))
+                    return VirtualTableLoadResult.Fail(
+                        "Couldn't load table metadata: paging stopped because the service repeated a request target. Results are incomplete.");
 
-        try
-        {
-            var records = VirtualTableMetadataParser.Parse(response.Body);
+                var response = await _dataverse.GetAsync(path, ct).ConfigureAwait(false);
+                ct.ThrowIfCancellationRequested();
+                if (identity is not null && !identity.IsCurrent(_activeEnv()))
+                    return VirtualTableLoadResult.Fail("Couldn't load table metadata — the active environment changed.");
+                if (!response.IsSuccess)
+                    return VirtualTableLoadResult.Fail($"Couldn't load table metadata ({response.StatusLine}).");
+
+                var page = VirtualTableMetadataParser.ParsePage(response.Body);
+                ct.ThrowIfCancellationRequested();
+                records.AddRange(page.Tables);
+                path = page.NextLink is null ? null : Pinned(apiBase, page.NextLink);
+            }
+
             ct.ThrowIfCancellationRequested();
             return VirtualTableLoadResult.Ok(records);
         }
@@ -53,5 +72,17 @@ public sealed class CoreVirtualTableReader : IVirtualTableReader
             ct.ThrowIfCancellationRequested();
             throw;
         }
+    }
+
+    private static string Pinned(string? apiBase, string path) =>
+        path.StartsWith("http", StringComparison.OrdinalIgnoreCase) || apiBase is null
+            ? path
+            : $"{apiBase}/{path.TrimStart('/')}";
+
+    private static string? PinnedApiBase(EnvProfile? env)
+    {
+        if (string.IsNullOrWhiteSpace(env?.DataverseUrl)) return null;
+        var apiBase = ResourceUrlNormalizer.BuildDataverseApiBaseUrl(env.DataverseUrl);
+        return apiBase.StartsWith("http", StringComparison.OrdinalIgnoreCase) ? apiBase : $"https://{apiBase}";
     }
 }

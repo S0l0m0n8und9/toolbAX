@@ -204,6 +204,13 @@ public sealed class ReadCancellationUiTests
             OnSave?.Invoke();
             return Task.FromResult<string?>("saved.csv");
         }
+        public Task<string?> SaveStreamAsync(string name, Stream content, SaveFileType type,
+            CancellationToken ct = default)
+        {
+            Calls++;
+            OnSave?.Invoke();
+            return Task.FromResult<string?>("saved.csv");
+        }
     }
 
     [Theory]

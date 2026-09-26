@@ -25,15 +25,31 @@ public class CoreDataverseClientTests
     {
         private readonly HttpResponseMessage _response;
         public HttpRequestMessage? LastRequest { get; private set; }
+        public int Calls { get; private set; }
 
         public StubHandler(HttpStatusCode status, string body)
             => _response = new HttpResponseMessage(status) { Content = new StringContent(body) };
 
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
         {
+            Calls++;
             LastRequest = request;
             return Task.FromResult(_response);
         }
+    }
+
+    private sealed class CountingDataverseAuth : IAuthService
+    {
+        public int Calls { get; private set; }
+        public Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default) =>
+            Task.FromResult("fo-token");
+        public Task<string> AcquireDataverseTokenAsync(EnvProfile env, CancellationToken ct = default)
+        {
+            Calls++;
+            return Task.FromResult("dv-token");
+        }
+        public Task<string> AcquireDualWriteTokenAsync(EnvProfile env, CancellationToken ct = default) =>
+            Task.FromResult("dw-token");
     }
 
     private sealed class GatedDataverseAuth : IAuthService
@@ -144,6 +160,26 @@ public class CoreDataverseClientTests
 
         Assert.False(result.IsSuccess);
         Assert.Null(handler.LastRequest); // no request was sent, so the token never left
+    }
+
+    [Theory]
+    [InlineData("https://evil.example.com/api/data/v9.2/EntityDefinitions")]
+    [InlineData("http://http-preview.crm.dynamics.com/api/data/v9.2/EntityDefinitions")]
+    [InlineData("https://http-preview.crm.dynamics.com:444/api/data/v9.2/EntityDefinitions")]
+    public async Task Bare_http_prefixed_profile_refuses_unsafe_absolute_requests_before_auth(string requestUrl)
+    {
+        var auth = new CountingDataverseAuth();
+        var handler = new StubHandler(HttpStatusCode.OK, "{\"value\":[]}");
+        var client = new CoreDataverseClient(
+            auth,
+            () => Env(dataverseUrl: "http-preview.crm.dynamics.com"),
+            new HttpClient(handler));
+
+        var result = await client.GetAsync(requestUrl, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Equal(0, auth.Calls);
+        Assert.Equal(0, handler.Calls);
     }
 
     [Fact]
