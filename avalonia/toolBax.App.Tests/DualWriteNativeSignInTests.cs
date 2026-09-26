@@ -4,8 +4,12 @@ using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Avalonia;
+using Avalonia.Controls;
 using Avalonia.Headless.XUnit;
+using Avalonia.Platform;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using FoToolbox.Core.DualWrite.Auth;
 using ToolBax.App.Services;
 using ToolBax.Core.Models;
@@ -51,6 +55,130 @@ public sealed class DualWriteNativeSignInTests
                 await Release.Task;
             }
             return await base.ReadAsync(buffer, cancellationToken);
+        }
+    }
+
+    private sealed class CoordinatedWindow : Window
+    {
+        private readonly DualWriteClosePreparationCoordinator _coordinator;
+        private readonly Window? _owner;
+        private bool _resumeOwnerClose;
+        public bool PhysicalCloseOnUiThread { get; private set; }
+        public int ClosedCount { get; private set; }
+
+        public CoordinatedWindow(Task preparation, Window? owner = null)
+        {
+            _owner = owner;
+            _coordinator = new DualWriteClosePreparationCoordinator(
+                action => Dispatcher.UIThread.Post(action),
+                () =>
+                {
+                    PhysicalCloseOnUiThread = Dispatcher.UIThread.CheckAccess();
+                    Close();
+                });
+            _coordinator.TrackPreparation(preparation);
+            Closing += (_, e) =>
+            {
+                var ownerIsClosing = e.CloseReason == WindowCloseReason.OwnerWindowClosing;
+                var shutdownCannotWait = e.CloseReason is WindowCloseReason.ApplicationShutdown
+                    or WindowCloseReason.OSShutdown;
+                if (_coordinator.RequestClose(shutdownCannotWait) == DualWriteCloseDecision.DeferAndHide)
+                {
+                    _resumeOwnerClose |= ownerIsClosing;
+                    e.Cancel = true;
+                    if (IsVisible) Hide();
+                }
+            };
+            Closed += (_, _) =>
+            {
+                ClosedCount++;
+                _coordinator.MarkClosed();
+                if (_resumeOwnerClose && _owner is { } owner)
+                {
+                    _resumeOwnerClose = false;
+                    Dispatcher.UIThread.Post(owner.Close);
+                }
+            };
+        }
+
+        public Task DrainAsync() => _coordinator.DrainPreparationAsync();
+    }
+
+    private sealed class NativeHostLifecycleProbe : NativeControlHost
+    {
+        public int AttachedCount { get; private set; }
+        public int DetachedCount { get; private set; }
+        public int DestroyedCount { get; private set; }
+
+        protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)
+        {
+            AttachedCount++;
+            base.OnAttachedToVisualTree(e);
+        }
+
+        protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
+        {
+            DetachedCount++;
+            base.OnDetachedFromVisualTree(e);
+        }
+
+        protected override void DestroyNativeControlCore(IPlatformHandle control)
+        {
+            DestroyedCount++;
+            base.DestroyNativeControlCore(control);
+        }
+    }
+
+    private sealed class CoordinatedAttempt : IDualWriteSignInAttempt
+    {
+        private readonly TaskCompletionSource<DualWriteSignInResult?> _result =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource _clear = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly DualWriteClosePreparationCoordinator _coordinator;
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public bool ResultCompleted => _result.Task.IsCompleted;
+        public int PhysicalCloses { get; private set; }
+        public int Navigations { get; private set; }
+        public bool ControllerDestroyed { get; private set; }
+
+        public CoordinatedAttempt()
+        {
+            _coordinator = new DualWriteClosePreparationCoordinator(action => action(), PhysicalClose);
+            var preparation = DualWriteBrowserPreparation.PrepareAndNavigateAsync(
+                () => _clear.Task, () => Navigations++, () => _coordinator.IsInactive);
+            _coordinator.TrackPreparation(preparation);
+        }
+
+        public async Task<DualWriteSignInResult?> RunAsync(CancellationToken cancellationToken)
+        {
+            Entered.TrySetResult();
+            return await _result.Task;
+        }
+
+        public void UserClose()
+        {
+            _coordinator.Deactivate();
+            _result.TrySetResult(null);
+            if (_coordinator.RequestClose() == DualWriteCloseDecision.AllowPhysicalClose)
+                PhysicalClose();
+        }
+
+        public void Cancel() => UserClose();
+        public Task DrainPreparationAsync() => _coordinator.DrainPreparationAsync();
+
+        public void CompleteClear()
+        {
+            // Models the reviewed WebView2 failure: once controller teardown occurs, this clear can no
+            // longer report completion. The coordinator must therefore keep the controller alive first.
+            if (!ControllerDestroyed) _clear.TrySetResult();
+        }
+
+        private void PhysicalClose()
+        {
+            if (ControllerDestroyed) return;
+            ControllerDestroyed = true;
+            PhysicalCloses++;
+            _coordinator.MarkClosed();
         }
     }
 
@@ -220,6 +348,158 @@ public sealed class DualWriteNativeSignInTests
         clear.TrySetResult();
         await preparation;
         Assert.Equal(0, navigations);
+    }
+
+    [Fact]
+    public async Task Close_waits_for_uninterruptible_preparation_before_physical_teardown()
+    {
+        var preparation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var physicalCloses = 0;
+        var controllerDestroyed = false;
+        var coordinator = new DualWriteClosePreparationCoordinator(action => action(), () =>
+        {
+            controllerDestroyed = true;
+            physicalCloses++;
+        });
+        coordinator.TrackPreparation(preparation.Task);
+
+        var decision = coordinator.RequestClose();
+
+        Assert.True(coordinator.IsInactive);
+        Assert.Equal(DualWriteCloseDecision.DeferAndHide, decision);
+        Assert.Equal(0, physicalCloses);
+        if (!controllerDestroyed) preparation.TrySetResult();
+        await coordinator.DrainPreparationAsync().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(1, physicalCloses);
+    }
+
+    [Fact]
+    public async Task Queued_sign_in_starts_only_after_closed_attempt_safely_drains()
+    {
+        var sequencer = new DualWriteSignInSequencer();
+        var first = new CoordinatedAttempt();
+        var firstRun = sequencer.RunAsync(() => first, CancellationToken.None);
+        await first.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        first.UserClose();
+        Assert.True(first.ResultCompleted);
+        Assert.False(first.ControllerDestroyed);
+        Assert.Equal(0, first.Navigations);
+
+        var second = new FakeAttempt();
+        var secondCreated = 0;
+        var secondRun = sequencer.RunAsync(() => { secondCreated++; return second; }, CancellationToken.None);
+        await Task.Yield();
+        Assert.Equal(0, secondCreated);
+
+        first.CompleteClear();
+        await second.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(1, first.PhysicalCloses);
+        Assert.Equal(0, first.Navigations);
+        second.Complete(null);
+        Assert.Null(await firstRun);
+        await secondRun;
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Faulted_or_cancelled_preparation_closes_once_and_duplicate_close_is_idempotent(bool cancel)
+    {
+        var preparation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var physicalCloses = 0;
+        var coordinator = new DualWriteClosePreparationCoordinator(action => action(), () => physicalCloses++);
+        coordinator.TrackPreparation(preparation.Task);
+
+        Assert.Equal(DualWriteCloseDecision.DeferAndHide, coordinator.RequestClose());
+        Assert.Equal(DualWriteCloseDecision.DeferAndHide, coordinator.RequestClose());
+        if (cancel) preparation.TrySetCanceled(TestContext.Current.CancellationToken);
+        else preparation.TrySetException(new InvalidOperationException("clear failed"));
+
+        await coordinator.DrainPreparationAsync().WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(1, physicalCloses);
+        Assert.Equal(DualWriteCloseDecision.AllowPhysicalClose, coordinator.RequestClose());
+        Assert.Equal(1, physicalCloses);
+    }
+
+    [Fact]
+    public void Destroyed_host_rejects_and_closes_a_late_created_resource_without_publication()
+    {
+        var lifetime = new DualWriteNativeHostLifetime();
+        var teardowns = 0;
+        var publications = 0;
+        var lateCloses = 0;
+
+        lifetime.Destroy(() => teardowns++);
+        var accepted = lifetime.TryPublish(() => publications++);
+        if (!accepted) lateCloses++;
+        lifetime.Destroy(() => teardowns++);
+
+        Assert.False(accepted);
+        Assert.Equal(0, publications);
+        Assert.Equal(1, lateCloses);
+        Assert.Equal(1, teardowns);
+    }
+
+    [AvaloniaFact]
+    public async Task Headless_close_hides_until_preparation_settles_then_closes_on_UI_context()
+    {
+        Assert.True(Dispatcher.UIThread.CheckAccess());
+        var preparation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var owner = new Window();
+        owner.Show();
+        var child = new CoordinatedWindow(preparation.Task, owner);
+        var dialog = child.ShowDialog(owner);
+
+        child.Close();
+
+        Assert.False(child.IsVisible);
+        Assert.Equal(0, child.ClosedCount);
+        preparation.TrySetResult();
+        await dialog.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await child.DrainAsync();
+        Assert.Equal(1, child.ClosedCount);
+        Assert.True(child.PhysicalCloseOnUiThread);
+        owner.Close();
+    }
+
+    [AvaloniaFact]
+    public async Task Owner_close_is_not_cancelled_by_child_with_outstanding_preparation()
+    {
+        var ownerClosed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var owner = new Window();
+        owner.Closed += (_, _) => ownerClosed.TrySetResult();
+        owner.Show();
+        var preparation = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var child = new CoordinatedWindow(preparation.Task, owner);
+        var dialog = child.ShowDialog(owner);
+
+        owner.Close();
+
+        Assert.True(owner.IsVisible);
+        Assert.False(child.IsVisible);
+        preparation.TrySetResult();
+        await dialog.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        await child.DrainAsync();
+        await ownerClosed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal(1, child.ClosedCount);
+    }
+
+    [AvaloniaFact]
+    public void Hiding_window_keeps_native_host_attached_and_does_not_destroy_it()
+    {
+        var host = new NativeHostLifecycleProbe();
+        var window = new Window { Content = host };
+        window.Show();
+        Assert.Equal(1, host.AttachedCount);
+        Assert.True(host.IsAttachedToVisualTree());
+
+        window.Hide();
+
+        Assert.Equal(0, host.DetachedCount);
+        Assert.Equal(0, host.DestroyedCount);
+        Assert.True(host.IsAttachedToVisualTree());
+        window.Close();
     }
 
     [Fact]

@@ -1,6 +1,6 @@
 # Dual-write Authentication Trust Boundary
 
-**Status:** Core phases 1 and 2a implemented and locally validated, pending parent review. Overall H05 remains incomplete until the native App adapter supplies committed exchange/gateway evidence in phase 2b.
+**Status:** Core phases 1/2a, native phase 2b and PR230 review corrections are implemented and fully locally validated. Hosted PR rerun/Greptile resolution and live commercial-cloud sign-in acceptance remain pending.
 **Scope:** Offline endpoint and credential-origin enforcement for the Core dual-write sign-in capture, gateway factory and bearer handlers.
 
 ## Problem
@@ -125,7 +125,35 @@ Behavioral RED against the integrated pre-adapter source showed the matching dom
 
 ### Parent review and complete offline gates
 
-Parent review accepted Core phases 1/2a and native phase 2b at source `cab116221aa03560dc15c010bceadffb8432a53e`. With `CI=true`, both Release solutions built with zero warnings/errors; the full Windows App suite with `EnableWebView2=true` passed 1,381/1,381 and Core passed 566/566, with zero failed/skipped. Evidence is `artifacts/h05/full-{app,core}-build.log`, `full-{app,core}-test.log` and `full-{app,core}.trx`. PR creation, hosted review/CI, merge and live commercial-cloud sign-in acceptance remain pending. No browser was launched and no real WebView profile was cleared during validation.
+Parent review accepted Core phases 1/2a and native phase 2b at source `cab116221aa03560dc15c010bceadffb8432a53e`. With `CI=true`, both Release solutions built with zero warnings/errors; the full Windows App suite with `EnableWebView2=true` passed 1,381/1,381 and Core passed 566/566, with zero failed/skipped. Evidence is `artifacts/h05/full-{app,core}-build.log`, `full-{app,core}-test.log` and `full-{app,core}.trx`. At that checkpoint PR creation and hosted review had not yet run; live commercial-cloud sign-in acceptance remained pending. No browser was launched and no real WebView profile was cleared during validation.
 
 
-Integrated checkpoint after H08a PR #229 merged: at 6628d06b862fb01a336c1e42f31d01adc2778d33, CI=true Release App build with EnableWebView2=true passed with zero warnings/errors and the full App suite passed 1,491/1,491, zero failed/skipped. Evidence: rtifacts/h05/integrated-h08-app-build.log, integrated-h08-app-test.log and integrated-h08-app.trx. Core production and test files are unchanged from cab116221aa03560dc15c010bceadffb8432a53e by verified diff, so the prior 566/566 Core result remains applicable. No live browser, tenant or gateway calls were made.
+Integrated checkpoint after H08a PR #229 merged: at 6628d06b862fb01a336c1e42f31d01adc2778d33, CI=true Release App build with EnableWebView2=true passed with zero warnings/errors and the full App suite passed 1,491/1,491, zero failed/skipped. Evidence: artifacts/h05/integrated-h08-app-build.log, integrated-h08-app-test.log and integrated-h08-app.trx. Core production and test files are unchanged from cab116221aa03560dc15c010bceadffb8432a53e by verified diff, so the prior 566/566 Core result remains applicable. No live browser, tenant or gateway calls were made.
+
+### PR230 Core binding persistence review
+
+Greptile finding `4109615567` identified that `DualWriteConnectionStore` persisted access/refresh tokens and expiry but omitted the trusted delegated binding required by `CreateRefreshing`. A bound session therefore became indistinguishable from an unprovenanced legacy refresh token after a new store instance reloaded it.
+
+The connection record now has one optional protected binding field. Save validates any non-null binding with `IsTrusted` before cache/file mutation, serializes the immutable binding with the store's existing JSON options and protects that JSON with the existing `ITokenProtector`. Load restores and revalidates it before unprotecting bearer credentials. Missing fields remain legacy/unbound; malformed or untrusted protected binding fails closed with re-sign-in guidance. Static/manual bearer creation remains available for legacy settings, while refreshing creation continues to refuse legacy refresh tokens. Protection provides local at-rest confidentiality; it is not a signature or an independent authentication claim for local metadata. The Core API caller remains the trusted source of bindings accepted for save.
+
+A refresh persistence callback must carry the immutable binding forward with the rotated tokens:
+
+```csharp
+await store.SaveAsync(settings with
+{
+    BearerToken = refreshed.AccessToken,
+    RefreshToken = refreshed.RefreshToken,
+    AccessTokenExpiryUtc = refreshed.ExpiresUtc,
+    DelegatedBinding = refreshed.Binding
+}, cancellationToken);
+```
+
+Legacy records are not upgraded or assigned invented trust context.
+
+The save/new-instance/load regression produced a runtime RED: access token, refresh token and expiry round-tripped, but the reloaded binding tenant was null. GREEN covers every binding field, tokens and expiry; absence of plaintext binding/token metadata in the JSON file; refreshing-client construction and a fake proactive renewal whose callback saves and reloads the rotated bound session; legacy unbound refresh refusal with static-bearer compatibility; malformed/untrusted protected binding rejection before bearer/refresh unprotection; and invalid-save rejection before protection, cache or file mutation. The CI=true Release Core library built for `net10.0` and `net10.0-windows` with zero warnings/errors. The focused auth/store suite passed 138/138. Evidence is under `artifacts/h05/pr230-core/`. No App build, browser, profile clear, tenant discovery, live endpoint or public network call was used.
+
+### PR230 combined review-correction gates
+
+The second PR230 review finding identified a native lifetime race: closing the modal destroyed the WebView2 controller while its non-cancelable profile clear could still be running, so the sequencer's drain could wait forever and strand later sign-ins. The accepted fix makes close/cancel inactive immediately, defers normal/owner physical teardown until preparation settles, reissues a deferred owner close, and keeps gate ownership through safe drain. Application/OS shutdown is allowed through without releasing the shared-profile gate early. Late controller creation after host destruction is closed and never published. Exact Avalonia 12.0.5 source plus a headless native-host probe confirms `Window.Hide` does not detach or destroy the host. Detailed design and evidence are in `2026-09-26-native-signin-close-lifetime.md` and `artifacts/h05/pr230-native/`.
+
+Parent combined validation ran after both Core persistence and native-close corrections. With `CI=true`, Core built both Release target frameworks and App built Release with `EnableWebView2=true`, all with zero warnings/errors. The complete Core suite passed 572/572 and the complete App suite passed 1,499/1,499, with no failures or skips. Evidence is `artifacts/h05/pr230-core/parent-full-core-{build,test}.log`, `parent-full-core.trx`, `artifacts/h05/pr230-native/parent-full-app-{build,test}.log` and `parent-full-app.trx`. PR230 hosted rerun/Greptile resolution, merge and live commercial-cloud sign-in acceptance remain pending. No browser was launched and no real profile clear, sign-in, tenant discovery, gateway or Power Platform call occurred.

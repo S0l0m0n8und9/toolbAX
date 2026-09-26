@@ -54,10 +54,12 @@ internal sealed class DualWriteSignInDialog : Window, IDualWriteSignInAttempt
     private readonly DualWriteSignInCapture _capture;
     private readonly WebView2Host _host = new();
     private readonly CancellationTokenSource _lifetime = new();
+    private readonly DualWriteClosePreparationCoordinator _closeCoordinator;
     private readonly TaskCompletionSource<DualWriteSignInResult?> _tcs =
         new(TaskCreationOptions.RunContinuationsAsynchronously);
     private Task _preparationTask = Task.CompletedTask;
     private bool _completed;
+    private bool _resumeOwnerCloseAfterClosed;
 
     public DualWriteSignInDialog(Window owner, EnvProfile env, bool switchAccount)
     {
@@ -65,12 +67,15 @@ internal sealed class DualWriteSignInDialog : Window, IDualWriteSignInAttempt
         _foIdentifier = env.Url;
         _switchAccount = switchAccount;
         _capture = DualWriteNativeCapture.Create(env);
+        _closeCoordinator = new DualWriteClosePreparationCoordinator(
+            action => Dispatcher.UIThread.Post(action), Close);
         Title = DualWriteSignInTitle.For(env);
         Width = 920;
         Height = 760;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Content = _host;
         _host.BrowserReady += OnBrowserReady;
+        Closing += OnClosing;
         Closed += OnClosed;
     }
 
@@ -83,6 +88,7 @@ internal sealed class DualWriteSignInDialog : Window, IDualWriteSignInAttempt
 
     public void Cancel()
     {
+        _closeCoordinator.Deactivate();
         if (!_lifetime.IsCancellationRequested) _lifetime.Cancel();
         Dispatcher.UIThread.Post(() =>
         {
@@ -92,13 +98,13 @@ internal sealed class DualWriteSignInDialog : Window, IDualWriteSignInAttempt
 
     public async Task DrainPreparationAsync()
     {
-        try { await _preparationTask.ConfigureAwait(true); }
+        try { await _closeCoordinator.DrainPreparationAsync().ConfigureAwait(true); }
         catch { /* The controlled failure already completed the dialog. */ }
     }
 
     private async void OnBrowserReady(object? sender, EventArgs e)
     {
-        if (_completed || _lifetime.IsCancellationRequested) return;
+        if (IsInactive) return;
         var browser = _host.Browser;
         if (browser is null)
         {
@@ -110,13 +116,14 @@ internal sealed class DualWriteSignInDialog : Window, IDualWriteSignInAttempt
         }
 
         _preparationTask = PrepareBrowserAsync(browser);
+        _closeCoordinator.TrackPreparation(_preparationTask);
         try
         {
             await _preparationTask.ConfigureAwait(true);
         }
         catch (Exception ex)
         {
-            if (!_lifetime.IsCancellationRequested)
+            if (!IsInactive)
                 Fail(DualWriteSignInFailure.BrowserPreparationError(ex));
             return;
         }
@@ -138,12 +145,12 @@ internal sealed class DualWriteSignInDialog : Window, IDualWriteSignInAttempt
                 browser.WebResourceResponseReceived += OnResponseReceived;
                 browser.Navigate(DualWriteAuthConstants.BuildSignInUrl(_foIdentifier));
             },
-            () => _completed || _lifetime.IsCancellationRequested);
+            () => IsInactive);
     }
 
     private async void OnResponseReceived(object? sender, CoreWebView2WebResourceResponseReceivedEventArgs e)
     {
-        if (_completed || _lifetime.IsCancellationRequested) return;
+        if (IsInactive) return;
         var request = e.Request;
         if (request is null) return;
         try
@@ -172,7 +179,7 @@ internal sealed class DualWriteSignInDialog : Window, IDualWriteSignInAttempt
         catch (OperationCanceledException) { return; }
         catch { return; }
 
-        if (!_completed && !_lifetime.IsCancellationRequested && _capture.IsComplete)
+        if (!IsInactive && _capture.IsComplete)
         {
             Complete(_capture.Result);
         }
@@ -192,6 +199,7 @@ internal sealed class DualWriteSignInDialog : Window, IDualWriteSignInAttempt
         }
 
         _completed = true;
+        _closeCoordinator.Deactivate();
         _lifetime.Cancel();
         _tcs.TrySetResult(result);
         Dispatcher.UIThread.Post(Close);
@@ -211,20 +219,55 @@ internal sealed class DualWriteSignInDialog : Window, IDualWriteSignInAttempt
         }
 
         _completed = true;
+        _closeCoordinator.Deactivate();
         _lifetime.Cancel();
         _tcs.TrySetException(error);
         Dispatcher.UIThread.Post(Close);
     }
 
+    private bool IsInactive =>
+        _completed || _lifetime.IsCancellationRequested || _closeCoordinator.IsInactive;
+
+    private void OnClosing(object? sender, WindowClosingEventArgs e)
+    {
+        _closeCoordinator.Deactivate();
+        if (!_lifetime.IsCancellationRequested) _lifetime.Cancel();
+        if (!_completed)
+        {
+            _completed = true;
+            _tcs.TrySetResult(null);
+        }
+
+        var ownerIsClosing = e.CloseReason == WindowCloseReason.OwnerWindowClosing;
+        var shutdownCannotWait = e.CloseReason is WindowCloseReason.ApplicationShutdown
+            or WindowCloseReason.OSShutdown;
+        if (_closeCoordinator.RequestClose(shutdownCannotWait) == DualWriteCloseDecision.DeferAndHide)
+        {
+            _resumeOwnerCloseAfterClosed |= ownerIsClosing;
+            e.Cancel = true;
+            if (IsVisible) Hide();
+        }
+    }
+
     private void OnClosed(object? sender, EventArgs e)
     {
+        _closeCoordinator.MarkClosed();
         _lifetime.Cancel();
+        Closing -= OnClosing;
         if (_host.Browser is { } browser)
             browser.WebResourceResponseReceived -= OnResponseReceived;
         if (!_completed)
         {
             _completed = true;
             _tcs.TrySetResult(null);
+        }
+        if (_resumeOwnerCloseAfterClosed)
+        {
+            _resumeOwnerCloseAfterClosed = false;
+            Dispatcher.UIThread.Post(() =>
+            {
+                if (_owner.IsVisible) _owner.Close();
+            });
         }
     }
 }
@@ -237,6 +280,7 @@ internal sealed class DualWriteSignInDialog : Window, IDualWriteSignInAttempt
 internal sealed class WebView2Host : NativeControlHost
 {
     private CoreWebView2Controller? _controller;
+    private readonly DualWriteNativeHostLifetime _lifetime = new();
 
     /// <summary>The underlying browser, available after <see cref="BrowserReady"/>.</summary>
     public CoreWebView2? Browser { get; private set; }
@@ -272,10 +316,17 @@ internal sealed class WebView2Host : NativeControlHost
                 Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "toolBax", "webview2");
             Directory.CreateDirectory(userDataFolder);
             var environment = await CoreWebView2Environment.CreateAsync(null, userDataFolder, null);
-            _controller = await environment.CreateCoreWebView2ControllerAsync(hwnd);
-            Browser = _controller.CoreWebView2;
-            UpdateBounds();
-            BrowserReady?.Invoke(this, EventArgs.Empty);
+            var controller = await environment.CreateCoreWebView2ControllerAsync(hwnd);
+            if (!_lifetime.TryPublish(() =>
+                {
+                    _controller = controller;
+                    Browser = controller.CoreWebView2;
+                    UpdateBounds();
+                    BrowserReady?.Invoke(this, EventArgs.Empty);
+                }))
+            {
+                TryClose(controller);
+            }
         }
         catch (Exception ex)
         {
@@ -283,9 +334,12 @@ internal sealed class WebView2Host : NativeControlHost
             // completing null, which the connector reports as a cancelled sign-in — so a machine without the
             // runtime looked like a user who changed their mind. Full exception to the trace log (stack +
             // inner exceptions, for a support dump); only the message travels to the UI.
-            InitializationError = ex;
-            Trace.WriteLine($"Dual-write sign-in: WebView2 initialization failed.{Environment.NewLine}{ex}");
-            BrowserReady?.Invoke(this, EventArgs.Empty);
+            _lifetime.TryPublish(() =>
+            {
+                InitializationError = ex;
+                Trace.WriteLine($"Dual-write sign-in: WebView2 initialization failed.{Environment.NewLine}{ex}");
+                BrowserReady?.Invoke(this, EventArgs.Empty);
+            });
         }
     }
 
@@ -306,18 +360,19 @@ internal sealed class WebView2Host : NativeControlHost
 
     protected override void DestroyNativeControlCore(IPlatformHandle control)
     {
-        try
+        _lifetime.Destroy(() =>
         {
-            _controller?.Close();
-        }
-        catch
-        {
-            // Best-effort teardown.
-        }
-
-        _controller = null;
-        Browser = null;
+            if (_controller is not null) TryClose(_controller);
+            _controller = null;
+            Browser = null;
+        });
         base.DestroyNativeControlCore(control);
+    }
+
+    private static void TryClose(CoreWebView2Controller controller)
+    {
+        try { controller.Close(); }
+        catch { /* Best-effort teardown. */ }
     }
 }
 #endif
