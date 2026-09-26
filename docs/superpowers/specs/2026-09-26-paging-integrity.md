@@ -63,3 +63,7 @@ H09 head `994a36418cc7fbe3a66e26f0faa5e716b6c2be76`, including current main, H05
 
 Sequential `CI=true` Release builds passed with zero warnings/errors. Core passed 616/616, and the Windows App with `EnableWebView2=true` passed 1,660/1,660, all with zero failures/skips. Evidence is `artifacts/h10c/integrated-h09/core-{build,test}.log`, `core-test.trx`, `app-{build,test}.log`, and `app-test.trx`. No live service, browser, sign-in, profile-clear or tenant operation was used. H10c remains locally integrated and fully validated; PR creation waits for PR #232 to merge, then current-main integration and hosted review/CI.
 **Status:** Integrated and fully validated offline; hosted delivery waits for PR #232.
+
+## Integrated PR #232 review-head validation
+
+Combined PR232 correction `b1caddb15f29721b1653d3241c59405616712558` merged cleanly as `ffe386107e31dd694914a02162722f2b25bbd0fc`; no paging source conflict or behavior change was required. Core source/tests are unchanged from the 616/616 gate. The rebuilt `CI=true` Release Windows App with `EnableWebView2=true` had zero warnings/errors and the full App suite passed 1,668/1,668 with zero failures/skips. Evidence is `artifacts/h10c/integrated-h09-review/app-build.log`, `app-test.log`, and `app-test.trx`. The prior Core evidence remains `artifacts/h10c/integrated-h09/`. H10c remains ready but must wait for PR #232 merge and current-main ancestry integration before hosted delivery.

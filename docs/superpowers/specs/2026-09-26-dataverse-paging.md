@@ -27,3 +27,5 @@ Parent-review Query corrections did not change the Dataverse reader implementati
 ## Integrated validation
 
 H09/H10a and the PR232 test synchronization correction merged without Dataverse-reader conflicts. Map, component, solution and virtual-table traversals still capture one environment identity/API base, reject repeated or malformed pages before partial publication, and retain H10a cancellation checks around every dispatch/follow-on. The integrated `CI=true` Release Core build passed with zero warnings/errors and 616/616 tests; the App WebView2 build passed with zero warnings/errors and 1,660/1,660 tests. Evidence is `artifacts/h10c/integrated-h09/`. No live Dataverse call was made.
+
+Combined PR232 review head `b1caddb15f29721b1653d3241c59405616712558` then merged without Dataverse-reader changes. Core remains unchanged at 616/616; the rebuilt App WebView2 solution had zero warnings/errors and passed 1,668/1,668. Evidence is `artifacts/h10c/integrated-h09-review/`. No live Dataverse call was made.
