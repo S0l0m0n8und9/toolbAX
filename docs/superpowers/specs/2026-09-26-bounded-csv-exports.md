@@ -1,6 +1,6 @@
 # Bounded CSV exports (H11 Core phase)
 
-**Status:** Core and App phases are accepted and fully locally validated after latest-main integration. PR creation waits for H10c to reach main.
+**Status:** Core and App phases are accepted and fully locally validated through the published H09 review head. PR creation waits for H10c and the final H09 correction to reach main.
 
 ## Scope
 
@@ -87,3 +87,11 @@ The accepted App source checkpoint is `b2f75d3`. Main `728df34fd44367edf3db6bc7f
 After integration, sequential `CI=true` Release builds completed with zero warnings/errors: Core built both target frameworks and App built with `EnableWebView2=true`. The complete Core suite passed 615/615 and the complete App suite passed 1,632/1,632, with no failures or skips. Evidence is `artifacts/h11/integrated-h10a/core-{build,test}.log`, `core-full.trx`, `app-{build,test}.log` and `app-full.trx`. No live service, browser, sign-in, profile-clear, gateway or Power Platform call occurred.
 
 H11 is ready for delivery review, but its PR must wait until H10c is on main because Query Export All relies on H10c's strict collection parsing, cycle identity and qualified 500-page cap. No push or PR was created.
+
+## Published H09 review integration
+
+Published H09 review head `b1caddb15f29721b1653d3241c59405616712558` merged cleanly into the final H11 documentation checkpoint `a65b5e29ec7cf00ffeb70dfc449c280c4b225348` as `4a073d0a56f4786c076d4c72ef735b301ea9a945`. Git resolved the tracker automatically and preserved H10c paging plus H11 spool, stream-save, byte-format, cancellation and save-truth behavior. There were no conflicts and no H11 production changes or redesign.
+
+Sequential `CI=true` Release gates passed after the merge. Core built both target frameworks with zero warnings/errors and its complete suite passed 631/631. App built with `EnableWebView2=true` with zero warnings/errors and its complete suite passed 1,681/1,681. Evidence is under `artifacts/h11/integrated-h09-review/` as `core-{build,test}.log`, `core-full.trx`, `app-{build,test}.log` and `app-full.trx`.
+
+Validation used local stores and deterministic tests only. No live service, authentication, browser, sign-in, profile-clear, gateway or Power Platform call occurred. This checkpoint intentionally does not integrate any newer H09 cache-contract correction; H11 remains unpublished until final H09 and H10c reach `main`.
