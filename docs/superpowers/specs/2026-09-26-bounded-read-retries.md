@@ -69,3 +69,11 @@ Sequential `CI=true` Release builds passed with zero warnings/errors. The comple
 The test-owned `ManualTimeProvider` now exposes its current scheduled-timer count. Tests that advance through or cancel a retry delay wait until both the existing total-budget timer and the intended backoff timer are pending. Ignoring-handler budget/cancellation tests remain unchanged because they do not schedule a backoff. No production source changed. Focused retry-policy tests pass 47/47, and the unchanged default parallel Core gate then passed 671/671 in 19 seconds. Final proof is under `artifacts/h10b/integrated-h09-review/final/`.
 
 This branch remains unpublished. H10b still waits for H10c and the final H09 correction to reach `main`; no newer H09 change was folded into this checkpoint.
+
+## Final H09 cache-contract integration
+
+Final H09 cache-contract head `1890a871c864532b7c2787580eb51e3d6f04f30d`, whose tree is now merged on `main` as `ae537ee8b0a8cf357155929d40b6d8fb8ce97924`, was integrated into reviewed H10b checkpoint `92af8d0a12578857f47b61372a4e76e11fdd3fd3` as `6758ebc148dcb0e86419798921d6b9bd075912a5`. The merge had no source conflict. `1890a87` is an ancestor of the result, and `git diff 92af8d0..6758ebc -- src/FoToolbox.Core tests/FoToolbox.Tests` is empty, so the reviewed 671/671 Core gate remains applicable.
+
+The final `CI=true` Release App build with `EnableWebView2=true` passed with zero warnings/errors, and the complete App suite passed 1,688/1,688 with no failures or skips. Evidence is `artifacts/h10b/integrated-h09-cache-contract/app-build.log`, `app-test.log` and `app-full.trx`. The older timeout diagnostics remain preserved under `artifacts/h10b/integrated-h09-review/`.
+
+Validation used fake transports and local stores only. No live service, authentication, browser, sign-in, profile-clear, gateway or Power Platform call occurred. H10b now waits only for dependent H10c to reach `main` before publication and hosted review.
