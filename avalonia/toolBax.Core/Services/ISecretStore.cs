@@ -36,12 +36,12 @@ public interface ISecretStore
 
     void SetSecret(string key, string plaintext, SecretTarget target = SecretTarget.Fo);
 
-    Task SetSecretAsync(string key, string plaintext, SecretTarget target = SecretTarget.Fo,
+    Task<bool> SetSecretAsync(string key, string plaintext, SecretTarget target = SecretTarget.Fo,
         CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         SetSecret(key, plaintext, target);
-        return Task.CompletedTask;
+        return Task.FromResult(HasSecret(key, target));
     }
 
     void ClearSecret(string key, SecretTarget target = SecretTarget.Fo);

@@ -236,6 +236,20 @@ public sealed class CoreSecretStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task Async_set_reports_false_for_missing_service_principal_without_requiring_vault()
+    {
+        await SeedEnvAsync("env1");
+        var store = new CoreSecretStore(NewService(), vault: null);
+
+        var stored = await store.SetSecretAsync(
+            "env1", "secret", SecretTarget.Fo, TestContext.Current.CancellationToken);
+
+        Assert.False(stored);
+        Assert.False(await store.HasSecretAsync(
+            "env1", SecretTarget.Fo, TestContext.Current.CancellationToken));
+    }
+
+    [Fact]
     public async Task Di_secret_round_trips_through_the_real_store()
     {
         Assert.SkipUnless(OperatingSystem.IsWindows(), "SecretVaultService uses DPAPI (Windows-only).");
@@ -246,7 +260,8 @@ public sealed class CoreSecretStoreTests : IDisposable
 
         // No service principal exists for this environment — which is exactly what used to make this a
         // silent no-op while the UI reported "Service-account secret stored."
-        store.SetSecret("env1", "svc-password", SecretTarget.DataIntegrator);
+        Assert.True(await store.SetSecretAsync(
+            "env1", "svc-password", SecretTarget.DataIntegrator, ct));
 
         Assert.True(store.HasSecret("env1", SecretTarget.DataIntegrator));
         var secretRef = await NewService().GetSettingAsync(CoreSecretStore.DiSecretRefSettingKey("env1"), ct);

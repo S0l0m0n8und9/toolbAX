@@ -1,6 +1,6 @@
 # Atomic Profile Persistence — Phase 1 Core Design
 
-**Status:** Core transaction and App service-facade phases implemented and locally validated. H09 remains incomplete until the UI save/delete/secret flows use the asynchronous facade.
+**Status:** Core transaction, App facade and asynchronous UI integration phases are implemented and locally focused-validated. Parent source review and full App/Core gates remain pending.
 
 ## Problem and boundary
 
@@ -63,3 +63,67 @@ The behavioral RED used the former interface defaults and separate database call
 The App and Core projects both build under `CI=true` Release with zero warnings and errors. Evidence is under `artifacts/h09/app-phase2/`, including `h09-app-red`, `h09-app-profile-secret-green-postcleanup-serialized`, `h09-app-build-postcleanup` and `h09-core-build-postcleanup`. Tests used synthetic temporary SQLite databases and Windows DPAPI only; no user/default profile database or live service was accessed.
 
 Parent reviewed the transaction boundary, reference-aware secret cleanup, serialized cache publication and legacy compatibility. The complete offline gates then passed: the `CI=true` Release App solution with `EnableWebView2=true` and the Core solution both built with zero warnings/errors; App passed 1,379/1,379 and Core passed 472/472 with no failures or skips. Evidence is `parent-full-{app,core}-{build,test}.log` and `parent-full-{app,core}.trx` under `artifacts/h09/app-phase2/`. H09 remains incomplete pending H08a integration, UI phase 3, publication, PR review and merge.
+
+## Phase 3: locked asynchronous UI integration design
+
+Phase 3 starts only after the merged H08a source is integrated. Its bounded production scope is `ProfilesViewModel` and `ProfilesView`, `ShellViewModel`, one small App `EnvironmentWriteGate` and delete-outcome model, the existing Post Builder and Dual-Write Operations mutation-admission hooks, the async `ISecretStore`/`CoreSecretStore` result refinement, and `CoreProfileStore` creation/offload documentation. Relevant tests, this specification and the H09 tracker row complete the scope. H03 transport, receipt and replay behavior, authentication policy, retries, paging, logging and unrelated hardening remain unchanged. Legacy synchronous facade APIs remain source-compatible; production UI mutation paths use the asynchronous APIs.
+
+### Nonblocking persistence and UI publication
+
+Add, Delete, Save, Set active and every secret Store/Clear command await the facade APIs. `ProfilesViewModel` owns one non-queuing persistence operation at a time. `IsPersisting` disables conflicting commands and editor inputs, while every execution path repeats the admission check so direct command invocation cannot bypass the UI. Before awaiting, each operation captures an immutable profile/id/name/auth context, the submitted plaintext when applicable, and editor/input revisions.
+
+Profile lists, Shell state, notifications and success messages publish only after the corresponding commit succeeds. Failure or cancellation before commit leaves the prior UI state and stored aggregate intact. Facades retain the existing truth contract that cancellation after a successful commit cannot be reported as rollback; UI code must not add a post-await cancellation check that changes that result. Disposal cancels owned operations and suppresses late UI/event publication, while committed store truth remains durable for the next load.
+
+A late completion must not erase newer selection, drafts or typed secrets, including same-id A-B-A edits. When a saved record replaces the selected record in the list, a narrow draft-reload suppression updates the selected record identity without overwriting drafts changed after submission. Input revisions ensure a successful secret store clears only the exact submitted plaintext still owned by that operation. Success and error messages use the captured profile name and target, never the selection that happens to be current at completion.
+
+### Secret presence and async store outcomes
+
+`HasSecret`, `HasDataverseSecret` and `HasDiSecret` become cached UI state and never perform synchronous database reads. One cancellable refresh command loads all target-presence values with `HasSecretAsync` for a captured selection snapshot. An epoch plus selection and disposal checks rejects stale completion, including A-B-A. Presence is modelled as loading, known present, known absent or failed/unknown so the UI never labels a pending or failed lookup as "no secret". The refresh command handles faults internally and exposes `ExecutionTask` for deterministic tests; it leaves no abandoned unobserved task.
+
+H08a probe preflight awaits a fresh `HasSecretAsync` call under its existing profile snapshot, generation and caller-cancellation guards. It does not trust the display cache. Successful secret Store/Clear operations refresh the operation-owned presence state. A successful Clear may publish known absence only while the captured selection/epoch is still owned.
+
+Only the new asynchronous `SetSecretAsync` contract changes, from `Task` to `Task<bool>`. The real transaction returns `true` only when the targeted principal or Data Integrator setting was updated with the committed protected secret; it returns `false` for the existing missing-principal no-op. The default synchronous-fake adapter calls `SetSecret` and then reports `HasSecret`; synchronous `SetSecret` stays compatible. UI clears the captured plaintext only for committed `true`. A `false` result preserves the typed input and shows the existing save-principal guidance without relying on a fallible post-commit presence verification. A newer input revision is never cleared.
+
+Real `CoreProfileStore.CreateAsync` offloads the SQLite load lifecycle rather than synchronously loading before returning a completed task. Sync-wrapper comments must accurately say compatibility callers may block; no documentation may claim synchronous callers are nonblocking.
+
+### Shared environment-write exclusion
+
+Add one per-Shell `EnvironmentWriteGate` with lock-protected admission and idempotent `IDisposable` leases. It admits at most one profile-commit lease, and only while no live-write lease exists. Live-write leases are admitted only while no profile commit exists; existing simultaneous live writes do not need new serialization. There is no static/global gate, queue or retry framework.
+
+Every profile, secret and default-environment database mutation holds the same profile-commit lease through database commit and coherent UI publication. Deliberate environment-switch and active-identity-save confirmations occur before acquiring the lease. The existing Shell transition semaphore, post-confirmation active-identity check, mutation check and target-store re-resolution remain, so edits or live writes that start while confirmation is open are still detected before commit.
+
+`PostBuilderViewModel.BeginWriteOperation(mutation: true)` and `DualWriteOpsViewModel.TryBeginOperation(isMutation: true)` acquire a live-write lease for exactly the existing `MutationInProgress` lifetime and release it through every existing cleanup path. They refuse before dispatch when profile persistence owns the gate. Readback and other reads remain outside the live-write lease. Shell wires its Post Builder and both real- and test-factory Operations instances to the same gate before use; standalone default view models may run without a shared gate. Existing private command ownership remains unchanged. UI command availability reflects the shared busy state, but execution-time admission is authoritative. Tests cover both directions: live write blocks profile persistence, and awaited profile persistence blocks live-write dispatch, including all failure, cancellation and disposal release paths.
+
+### Awaited deletion coordination
+
+Replace the Shell's database-writing synchronous `ProfileDeleted` event handler with an awaited delete coordinator. The coordinator returns a small outcome containing `Deleted` plus an optional warning, so a committed deletion cannot later be described as rolled back.
+
+Under one profile-commit lease, `DeleteAsync` first commits removal and default clearing. The coordinator then chooses a replacement from the surviving cached profiles and awaits `SetActiveAsync` before publishing the replacement to Shell. When this second commit succeeds, list, selection, Shell active environment and tool invalidation publish coherently. When replacement activation fails, the deleted profile remains removed, Shell active environment remains null, the store default remains cleared, tools tied to the deleted environment are invalidated, and the result reports `Deleted = true` with an explicit replacement-activation warning. No stale deleted identity and no async-void event handler is permitted. Other events remain post-commit notifications only. Deleting a non-active profile preserves the unrelated active environment and open tool state. The last-profile guard remains and captured inputs are rechecked where ownership could have changed.
+
+### Phase 3 UI failure pre-mortem
+
+1. **Synchronous database work freezes the UI.** Every production mutation and presence read awaits an offloaded facade path; gated responsiveness tests hold the worker and prove the caller regains control.
+2. **A late commit erases a newer draft or typed secret.** Immutable submitted snapshots plus editor/input revisions and suppressed draft reload publish the committed record without overwriting newer user input.
+3. **Stale presence labels the wrong profile.** Loading/unknown states plus selection epoch, disposal and captured-id checks discard late presence results, including A-B-A.
+4. **An async profile commit overlaps a live write or header switch.** One Shell-scoped write gate covers profile/default/secret commits and the existing Post/Ops mutation lifetime in both admission directions, while confirmations and transition rechecks remain intact.
+5. **Fallback activation failure falsely reports deletion rollback.** The delete outcome distinguishes the committed removal from a failed second activation commit and leaves the Shell/store in an explicit removed/null state with a warning.
+
+Phase 3 retains H07 unsupported/raw-auth preservation and explicit legacy handling, H08a independent probe status/ownership and `LegacyDiStatus`, H01 confirmation/identity/tool-invalidation behavior, and H03 uncertain-write behavior.
+
+### Phase 3 acceptance and validation boundary
+
+Meaningful gated RED/GREEN covers every asynchronous command in pending, failure and success states; cancellation before and after commit; caller responsiveness; same-id draft A-B-A, selection changes and disposal; typed-input preservation and secret-store true/false outcomes; presence loading, failure and stale completion; fresh probe credential preflight; header activation and active-identity save; mutual exclusion with live Post and Operations writes in both directions; declined/failed changes without invalidation; truthful active-delete fallback failure with removed/null state; successful replacement activation; and non-active deletion preserving unrelated tools.
+
+Integrated H08a behavior includes an Avalonia `ListBox` transient-null selection when a selected record is replaced in its `ObservableCollection`. Phase 3 asynchronous save publication must distinguish that internal same-ID replacement churn from a genuine newer user selection or draft revision. Tests retain the final selected/draft truth, preserve a still-owned same-profile confirmation, let real null/different selection win, and keep H08a generation/snapshot guards authoritative across the await.
+
+Existing Profile, Shell, Post, Operations, render and atomic-facade tests remain in the focused gate. Tests use only fake transports and temporary SQLite/DPAPI fixtures. Focused `CI=true` Release validation runs first; parent reviews source before the full App/Core gates. No live service call, push or PR is part of phase 3 implementation or validation.
+
+## Phase 3 local validation
+
+The integrated H08a source was merged into the phase-2 branch before implementation. A labelled fault-injection RED restored newer-draft overwrite, missing-principal false success, stale presence publication and deletion false-rollback reporting; 3/10 async UI cases failed while 7 controls passed. Restoring the safeguards passed the async UI/write-gate/delete suite. A separate per-command gate then exposed Toolkit's deferred direct execution, so the nine persistence commands now use a private non-queuing command owner whose admission precedes cancellation-token allocation while direct calls still reach method-level refusal guidance.
+
+Parent source review extended Shell's profile lease through active-identity publication and tool invalidation, made presence reads conditional on per-profile/target commit revisions, retained accepted Post/Ops live-write leases until their operation-finally paths drain, and suppressed post-disposal Shell publication while preserving committed store truth. Follow-up review gave each accepted manual presence refresh its own epoch and added a bound retry control for failed credential reads. Final lifetime review made disposed rejection a no-publication return and observes cancellation for a header command queued behind the transition semaphore. The bounded Shell/async correction suite passed 24/24.
+
+The final `CI=true` Release App solution build with `EnableWebView2=true` passed with zero warnings/errors. The complete focused Profile, Shell, Post Builder, Dual-Write Operations, render, CoreProfileStore, CoreSecretStore and atomic-facade set passed 502/502 with zero failures/skips. Evidence is under `artifacts/h09/phase3/`, including `h09-phase3-behavioral-red-2.{log,trx}`, `h09-phase3-review-corrections-green.{log,trx}`, `h09-phase3-presence-followups-green.{log,trx}`, `h09-phase3-shell-lifetime-green.{log,trx}`, `h09-phase3-review3-app-build.log`, and `h09-phase3-review3-focused-green.{log,trx}`. Tests used fake transports and temporary SQLite/Windows DPAPI only; no user database or live service was accessed.
+
+Parent accepted the final phase-3 source and independently ran the full offline gates. App passed 1,515/1,515 and Core passed 472/472 with zero failures/skips. The Core `CI=true` Release build passed with zero warnings/errors, and the final App `CI=true` Release build with WebView2 remained zero-warning/error. Evidence is `artifacts/h09/phase3/parent-full-app-test.log`, `parent-full-app.trx`, `parent-full-core-{build,test}.log`, and `parent-full-core.trx`. No live service was accessed. H09 is locally implemented, reviewed and fully validated offline; main integration, hosted PR review/CI and merge remain.

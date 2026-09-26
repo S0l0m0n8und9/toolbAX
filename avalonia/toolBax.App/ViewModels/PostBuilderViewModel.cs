@@ -37,6 +37,8 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     private int _generation;
     private bool _disposed;
     private int _writeLease;
+    private readonly EnvironmentWriteGate? _environmentWriteGate;
+    private IDisposable? _environmentWriteLease;
     private CancellationTokenSource? _acceptedCancellation;
     public IAsyncRelayCommand SendCommand { get; }
     public IRelayCommand SendCancelCommand { get; }
@@ -177,7 +179,8 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     public ObservableCollection<PostFieldRow> Fields { get; } = new();
 
     public PostBuilderViewModel(IODataClient client, IClipboardService? clipboard = null,
-        IMetadataService? metadata = null, IDialogService? dialogs = null, Func<EnvProfile?>? activeEnv = null)
+        IMetadataService? metadata = null, IDialogService? dialogs = null, Func<EnvProfile?>? activeEnv = null,
+        EnvironmentWriteGate? environmentWriteGate = null)
     {
         _client = client;
         SendCommand = new WriteOperationCommand((_, ct) => Send(ct), _ => CanSend(),
@@ -191,6 +194,8 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
         _dialogs = dialogs ?? new AutoConfirmDialogs();
         _environmentBound = activeEnv is not null;
         _activeEnv = activeEnv ?? (() => null);
+        _environmentWriteGate = environmentWriteGate;
+        if (_environmentWriteGate is not null) _environmentWriteGate.StateChanged += OnEnvironmentWriteGateChanged;
         // The fake seeds its catalogue synchronously; the real service starts empty and fills in via
         // Initialize (triggered by the view on load) — so this snapshot is a starting point, not the load.
         Entities = new ObservableCollection<EntitySet>(_metadata.GetEntities());
@@ -682,7 +687,8 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
 
     // In grid mode an invalid payload must not be sent (the body is blank and the issues are shown);
     // in raw mode the user owns the body, so there's nothing to gate on.
-    private bool CanSend() => !_disposed && !IsBusy && Volatile.Read(ref _writeLease) == 0 && !(UseFieldGrid && HasPayloadIssues);
+    private bool CanSend() => !_disposed && !IsBusy && Volatile.Read(ref _writeLease) == 0
+        && _environmentWriteGate?.ProfileCommitInProgress != true && !(UseFieldGrid && HasPayloadIssues);
 
     // The If-Match header for a PATCH/DELETE when enabled (existence or version precondition); null otherwise.
     private static IReadOnlyDictionary<string, string>? BuildHeaders(
@@ -694,6 +700,14 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     private bool BeginWriteOperation(bool mutation)
     {
         if (_disposed || Interlocked.CompareExchange(ref _writeLease, 1, 0) != 0) return false;
+        if (mutation && _environmentWriteGate is not null &&
+            !_environmentWriteGate.TryAcquireLiveWrite(out _environmentWriteLease))
+        {
+            Volatile.Write(ref _writeLease, 0);
+            StatusText = "Not sent — profile persistence is in progress.";
+            SendCommand.NotifyCanExecuteChanged();
+            return false;
+        }
         MutationInProgress = mutation;
         IsBusy = true;
         SendCommand.NotifyCanExecuteChanged();
@@ -703,11 +717,19 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     private void EndWriteOperation()
     {
         MutationInProgress = false;
+        _environmentWriteLease?.Dispose();
+        _environmentWriteLease = null;
         Volatile.Write(ref _writeLease, 0);
         IsBusy = false;
         SendCommand.NotifyCanExecuteChanged();
         ReconcileCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(ReconcileReason));
+    }
+
+    private void OnEnvironmentWriteGateChanged()
+    {
+        SendCommand.NotifyCanExecuteChanged();
+        ReconcileCommand.NotifyCanExecuteChanged();
     }
     private async Task Send(CancellationToken ct)
     {
@@ -855,6 +877,7 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
         InitializeCommand.Cancel();
         EnsureFieldsCommand.Cancel();
         _acceptedCancellation?.Cancel();
+        if (_environmentWriteGate is not null) _environmentWriteGate.StateChanged -= OnEnvironmentWriteGateChanged;
         _loader.Dispose();
     }
 }

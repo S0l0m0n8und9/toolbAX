@@ -486,20 +486,20 @@ public sealed class CoreProfileStoreTests : IDisposable
         {
             vm.SelectedFoAuthMode = FoAuthMode.ClientSecret;
             vm.SecretInput = "new-secret";
-            vm.SaveSecretCommand.Execute(null);
+            await vm.SaveSecretCommand.ExecuteAsync(null);
         }
         else
         {
             vm.SelectedDataverseAuthMode = FoAuthMode.ClientSecret;
             vm.DataverseSecretInput = "new-secret";
-            vm.SaveDataverseSecretCommand.Execute(null);
+            await vm.SaveDataverseSecretCommand.ExecuteAsync(null);
         }
 
         Assert.Equal(oldRef, (await NewService().GetServicePrincipalAsync("env1", target, ct))!.SecretRef);
         Assert.Equal(1, CountVaultRows(oldRef));
 
-        if (target == AuthTarget.Fo) vm.ClearSecretCommand.Execute(null);
-        else vm.ClearDataverseSecretCommand.Execute(null);
+        if (target == AuthTarget.Fo) await vm.ClearSecretCommand.ExecuteAsync(null);
+        else await vm.ClearDataverseSecretCommand.ExecuteAsync(null);
 
         Assert.Equal(oldRef, (await NewService().GetServicePrincipalAsync("env1", target, ct))!.SecretRef);
         Assert.Equal(1, CountVaultRows(oldRef));
@@ -508,12 +508,12 @@ public sealed class CoreProfileStoreTests : IDisposable
         if (target == AuthTarget.Fo)
         {
             vm.SecretInput = "new-secret";
-            vm.SaveSecretCommand.Execute(null);
+            await vm.SaveSecretCommand.ExecuteAsync(null);
         }
         else
         {
             vm.DataverseSecretInput = "new-secret";
-            vm.SaveDataverseSecretCommand.Execute(null);
+            await vm.SaveDataverseSecretCommand.ExecuteAsync(null);
         }
         var newRef = (await NewService().GetServicePrincipalAsync("env1", target, ct))!.SecretRef!;
         Assert.NotEqual(oldRef, newRef);

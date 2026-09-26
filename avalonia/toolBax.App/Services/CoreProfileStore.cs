@@ -13,8 +13,8 @@ namespace ToolBax.App.Services;
 /// <summary>
 /// Real <see cref="IProfileStore"/> backed by the shared FoToolbox profile database (the same SQLite
 /// store the WPF app uses). Environments are loaded into memory once (<see cref="CreateAsync"/>); the
-/// synchronous <see cref="Save"/>/<see cref="ActiveId"/> members persist through the async
-/// <see cref="ProfileService"/> off the UI thread.
+/// synchronous <see cref="Save"/>/<see cref="ActiveId"/> members are compatibility wrappers and may block;
+/// production UI code uses the asynchronous members.
 /// </summary>
 public sealed class CoreProfileStore : IProfileStore
 {
@@ -34,29 +34,36 @@ public sealed class CoreProfileStore : IProfileStore
     /// <summary>Loads environments from the given profile service into memory.</summary>
     public static async Task<CoreProfileStore> CreateAsync(ProfileService profiles, CancellationToken ct = default)
     {
-        await profiles.EnsureCreatedAsync(ct).ConfigureAwait(false);
-
-        var cache = new List<EnvProfile>();
-        foreach (var env in await profiles.GetEnvironmentsAsync(ct).ConfigureAwait(false))
+        ArgumentNullException.ThrowIfNull(profiles);
+        ct.ThrowIfCancellationRequested();
+        return await Task.Run(async () =>
         {
-            var dataverse = await profiles.GetDataverseEnvironmentAsync(env.Id, ct).ConfigureAwait(false);
-            var sp = await profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Fo, ct).ConfigureAwait(false);
-            var dvSp = await profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Dataverse, ct).ConfigureAwait(false);
-            // Data Integrator / dual-write config lives in the key/value Settings table (Avalonia-only,
-            // no schema change; the WPF app ignores these keys).
-            var diClientId = await profiles.GetSettingAsync(DiClientIdKey(env.Id), ct).ConfigureAwait(false);
-            var diMode = await profiles.GetSettingAsync(DiModeKey(env.Id), ct).ConfigureAwait(false);
-            var gatewayUrl = await profiles.GetSettingAsync(GatewayUrlKey(env.Id), ct).ConfigureAwait(false);
-            var foAuthMode = await profiles.GetSettingAsync(FoAuthModeKey(env.Id), ct).ConfigureAwait(false);
-            var dvAuthMode = await profiles.GetSettingAsync(DataverseAuthModeKey(env.Id), ct).ConfigureAwait(false);
-            var foClientId = await profiles.GetSettingAsync(FoClientIdKey(env.Id), ct).ConfigureAwait(false);
-            var dvClientId = await profiles.GetSettingAsync(DataverseClientIdKey(env.Id), ct).ConfigureAwait(false);
-            var envType = await profiles.GetSettingAsync(EnvironmentTypeKey(env.Id), ct).ConfigureAwait(false);
-            cache.Add(Map(env, dataverse?.BaseUrl, sp, dvSp, diClientId, diMode, gatewayUrl, foAuthMode, dvAuthMode, foClientId, dvClientId, envType));
-        }
+            ct.ThrowIfCancellationRequested();
+            await profiles.EnsureCreatedAsync(ct).ConfigureAwait(false);
 
-        var activeId = await profiles.GetDefaultEnvironmentIdAsync(ct).ConfigureAwait(false);
-        return new CoreProfileStore(profiles, cache, string.IsNullOrEmpty(activeId) ? null : activeId);
+            var cache = new List<EnvProfile>();
+            foreach (var env in await profiles.GetEnvironmentsAsync(ct).ConfigureAwait(false))
+            {
+                ct.ThrowIfCancellationRequested();
+                var dataverse = await profiles.GetDataverseEnvironmentAsync(env.Id, ct).ConfigureAwait(false);
+                var sp = await profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Fo, ct).ConfigureAwait(false);
+                var dvSp = await profiles.GetServicePrincipalAsync(env.Id, AuthTarget.Dataverse, ct).ConfigureAwait(false);
+                // Data Integrator / dual-write config lives in the key/value Settings table (Avalonia-only,
+                // no schema change; the WPF app ignores these keys).
+                var diClientId = await profiles.GetSettingAsync(DiClientIdKey(env.Id), ct).ConfigureAwait(false);
+                var diMode = await profiles.GetSettingAsync(DiModeKey(env.Id), ct).ConfigureAwait(false);
+                var gatewayUrl = await profiles.GetSettingAsync(GatewayUrlKey(env.Id), ct).ConfigureAwait(false);
+                var foAuthMode = await profiles.GetSettingAsync(FoAuthModeKey(env.Id), ct).ConfigureAwait(false);
+                var dvAuthMode = await profiles.GetSettingAsync(DataverseAuthModeKey(env.Id), ct).ConfigureAwait(false);
+                var foClientId = await profiles.GetSettingAsync(FoClientIdKey(env.Id), ct).ConfigureAwait(false);
+                var dvClientId = await profiles.GetSettingAsync(DataverseClientIdKey(env.Id), ct).ConfigureAwait(false);
+                var envType = await profiles.GetSettingAsync(EnvironmentTypeKey(env.Id), ct).ConfigureAwait(false);
+                cache.Add(Map(env, dataverse?.BaseUrl, sp, dvSp, diClientId, diMode, gatewayUrl, foAuthMode, dvAuthMode, foClientId, dvClientId, envType));
+            }
+
+            var activeId = await profiles.GetDefaultEnvironmentIdAsync(ct).ConfigureAwait(false);
+            return new CoreProfileStore(profiles, cache, string.IsNullOrEmpty(activeId) ? null : activeId);
+        }, CancellationToken.None).ConfigureAwait(false);
     }
 
     /// <summary>Builds a store over the default on-disk profile database (%LocalAppData%/FoToolbox).</summary>

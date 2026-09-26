@@ -1,5 +1,7 @@
 using System;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using Avalonia.Controls;
 using Avalonia.Controls.Shapes;
 using Avalonia.Headless.XUnit;
@@ -8,6 +10,7 @@ using Avalonia.VisualTree;
 using ToolBax.App.Services;
 using ToolBax.App.ViewModels;
 using ToolBax.App.Views;
+using ToolBax.Core.Services;
 using Xunit;
 
 namespace ToolBax.App.Tests;
@@ -16,6 +19,38 @@ namespace ToolBax.App.Tests;
 /// binds the active environment.</summary>
 public class ProfilesViewRenderTests
 {
+    private sealed class FailingPresenceStore : ISecretStore
+    {
+        public bool HasSecret(string key, SecretTarget target = SecretTarget.Fo) => false;
+        public Task<bool> HasSecretAsync(string key, SecretTarget target = SecretTarget.Fo,
+            CancellationToken cancellationToken = default) =>
+            Task.FromException<bool>(new InvalidOperationException("presence unavailable"));
+        public void SetSecret(string key, string plaintext, SecretTarget target = SecretTarget.Fo) { }
+        public void ClearSecret(string key, SecretTarget target = SecretTarget.Fo) { }
+    }
+
+    [AvaloniaFact]
+    public async Task Failed_credential_presence_exposes_bound_retry_control()
+    {
+        using var vm = new ProfilesViewModel(new FakeProfileStore(), new FailingPresenceStore());
+        var view = new ProfilesView { DataContext = vm };
+        var window = new Window { Content = view, Width = 1000, Height = 700 };
+        window.Show();
+        await vm.RefreshSecretPresenceCommand.ExecutionTask!;
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            var retry = view.FindControl<Button>("RetrySecretPresenceButton");
+            Assert.NotNull(retry);
+            Assert.True(retry!.IsEffectivelyVisible);
+            Assert.Same(vm.RefreshSecretPresenceCommand, retry.Command);
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
     [AvaloniaFact]
     public void Renders_master_list_and_detail_for_the_active_profile()
     {

@@ -46,7 +46,7 @@ public sealed class CoreSecretStore : ISecretStore
     public void SetSecret(string key, string plaintext, SecretTarget target = SecretTarget.Fo) =>
         RunBlocking(() => SetSecretAsync(key, plaintext, target));
 
-    public async Task SetSecretAsync(
+    public async Task<bool> SetSecretAsync(
         string key,
         string plaintext,
         SecretTarget target = SecretTarget.Fo,
@@ -57,17 +57,17 @@ public sealed class CoreSecretStore : ISecretStore
         await _mutationGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            await _profiles.RunProfileMutationAsync(session =>
+            return await _profiles.RunProfileMutationAsync(session =>
             {
                 if (target == SecretTarget.DataIntegrator)
                 {
                     EnsureVaultAvailable();
                     RotateSettingSecret(session, key, plaintext);
-                    return 0;
+                    return true;
                 }
 
                 var principal = session.GetServicePrincipal(key, CoreTarget(target));
-                if (principal is null) return 0; // existing compatibility: nothing to attach to
+                if (principal is null) return false; // existing compatibility: nothing to attach to
                 EnsureVaultAvailable();
                 var prepared = Prepare(
                     target == SecretTarget.Dataverse ? "dataverse-client-secret" : "fo-client-secret",
@@ -76,7 +76,7 @@ public sealed class CoreSecretStore : ISecretStore
                 session.InsertProtectedSecret(prepared);
                 session.UpsertServicePrincipal(principal with { SecretRef = prepared.Id });
                 if (!string.IsNullOrEmpty(previous)) session.DeleteSecretIfUnreferenced(previous);
-                return 0;
+                return true;
             }, cancellationToken).ConfigureAwait(false);
         }
         finally
