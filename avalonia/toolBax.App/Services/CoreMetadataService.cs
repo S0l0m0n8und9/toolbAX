@@ -112,10 +112,11 @@ public sealed class CoreMetadataService : IMetadataService
         _generation++;
     }
 
-    private long PrepareLoad(EnvironmentIdentity identity)
+    private long PrepareLoad(EnvironmentIdentity identity, CancellationToken ct)
     {
         lock (_envSync)
         {
+            ct.ThrowIfCancellationRequested();
             if (!Equals(identity, _cacheIdentity))
             {
                 ClearCachesLocked(identity);
@@ -129,39 +130,50 @@ public sealed class CoreMetadataService : IMetadataService
 
     public async Task LoadEntitiesAsync(bool forceRefresh, CancellationToken ct = default)
     {
-        var profile = _activeEnv();
-        if (profile is null)
+        ct.ThrowIfCancellationRequested();
+        try
         {
-            return;
-        }
-
-        var identity = EnvironmentIdentity.Create(profile);
-        var generation = PrepareLoad(identity);
-        var env = ResolveEnv(profile, identity);
-
-        var index = await _catalog.GetODataEntityIndexAsync(env, RefreshMode(forceRefresh), ct).ConfigureAwait(false);
-        var entities = index.Entities
-            .OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(e => new EntitySet(e.Name, Module: string.Empty, FieldCount: e.PropertyCount, Pk: string.Empty, CompanyAware: false, Tag: "odata"))
-            .ToList();
-
-        // Key enums by their short local name, matching MapType's collapse of an enum property's type,
-        // so GetEnumMembers(field.EnumType) resolves.
-        var enums = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var e in index.Enums)
-        {
-            enums[LocalName(e.Name)] = e.Members;
-        }
-
-        lock (_envSync)
-        {
-            if (!IsStillCurrent(identity, generation))
+            var profile = _activeEnv();
+            if (profile is null)
             {
                 return;
             }
 
-            _entities = entities;
-            _enums = enums;
+            var identity = EnvironmentIdentity.Create(profile);
+            var generation = PrepareLoad(identity, ct);
+            var env = ResolveEnv(profile, identity);
+
+            var index = await _catalog.GetODataEntityIndexAsync(env, RefreshMode(forceRefresh), ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            var entities = index.Entities
+                .OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(e => new EntitySet(e.Name, Module: string.Empty, FieldCount: e.PropertyCount, Pk: string.Empty, CompanyAware: false, Tag: "odata"))
+                .ToList();
+
+            // Key enums by their short local name, matching MapType's collapse of an enum property's type,
+            // so GetEnumMembers(field.EnumType) resolves.
+            var enums = new Dictionary<string, IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+            foreach (var e in index.Enums)
+            {
+                enums[LocalName(e.Name)] = e.Members;
+            }
+
+            lock (_envSync)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!IsStillCurrent(identity, generation))
+                {
+                    return;
+                }
+
+                _entities = entities;
+                _enums = enums;
+            }
+        }
+        catch
+        {
+            ct.ThrowIfCancellationRequested();
+            throw;
         }
     }
 
@@ -173,44 +185,55 @@ public sealed class CoreMetadataService : IMetadataService
 
     public async Task<bool> LoadFieldsAsync(string entityName, bool forceRefresh, CancellationToken ct = default)
     {
-        var profile = _activeEnv();
-        if (profile is null)
+        ct.ThrowIfCancellationRequested();
+        try
         {
-            return false;
-        }
-
-        var identity = EnvironmentIdentity.Create(profile);
-        var generation = PrepareLoad(identity);
-        var env = ResolveEnv(profile, identity);
-
-        var entity = await _catalog.GetODataEntityDetailsAsync(env, entityName, RefreshMode(forceRefresh), ct).ConfigureAwait(false);
-        if (entity is null)
-        {
-            return false;
-        }
-
-        var fields = entity.Properties
-            .Select(MapField)
-            .ToList();
-        var navigations = entity.Navigations
-            .Select(n => n.Name)
-            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        lock (_envSync)
-        {
-            if (!IsStillCurrent(identity, generation))
+            var profile = _activeEnv();
+            if (profile is null)
             {
-                // Report "not loaded" for the now-active environment; callers treat false as a miss and
-                // reload, which then fetches against the environment that is actually current.
                 return false;
             }
 
-            _fields[entityName] = fields;
-            _navigations[entityName] = navigations;
-        }
+            var identity = EnvironmentIdentity.Create(profile);
+            var generation = PrepareLoad(identity, ct);
+            var env = ResolveEnv(profile, identity);
 
-        return true;
+            var entity = await _catalog.GetODataEntityDetailsAsync(env, entityName, RefreshMode(forceRefresh), ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            if (entity is null)
+            {
+                return false;
+            }
+
+            var fields = entity.Properties
+                .Select(MapField)
+                .ToList();
+            var navigations = entity.Navigations
+                .Select(n => n.Name)
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            lock (_envSync)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (!IsStillCurrent(identity, generation))
+                {
+                    // Report "not loaded" for the now-active environment; callers treat false as a miss and
+                    // reload, which then fetches against the environment that is actually current.
+                    return false;
+                }
+
+                _fields[entityName] = fields;
+                _navigations[entityName] = navigations;
+            }
+
+            return true;
+        }
+        catch
+        {
+            ct.ThrowIfCancellationRequested();
+            throw;
+        }
     }
 
     // The cache-generation guard for the Load* methods. A fetch resolves its environment at entry and

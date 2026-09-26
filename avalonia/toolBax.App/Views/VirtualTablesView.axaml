@@ -25,6 +25,7 @@
         <Button Content="Open in Dataverse" Command="{Binding OpenInDataverseCommand}"
                 ToolTip.Tip="Open the selected virtual table's list view in the model-driven app" />
         <Button Content="Refresh" Command="{Binding RefreshCommand}" />
+        <Button x:Name="ReadCancelButton" Content="Cancel" Command="{Binding CancelReadsCommand}" IsVisible="{Binding IsLoading}" />
       </StackPanel>
     </Grid>
 

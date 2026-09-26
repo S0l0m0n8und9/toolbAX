@@ -42,6 +42,31 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     private bool _loaded;
     private bool _suppressReload;          // guards the initial selection setup from triggering reloads
     private int _activeLoads;              // overlapping reloads in flight; the last to finish clears IsLoading
+    private int _pendingReads;
+    private int _countSequence;
+    public bool HasPendingReads => Volatile.Read(ref _pendingReads) > 0;
+
+    private void BeginRead()
+    {
+        Interlocked.Increment(ref _pendingReads);
+        OnPropertyChanged(nameof(HasPendingReads));
+        CancelReadsCommand.NotifyCanExecuteChanged();
+    }
+
+    private void EndRead()
+    {
+        Interlocked.Decrement(ref _pendingReads);
+        OnPropertyChanged(nameof(HasPendingReads));
+        CancelReadsCommand.NotifyCanExecuteChanged();
+    }
+
+    [RelayCommand(CanExecute = nameof(HasPendingReads))]
+    private void CancelReads()
+    {
+        InitializeCommand.Cancel();
+        ReloadMapsCommand.Cancel();
+        CountAllRowsCommand.Cancel();
+    }
     private List<DwSolution> _allSolutions = new();
 
     public ObservableCollection<DwMapRecord> Maps { get; } = new();
@@ -160,37 +185,43 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task Initialize(CancellationToken ct)
     {
-        if (_disposed || _loaded)
-        {
-            return;
-        }
-
-        var identity = EnvironmentIdentity.TryCreate(_activeEnv());
-        var generation = Volatile.Read(ref _generation);
+        if (_disposed || ct.IsCancellationRequested) return;
+        BeginRead();
         try
         {
-            if (!await LoadSolutionsAsync(ct) || ct.IsCancellationRequested || !CanCommit(identity, generation)) return;
-            await LoadFoEntityNamesAsync(ct);
-            if (ct.IsCancellationRequested || !CanCommit(identity, generation)) return;
-            await LoadMapsAsync(ct);
-        }
-        catch (OperationCanceledException)
-        {
-            // The view fires InitializeCommand on every Loaded and AsyncRelayCommand cancels the previous
-            // token, so navigate-away-and-back cancels an in-flight load: a NORMAL outcome, not an error.
-        }
-        catch (Exception ex)
-        {
-            if (!ct.IsCancellationRequested && CanCommit(identity, generation))
+            if (_disposed || _loaded)
             {
-                LoadError = $"Couldn't load the dual-write catalogue: {ex.Message}";
+                return;
+            }
+
+            var identity = EnvironmentIdentity.TryCreate(_activeEnv());
+            var generation = Volatile.Read(ref _generation);
+            try
+            {
+                if (!await LoadSolutionsAsync(ct) || ct.IsCancellationRequested || !CanCommit(identity, generation)) return;
+                await LoadFoEntityNamesAsync(ct);
+                if (ct.IsCancellationRequested || !CanCommit(identity, generation)) return;
+                await LoadMapsAsync(ct);
+            }
+            catch (OperationCanceledException)
+            {
+                // The view fires InitializeCommand on every Loaded and AsyncRelayCommand cancels the previous
+                // token, so navigate-away-and-back cancels an in-flight load: a NORMAL outcome, not an error.
+            }
+            catch (Exception ex)
+            {
+                if (!ct.IsCancellationRequested && CanCommit(identity, generation))
+                {
+                    LoadError = $"Couldn't load the dual-write catalogue: {ex.Message}";
+                }
             }
         }
+        finally { EndRead(); }
     }
 
     private async Task LoadFoEntityNamesAsync(CancellationToken ct)
     {
-        if (_disposed) return;
+        if (_disposed || ct.IsCancellationRequested) return;
         var generation = Volatile.Read(ref _generation);
         var identity = EnvironmentIdentity.TryCreate(_activeEnv());
         // Best-effort: the F&O entity catalogue only sharpens the auto-guessed count entity. If it can't
@@ -206,7 +237,9 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         }
 
         if (ct.IsCancellationRequested || !CanCommit(identity, generation)) return;
-        _foEntityNames = _metadata.GetEntities().Select(e => e.Name).ToList();
+        var names = _metadata.GetEntities().Select(e => e.Name).ToList();
+        if (ct.IsCancellationRequested || !CanCommit(identity, generation)) return;
+        _foEntityNames = names;
     }
 
     // Reloads the maps for the current solution filter. Triggered by Refresh and by filter changes;
@@ -214,28 +247,34 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     [RelayCommand(IncludeCancelCommand = true, AllowConcurrentExecutions = true)]
     private async Task ReloadMaps(CancellationToken ct)
     {
-        if (_disposed) return;
-        var retryGeneration = Volatile.Read(ref _generation);
-        var identity = EnvironmentIdentity.TryCreate(_activeEnv());
-        if (!string.IsNullOrEmpty(SolutionWarning))
+        if (_disposed || ct.IsCancellationRequested) return;
+        BeginRead();
+        try
         {
-            try
+            if (_disposed) return;
+            var retryGeneration = Volatile.Read(ref _generation);
+            var identity = EnvironmentIdentity.TryCreate(_activeEnv());
+            if (!string.IsNullOrEmpty(SolutionWarning))
             {
-                if (!await LoadSolutionsAsync(ct)) return;
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                return;
-            }
-            catch (Exception ex)
-            {
+                try
+                {
+                    if (!await LoadSolutionsAsync(ct)) return;
+                }
+                catch (OperationCanceledException) when (ct.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    if (ct.IsCancellationRequested || !CanCommit(identity, retryGeneration)) return;
+                    SolutionWarning = $"Couldn't load solutions: {ex.Message}";
+                }
                 if (ct.IsCancellationRequested || !CanCommit(identity, retryGeneration)) return;
-                SolutionWarning = $"Couldn't load solutions: {ex.Message}";
             }
             if (ct.IsCancellationRequested || !CanCommit(identity, retryGeneration)) return;
+            await LoadMapsAsync(ct);
         }
-        if (ct.IsCancellationRequested || !CanCommit(identity, retryGeneration)) return;
-        await LoadMapsAsync(ct);
+        finally { EndRead(); }
     }
 
     // Exports the inspected map to a Markdown file (the screen's one "write" — to disk, not Dataverse).
@@ -364,7 +403,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
 
     private async Task LoadMapsAsync(CancellationToken ct)
     {
-        if (_disposed) return;
+        if (_disposed || ct.IsCancellationRequested) return;
         var solutionName = CurrentSolutionFilter();
         // Captured BEFORE the call, not read again after it: the reader resolves the active environment
         // internally at call time, so a switch landing mid-load would otherwise stamp environment B onto
@@ -382,7 +421,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         {
             var result = await _reader.GetMapsAsync(solutionName, ct);
 
-            if (!CanCommit(identity, generation))
+            if (ct.IsCancellationRequested || !CanCommit(identity, generation))
             {
                 return;
             }
@@ -425,7 +464,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
                 LoadError = result.Error ?? "Couldn't load dual-write maps.";
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             // A cancelled reload leaves the current list + selection intact.
         }
@@ -433,7 +472,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         {
             // Also the shared body behind ReloadMaps: a reader that throws (rather than returning a failure
             // result) must banner, not fault the command task — that lands on the dispatcher and kills the app.
-            if (CanCommit(identity, generation))
+            if (!ct.IsCancellationRequested && CanCommit(identity, generation))
             {
                 LoadError = $"Couldn't load dual-write maps: {ex.Message}";
             }
@@ -586,89 +625,53 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     [RelayCommand(IncludeCancelCommand = true)]
     private async Task CountAllRows(CancellationToken ct)
     {
-        if (_disposed) return;
-        // Checked up front so a run that is already stale never starts, then re-checked before every
-        // single request below. Bails before any request so no row is filled with another environment's
-        // numbers.
-        if (EnvChangedSinceLoad())
-        {
-            LoadError = ReloadBeforeCounting;
-            return;
-        }
-
-        // #209: the F&O entity catalogue is loaded best-effort during Initialize, so the FIRST count run can
-        // find it empty (no F&O token yet, or a fetch that failed while Dataverse worked). Resolving against
-        // an empty catalogue yields nothing, the row falls back to the raw map schema — which can be a
-        // display-style string like "CDS released distinct products" — and the count fires at
-        // /data/CDS released distinct products, a guaranteed 404. Load it here first, then re-resolve.
-        if (_foEntityNames.Count == 0)
-        {
-            await LoadFoEntityNamesAsync(ct);
-            if (_disposed) return;
-
-            // An await this run's entry guard predates: the shell can switch environments during the
-            // catalogue fetch, and those names then describe a different environment than the displayed
-            // maps. Stop before anything is issued — the same answer the entry guard gives, and for the
-            // same reason: no request has gone out, so no row has a number that needs explaining.
-            if (EnvChangedSinceLoad())
-            {
-                LoadError = ReloadBeforeCounting;
-                return;
-            }
-
-            ResolveDefaultedFoEntities();
-        }
-
-        // Snapshot before any further await: a map change rebuilds CountRows on the UI thread, which would
-        // otherwise invalidate a live enumerator mid-iteration.
+        if (_disposed || ct.IsCancellationRequested) return;
+        var owner = Interlocked.Increment(ref _countSequence);
         var rows = CountRows.ToList();
+        BeginRead();
         try
         {
+            if (EnvChangedSinceLoad()) { LoadError = ReloadBeforeCounting; return; }
+            if (_foEntityNames.Count == 0)
+            {
+                await LoadFoEntityNamesAsync(ct);
+                ct.ThrowIfCancellationRequested();
+                if (_disposed || owner != Volatile.Read(ref _countSequence)) return;
+                if (EnvChangedSinceLoad()) { LoadError = ReloadBeforeCounting; return; }
+                ResolveDefaultedFoEntities();
+            }
             foreach (var row in rows)
             {
-                if (_disposed) return;
-                // Re-checked immediately before EACH count: the environment can move between rows and even
-                // between one row's two legs (they are separate awaits, and _reader / _odata each resolve
-                // the active environment at call time). Tripping stops the run instead of letting the rest
-                // of the grid fill from a second environment — no count request is ever issued after the
-                // active environment diverges from the stamp, and no row shows two environments' numbers.
-                if (StopCountIfEnvChanged(row, ceStillPending: true))
-                {
-                    return;
-                }
-
+                ct.ThrowIfCancellationRequested();
+                if (_disposed || owner != Volatile.Read(ref _countSequence)) return;
+                if (StopCountIfEnvChanged(row, ceStillPending: true)) return;
                 await CountCeAsync(row, ct);
-
-                if (_disposed) return;
-
-                if (StopCountIfEnvChanged(row, ceStillPending: false))
-                {
-                    return;
-                }
-
+                ct.ThrowIfCancellationRequested();
+                if (_disposed || owner != Volatile.Read(ref _countSequence)) return;
+                if (StopCountIfEnvChanged(row, ceStillPending: false)) return;
                 await CountFoAsync(row, ct);
-                if (_disposed) return;
+                ct.ThrowIfCancellationRequested();
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        catch (Exception ex)
         {
-            if (_disposed) return;
-            // Clear any "Counting…" placeholders left on rows that hadn't finished.
-            foreach (var row in rows)
+            if (!_disposed && !ct.IsCancellationRequested && owner == Volatile.Read(ref _countSequence))
+                LoadError = $"Couldn't count rows: {ex.Message}";
+        }
+        finally
+        {
+            if (!_disposed && owner == Volatile.Read(ref _countSequence))
             {
-                if (row.CeStatus == "Counting…")
+                foreach (var row in rows)
                 {
-                    row.CeStatus = string.Empty;
-                }
-
-                if (row.FoStatus == "Counting…")
-                {
-                    row.FoStatus = string.Empty;
+                    if (row.CeStatus == "Counting…") row.CeStatus = string.Empty;
+                    if (row.FoStatus == "Counting…") row.FoStatus = string.Empty;
                 }
             }
+            EndRead();
         }
     }
-
     // Re-runs the F&O entity resolution for every row still holding the default it was built with, so a
     // catalogue that arrived after the rows did actually sharpens them. A row the user corrected by hand is
     // left exactly as typed (AdoptResolvedFoEntity owns that rule).
@@ -712,10 +715,12 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     // active environment at call time and would otherwise count a different environment than is displayed.
     private async Task CountCeAsync(MapLegCountRow row, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         if (_disposed) return;
         row.CeStatus = "Counting…";
         var filter = string.IsNullOrWhiteSpace(row.CeFilter) ? null : row.CeFilter;
         var result = await _reader.GetCeRowCountAsync(row.DestinationSchema, filter, ct);
+        ct.ThrowIfCancellationRequested();
         if (_disposed) return;
         if (result.IsSuccess)
         {
@@ -734,6 +739,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
 
     private async Task CountFoAsync(MapLegCountRow row, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         if (_disposed) return;
         if (!DualWriteFoEntityResolver.IsUsableEntityName(row.FoEntity))
         {
@@ -757,6 +763,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         if (filter is not null)
         {
             var fields = await FoFieldsAsync(row.FoEntity, ct);
+            ct.ThrowIfCancellationRequested();
 
             // The environment can move DURING that fetch — an await which both the run's entry guard and
             // the caller's per-leg re-check predate, so neither covers it. Re-checked the instant it
@@ -784,6 +791,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         }
 
         var response = await _odata.SendAsync("GET", DualWriteMapParser.FoCountPath(row.FoEntity, filter), null, ct);
+        ct.ThrowIfCancellationRequested();
         if (_disposed) return;
         if (!response.IsSuccess)
         {
@@ -792,6 +800,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         }
 
         var count = DualWriteMapParser.ParseCount(response.Body);
+        ct.ThrowIfCancellationRequested();
         if (count is null)
         {
             row.FoStatus = "F&O returned no count.";
@@ -811,12 +820,14 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
     // literal against an enum property's qualified type.
     private async Task<IReadOnlyList<EntityField>?> FoFieldsAsync(string entity, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         if (_disposed) return null;
         if (_metadata.GetFields(entity) is null)
         {
             try
             {
                 await _metadata.LoadFieldsAsync(entity, ct);
+                ct.ThrowIfCancellationRequested();
                 if (_disposed) return null;
             }
             catch (Exception) when (!ct.IsCancellationRequested)
@@ -826,6 +837,7 @@ public partial class DualWriteMapViewModel : ObservableObject, IDisposable
         }
 
         if (_disposed) return null;
+        ct.ThrowIfCancellationRequested();
         return _metadata.GetFields(entity);
     }
 

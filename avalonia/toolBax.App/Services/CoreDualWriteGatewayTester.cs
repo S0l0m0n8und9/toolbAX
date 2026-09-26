@@ -35,15 +35,21 @@ public sealed class CoreDualWriteGatewayTester : IDualWriteGatewayTester
         try
         {
             var result = await _signIn.SignInAsync(env, switchAccount: false, ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
             if (result is null)
             {
                 return new DwGatewayTestResult(false, "Data Integrator sign-in was cancelled or did not complete.");
+            }
+            if (result.Token.Binding is null || !result.Token.Binding.IsTrusted)
+            {
+                throw new InvalidOperationException("toolbAX couldn't verify the Data Integrator sign-in; sign in again.");
             }
 
             var settings = new DualWriteConnectionSettings(env.Id, result.GatewayBaseUrl, env.Url, result.Token.AccessToken)
             {
                 RefreshToken = result.Token.RefreshToken,
                 AccessTokenExpiryUtc = result.Token.ExpiresUtc,
+                DelegatedBinding = result.Token.Binding,
             };
             // Same renewing-client preference as CoreDualWriteConnector: the test is a single call, but it
             // must exercise the client the app will actually use, not a shape that only the tester sees.

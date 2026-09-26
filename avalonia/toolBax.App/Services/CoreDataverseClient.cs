@@ -37,7 +37,9 @@ public sealed class CoreDataverseClient : IDataverseClient, IDisposable
 
     public async Task<ODataResponse> GetAsync(string pathOrUrl, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         var response = await GetCoreAsync(pathOrUrl, ct).ConfigureAwait(false);
+        ct.ThrowIfCancellationRequested();
 
         // Failures here are returned, not thrown, so they used to live only in the Map Browser's banner.
         // Mirror them to Trace for the session log (#168) — RequestTrace defines exactly how little a
@@ -84,9 +86,11 @@ public sealed class CoreDataverseClient : IDataverseClient, IDisposable
         try
         {
             token = await _auth.AcquireDataverseTokenAsync(env, ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
         }
         catch (Exception ex)
         {
+            ct.ThrowIfCancellationRequested();
             return new ODataResponse(401, "Unauthorized", ex.Message, (int)sw.ElapsedMilliseconds);
         }
 
@@ -98,6 +102,7 @@ public sealed class CoreDataverseClient : IDataverseClient, IDisposable
 
         try
         {
+            ct.ThrowIfCancellationRequested();
             using var request = new HttpRequestMessage(HttpMethod.Get, uri);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
@@ -110,12 +115,15 @@ public sealed class CoreDataverseClient : IDataverseClient, IDisposable
                 $"{DualWriteMapParser.CountAnnotations}\"");
 
             using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
             var responseBody = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
             sw.Stop();
             return new ODataResponse((int)response.StatusCode, response.ReasonPhrase ?? string.Empty, responseBody, (int)sw.ElapsedMilliseconds);
         }
         catch (Exception ex)
         {
+            ct.ThrowIfCancellationRequested();
             return new ODataResponse(0, "Request failed", ex.Message, (int)sw.ElapsedMilliseconds);
         }
     }
