@@ -682,6 +682,7 @@ public class DualWriteOpsTests
     [Fact]
     public async Task An_action_is_refused_after_the_active_environment_changes()
     {
+        using var trace = new TraceCapture();
         var connector = new FakeDualWriteConnector();
         var dialogs = new FakeDialogs(confirm: true);
         var env = new EnvSwitch();
@@ -690,7 +691,15 @@ public class DualWriteOpsTests
         await vm.LoadCommand.ExecuteAsync(null);
         vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
 
-        env.Current = OtherEnv();   // shell switched; the cached session still belongs to env1
+        const string activeEnvironmentCanary = "ACTIVE-ENVIRONMENT-NAME-CANARY";
+        const string gatewayHostCanary = "GATEWAY-HOST-CANARY.example";
+        const string tenantCanary = "TENANT-CANARY";
+        env.Current = OtherEnv() with
+        {
+            Name = activeEnvironmentCanary,
+            Url = $"https://{gatewayHostCanary}",
+            Tenant = tenantCanary,
+        };   // shell switched; the cached session still belongs to env1
 
         Assert.False(vm.RunActionCommand.CanExecute(vm.StopAction));
         await vm.RunActionCommand.ExecuteAsync(vm.StopAction);   // hard guard, not just CanExecute
@@ -700,7 +709,12 @@ public class DualWriteOpsTests
         Assert.Equal("Running", vm.Maps.Single(m => m.Name == "Customers V3").State);
         Assert.Contains("reconnect", vm.Status, StringComparison.OrdinalIgnoreCase);
         Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Warn
-            && e.Text.Contains("Contoso") && e.Text.Contains("Fabrikam"));
+            && e.Text.Contains("Contoso") && e.Text.Contains(activeEnvironmentCanary));
+        Assert.Contains("environment changed", trace.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("Contoso", trace.Text);
+        Assert.DoesNotContain(activeEnvironmentCanary, trace.Text);
+        Assert.DoesNotContain(gatewayHostCanary, trace.Text);
+        Assert.DoesNotContain(tenantCanary, trace.Text);
     }
 
     [Fact]

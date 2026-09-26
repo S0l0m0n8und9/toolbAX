@@ -392,7 +392,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 
         Status = ReconnectRequired;
         Log($"Environment changed: this session is connected to {ConnectionName}, but the active environment " +
-            $"is now {_activeEnv()?.Name ?? "none"}. Reconnect before running operations.", LogKind.Warn);
+            $"is now {_activeEnv()?.Name ?? "none"}. Reconnect before running operations.", LogKind.Warn,
+            traceCategory: OpsTraceCategory.EnvironmentChanged);
         return true;
     }
 
