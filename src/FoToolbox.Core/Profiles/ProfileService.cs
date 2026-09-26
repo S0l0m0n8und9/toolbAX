@@ -22,6 +22,11 @@ public sealed class ProfileService
 
     public Task EnsureCreatedAsync(CancellationToken cancellationToken = default) => _store.EnsureCreatedAsync(cancellationToken);
 
+    public Task<T> RunProfileMutationAsync<T>(
+        Func<ProfileMutationSession, T> mutation,
+        CancellationToken cancellationToken = default) =>
+        _store.RunProfileMutationAsync(mutation, cancellationToken);
+
     public Task UpsertEnvironmentAsync(FoEnvironment env, CancellationToken cancellationToken = default) =>
         _store.UpsertEnvironmentAsync(env, cancellationToken);
 

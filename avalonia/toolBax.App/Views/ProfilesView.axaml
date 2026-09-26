@@ -38,6 +38,7 @@
         <ListBox x:Name="ProfilesList"
                  ItemsSource="{Binding Filtered}"
                  SelectedItem="{Binding Selected, Mode=TwoWay}"
+                 IsEnabled="{Binding CanEditProfile}"
                  Background="Transparent" BorderThickness="0">
           <ListBox.ItemTemplate>
             <DataTemplate x:DataType="models:EnvProfile">
@@ -75,12 +76,22 @@
     <DockPanel Grid.Column="1">
       <Border DockPanel.Dock="Bottom" Background="{StaticResource MicaBrush}"
               BorderBrush="{StaticResource StrokeBrush}" BorderThickness="0,1,0,0" MinHeight="30" Padding="18,0">
-        <TextBlock Text="{Binding Status}" FontSize="12" Foreground="{StaticResource Text2Brush}"
-                   VerticalAlignment="Center" />
+        <StackPanel VerticalAlignment="Center">
+          <TextBlock Text="{Binding Status}" FontSize="12" Foreground="{StaticResource Text2Brush}" />
+          <TextBlock Text="{Binding SecretPresenceMessage}" FontSize="11" Foreground="{StaticResource Text3Brush}"
+                     IsVisible="{Binding SecretPresenceMessage, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          <Button x:Name="RetrySecretPresenceButton" Content="Retry credential check"
+                  Command="{Binding RefreshSecretPresenceCommand}" HorizontalAlignment="Left"
+                  IsVisible="{Binding HasSecretPresenceFailure}" />
+          <Button x:Name="CancelPersistenceButton" Content="Cancel update"
+                  Command="{Binding CancelPersistenceCommand}" HorizontalAlignment="Left"
+                  IsVisible="{Binding IsPersisting}" />
+        </StackPanel>
       </Border>
 
       <ScrollViewer>
-        <StackPanel Margin="24,16" Spacing="14" IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}">
+        <StackPanel Margin="24,16" Spacing="14" IsEnabled="{Binding CanEditProfile}"
+                    IsVisible="{Binding Selected, Converter={x:Static ObjectConverters.IsNotNull}}">
 
           <!-- Header: the profile Name is the inline-editable title (it relates to the profile itself,
                so it lives here rather than on the FO tab). -->
