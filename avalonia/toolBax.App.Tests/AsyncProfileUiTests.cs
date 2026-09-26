@@ -196,11 +196,13 @@ public sealed class AsyncProfileUiTests
         using var vm = new ProfilesViewModel(
             new ControlledProfileStore(Profile("a", "A"), Profile("b", "B")), secrets);
         await secrets.WaitForPresenceCallsAsync("a", 3);
+        var oldSelectionRefresh = vm.RefreshSecretPresenceCommand.ExecutionTask!;
 
         vm.Selected = vm.Profiles.Single(profile => profile.Id == "b");
         await secrets.WaitForPresenceCallsAsync("b", 3);
         secrets.CompletePresence("a", true);
-        await Task.Yield();
+        await oldSelectionRefresh.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.Equal(SecretPresenceState.Loading, vm.FoSecretPresence);
         secrets.CompletePresence("b", false);
         await vm.RefreshSecretPresenceCommand.ExecutionTask!.WaitAsync(
@@ -241,13 +243,15 @@ public sealed class AsyncProfileUiTests
         var secrets = new ControlledSecretStore { GatePresence = true };
         using var vm = new ProfilesViewModel(new ControlledProfileStore(Profile("a", "A")), secrets);
         await secrets.WaitForPresenceCallsAsync("a", 3);
+        var initialPresenceRefresh = vm.RefreshSecretPresenceCommand.ExecutionTask!;
         secrets.CompletePresence("a", false, SecretTarget.Dataverse, SecretTarget.DataIntegrator);
 
         vm.SecretInput = "stored";
         await vm.SaveSecretCommand.ExecuteAsync(null);
         Assert.True(vm.HasSecret);
         secrets.CompletePresence("a", false, SecretTarget.Fo);
-        await Task.Yield();
+        await initialPresenceRefresh.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.True(vm.HasSecret);
         Assert.Equal(SecretPresenceState.Absent, vm.DataverseSecretPresence);
         Assert.Equal(SecretPresenceState.Absent, vm.DiSecretPresence);
@@ -277,16 +281,18 @@ public sealed class AsyncProfileUiTests
 
         vm.RefreshSecretPresenceCommand.Execute(null);
         await secrets.WaitForPresenceCallsAsync("a", 6);
+        var olderRefresh = vm.RefreshSecretPresenceCommand.ExecutionTask!;
         vm.RefreshSecretPresenceCommand.Execute(null);
         await secrets.WaitForPresenceCallsAsync("a", 9);
+        var newerRefresh = vm.RefreshSecretPresenceCommand.ExecutionTask!;
         secrets.CompletePresenceCall("a", 2, true);
-        await vm.RefreshSecretPresenceCommand.ExecutionTask!;
+        await newerRefresh.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.True(vm.HasSecret);
         Assert.True(vm.HasDataverseSecret);
         Assert.True(vm.HasDiSecret);
 
         secrets.CompletePresenceCall("a", 1, false);
-        await Task.Yield();
+        await olderRefresh.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         Assert.True(vm.HasSecret);
         Assert.True(vm.HasDataverseSecret);
