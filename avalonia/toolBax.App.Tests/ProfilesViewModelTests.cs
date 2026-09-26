@@ -815,10 +815,33 @@ public class ProfilesViewModelTests
 
         Assert.False(secrets.HasSecret(profile.Id, SecretTarget.DataIntegrator));
         Assert.True(secrets.HasSecret(profile.Id));
+        Assert.Equal("Legacy Data Integrator password cleared.", vm.LegacyDiStatus);
+        vm.DraftName = "Renamed after clear";
+        Assert.Equal("Legacy Data Integrator password cleared.", vm.LegacyDiStatus);
+        Assert.Empty(vm.DiStatus);
         var preserved = Assert.Single(store.GetAll());
         Assert.Equal("legacy-client", preserved.DataIntegratorClientId);
         Assert.Equal(DiAuthMode.Ropc, preserved.DataIntegratorMode);
         Assert.Equal("https://legacy-gateway", preserved.DualWriteGatewayUrl);
+    }
+
+    [Fact]
+    public void Selecting_another_profile_clears_the_legacy_password_confirmation()
+    {
+        var first = new EnvProfile("legacy", "Legacy", "https://legacy", "tenant", "USMF", "Tier 1",
+            EnvStatus.Disconnected, DataIntegratorClientId: "legacy-client", DataIntegratorMode: DiAuthMode.Ropc);
+        var second = first with { Id = "other", Name = "Other" };
+        var store = new FakeProfileStore(new[] { first, second }) { ActiveId = first.Id };
+        var secrets = new FakeSecretStore();
+        secrets.SetSecret(first.Id, "di-password", SecretTarget.DataIntegrator);
+        var vm = new ProfilesViewModel(store, secrets);
+
+        vm.ClearLegacyDiPasswordCommand.Execute(null);
+        Assert.NotEmpty(vm.LegacyDiStatus);
+
+        vm.Selected = vm.Profiles.Single(profile => profile.Id == second.Id);
+
+        Assert.Empty(vm.LegacyDiStatus);
     }
 
     [Fact]

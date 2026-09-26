@@ -302,6 +302,10 @@
                   </StackPanel>
                 </Border>
 
+                <TextBlock x:Name="LegacyDiClearStatus" Text="{Binding LegacyDiStatus}" TextWrapping="Wrap"
+                           FontSize="11.5" Foreground="{StaticResource Text2Brush}"
+                           IsVisible="{Binding LegacyDiStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
                 <StackPanel Spacing="8">
                   <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}"
                              Text="Sign-in opens the Microsoft Data Integrator portal in an embedded browser and captures the delegated token AND your regional gateway host automatically — nothing to configure here. Renews silently after the first sign-in. (Windows only.)" />

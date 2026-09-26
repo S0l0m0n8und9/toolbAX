@@ -158,7 +158,8 @@ public sealed class ProfilesAuthWithdrawalRenderTests
         var store = new FakeProfileStore(new[] { profile }) { ActiveId = profile.Id };
         var secrets = new FakeSecretStore();
         secrets.SetSecret(profile.Id, "legacy-password", SecretTarget.DataIntegrator);
-        var view = new ProfilesView { DataContext = new ProfilesViewModel(store, secrets) };
+        var vm = new ProfilesViewModel(store, secrets);
+        var view = new ProfilesView { DataContext = vm };
         var window = new Window { Content = view, Width = 1100, Height = 850 };
         window.Show();
         Dispatcher.UIThread.RunJobs();
@@ -179,8 +180,57 @@ public sealed class ProfilesAuthWithdrawalRenderTests
             Assert.True(gateway.IsEffectivelyVisible);
             Assert.Equal("Clear legacy password", clear!.Content);
             Assert.True(clear.IsEffectivelyVisible);
+
+            vm.ClearLegacyDiPasswordCommand.Execute(null);
+            vm.DraftName = "Renamed after clear";
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+            var legacyStatus = view.FindControl<TextBlock>("LegacyDiClearStatus");
+            Assert.NotNull(legacyStatus);
+            Assert.Equal("Legacy Data Integrator password cleared.", legacyStatus!.Text);
+            Assert.True(legacyStatus.IsEffectivelyVisible);
+            Assert.False(clear.IsEffectivelyVisible);
             Assert.Empty(content.GetVisualDescendants().OfType<ComboBox>());
             Assert.Empty(content.GetVisualDescendants().OfType<TextBox>());
+        }
+        finally
+        {
+            window.Close();
+        }
+    }
+
+    [AvaloniaFact]
+    public void Password_only_legacy_clear_hides_warning_but_keeps_confirmation_visible_after_draft_edit()
+    {
+        var profile = new EnvProfile("legacy", "Legacy", "https://legacy.operations.dynamics.com", "tenant",
+            "USMF", "Tier 1", EnvStatus.Disconnected);
+        var store = new FakeProfileStore(new[] { profile }) { ActiveId = profile.Id };
+        var secrets = new FakeSecretStore();
+        secrets.SetSecret(profile.Id, "legacy-password", SecretTarget.DataIntegrator);
+        var vm = new ProfilesViewModel(store, secrets);
+        var view = new ProfilesView { DataContext = vm };
+        var window = new Window { Content = view, Width = 1100, Height = 850 };
+        window.Show();
+        Dispatcher.UIThread.RunJobs();
+        try
+        {
+            SelectTab(view, window, "Data Integrator");
+            var warning = view.FindControl<Border>("LegacyDiWarning");
+            var clear = view.FindControl<Button>("ClearLegacyDiPasswordButton");
+            Assert.True(warning!.IsEffectivelyVisible);
+            Assert.True(clear!.IsEffectivelyVisible);
+
+            vm.ClearLegacyDiPasswordCommand.Execute(null);
+            vm.DraftName = "Renamed after clear";
+            Dispatcher.UIThread.RunJobs();
+            window.UpdateLayout();
+
+            var legacyStatus = view.FindControl<TextBlock>("LegacyDiClearStatus");
+            Assert.False(warning.IsEffectivelyVisible);
+            Assert.False(clear.IsEffectivelyVisible);
+            Assert.NotNull(legacyStatus);
+            Assert.Equal("Legacy Data Integrator password cleared.", legacyStatus!.Text);
+            Assert.True(legacyStatus.IsEffectivelyVisible);
         }
         finally
         {

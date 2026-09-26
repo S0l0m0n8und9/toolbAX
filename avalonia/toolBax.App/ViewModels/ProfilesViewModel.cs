@@ -223,6 +223,9 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string _diStatus = string.Empty;
 
+    [ObservableProperty]
+    private string _legacyDiStatus = string.Empty;
+
     public ProfilesViewModel(
         IProfileStore store,
         ISecretStore? secrets = null,
@@ -317,6 +320,7 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
         SecretInput = string.Empty; // never carry an entry across environments
         DataverseSecretInput = string.Empty;
         DiStatus = string.Empty;
+        LegacyDiStatus = string.Empty;
         OnPropertyChanged(nameof(HasDiSecret));
         OnPropertyChanged(nameof(HasLegacyDiConfiguration));
     }
@@ -560,7 +564,7 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
         _secrets.ClearSecret(Selected.Id, SecretTarget.DataIntegrator);
         OnPropertyChanged(nameof(HasDiSecret));
         OnPropertyChanged(nameof(HasLegacyDiConfiguration));
-        DiStatus = "Legacy Data Integrator password cleared.";
+        LegacyDiStatus = "Legacy Data Integrator password cleared.";
     }
 
     [RelayCommand]

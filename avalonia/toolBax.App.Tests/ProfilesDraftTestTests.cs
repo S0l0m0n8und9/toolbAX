@@ -368,6 +368,24 @@ public sealed class ProfilesDraftTestTests
     }
 
     [Fact]
+    public async Task Draft_edit_invalidates_gateway_result_without_deleting_legacy_clear_confirmation()
+    {
+        var tester = new Tester();
+        using var vm = new ProfilesViewModel(new Store(), new Secrets(), gatewayTester: tester,
+            connectionTester: tester);
+        vm.ClearLegacyDiPasswordCommand.Execute(null);
+        Assert.NotEmpty(vm.LegacyDiStatus);
+
+        await vm.TestGatewayCommand.ExecuteAsync(null);
+        Assert.Contains("PROBE_OK", vm.DiStatus);
+
+        vm.DraftName = "Edited after gateway success";
+
+        Assert.Empty(vm.DiStatus);
+        Assert.Equal("Legacy Data Integrator password cleared.", vm.LegacyDiStatus);
+    }
+
+    [Fact]
     public async Task Dispose_cancels_all_probes_and_late_responses_cannot_publish()
     {
         var gate = new TaskCompletionSource<ConnectionTestResult>(TaskCreationOptions.RunContinuationsAsynchronously);
