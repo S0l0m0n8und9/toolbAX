@@ -725,7 +725,7 @@ public sealed class WriteOutcomeTests
         Assert.Contains(marker, vm.Status);
         Assert.Contains(vm.GatewayLog, entry => entry.Text.Contains(marker, StringComparison.Ordinal));
         Assert.DoesNotContain(marker, trace.Text);
-        Assert.Contains("Mutation observation stopped", trace.Text);
+        Assert.Contains("mutation observation stopped", trace.Text, StringComparison.OrdinalIgnoreCase);
     }
 
     [Theory]

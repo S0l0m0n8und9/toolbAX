@@ -1,6 +1,5 @@
 #if WEBVIEW2
 using System;
-using System.Diagnostics;
 using System.IO;
 using System.Runtime.Versioning;
 using System.Threading;
@@ -332,12 +331,13 @@ internal sealed class WebView2Host : NativeControlHost
         {
             // WebView2 runtime missing or failed to start. Keep the exception: swallowing it left the dialog
             // completing null, which the connector reports as a cancelled sign-in — so a machine without the
-            // runtime looked like a user who changed their mind. Full exception to the trace log (stack +
-            // inner exceptions, for a support dump); only the message travels to the UI.
+            // runtime looked like a user who changed their mind. Publish only while the host lifetime is
+            // active; the trace keeps the finite category and exception type while the original exception
+            // still travels through the guarded UI path.
             _lifetime.TryPublish(() =>
             {
                 InitializationError = ex;
-                Trace.WriteLine($"Dual-write sign-in: WebView2 initialization failed.{Environment.NewLine}{ex}");
+                AppTrace.Error(AppTraceEvent.WebView2InitializationFailed, ex);
                 BrowserReady?.Invoke(this, EventArgs.Empty);
             });
         }

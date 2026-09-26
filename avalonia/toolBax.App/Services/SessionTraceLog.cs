@@ -11,8 +11,8 @@ namespace ToolBax.App.Services;
 
 /// <summary>
 /// Persistent per-session trace log (#168). The app already reports plenty through
-/// <see cref="Trace"/> — the degraded-mode reason, the last-resort exception net (#163), the shell's
-/// environment-switch warnings, vault warnings, failed requests — but the published exe installed no
+/// <see cref="Trace"/> — finite degraded-mode, last-resort, environment-switch, vault and request-failure
+/// categories — but the published exe installed no
 /// listener, so every one of those lines went nowhere and a user hitting errors left nothing on disk to
 /// diagnose. This attaches a <see cref="TextWriterTraceListener"/> over one file per session.
 /// <para>
@@ -110,7 +110,7 @@ public static class SessionTraceLog
             // Traced (to whatever listener a debugger-attached run has) rather than silently dropped, so
             // "why is there no log?" is answerable. Note ActiveLogPath is deliberately NOT reset here: a
             // failed start must not clobber the path of a session that is already running.
-            Trace.TraceWarning($"Session logging is unavailable; this run will not be logged to file. {ex.Message}");
+            AppTrace.Warning(AppTraceEvent.SessionLoggingUnavailable, ex);
             return NoSession.Instance;
         }
     }
@@ -191,7 +191,7 @@ public static class SessionTraceLog
         catch (Exception ex)
         {
             // Housekeeping is not worth the log: an unreadable directory must not cost this session's file.
-            Trace.TraceWarning($"Session-log retention did not run. {ex.Message}");
+            AppTrace.Warning(AppTraceEvent.SessionLogRetentionFailed, ex);
         }
     }
 
@@ -313,5 +313,56 @@ public static class SessionTraceLog
         public void Dispose()
         {
         }
+    }
+}
+
+internal enum AppTraceEvent
+{
+    SessionLoggingUnavailable,
+    SessionLogRetentionFailed,
+    ProfileSecretCleanupFailed,
+    ProfileSessionEvictionFailed,
+    WebView2InitializationFailed,
+    BackgroundActionFailed,
+    BackgroundTaskFailed,
+    BackgroundFailureReportingFailed,
+    ProfileStoreUnavailable,
+    CompositionPreferenceReadFailed,
+    DegradedMode,
+}
+
+/// <summary>
+/// Finite App-owned diagnostics that can be persisted to the session trace. Dynamic messages and identity
+/// values are deliberately not accepted; an exception contributes its type only.
+/// </summary>
+internal static class AppTrace
+{
+    internal static void Warning(AppTraceEvent traceEvent, Exception? exception = null) =>
+        Trace.TraceWarning(Format(traceEvent, exception));
+
+    internal static void Error(AppTraceEvent traceEvent, Exception? exception = null) =>
+        Trace.TraceError(Format(traceEvent, exception));
+
+    private static string Format(AppTraceEvent traceEvent, Exception? exception)
+    {
+        var category = traceEvent switch
+        {
+            AppTraceEvent.SessionLoggingUnavailable => "Session logging is unavailable",
+            AppTraceEvent.SessionLogRetentionFailed => "Session-log retention failed",
+            AppTraceEvent.ProfileSecretCleanupFailed => "Profile secret cleanup failed",
+            AppTraceEvent.ProfileSessionEvictionFailed => "Profile session eviction failed",
+            AppTraceEvent.WebView2InitializationFailed => "Dual-write sign-in browser initialization failed",
+            AppTraceEvent.BackgroundActionFailed => "A background action failed",
+            AppTraceEvent.BackgroundTaskFailed => "A background task failed",
+            AppTraceEvent.BackgroundFailureReportingFailed => "Background failure reporting failed",
+            AppTraceEvent.ProfileStoreUnavailable => "Profile store unavailable; degraded mode selected",
+            AppTraceEvent.CompositionPreferenceReadFailed => "Composition preference read failed; default selected",
+            AppTraceEvent.DegradedMode => "Starting in degraded mode; offline sample data selected",
+            _ => "Application diagnostic",
+        };
+
+        return exception is null
+            ? category + "."
+            : $"{category}; exception {exception.GetType().Name}.";
     }
 }

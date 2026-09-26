@@ -1,5 +1,4 @@
 using System;
-using System.Diagnostics;
 using System.Net.Http;
 using System.Threading.Tasks;
 using Avalonia;
@@ -26,8 +25,8 @@ public partial class App : Application
         {
             // Persistent per-session log (#168), started before anything else so a failure inside
             // BuildServices below is already being written to file. The published exe had no trace
-            // listener at all, so every Trace.* report — the degraded-mode reason, the last-resort net's
-            // exception dumps, failed requests — evaporated and a user's error left nothing on disk.
+            // listener at all, so every finite degraded-mode, last-resort and request-failure diagnostic
+            // evaporated and a user's error left nothing on disk.
             // Scoped to the real desktop host exactly like the last-resort net further down: headless
             // tests must not write log files. The handle is intentionally not stored — the listener lives
             // for the process lifetime and flushes on every write, so a crash still keeps the tail.
@@ -41,11 +40,11 @@ public partial class App : Application
             var (profileStore, secretStore, authService, odataFactory, metadataFactory, mapReaderFactory, virtualTableReaderFactory, degraded) = BuildServices();
 
             // The shell shouts about degradation on screen (#164), but a user reporting "it showed me
-            // rows that don't exist" days later needs the reason on disk too. BuildServices only traces
-            // the exception case; this catches every reason, including the non-Windows one.
+            // rows that don't exist" days later needs the degraded-mode signal on disk too. BuildServices
+            // traces the exception category; this also covers the non-Windows path without persisting its text.
             if (degraded is not null)
             {
-                Trace.TraceWarning($"Starting in degraded mode ({degraded.Reason}) — data shown is offline sample data, not live.");
+                AppTrace.Warning(AppTraceEvent.DegradedMode);
             }
 
             // The OData client + metadata service resolve a token / $metadata for whichever environment
@@ -149,14 +148,14 @@ public partial class App : Application
         {
             // Keep the app alive FIRST — everything after this line is best-effort reporting.
             e.Handled = true;
-            Report(report, e.Exception, "A background action failed");
+            Report(report, e.Exception, "A background action failed", AppTraceEvent.BackgroundActionFailed);
         }
 
         void OnUnobservedTaskException(object? sender, UnobservedTaskExceptionEventArgs e)
         {
             // Observe FIRST, so the finalizer thread can't rethrow while we're reporting.
             e.SetObserved();
-            Report(report, e.Exception.GetBaseException(), "A background task failed");
+            Report(report, e.Exception.GetBaseException(), "A background task failed", AppTraceEvent.BackgroundTaskFailed);
         }
 
         Dispatcher.UIThread.UnhandledException += OnDispatcherUnhandledException;
@@ -169,18 +168,18 @@ public partial class App : Application
         });
     }
 
-    // Traces the full exception, then hands the sink a one-liner. A failing sink must never recurse or
-    // throw out of a last-resort handler, so its own failure is traced and swallowed.
-    private static void Report(Action<string> report, Exception ex, string headline)
+    // Traces a finite category and exception type, then hands the sink the existing detailed one-liner.
+    // A failing sink must never recurse or throw out of a last-resort handler.
+    private static void Report(Action<string> report, Exception ex, string headline, AppTraceEvent traceEvent)
     {
-        Trace.TraceError($"{headline}: {ex}");
+        AppTrace.Error(traceEvent, ex);
         try
         {
             report($"{headline}: {ex.Message}");
         }
         catch (Exception reportFailure)
         {
-            Trace.TraceError($"Reporting a background failure itself failed: {reportFailure}");
+            AppTrace.Error(AppTraceEvent.BackgroundFailureReportingFailed, reportFailure);
         }
     }
 
@@ -243,7 +242,7 @@ public partial class App : Application
         }
         catch (Exception ex)
         {
-            Trace.TraceError($"Profile store unavailable; starting with empty in-memory stores. {ex}");
+            AppTrace.Error(AppTraceEvent.ProfileStoreUnavailable, ex);
             return (new FakeProfileStore(Array.Empty<EnvProfile>()), new FakeSecretStore(),
                 new FakeAuthService(), _ => new FakeODataClient(), _ => new FakeMetadataService(),
                 _ => new FakeDualWriteMapReader(), _ => new FakeVirtualTableReader(),

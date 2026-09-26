@@ -312,16 +312,26 @@ public class CoreODataClientTests
     // --- #168: failures reach the session log, and nothing else does ---
 
     [Fact]
-    public async Task A_failed_request_is_traced_with_its_status_and_endpoint_path()
+    public async Task A_failed_request_traces_safe_api_verb_and_status_but_omits_the_endpoint()
     {
         using var trace = new TraceCapture();
         var handler = new StubHandler(HttpStatusCode.InternalServerError, "{\"error\":\"boom\"}");
         var client = new CoreODataClient(new FakeAuthService(_ => "tok"), () => Env(), new HttpClient(handler));
 
-        await client.SendAsync("POST", "/data/CustomersV3", "{}", TestContext.Current.CancellationToken);
+        var result = await client.SendAsync(
+            "POST",
+            "/data/CustomersV3(dataAreaId='USMF',CustomerAccount='RECORD-KEY-MARKER')",
+            "{}",
+            TestContext.Current.CancellationToken);
 
-        Assert.Contains("500", trace.Text);
-        Assert.Contains("POST /data/CustomersV3", trace.Text);
+        Assert.Equal(500, result.StatusCode);
+        Assert.Contains("boom", result.Body);
+        Assert.Contains("F&O request failed", trace.Text);
+        Assert.Contains("status 500", trace.Text);
+        Assert.Contains("verb POST", trace.Text);
+        Assert.DoesNotContain("/data/CustomersV3", trace.Text);
+        Assert.DoesNotContain("RECORD-KEY-MARKER", trace.Text);
+        Assert.DoesNotContain("USMF", trace.Text);
     }
 
     [Fact]
@@ -337,9 +347,9 @@ public class CoreODataClientTests
     }
 
     /// <summary>
-    /// The secrecy bar for the session log (#168): a trace line may name the endpoint and nothing that
-    /// could carry a credential or customer data. Every marker below is deliberately unique so a leak
-    /// anywhere in the formatting shows up as a failure here rather than in a user's log file.
+    /// The secrecy bar for the session log (#168): a trace line retains only its finite API/verb category
+    /// and numeric status. Every marker below is deliberately unique so a leak anywhere in the formatting
+    /// shows up as a failure here rather than in a user's log file.
     /// </summary>
     [Fact]
     public async Task A_traced_failure_never_carries_the_token_the_bodies_the_headers_or_the_query()
@@ -350,19 +360,26 @@ public class CoreODataClientTests
         var client = new CoreODataClient(new FakeAuthService(_ => "BEARER-TOKEN-MARKER"),
             () => Env("marker-host.operations.dynamics.com"), new HttpClient(handler));
 
-        await client.SendAsync("PATCH", "/data/CustomersV3?$filter=Name eq 'REQUEST-QUERY-MARKER'",
+        var result = await client.SendAsync("PATCH",
+            "/data/CustomersV3('REQUEST-KEY-MARKER')?$filter=Name eq 'REQUEST-QUERY-MARKER'",
             "{\"Name\":\"REQUEST-BODY-MARKER\"}",
             new Dictionary<string, string> { ["If-Match"] = "REQUEST-HEADER-MARKER" },
             TestContext.Current.CancellationToken);
 
-        Assert.Contains("PATCH /data/CustomersV3", trace.Text);   // the endpoint, so the line is useful at all
+        Assert.Equal(400, result.StatusCode);
+        Assert.Contains("RESPONSE-BODY-MARKER", result.Body);
+        Assert.Contains("F&O request failed", trace.Text);
+        Assert.Contains("status 400", trace.Text);
+        Assert.Contains("verb PATCH", trace.Text);
 
         Assert.DoesNotContain("BEARER-TOKEN-MARKER", trace.Text);
         Assert.DoesNotContain("RESPONSE-BODY-MARKER", trace.Text);
         Assert.DoesNotContain("RESPONSE-HEADER-MARKER", trace.Text);
         Assert.DoesNotContain("REQUEST-BODY-MARKER", trace.Text);
         Assert.DoesNotContain("REQUEST-HEADER-MARKER", trace.Text);
-        // A $filter carries business data, so the query string is dropped with it.
+        Assert.DoesNotContain("REQUEST-KEY-MARKER", trace.Text);
+        Assert.DoesNotContain("/data/CustomersV3", trace.Text);
+        // A $filter carries business data, so the entire target is omitted with it.
         Assert.DoesNotContain("REQUEST-QUERY-MARKER", trace.Text);
         Assert.DoesNotContain("$filter", trace.Text);
         // And the host names the customer's environment.
@@ -370,19 +387,23 @@ public class CoreODataClientTests
     }
 
     [Fact]
-    public async Task A_traced_failure_of_a_paging_link_keeps_only_the_path()
+    public async Task A_traced_failure_of_a_paging_link_omits_the_entire_target()
     {
         using var trace = new TraceCapture();
         var handler = new StubHandler(HttpStatusCode.NotFound, "");
         var client = new CoreODataClient(new FakeAuthService(_ => "tok"),
             () => Env("nextlink-host.operations.dynamics.com"), new HttpClient(handler));
 
-        // An absolute @odata.nextLink is followed verbatim; the trace line must still reduce to the path.
-        await client.SendAsync("GET",
+        // An absolute @odata.nextLink is followed verbatim, but none of that target is persisted.
+        var result = await client.SendAsync("GET",
             "https://nextlink-host.operations.dynamics.com/data/CustomersV3?$skiptoken=SKIPTOKEN-MARKER",
             null, TestContext.Current.CancellationToken);
 
-        Assert.Contains("GET /data/CustomersV3", trace.Text);
+        Assert.Equal(404, result.StatusCode);
+        Assert.Contains("F&O request failed", trace.Text);
+        Assert.Contains("status 404", trace.Text);
+        Assert.Contains("verb GET", trace.Text);
+        Assert.DoesNotContain("/data/CustomersV3", trace.Text);
         Assert.DoesNotContain("nextlink-host", trace.Text);
         Assert.DoesNotContain("SKIPTOKEN-MARKER", trace.Text);
     }

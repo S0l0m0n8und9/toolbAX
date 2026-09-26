@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using Avalonia;
+using ToolBax.App.Services;
 
 namespace ToolBax.App;
 
@@ -123,7 +123,7 @@ public sealed class CompositionPreference
         {
             // A denied or unavailable environment block must not cost the start: the default is what an
             // unset variable would have produced anyway, so there is nothing to do but say so and carry on.
-            Trace.TraceWarning($"Could not read {EnvironmentVariable}; using the default composition preference. {ex.Message}");
+            AppTrace.Warning(AppTraceEvent.CompositionPreferenceReadFailed, ex);
             return Default;
         }
     }

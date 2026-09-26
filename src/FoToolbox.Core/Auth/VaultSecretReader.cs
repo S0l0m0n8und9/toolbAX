@@ -32,14 +32,14 @@ public static class VaultSecretReader
             var payload = await vault.ReadSecretAsync<ClientSecretPayload>(secretRef, cancellationToken);
             if (!string.IsNullOrWhiteSpace(payload?.Value)) return payload.Value;
         }
-        catch (Exception ex) when (IsVaultReadFailure(ex)) { TraceSkipped(secretRef, ex); }
+        catch (Exception ex) when (IsVaultReadFailure(ex)) { TraceSkipped(ex); }
 
         try
         {
             var raw = await vault.ReadSecretAsync<string>(secretRef, cancellationToken);
             if (!string.IsNullOrWhiteSpace(raw)) return raw;
         }
-        catch (Exception ex) when (IsVaultReadFailure(ex)) { TraceSkipped(secretRef, ex); }
+        catch (Exception ex) when (IsVaultReadFailure(ex)) { TraceSkipped(ex); }
 
         return null;
     }
@@ -59,14 +59,14 @@ public static class VaultSecretReader
             var payload = await vault.ReadSecretAsync<BearerTokenPayload>(secretRef, cancellationToken);
             if (!string.IsNullOrWhiteSpace(payload?.AccessToken)) return payload;
         }
-        catch (Exception ex) when (IsVaultReadFailure(ex)) { TraceSkipped(secretRef, ex); }
+        catch (Exception ex) when (IsVaultReadFailure(ex)) { TraceSkipped(ex); }
 
         try
         {
             var raw = await vault.ReadSecretAsync<string>(secretRef, cancellationToken);
             if (!string.IsNullOrWhiteSpace(raw)) return new BearerTokenPayload { AccessToken = raw };
         }
-        catch (Exception ex) when (IsVaultReadFailure(ex)) { TraceSkipped(secretRef, ex); }
+        catch (Exception ex) when (IsVaultReadFailure(ex)) { TraceSkipped(ex); }
 
         return null;
     }
@@ -87,10 +87,9 @@ public static class VaultSecretReader
     private static bool IsVaultReadFailure(Exception ex) => ex is JsonException or CryptographicException;
 
     /// <summary>
-    /// Records why a vault read was skipped. Logs the ref (an opaque id) and the failure type/message
-    /// only — never the decrypted value, and never the plaintext of a partially-read blob.
+    /// Records why a vault read was skipped without the secret reference, message, or decrypted value.
     /// </summary>
-    private static void TraceSkipped(string secretRef, Exception failure) =>
+    private static void TraceSkipped(Exception failure) =>
         System.Diagnostics.Trace.TraceWarning(
-            $"Vault read for secret ref '{secretRef}' failed ({failure.GetType().Name}: {failure.Message}); falling back to the next credential source.");
+            $"Vault read failed; exception {failure.GetType().Name}; falling back to the next credential source.");
 }

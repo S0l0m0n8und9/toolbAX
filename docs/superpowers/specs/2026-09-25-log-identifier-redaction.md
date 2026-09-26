@@ -1,0 +1,67 @@
+# Log identifier redaction (H14)
+
+## Status
+
+Locally implemented and validated across App-owned `Trace` emission paths plus Core authentication/vault diagnostics. Saved session traces are identity-free, category-based diagnostics while existing UI errors, response bodies, and operation receipts retain their useful detail. This does not claim to sanitize arbitrary third-party `Trace` events.
+
+## Verified baseline
+
+[`RequestTrace`](../../../avalonia/toolBax.App/Services/RequestTrace.cs) persisted `ReasonPhrase` plus API/method/Endpoint. Endpoint removed origin/query but retained OData business keys such as `CustomersV3(dataAreaId='USMF',CustomerAccount='C000123')`; `Clean` only removed control characters.
+
+[`DualWriteOpsViewModel`](../../../avalonia/toolBax.App/ViewModels/DualWriteOpsViewModel.cs) `Log` Warn/Err defaulted to `traceText ?? text`; its comments named persisted gateway hosts, map names, connection/request IDs, and status. `Traceable` handled body-bearing gateway exception types, while unknown exceptions fell back to message-based concise formatting. [`ProfilesViewModel`](../../../avalonia/toolBax.App/ViewModels/ProfilesViewModel.cs) logged environment name plus session-eviction exception. App last-resort handlers traced full exception text. [`SessionTraceLog`](../../../avalonia/toolBax.App/Services/SessionTraceLog.cs) persists these events.
+
+## Desired invariants
+
+Disk diagnostics omit record keys, business/profile/environment identifiers, gateway hosts, secret references, request paths/query/fragments/body, untrusted reason phrases, and exception messages, stack traces, or `ToString()` output. Detailed UI errors, response bodies, and operation receipts remain useful and unchanged.
+
+Retained trace signals are finite allowlisted API/operation categories, known HTTP verbs, numeric status codes, exception types, and explicit failure/cancellation categories. Unknown input maps to a static fallback. Prefer omission and static categories to regex parsing, hashing, tokenization, or a generic logging framework.
+
+## Implementation ownership
+
+Owned production paths are `RequestTrace`; `SessionTraceLog`'s own failure diagnostics; the WebView2 dual-write sign-in failure trace; trace emission in `ProfilesViewModel`; persisted `Log`/`Traceable` diagnostics in `DualWriteOpsViewModel`; last-resort, degraded, and startup traces in `App.axaml.cs`; the `CompositionPreference` trace failure; and Core `VaultSecretReader` traces. The former `CoreProfileStore` warning belonged to an obsolete nontransactional cleanup helper removed by H09 and is deliberately not resurrected. Core `MetadataRetentionCoordinator`'s type-only warning and `CoreDualWriteConnector`'s expiry-only renewal event are already safe and remain unchanged.
+
+No client behavior, transport/receipt/UI diagnostics, profile persistence, authentication trust policy, retries, paging, secret encryption or permission handling, or write flags change. `SessionTraceLog` retention, header, and listener behavior remain intact.
+
+## Pre-mortem
+
+1. Encoded keys bypass path parsing: omit request targets entirely and map API/verb inputs through finite allowlists with safe fallbacks.
+2. Unknown exceptions echo identifiers: persist exception type and static failure category only, never message, `ToString()`, inner text, or stack data.
+3. UI and disk diagnostics become conflated: keep existing detailed UI/receipt values and provide a separate typed/static persisted diagnostic.
+4. A bypass call site still writes dynamic text: inventory every owned trace emission after the edit and cover each family with captured-trace canaries.
+5. Useful diagnostic signals disappear: positively assert operation/API category, known verb, numeric status, exception type, and failure/cancellation signal remain.
+
+## Acceptance
+
+Meaningful RED/GREEN tests inject distinct canaries into raw and encoded request paths/keys, query, fragment, reason phrase, response body, profile/environment names, secret references, nested/gateway exceptions, and CRLF content. Captured `Trace` output must omit every canary while preserving finite categories, known verbs, numeric status, exception type, and failure/cancellation signals. Existing UI detail and operation receipts remain unchanged. Existing session-log retention/header/listener tests continue to pass. Synthetic handlers, temporary files/stores, and fake services only; no real browser launch, user profile database, authentication, or live backend calls.
+
+CI=true Release builds pass for both the App and Core solutions with zero warnings/errors. Focused App coverage passes 268/268 across trace policy, operations/receipts, session-log retention, last-resort handling, profiles, profile storage, composition and startup; affected Core vault coverage passes 7/7. Evidence is under `artifacts/h14/`. Validation made no live calls or browser launch.
+
+Parent review accepted the production implementation and then ran the complete suites. Core passed 456/456. The first complete App run passed 1,372/1,377; all five failures were pre-H14 diagnostic-contract assertions that still required endpoint paths or exact category casing. No production change was made in response. The three affected test files now assert the approved finite API/verb/numeric-status contract, complete target/key/host/query/body/header/token omission, retained returned-response/UI detail, and semantic category matching. The affected Core OData/Dataverse and write-outcome classes pass 87/87, the expanded H14 regression set passes 355/355, and the complete App suite passes 1,377/1,377. Review evidence is `artifacts/h14/review-focused-app.{log,trx}` and `artifacts/h14/review-full-app.{log,trx}`; the original five-failure run remains in `parent-full-app-test.log` and `parent-full-app.trx`.
+
+### H09/H05/H10a integration checkpoint
+
+H09 PR232 head `994a36418cc7fbe3a66e26f0faa5e716b6c2be76`, including current main/H05/H10a, was merged locally into H14. Two source conflicts were resolved. `CoreProfileStore` takes H09's removal of the obsolete cleanup helper instead of reviving its nontransactional path merely to retain a trace. `WebView2DualWriteSignIn` keeps H05's `_lifetime.TryPublish` guard and places H14's finite initialization-failure category/exception-type trace inside that guard, so a closed/late host publishes neither UI state nor diagnostic detail. `ProfilesViewModel` and `DualWriteOpsViewModel` auto-merged with H09 async persistence, leases, cancellation and publication behavior intact; their disk traces remain category/status/type only while UI/receipts stay detailed.
+
+Both `CI=true` Release Core and App builds with WebView2 enabled pass with zero warnings/errors. Focused Core logging/profile/auth compatibility passes 131/131 and focused App logging/gateway/profile compatibility passes 485/485. Evidence is under `artifacts/h14/integrated-h09/`. This checkpoint used synthetic/local stores and fake transports only; no full suite, live platform call, authentication, browser, profile-clear, push or PR action was performed.
+
+Final PR232 correction head `b1caddb15f29721b1653d3241c59405616712558` was then merged as `0284be6`. The single conflict was `ProfilesViewModel.ScheduleStaleSessionEviction`: resolution keeps H09's background sequencing, captured old profile/auth, lifetime cancellation, nested diagnostic-failure guard, visible persistence Cancel and post-preflight currentness checks; only the guarded message-bearing trace is replaced by `AppTrace.Warning(ProfileSessionEvictionFailed, ex)`. The obsolete awaited helper remains absent.
+
+Final integrated `CI=true` Release Core and App builds with WebView2 enabled pass with zero warnings/errors. Complete Core passes 598/598 and complete App passes 1,651/1,651, zero failed/skipped. Evidence is under `artifacts/h14/integrated-h09-review/`. No live backend, authentication, browser, profile-clear, remote or tag operation was used.
+
+### Final H09 cache contract and current-main integration
+
+Final H09 head `1890a871c864532b7c2787580eb51e3d6f04f30d` removes automatic old-session eviction entirely: profile Save retains shared MSAL sign-ins and explicit Sign out remains the only cache-removal action. It merged as `3ce1faa`; the sole conflict was resolved by taking the final H09 `ProfilesViewModel` exactly because H14's only change there was logging inside the deleted helper. No background or awaited eviction/logging branch was resurrected. Current main `ae537ee8b0a8cf357155929d40b6d8fb8ce97924` has the same tree as reviewed H09 and was added for ancestry as `ac9ee80` without behavioral delta.
+
+Core source/tests are unchanged from the accepted 598/598 checkpoint. The final `CI=true` Release App build with WebView2 enabled passes with zero warnings/errors and the complete App suite passes 1,653/1,653. Evidence is under `artifacts/h14/integrated-h09-cache-contract/`. D05 separately tracks suppressed MSAL cache-file errors that can make explicit Sign out report success while the disk cache survives; no D05 implementation or runtime/live claim is included here.
+
+### Final H11 and PR #234 integration
+
+Reviewed H11/H10b combined head `d6e3857fdedab60e9c08cec4e5928d9c2733d680` was merged as `386fd57684b0ec78c925eb948265f1a6070f71db` without source conflict. The final PR #234 correction head `4a4ae52a58ad286a6cdde012fafc2cadfd2f8007` then integrated with one tracker-only conflict: its corrected H10b row was retained alongside the existing H10c, H11, H14, and D05 histories. H14's finite diagnostics and H09's explicit-signout-only contract remain unchanged. Sequential `CI=true` Release builds pass with zero warnings/errors; the complete Core suite passes 697/697 and the complete Windows App suite with WebView2 enabled passes 1,721/1,721, with zero failures/skips. Evidence is under `artifacts/h14/integrated-pr234-review/`. No live backend, authentication, browser, profile-clear, remote, or tag operation was used.
+
+### PR #235 main ancestry integration
+
+H11 PR #235 reviewed head `dbb2486786dc9b7aec0a2b4cb6fd8b9c1ae534ff` merged on main as `8f3cbfb160ded15c1218fdb98027086dd1a4b623`. PR CI `36225002116` passed all four jobs and Greptile rated the exact head 5/5 with zero findings or threads; post-merge CI `36225250142` was still running at this checkpoint. The current `origin/main` merge was integrated for ancestry without conflict. `git diff c4694e7de89b7ab452e9a2548abd31aa4721f650 -- src avalonia tests` is empty, so the tested Core 697/697 and App 1,721/1,721 gates remain applicable without rerun. The approved H14 body is unchanged and H14 is ready for publication.
+
+### PR #236 review correction
+
+Greptile P2 `4110527961` / `PRRT_kwDOQmkX-M6mOjAc` found that the hard environment-mismatch refusal logged a Warn without a typed category, so disk received the generic `operation warning` fallback. The public action regression was RED 0/1 on that missing category while still proving reconnect UI detail, zero gateway dispatch and identifier omission. The one affected `Log` call now supplies the existing `EnvironmentChanged` category; no refusal, UI or gateway behavior changed. GREEN passes 1/1, the focused operations/redaction suite passes 82/82, the `CI=true` Release App build with WebView2 enabled has zero warnings/errors, and the complete App suite passes 1,721/1,721 with zero failures/skips. `git diff c4694e7de89b7ab452e9a2548abd31aa4721f650 -- src tests/FoToolbox.Tests` is empty, so the prior Core 697/697 evidence remains applicable without rerun. Evidence is under `artifacts/h14/pr236-review/`.

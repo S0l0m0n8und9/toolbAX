@@ -181,51 +181,79 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     /// <summary>
     /// Appends one line to the in-app gateway log. Only ever called from VM operations that resume on the
     /// UI thread (each awaits without ConfigureAwait(false)), so the ObservableCollection is touched on it.
-    /// <paramref name="traceText"/> replaces <paramref name="text"/> in the session log for the lines whose
-    /// on-screen wording must not be persisted verbatim — see <see cref="Traceable"/>.
+    /// UI text is never used as persisted trace text. Warn/Error call sites supply a finite category and,
+    /// where useful, an exception whose type/status can be retained without its message.
     /// </summary>
-    private void Log(string text, LogKind kind = LogKind.Info, string? note = null, string? traceText = null)
+    private void Log(
+        string text,
+        LogKind kind = LogKind.Info,
+        string? note = null,
+        OpsTraceCategory traceCategory = OpsTraceCategory.None,
+        Exception? traceException = null)
     {
         GatewayLog.Add(new GatewayLogEntry(text, note, kind));
 
-        // Warn/Err lines also go to Trace so the session log (#168) keeps them: the in-app log dies with
-        // the window, and a dual-write connection failure is exactly the thing a user reports after the
-        // fact. Info/Ok is live-diagnosis chatter and stays on screen only. What reaches the file carries
-        // gateway hosts, map names, connection ids, request ids and status text — never a token, and never
-        // a response body (which is what traceText exists to keep out).
+        // Warn/Err lines also go to Trace so the session log (#168) keeps the failure signal. The in-app
+        // text remains detailed; disk receives only a finite category plus numeric status/exception type.
         switch (kind)
         {
             case LogKind.Warn:
-                Trace.TraceWarning($"Dual-write operations: {traceText ?? text}");
+                Trace.TraceWarning(PersistedDiagnostic(traceCategory, traceException, LogKind.Warn));
                 break;
             case LogKind.Err:
-                Trace.TraceError($"Dual-write operations: {traceText ?? text}");
+                Trace.TraceError(PersistedDiagnostic(traceCategory, traceException, LogKind.Err));
                 break;
         }
     }
 
-    /// <summary>
-    /// What a failed operation is allowed to say in the session log. Two Core exceptions quote the gateway's
-    /// <b>raw response body</b> in their message — <see cref="DualWriteGatewayException"/> up to 500
-    /// characters of it on a non-success status, and <see cref="DualWriteGatewayResponseException"/> the
-    /// first line of a non-JSON body (an HTML sign-in or proxy page). Both are fine in a banner, where the
-    /// user is reading about their own gateway; neither may be written to disk (#168). The persisted form
-    /// keeps the diagnosis — a status code, or the fact that the answer wasn't JSON — and drops everything
-    /// the gateway echoed back.
-    /// <para>
-    /// Matched on the exception <i>type</i> and never on the message text, so rewording Core cannot silently
-    /// un-redact this. <b>A new Core exception that quotes a response body needs a case here</b>; anything
-    /// unmatched falls through to <see cref="Concise"/>, which trusts the message.
-    /// </para>
-    /// </summary>
-    private static string Traceable(Exception ex) => ex switch
+    private static string PersistedDiagnostic(
+        OpsTraceCategory category,
+        Exception? exception,
+        LogKind kind)
     {
-        DualWriteGatewayException gateway =>
-            $"the gateway returned {(int)gateway.StatusCode} {gateway.StatusCode} (response body not logged)",
-        DualWriteGatewayResponseException =>
-            "the gateway returned a non-JSON response, e.g. an HTML sign-in or proxy page (response body not logged)",
-        _ => Concise(ex),
-    };
+        var label = category switch
+        {
+            OpsTraceCategory.NoMaps => "map load returned no maps",
+            OpsTraceCategory.ConnectionTimedOut => "connection timed out",
+            OpsTraceCategory.ConnectionCancelled => "connection cancelled",
+            OpsTraceCategory.ConnectionFailed => "connection failed",
+            OpsTraceCategory.UnsupportedMapsSkipped => "unsupported maps skipped",
+            OpsTraceCategory.MutationAcknowledgedWithoutRequestId => "mutation acknowledged without request identifier",
+            OpsTraceCategory.MapRefreshFailed => "map refresh failed",
+            OpsTraceCategory.MutationObservationStopped => "mutation observation stopped",
+            OpsTraceCategory.StatusPollingTimedOut => "status polling timed out",
+            OpsTraceCategory.StatusCheckFailed => "status check failed",
+            OpsTraceCategory.MutationReportedFailure => "gateway reported mutation failure",
+            OpsTraceCategory.EnvironmentChanged => "environment changed",
+            _ => kind == LogKind.Err ? "operation failed" : "operation warning",
+        };
+
+        var diagnostic = $"Dual-write operations: {label}";
+        if (exception is DualWriteGatewayException gateway)
+            diagnostic += $"; gateway request failed; status {(int)gateway.StatusCode}";
+        else if (exception is DualWriteGatewayResponseException)
+            diagnostic += "; gateway response invalid";
+        if (exception is not null)
+            diagnostic += $"; exception {exception.GetType().Name}";
+        return diagnostic + ".";
+    }
+
+    private enum OpsTraceCategory
+    {
+        None,
+        NoMaps,
+        ConnectionTimedOut,
+        ConnectionCancelled,
+        ConnectionFailed,
+        UnsupportedMapsSkipped,
+        MutationAcknowledgedWithoutRequestId,
+        MapRefreshFailed,
+        MutationObservationStopped,
+        StatusPollingTimedOut,
+        StatusCheckFailed,
+        MutationReportedFailure,
+        EnvironmentChanged,
+    }
 
     private bool CanLoad() => !_disposed && !IsBusy && Volatile.Read(ref _operationLeaseHeld) == 0;
 
@@ -307,7 +335,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 
             PopulateMaps(maps, keepSelectedIds: null);
             Status = Maps.Count == 0 ? "No maps on this connection." : $"{Maps.Count} map(s).";
-            Log($"Loaded {Maps.Count} map(s).", Maps.Count == 0 ? LogKind.Warn : LogKind.Ok);
+            Log($"Loaded {Maps.Count} map(s).", Maps.Count == 0 ? LogKind.Warn : LogKind.Ok,
+                traceCategory: OpsTraceCategory.NoMaps);
         }
         // An HTTP/socket timeout also arrives as an OperationCanceledException, but with OUR token still
         // live — so only a cancelled token means the user asked for this. Conflating them told people they
@@ -318,20 +347,21 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             const string timedOut = "Gateway did not respond (timed out).";
             LoadError = timedOut;
             ResetDisconnected(timedOut);
-            Log(timedOut, LogKind.Err);
+            Log(timedOut, LogKind.Err, traceCategory: OpsTraceCategory.ConnectionTimedOut);
         }
         catch (OperationCanceledException)
         {
             if (_disposed || generation != Volatile.Read(ref _generation)) return;
             ResetDisconnected("Cancelled.");
-            Log("Cancelled.", LogKind.Warn);
+            Log("Cancelled.", LogKind.Warn, traceCategory: OpsTraceCategory.ConnectionCancelled);
         }
         catch (Exception ex)
         {
             if (_disposed || generation != Volatile.Read(ref _generation)) return;
             LoadError = ex.Message;
             ResetDisconnected("Connection failed.");
-            Log(ex.Message, LogKind.Err, traceText: Traceable(ex));
+            Log(ex.Message, LogKind.Err,
+                traceCategory: OpsTraceCategory.ConnectionFailed, traceException: ex);
         }
     }
 
@@ -362,7 +392,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 
         Status = ReconnectRequired;
         Log($"Environment changed: this session is connected to {ConnectionName}, but the active environment " +
-            $"is now {_activeEnv()?.Name ?? "none"}. Reconnect before running operations.", LogKind.Warn);
+            $"is now {_activeEnv()?.Name ?? "none"}. Reconnect before running operations.", LogKind.Warn,
+            traceCategory: OpsTraceCategory.EnvironmentChanged);
         return true;
     }
 
@@ -415,14 +446,14 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             // Nothing the gateway would accept — refuse before the confirm dialog rather than send a batch
             // that can only come back as an opaque 500.
             Status = skipNote!;
-            Log(skipNote!, LogKind.Warn);
+            Log(skipNote!, LogKind.Warn, traceCategory: OpsTraceCategory.UnsupportedMapsSkipped);
             return;
         }
 
         if (skipNote is not null)
         {
             // Logged before the dialog so the shortened target list below is explained, not just shorter.
-            Log(skipNote, LogKind.Warn);
+            Log(skipNote, LogKind.Warn, traceCategory: OpsTraceCategory.UnsupportedMapsSkipped);
         }
 
         var maps = targets.Select(t => t.Map).ToArray();
@@ -452,7 +483,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             if (string.IsNullOrWhiteSpace(response.RequestId))
             {
                 Status = $"{action.Label} submitted — the gateway did not return a request id; refresh to see the result.";
-                Log(Status, LogKind.Warn, traceText: "Mutation acknowledged without request identifier.");
+                Log(Status, LogKind.Warn,
+                    traceCategory: OpsTraceCategory.MutationAcknowledgedWithoutRequestId);
             }
             else await PollAndReportAsync(action, session, response.RequestId, ct);
             if (!_disposed && !Current(session)) Status = "Context changed — captured submission evidence retained; return to the original context before readback.";
@@ -465,7 +497,12 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             }
             catch (Exception)
             {
-                if (Current(session)) { Status += " (map list could not refresh)"; Log("Map list could not refresh.", LogKind.Warn); }
+                if (Current(session))
+                {
+                    Status += " (map list could not refresh)";
+                    Log("Map list could not refresh.", LogKind.Warn,
+                        traceCategory: OpsTraceCategory.MapRefreshFailed);
+                }
             }
         }
         catch (Exception ex)
@@ -495,7 +532,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
                 Status = LastLifecycleReceipt.Observation.Summary +
                     (LastLifecycleReceipt.Diagnostic is null ? "" : $" Gateway detail: {LastLifecycleReceipt.Diagnostic}");
             }
-            Log(Status, LogKind.Warn, traceText: "Mutation observation stopped; inspect retained evidence.");
+            Log(Status, LogKind.Warn,
+                traceCategory: OpsTraceCategory.MutationObservationStopped, traceException: ex);
         }
         finally { if (!_disposed && skipNote is not null) Status = $"{Status} {skipNote}"; }
     }
@@ -587,7 +625,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             // The timeout tripped, not the user. A genuine cancel keeps propagating to RunAction.
             Status = $"{action.Label} submitted — still running after {_actionTimeout.TotalSeconds:0.##}s " +
                      $"(request {requestId}). The map list will refresh; check states again shortly.";
-            Log(Status, LogKind.Warn);
+            Log(Status, LogKind.Warn, traceCategory: OpsTraceCategory.StatusPollingTimedOut);
             return;
         }
         // The status check broke (gateway 500, network blip, a non-JSON body), not the action: the submit
@@ -600,7 +638,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             if (!Current(session)) return;
             var submitted = $"{action.Label} submitted — status check failed";
             Status = $"{submitted} ({Concise(ex)}); refreshing the map list.";
-            Log(Status, LogKind.Warn, traceText: $"{submitted} ({Traceable(ex)}); refreshing the map list.");
+            Log(Status, LogKind.Warn,
+                traceCategory: OpsTraceCategory.StatusCheckFailed, traceException: ex);
             return;
         }
 
@@ -616,7 +655,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         {
             var why = final?.Message ?? final?.State ?? "unknown";
             Status = $"{action.Label} failed: {why}.";
-            Log($"{action.Label} failed: {why}.", LogKind.Err);
+            Log($"{action.Label} failed: {why}.", LogKind.Err,
+                traceCategory: OpsTraceCategory.MutationReportedFailure);
         }
     }
 
@@ -776,7 +816,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
                 {
                     Status = ReconnectRequired;
                     Log($"Environment changed: {session.Profile.Name} to {_activeEnv()?.Name ?? "none"}; reconnect before further operations.",
-                        LogKind.Warn, traceText: "Environment changed; reconnect before further operations.");
+                        LogKind.Warn, traceCategory: OpsTraceCategory.EnvironmentChanged);
                 }
                 return true;
             }
