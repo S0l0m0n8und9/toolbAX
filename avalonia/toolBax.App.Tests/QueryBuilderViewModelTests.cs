@@ -79,6 +79,47 @@ public class QueryBuilderViewModelTests
         }
     }
 
+    private sealed class BoundedScriptClient(Func<string, int, ODataResponse> response, int limit = 8) : IODataClient
+    {
+        public List<string> Requested { get; } = new();
+        public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
+        {
+            Requested.Add(path);
+            if (Requested.Count > limit) throw new InvalidOperationException("dispatch limit exceeded");
+            return Task.FromResult(response(path, Requested.Count));
+        }
+    }
+
+    private sealed class CancelThenRetryPagingClient : IODataClient
+    {
+        public TaskCompletionSource EnteredCancelledPage { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public List<string> Requested { get; } = new();
+
+        public async Task<ODataResponse> SendAsync(string method, string path, string? body,
+            CancellationToken ct = default)
+        {
+            Requested.Add(path);
+            return Requested.Count switch
+            {
+                1 => new ODataResponse(200, "OK",
+                    "{\"value\":[{\"CustomerAccount\":\"US-1\"}],\"@odata.nextLink\":\"https://x/data/E?$skiptoken=p2\"}", 1),
+                2 => await CancelledPage(ct),
+                3 => new ODataResponse(200, "OK",
+                    "{\"value\":[{\"CustomerAccount\":\"US-2\"}]}", 1),
+                _ => throw new InvalidOperationException("dispatch limit exceeded")
+            };
+        }
+
+        private async Task<ODataResponse> CancelledPage(CancellationToken ct)
+        {
+            EnteredCancelledPage.TrySetResult();
+            var cancelled = new TaskCompletionSource<ODataResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var registration = ct.Register(() => cancelled.TrySetCanceled(ct));
+            return await cancelled.Task;
+        }
+    }
+
     private sealed class CancellationObservingFileSave : IFileSaveService
     {
         public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1580,9 +1621,14 @@ public class QueryBuilderViewModelTests
     private sealed class ThrowingFileSave : IFileSaveService
     {
         private readonly Exception _ex;
+        public int Calls { get; private set; }
         public ThrowingFileSave(Exception ex) => _ex = ex;
         public Task<string?> SaveTextAsync(string suggestedFileName, string content, SaveFileType fileType,
-            CancellationToken ct = default) => throw _ex;
+            CancellationToken ct = default)
+        {
+            Calls++;
+            throw _ex;
+        }
     }
 
     [Fact]
@@ -2317,5 +2363,347 @@ public class QueryBuilderViewModelTests
         Assert.Equal(QueryResultRow.NullDisplay, vm.ResultRows[0]["CustomerAccount"]);
         Assert.Equal(QueryResultRow.NullDisplay, vm.ResultRows[0]["OrganizationName"]);
         Assert.Equal("CustomerAccount,OrganizationName\r\n—,", fileSave.LastContent);
+    }
+
+    [Fact]
+    public async Task Initial_self_link_keeps_unique_rows_and_stops_before_duplicate_dispatch()
+    {
+        var client = new BoundedScriptClient((path, _) =>
+        {
+            var target = $"https://contoso.operations.dynamics.com/{path.TrimStart('/')}";
+            return new ODataResponse(200, "OK",
+                $"{{\"value\":[{{\"CustomerAccount\":\"US-1\"}}],\"@odata.nextLink\":{System.Text.Json.JsonSerializer.Serialize(target)}}}", 1);
+        });
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, activeEnvironment: BoundEnv);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        await vm.RunCommand.ExecuteAsync(null);
+
+        Assert.Single(vm.ResultRows);
+        Assert.Null(vm.NextLink);
+        Assert.False(vm.RunSucceeded);
+        Assert.Contains("incomplete", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(client.Requested);
+    }
+
+    [Fact]
+    public async Task A_to_B_to_A_commits_each_unique_page_then_stops_paging()
+    {
+        string? initial = null;
+        var client = new BoundedScriptClient((path, call) =>
+        {
+            initial ??= $"https://contoso.operations.dynamics.com/{path.TrimStart('/')}";
+            return call switch
+            {
+                1 => new ODataResponse(200, "OK", "{\"value\":[{\"CustomerAccount\":\"US-1\"}],\"@odata.nextLink\":\"https://contoso.operations.dynamics.com/data/CustomersV3?$skiptoken=B\"}", 1),
+                2 => new ODataResponse(200, "OK", $"{{\"value\":[{{\"CustomerAccount\":\"US-2\"}}],\"@odata.nextLink\":{System.Text.Json.JsonSerializer.Serialize(initial)}}}", 1),
+                _ => throw new InvalidOperationException("dispatch limit exceeded")
+            };
+        });
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, activeEnvironment: BoundEnv);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        await vm.RunCommand.ExecuteAsync(null);
+        await vm.LoadMoreCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, vm.ResultRows.Count);
+        Assert.Null(vm.NextLink);
+        Assert.False(vm.RunSucceeded);
+        Assert.Contains("incomplete", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, client.Requested.Count);
+    }
+
+    [Fact]
+    public async Task Failed_page_can_retry_the_same_target_and_commit_once()
+    {
+        var client = new BoundedScriptClient((_, call) => call switch
+        {
+            1 => new ODataResponse(200, "OK", "{\"value\":[{\"CustomerAccount\":\"US-1\"}],\"@odata.nextLink\":\"https://contoso.operations.dynamics.com/data/CustomersV3?$skiptoken=p2\"}", 1),
+            2 => new ODataResponse(500, "Server Error", "boom", 1),
+            3 => new ODataResponse(200, "OK", "{\"value\":[{\"CustomerAccount\":\"US-2\"}]}", 1),
+            _ => throw new InvalidOperationException("dispatch limit exceeded")
+        });
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, activeEnvironment: BoundEnv);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        await vm.RunCommand.ExecuteAsync(null);
+        await vm.LoadMoreCommand.ExecuteAsync(null);
+        Assert.NotNull(vm.NextLink);
+        await vm.LoadMoreCommand.ExecuteAsync(null);
+
+        Assert.True(vm.RunSucceeded);
+        Assert.Equal(2, vm.ResultRows.Count);
+        Assert.Equal(client.Requested[1], client.Requested[2]);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("{}")]
+    [InlineData("{\"value\":{}}")]
+    public async Task Malformed_later_export_page_never_opens_the_file_save(string malformed)
+    {
+        var client = new PagingODataClient(
+            new ODataResponse(200, "OK", "{\"value\":[{\"A\":\"1\"}],\"@odata.nextLink\":\"https://x/data/E?$skiptoken=p2\"}", 1),
+            new ODataResponse(200, "OK", malformed, 1));
+        var save = new FakeFileSaveService("C:/tmp/all.csv");
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, fileSave: save);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.ClearFieldsCommand.Execute(null);
+
+        await vm.ExportAllCsvCommand.ExecuteAsync(null);
+
+        Assert.Null(save.LastContent);
+        Assert.Contains("incomplete", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Valid_empty_final_export_page_saves_the_unique_rows()
+    {
+        var client = new PagingODataClient(
+            new ODataResponse(200, "OK", "{\"value\":[{\"A\":\"1\"}],\"@odata.nextLink\":\"https://x/data/E?$skiptoken=p2\"}", 1),
+            new ODataResponse(200, "OK", "{\"value\":[]}", 1));
+        var save = new FakeFileSaveService("C:/tmp/all.csv");
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, fileSave: save);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.ClearFieldsCommand.Execute(null);
+
+        await vm.ExportAllCsvCommand.ExecuteAsync(null);
+
+        Assert.Equal("A\r\n1", save.LastContent);
+        Assert.Contains("Saved 1 rows", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task Malformed_first_run_is_an_explicit_failure_without_rows()
+    {
+        var client = new PagingODataClient(new ODataResponse(200, "OK", "{}", 1));
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        await vm.RunCommand.ExecuteAsync(null);
+
+        Assert.False(vm.RunSucceeded);
+        Assert.Empty(vm.ResultRows);
+        Assert.Contains("incomplete", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Case_distinct_continuations_are_distinct_committed_pages()
+    {
+        var client = new BoundedScriptClient((_, call) => call switch
+        {
+            1 => new ODataResponse(200, "OK", "{\"value\":[{\"CustomerAccount\":\"US-1\"}],\"@odata.nextLink\":\"https://x/data/E?$skiptoken=Case\"}", 1),
+            2 => new ODataResponse(200, "OK", "{\"value\":[{\"CustomerAccount\":\"US-2\"}],\"@odata.nextLink\":\"https://x/data/E?$skiptoken=case\"}", 1),
+            3 => new ODataResponse(200, "OK", "{\"value\":[{\"CustomerAccount\":\"US-3\"}]}", 1),
+            _ => throw new InvalidOperationException("dispatch limit exceeded")
+        });
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        await vm.RunCommand.ExecuteAsync(null);
+        await vm.LoadMoreCommand.ExecuteAsync(null);
+        await vm.LoadMoreCommand.ExecuteAsync(null);
+
+        Assert.True(vm.RunSucceeded);
+        Assert.Equal(3, vm.ResultRows.Count);
+        Assert.Equal(3, client.Requested.Count);
+    }
+
+    [Fact]
+    public async Task Proxy_prefixed_absolute_alias_of_initial_request_is_the_same_target()
+    {
+        var env = BoundEnv() with { Url = "https://fo.example/proxy" };
+        var client = new BoundedScriptClient((path, _) => new ODataResponse(200, "OK",
+            $"{{\"value\":[{{\"CustomerAccount\":\"US-1\"}}],\"@odata.nextLink\":{System.Text.Json.JsonSerializer.Serialize($"https://fo.example/proxy/{path.TrimStart('/')}")}}}", 1));
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, activeEnvironment: () => env);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        await vm.RunCommand.ExecuteAsync(null);
+
+        Assert.Single(client.Requested);
+        Assert.Null(vm.NextLink);
+        Assert.Contains("incomplete", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("\"\"")]
+    [InlineData("\"   \"")]
+    [InlineData("7")]
+    [InlineData("{}")]
+    public async Task Invalid_present_continuation_fails_without_committing_rows(string nextLinkJson)
+    {
+        var client = new PagingODataClient(new ODataResponse(200, "OK",
+            $"{{\"value\":[{{\"CustomerAccount\":\"US-1\"}}],\"@odata.nextLink\":{nextLinkJson}}}", 1));
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        await vm.RunCommand.ExecuteAsync(null);
+
+        Assert.False(vm.RunSucceeded);
+        Assert.Empty(vm.ResultRows);
+        Assert.Contains("incomplete", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Export_unique_page_limit_saves_qualified_partial_result()
+    {
+        var client = new BoundedScriptClient((_, call) => new ODataResponse(200, "OK",
+            $"{{\"value\":[{{\"A\":\"{call}\"}}],\"@odata.nextLink\":\"https://x/data/E?$skiptoken=p{call + 1}\"}}", 1), limit: 500);
+        var save = new FakeFileSaveService("C:/tmp/all.csv");
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, fileSave: save);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.ClearFieldsCommand.Execute(null);
+
+        await vm.ExportAllCsvCommand.ExecuteAsync(null);
+
+        Assert.Equal(500, client.Requested.Count);
+        Assert.NotNull(save.LastContent);
+        Assert.Contains("500-page limit", vm.StatusText);
+        Assert.Contains("more rows may exist", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task Export_cycle_stops_before_repeat_dispatch_and_never_saves_partial_rows()
+    {
+        string? initial = null;
+        var client = new BoundedScriptClient((path, _) =>
+        {
+            initial ??= $"https://contoso.operations.dynamics.com/{path.TrimStart('/')}";
+            return new ODataResponse(200, "OK",
+                $"{{\"value\":[{{\"A\":\"1\"}}],\"@odata.nextLink\":{System.Text.Json.JsonSerializer.Serialize(initial)}}}", 1);
+        });
+        var save = new FakeFileSaveService("C:/tmp/all.csv");
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, fileSave: save,
+            activeEnvironment: BoundEnv);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.ClearFieldsCommand.Execute(null);
+
+        await vm.ExportAllCsvCommand.ExecuteAsync(null);
+
+        Assert.Single(client.Requested);
+        Assert.Null(save.LastContent);
+        Assert.Contains("incomplete", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("No file was saved", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task A_new_run_replaces_the_prior_result_page_history()
+    {
+        var client = new BoundedScriptClient((_, call) => call switch
+        {
+            1 or 2 => new ODataResponse(200, "OK",
+                $"{{\"value\":[{{\"CustomerAccount\":\"US-{call}\"}}],\"@odata.nextLink\":\"https://x/data/E?$skiptoken=p2\"}}", 1),
+            3 => new ODataResponse(200, "OK", "{\"value\":[{\"CustomerAccount\":\"US-3\"}]}", 1),
+            _ => throw new InvalidOperationException("dispatch limit exceeded")
+        });
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        await vm.RunCommand.ExecuteAsync(null);
+        await vm.RunCommand.ExecuteAsync(null);
+        await vm.LoadMoreCommand.ExecuteAsync(null);
+
+        Assert.True(vm.RunSucceeded);
+        Assert.Equal(2, vm.ResultRows.Count);
+        Assert.Equal(3, client.Requested.Count);
+    }
+
+    [Fact]
+    public async Task Cancelled_load_more_can_retry_the_same_target_and_commit_once()
+    {
+        var client = new CancelThenRetryPagingClient();
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        await vm.RunCommand.ExecuteAsync(null);
+
+        var cancelled = vm.LoadMoreCommand.ExecuteAsync(null);
+        await client.EnteredCancelledPage.Task;
+        vm.LoadMoreCommand.Cancel();
+        await cancelled;
+        Assert.NotNull(vm.NextLink);
+
+        await vm.LoadMoreCommand.ExecuteAsync(null);
+
+        Assert.True(vm.RunSucceeded);
+        Assert.Equal(2, vm.ResultRows.Count);
+        Assert.Equal(client.Requested[1], client.Requested[2]);
+    }
+
+    [Fact]
+    public async Task Proxy_prefixed_relative_page_and_absolute_self_alias_share_request_identity()
+    {
+        var env = BoundEnv() with { Url = "https://fo.example/proxy" };
+        const string relative = "data/CustomersV3?$skiptoken=p2";
+        const string absolute = "https://fo.example/proxy/data/CustomersV3?$skiptoken=p2";
+        var client = new BoundedScriptClient((_, call) => call switch
+        {
+            1 => new ODataResponse(200, "OK",
+                $"{{\"value\":[{{\"CustomerAccount\":\"US-1\"}}],\"@odata.nextLink\":\"{relative}\"}}", 1),
+            2 => new ODataResponse(200, "OK",
+                $"{{\"value\":[{{\"CustomerAccount\":\"US-2\"}}],\"@odata.nextLink\":\"{absolute}\"}}", 1),
+            _ => throw new InvalidOperationException("dispatch limit exceeded")
+        });
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(), client, activeEnvironment: () => env);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        await vm.RunCommand.ExecuteAsync(null);
+        await vm.LoadMoreCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, vm.ResultRows.Count);
+        Assert.Null(vm.NextLink);
+        Assert.Contains("incomplete", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(2, client.Requested.Count);
+    }
+
+    [Fact]
+    public async Task No_selected_columns_rejects_non_object_collection_item_before_save()
+    {
+        var save = new FakeFileSaveService("C:/tmp/all.csv");
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(),
+            new PagingODataClient(new ODataResponse(200, "OK", "{\"value\":[42]}", 1)),
+            fileSave: save);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.ClearFieldsCommand.Execute(null);
+
+        await vm.ExportAllCsvCommand.ExecuteAsync(null);
+
+        Assert.Null(save.LastContent);
+        Assert.Contains("incomplete", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Theory]
+    [InlineData("{\"value\":[]}")]
+    [InlineData("{\"value\":[{}]}")]
+    public async Task No_selected_columns_accepts_valid_empty_or_sparse_object_collection(string body)
+    {
+        var save = new FakeFileSaveService("C:/tmp/all.csv");
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(),
+            new PagingODataClient(new ODataResponse(200, "OK", body, 1)), fileSave: save);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+        vm.ClearFieldsCommand.Execute(null);
+
+        await vm.ExportAllCsvCommand.ExecuteAsync(null);
+
+        Assert.Null(save.LastContent);
+        Assert.Contains("no columns", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("incomplete", vm.StatusText, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public async Task Export_save_failure_with_incomplete_text_does_not_claim_no_file_was_saved()
+    {
+        var save = new ThrowingFileSave(new InvalidOperationException("incomplete write"));
+        var vm = new QueryBuilderViewModel(new FakeMetadataService(),
+            new PagingODataClient(new ODataResponse(200, "OK",
+                "{\"value\":[{\"CustomerAccount\":\"US-1\"}]}", 1)), fileSave: save);
+        vm.SelectedEntity = vm.Entities.Single(e => e.Name == "CustomersV3");
+
+        await vm.ExportAllCsvCommand.ExecuteAsync(null);
+
+        Assert.Equal(1, save.Calls);
+        Assert.StartsWith("Export failed:", vm.StatusText);
+        Assert.Contains("incomplete write", vm.StatusText);
+        Assert.DoesNotContain("No file was saved", vm.StatusText);
+        Assert.DoesNotContain("cancel", vm.StatusText, StringComparison.OrdinalIgnoreCase);
     }
 }

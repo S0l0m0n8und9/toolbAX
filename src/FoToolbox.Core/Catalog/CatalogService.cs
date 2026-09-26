@@ -1,6 +1,7 @@
 using FoToolbox.Core.Models;
 using FoToolbox.Core.Auth;
 using FoToolbox.Core.OData;
+using FoToolbox.Core.Net;
 using FoToolbox.Core.Profiles;
 using System;
 using System.Collections.Concurrent;
@@ -740,48 +741,74 @@ public sealed class CatalogService : ICatalogService
         var filter = Uri.EscapeDataString($"Entity eq '{escapedLiteral}'");
         var select = Uri.EscapeDataString("StagingField,ShortStagingField,TargetField,FieldAOTName,DataSourceField,FieldLength");
         var nextUrl = $"{NormalizedBaseUrl(env)}/data/DataManagementTargetMapEntities?$filter={filter}&$select={select}&$top=1000&$count=true&cross-company=true";
-        var visited = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var visits = new PageVisitTracker();
+        var origin = new Uri(nextUrl, UriKind.Absolute);
+        var firstRequest = true;
 
-        while (!string.IsNullOrWhiteSpace(nextUrl) && visited.Add(nextUrl))
+        while (!string.IsNullOrWhiteSpace(nextUrl))
         {
-            using var req = new HttpRequestMessage(HttpMethod.Get, nextUrl);
+            ct.ThrowIfCancellationRequested();
+            if (!visits.TryVisit(nextUrl, baseAddress: null, out var resolvedRequestUri))
+            {
+                return new List<DataManagementTargetMapRow>();
+            }
+            if (!firstRequest && (resolvedRequestUri is null || !RequestOriginGuard.IsSameOrigin(origin, resolvedRequestUri)))
+            {
+                return new List<DataManagementTargetMapRow>();
+            }
+            firstRequest = false;
+
+            using var req = new HttpRequestMessage(HttpMethod.Get,
+                resolvedRequestUri ?? new Uri(nextUrl, UriKind.RelativeOrAbsolute));
             BindMetadataContext(req, env);
             req.Headers.Accept.ParseAdd("application/json");
 
             using var resp = await _httpClient.SendAsync(req, ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
             if (!resp.IsSuccessStatusCode)
             {
-                return rows;
+                return new List<DataManagementTargetMapRow>();
             }
 
             var json = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
-            if (root.TryGetProperty("value", out var valueNode) && valueNode.ValueKind == JsonValueKind.Array)
+            if (root.ValueKind != JsonValueKind.Object ||
+                !root.TryGetProperty("value", out var valueNode) ||
+                valueNode.ValueKind != JsonValueKind.Array)
             {
-                foreach (var item in valueNode.EnumerateArray())
-                {
-                    var fieldLength = ReadInt32Property(item, "FieldLength");
-                    if (fieldLength is null || fieldLength <= 0)
-                    {
-                        continue;
-                    }
-
-                    rows.Add(new DataManagementTargetMapRow(
-                        ReadStringProperty(item, "StagingField"),
-                        ReadStringProperty(item, "ShortStagingField"),
-                        ReadStringProperty(item, "TargetField"),
-                        ReadStringProperty(item, "FieldAOTName"),
-                        ReadStringProperty(item, "DataSourceField"),
-                        fieldLength.Value));
-                }
+                return new List<DataManagementTargetMapRow>();
             }
 
-            var nextLink = ReadStringProperty(root, "@odata.nextLink");
-            if (string.IsNullOrWhiteSpace(nextLink))
+            foreach (var item in valueNode.EnumerateArray())
+            {
+                var fieldLength = ReadInt32Property(item, "FieldLength");
+                if (fieldLength is null || fieldLength <= 0)
+                {
+                    continue;
+                }
+
+                rows.Add(new DataManagementTargetMapRow(
+                    ReadStringProperty(item, "StagingField"),
+                    ReadStringProperty(item, "ShortStagingField"),
+                    ReadStringProperty(item, "TargetField"),
+                    ReadStringProperty(item, "FieldAOTName"),
+                    ReadStringProperty(item, "DataSourceField"),
+                    fieldLength.Value));
+            }
+
+            if (!root.TryGetProperty("@odata.nextLink", out var nextLinkNode) ||
+                nextLinkNode.ValueKind == JsonValueKind.Null)
             {
                 break;
             }
+            if (nextLinkNode.ValueKind != JsonValueKind.String ||
+                string.IsNullOrWhiteSpace(nextLinkNode.GetString()))
+            {
+                return new List<DataManagementTargetMapRow>();
+            }
+            var nextLink = nextLinkNode.GetString()!;
 
             if (Uri.TryCreate(nextLink, UriKind.Absolute, out var absolute))
             {

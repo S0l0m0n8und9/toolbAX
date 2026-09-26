@@ -232,7 +232,7 @@ public partial class App : Application
                     // logical-name metadata across calls, and that cache has to be keyed by the environment
                     // the client will resolve at call time (#210).
                     activeEnv => new CoreDualWriteMapReader(new CoreDataverseClient(auth, activeEnv), activeEnv),
-                    activeEnv => new CoreVirtualTableReader(new CoreDataverseClient(auth, activeEnv)),
+                    activeEnv => new CoreVirtualTableReader(new CoreDataverseClient(auth, activeEnv), activeEnv),
                     null);
             }
 
