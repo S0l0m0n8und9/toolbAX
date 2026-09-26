@@ -160,10 +160,12 @@ public sealed class ReadRetryPolicyTests
             client, Get, HttpCompletionOption.ResponseHeadersRead, CancellationToken.None);
 
         await WaitForAsync(() => handler.Requests.Count == 1);
+        await WaitForAsync(() => clock.PendingTimerCount >= 2);
         clock.Advance(TimeSpan.FromMilliseconds(249));
         Assert.Single(handler.Requests);
         clock.Advance(TimeSpan.FromMilliseconds(1));
         await WaitForAsync(() => handler.Requests.Count == 2);
+        await WaitForAsync(() => clock.PendingTimerCount >= 2);
         clock.Advance(TimeSpan.FromMilliseconds(499));
         Assert.Equal(2, handler.Requests.Count);
         clock.Advance(TimeSpan.FromMilliseconds(1));
@@ -191,6 +193,7 @@ public sealed class ReadRetryPolicyTests
             client, Get, HttpCompletionOption.ResponseHeadersRead, CancellationToken.None);
 
         await WaitForAsync(() => handler.Requests.Count == 1);
+        await WaitForAsync(() => clock.PendingTimerCount >= 2);
         clock.Advance(TimeSpan.FromMilliseconds(2999));
         Assert.Single(handler.Requests);
         clock.Advance(TimeSpan.FromMilliseconds(1));
@@ -229,6 +232,7 @@ public sealed class ReadRetryPolicyTests
             client, Get, HttpCompletionOption.ResponseHeadersRead, CancellationToken.None);
 
         await WaitForAsync(() => handler.Requests.Count == 1);
+        await WaitForAsync(() => clock.PendingTimerCount >= 2);
         clock.Advance(TimeSpan.FromMilliseconds(250));
 
         using var response = await pending;
@@ -266,6 +270,7 @@ public sealed class ReadRetryPolicyTests
                 client, Get, HttpCompletionOption.ResponseHeadersRead, CancellationToken.None);
 
         await WaitForAsync(() => handler.Requests.Count == 1);
+        await WaitForAsync(() => clock.PendingTimerCount >= 2);
         clock.Advance(TimeSpan.FromSeconds(1));
 
         await Assert.ThrowsAsync<TimeoutException>(() => pending.WaitAsync(TimeSpan.FromSeconds(2)));
@@ -443,6 +448,7 @@ public sealed class ReadRetryPolicyTests
             client, Get, HttpCompletionOption.ResponseHeadersRead, caller.Token);
 
         await WaitForAsync(() => handler.Requests.Count == 1);
+        await WaitForAsync(() => clock.PendingTimerCount >= 2);
         caller.Cancel();
 
         var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(2)));
@@ -653,6 +659,15 @@ public sealed class ReadRetryPolicyTests
         private long _ticks;
 
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public int PendingTimerCount
+        {
+            get
+            {
+                lock (_sync)
+                    return _timers.Count(item => item.Timer.IsCurrent(item.Generation));
+            }
+        }
 
         public override DateTimeOffset GetUtcNow()
         {
