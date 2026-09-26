@@ -75,14 +75,15 @@ public sealed class CoreDataverseClient : IDataverseClient, IDisposable
         }
 
         var identity = EnvironmentIdentity.Create(env);
+        var dataverseBase = ResourceUrlNormalizer.NormalizeDataverseResourceBaseUrl(env.DataverseUrl);
 
-        var uri = BuildUri(env.DataverseUrl, pathOrUrl);
+        var uri = BuildUri(dataverseBase, pathOrUrl);
 
         // A server-driven @odata.nextLink is used verbatim, but only if it stays on the Dataverse
         // environment's origin (scheme + host + port) — otherwise the env-scoped Dataverse bearer would
         // be sent to a foreign origin. Refuse before acquiring a token.
         if (pathOrUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase)
-            && !RequestOriginGuard.IsSameOrigin(env.DataverseUrl, uri))
+            && !RequestOriginGuard.IsSameOrigin(dataverseBase, uri))
         {
             return new ODataResponse(0, "Refused",
                 "The paging link points to a different origin than the Dataverse environment.", (int)sw.ElapsedMilliseconds);
@@ -153,24 +154,14 @@ public sealed class CoreDataverseClient : IDataverseClient, IDisposable
 
     // An absolute URL (a server-driven @odata.nextLink) is used verbatim; a relative path is resolved
     // against the normalized Dataverse Web API base ({dataverse}/api/data/v9.2).
-    private static Uri BuildUri(string dataverseUrl, string pathOrUrl)
+    private static Uri BuildUri(string dataverseBase, string pathOrUrl)
     {
         if (pathOrUrl.StartsWith("http", StringComparison.OrdinalIgnoreCase))
         {
             return new Uri(pathOrUrl);
         }
 
-        var apiBase = ResourceUrlNormalizer.BuildDataverseApiBaseUrl(dataverseUrl);
-
-        // Same scheme repair CoreODataClient.BuildUri already does for env.Url: a scheme-less Dataverse
-        // URL ("org.crm.dynamics.com") would otherwise throw UriFormatException here, so the F&O tools
-        // worked and the Dataverse ones didn't for identically-typed input. The normalizer now defaults
-        // the scheme too; keeping the repair local means this can't regress on that alone.
-        if (!apiBase.StartsWith("http", StringComparison.OrdinalIgnoreCase))
-        {
-            apiBase = $"https://{apiBase}";
-        }
-
+        var apiBase = $"{dataverseBase}/api/data/v9.2";
         return new Uri($"{apiBase}/{pathOrUrl.TrimStart('/')}");
     }
 
