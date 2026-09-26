@@ -77,3 +77,11 @@ Final H09 cache-contract head `1890a871c864532b7c2787580eb51e3d6f04f30d`, whose 
 The final `CI=true` Release App build with `EnableWebView2=true` passed with zero warnings/errors, and the complete App suite passed 1,688/1,688 with no failures or skips. Evidence is `artifacts/h10b/integrated-h09-cache-contract/app-build.log`, `app-test.log` and `app-full.trx`. The older timeout diagnostics remain preserved under `artifacts/h10b/integrated-h09-review/`.
 
 Validation used fake transports and local stores only. No live service, authentication, browser, sign-in, profile-clear, gateway or Power Platform call occurred. H10b now waits only for dependent H10c to reach `main` before publication and hosted review.
+
+## PR233 canonical Dataverse base integration
+
+Reviewed PR233 correction `aae0efd9d79c5138b2dd2338ae1ee932a3e723e1` was merged locally as `b84f7a2f7acc93ed4fd18589cad367804b61bb96`. The bounded correction makes `CoreDataverseClient` derive one canonical Dataverse resource base, then uses it both to build relative Web API requests and to compare absolute continuation origins before authentication. The existing `ReadRetryPolicy` factory, `ResponseContentRead` boundary and full current-identity guard remain in place for every retry attempt. The merged delta from the prior H10b checkpoint is limited to the Dataverse client, two related App test files, and paging documentation/tracker evidence.
+
+Core source and Core tests are unchanged from the reviewed 671/671 gate. The `CI=true` Release App build with `EnableWebView2=true` passed with zero warnings/errors, and the complete App suite passed 1,695/1,695 with no failures or skips. Evidence is `artifacts/h10b/integrated-pr233/app-build.log`, `app-test.log` and `app-full.trx`.
+
+PR233 reviewed head `aae0efd9d79c5138b2dd2338ae1ee932a3e723e1` merged as `605803790d474a3851ba876c628586f0880a0972` after CI `36220364076` passed all four jobs and Greptile rated the exact head 5/5 with its sole thread automatically resolved. That main ancestry was integrated as `323467387e460b1a49907d31e4f9184909350e96`; `git diff b84f7a2..3234673 -- src avalonia tests` is empty, so no test rerun was required. Post-merge CI `36220572340` remains queued at this checkpoint. Validation used deterministic local tests only; no live calls occurred.
