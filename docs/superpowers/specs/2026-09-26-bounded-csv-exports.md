@@ -119,3 +119,11 @@ Reviewed H10b head `10abb61f6c537c3771d3aa7ff7a59c9dcce3b39a` and H11 checkpoint
 The integration preserves H11's bounded row/final-CSV spools, borrowed-stream save, progress, cancellation and committed-file truth while adding H10b's safe GET-only retry policy. Both `CI=true` Release builds passed sequentially with zero warnings/errors. The full Core suite passed 686/686 and the full Windows App suite with `EnableWebView2=true` passed 1,708/1,708, all with zero failures/skips. Evidence is `artifacts/h11/integrated-retries/core-{build,test}.log`, `core-test.trx`, `app-{build,test}.log` and `app-test.trx`.
 
 Validation used local stores and deterministic tests only. No live service, authentication, browser, sign-in, profile-clear, gateway or Power Platform call occurred. H11 delivery waits for H10b PR #234 to merge.
+
+## Final PR #234 review-correction integration
+
+Final reviewed H10b correction `4a4ae52a58ad286a6cdde012fafc2cadfd2f8007` and H11 checkpoint `d6e3857fdedab60e9c08cec4e5928d9c2733d680` share merge base `10abb61f6c537c3771d3aa7ff7a59c9dcce3b39a`. A no-commit merge confirmed the expected seven-file incoming delta. The only conflict was the readiness tracker; resolution retained final H10b review evidence, H10c's successful post-merge CI and H11's complete history. All six non-tracker incoming files were byte-identical to the reviewed correction. The resolved merge is `a974c50d9a6a17e48842f6c5083ca8e189d5ecb8`.
+
+The correction keeps retry-body buffering internal to the Core retry policy and preserves truthful `HttpODataClient` timeouts without changing H11's bounded CSV spool/save/cancellation behavior. Both `CI=true` Release builds passed sequentially with zero warnings/errors. The full Core suite passed 697/697 and the full Windows App suite with `EnableWebView2=true` passed 1,708/1,708, all with zero failures/skips. Evidence is `artifacts/h11/integrated-pr234-review/core-{build,test}.log`, `core-test.trx`, `app-{build,test}.log` and `app-test.trx`.
+
+Validation used local stores and deterministic tests only. No live service, authentication, browser, sign-in, profile-clear, gateway or Power Platform call occurred. H11 delivery still waits for PR #234 to merge.
