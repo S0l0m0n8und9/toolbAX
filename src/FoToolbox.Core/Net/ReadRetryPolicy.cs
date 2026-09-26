@@ -43,12 +43,40 @@ public sealed class ReadRetryPolicy
         _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
-    public async Task<HttpResponseMessage> SendAsync(
+    public Task<HttpResponseMessage> SendAsync(
         HttpClient httpClient,
         Func<HttpRequestMessage> requestFactory,
         HttpCompletionOption completionOption,
         CancellationToken cancellationToken,
-        Action? beforeAttempt = null)
+        Action? beforeAttempt = null) =>
+        SendCoreAsync(
+            httpClient,
+            requestFactory,
+            completionOption,
+            cancellationToken,
+            beforeAttempt,
+            bufferResponseContent: false);
+
+    internal Task<HttpResponseMessage> SendBufferedAsync(
+        HttpClient httpClient,
+        Func<HttpRequestMessage> requestFactory,
+        CancellationToken cancellationToken,
+        Action? beforeAttempt = null) =>
+        SendCoreAsync(
+            httpClient,
+            requestFactory,
+            HttpCompletionOption.ResponseHeadersRead,
+            cancellationToken,
+            beforeAttempt,
+            bufferResponseContent: true);
+
+    private async Task<HttpResponseMessage> SendCoreAsync(
+        HttpClient httpClient,
+        Func<HttpRequestMessage> requestFactory,
+        HttpCompletionOption completionOption,
+        CancellationToken cancellationToken,
+        Action? beforeAttempt,
+        bool bufferResponseContent)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(requestFactory);
@@ -112,7 +140,8 @@ public sealed class ReadRetryPolicy
                             completionOption,
                             cancellationToken,
                             deadline.Token,
-                            linked.Token)
+                            linked.Token,
+                            bufferResponseContent)
                         .ConfigureAwait(false);
 
                     if (!IsRetryable(response.StatusCode) || attempt == _maximumAttempts)
@@ -122,7 +151,7 @@ public sealed class ReadRetryPolicy
                     var delay = Max(GetBackoff(attempt), retryAfter.Delay);
                     var remaining = GetRemainingBudget(startedAt);
 
-                    if (retryAfter.IsValid && delay >= remaining)
+                    if (delay >= remaining)
                         return response;
 
                     retryResponse = response;
@@ -210,12 +239,18 @@ public sealed class ReadRetryPolicy
         HttpCompletionOption completionOption,
         CancellationToken callerToken,
         CancellationToken deadlineToken,
-        CancellationToken linkedToken)
+        CancellationToken linkedToken,
+        bool bufferResponseContent)
     {
-        Task<HttpResponseMessage> sendTask;
+        Task<HttpResponseMessage> attemptTask;
         try
         {
-            sendTask = httpClient.SendAsync(request, completionOption, linkedToken);
+            attemptTask = SendAndBufferResponseAsync(
+                httpClient,
+                request,
+                completionOption,
+                linkedToken,
+                bufferResponseContent);
         }
         catch
         {
@@ -225,7 +260,7 @@ public sealed class ReadRetryPolicy
 
         try
         {
-            var response = await sendTask.WaitAsync(linkedToken).ConfigureAwait(false);
+            var response = await attemptTask.WaitAsync(linkedToken).ConfigureAwait(false);
             request.Dispose();
 
             if (callerToken.IsCancellationRequested)
@@ -243,7 +278,7 @@ public sealed class ReadRetryPolicy
         }
         catch (OperationCanceledException exception) when (linkedToken.IsCancellationRequested)
         {
-            _ = ObserveLateSendAsync(sendTask, request);
+            _ = ObserveLateSendAsync(attemptTask, request);
 
             if (callerToken.IsCancellationRequested)
                 throw new OperationCanceledException(exception.Message, exception, callerToken);
@@ -254,7 +289,7 @@ public sealed class ReadRetryPolicy
         }
         catch (Exception exception) when (linkedToken.IsCancellationRequested)
         {
-            _ = ObserveLateSendAsync(sendTask, request);
+            _ = ObserveLateSendAsync(attemptTask, request);
 
             if (callerToken.IsCancellationRequested)
                 throw new OperationCanceledException(exception.Message, exception, callerToken);
@@ -266,6 +301,29 @@ public sealed class ReadRetryPolicy
         catch
         {
             request.Dispose();
+            throw;
+        }
+    }
+
+    private static async Task<HttpResponseMessage> SendAndBufferResponseAsync(
+        HttpClient httpClient,
+        HttpRequestMessage request,
+        HttpCompletionOption completionOption,
+        CancellationToken linkedToken,
+        bool bufferResponseContent)
+    {
+        var response = await httpClient.SendAsync(request, completionOption, linkedToken).ConfigureAwait(false);
+        if (!bufferResponseContent)
+            return response;
+
+        try
+        {
+            await response.Content.LoadIntoBufferAsync(linkedToken).ConfigureAwait(false);
+            return response;
+        }
+        catch
+        {
+            response.Dispose();
             throw;
         }
     }
