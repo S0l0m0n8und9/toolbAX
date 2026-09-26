@@ -111,3 +111,11 @@ Verified H10c correction `aae0efd9d79c5138b2dd2338ae1ee932a3e723e1` merged into 
 Core source/tests remain byte-identical to reviewed checkpoint `291a154cbed56fce8d828bd25620b9b085eaa7a2`, so the 631/631 Core gate remains applicable. The integrated `CI=true` Release App build with `EnableWebView2=true` passed with zero warnings/errors and the full App suite passed 1,690/1,690 with zero failures/skips. Evidence is `artifacts/h11/integrated-pr233/app-build.log`, `app-test.log` and `app-test.trx`.
 
 Validation used local stores and deterministic tests only. No live service, authentication, browser, sign-in, profile-clear, gateway or Power Platform call occurred. H11 remains unpublished until H10c completes hosted delivery.
+
+## H10b bounded-read retry integration
+
+Reviewed H10b head `10abb61f6c537c3771d3aa7ff7a59c9dcce3b39a` and H11 checkpoint `c86ae55641c76c8aa04d18a51e4f8b8a93bee250` share merge base `aae0efd9d79c5138b2dd2338ae1ee932a3e723e1`. A no-commit three-way inspection showed the only conflict in `docs/production-readiness/2026-09-25-hardening.md`; resolution retained reviewed H10b and merged H10c delivery rows plus H11's complete history. All 14 non-tracker H10b paths in the merged index were byte-identical to the reviewed H10b head. The resolved merge is `44a5701df150bfdce322fb63047d69e344323373`.
+
+The integration preserves H11's bounded row/final-CSV spools, borrowed-stream save, progress, cancellation and committed-file truth while adding H10b's safe GET-only retry policy. Both `CI=true` Release builds passed sequentially with zero warnings/errors. The full Core suite passed 686/686 and the full Windows App suite with `EnableWebView2=true` passed 1,708/1,708, all with zero failures/skips. Evidence is `artifacts/h11/integrated-retries/core-{build,test}.log`, `core-test.trx`, `app-{build,test}.log` and `app-test.trx`.
+
+Validation used local stores and deterministic tests only. No live service, authentication, browser, sign-in, profile-clear, gateway or Power Platform call occurred. H11 delivery waits for H10b PR #234 to merge.
