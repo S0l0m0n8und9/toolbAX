@@ -9,7 +9,11 @@ namespace ToolBax.App.Views;
 
 public partial class MainWindow : Window
 {
-    public MainWindow() => InitializeComponent();
+    public MainWindow()
+    {
+        InitializeComponent();
+        Closed += (_, _) => (DataContext as ShellViewModel)?.Dispose();
+    }
 
     // Header environment switcher: its SelectedItem is bound OneWay, so the view model stays the single
     // source of truth and a user pick has to be handed to the deliberate-switch funnel by hand (a TwoWay

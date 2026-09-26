@@ -10,9 +10,8 @@ using ToolBax.Core.Services;
 namespace ToolBax.App.Services;
 
 /// <summary>
-/// Real <see cref="IConnectionTester"/>: forces a fresh token and probes the exact endpoint the tool
-/// screens depend on — F&amp;O <c>/data/$metadata</c> and Dataverse <c>/WhoAmI</c> — so a green test
-/// guarantees the tools can load, rather than merely confirming a token was minted.
+/// Forces a fresh token and probes F&amp;O <c>/data/$metadata</c> or Dataverse <c>/WhoAmI</c>.
+/// Success establishes access to that endpoint, not every tool, permission or business operation.
 /// </summary>
 public sealed class CoreConnectionTester : IConnectionTester
 {
@@ -27,6 +26,7 @@ public sealed class CoreConnectionTester : IConnectionTester
 
     public Task<ConnectionTestResult> TestFoAsync(EnvProfile env, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(env.Url))
         {
             return Task.FromResult(new ConnectionTestResult(false, "No F&O environment URL is configured."));
@@ -39,6 +39,7 @@ public sealed class CoreConnectionTester : IConnectionTester
 
     public Task<ConnectionTestResult> TestDataverseAsync(EnvProfile env, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(env.DataverseUrl))
         {
             return Task.FromResult(new ConnectionTestResult(false, "No Dataverse URL is configured for this environment."));
@@ -55,27 +56,33 @@ public sealed class CoreConnectionTester : IConnectionTester
         string token;
         try
         {
+            ct.ThrowIfCancellationRequested();
             token = await acquireToken().ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
         }
         catch (Exception ex)
         {
-            // Token acquisition itself failed (bad client id/secret, cancelled sign-in, tenant mismatch…).
+            ct.ThrowIfCancellationRequested();
+            // A timeout without caller cancellation remains a failed probe.
             return new ConnectionTestResult(false, ex.Message);
         }
 
         try
         {
+            ct.ThrowIfCancellationRequested();
             using var request = new HttpRequestMessage(HttpMethod.Get, url);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(accept));
 
             using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
             return response.IsSuccessStatusCode
                 ? new ConnectionTestResult(true, successMessage)
                 : new ConnectionTestResult(false, $"{(int)response.StatusCode} {response.ReasonPhrase}".Trim());
         }
         catch (Exception ex)
         {
+            ct.ThrowIfCancellationRequested();
             return new ConnectionTestResult(false, ex.Message);
         }
     }

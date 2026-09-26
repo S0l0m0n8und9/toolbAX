@@ -549,7 +549,7 @@ public class ProfilesViewModelTests
 
         await vm.TestConnectionCommand.ExecuteAsync(null);
 
-        Assert.Contains("Connected", vm.Status);
+        Assert.Contains("Connected", vm.FoTestStatus);
         Assert.False(vm.IsTestingFoConnection);
     }
 
@@ -564,8 +564,8 @@ public class ProfilesViewModelTests
 
         await vm.TestConnectionCommand.ExecuteAsync(null);
 
-        Assert.Contains("failed", vm.Status);
-        Assert.Contains("AADSTS700016", vm.Status);
+        Assert.Contains("failed", vm.FoTestStatus);
+        Assert.Contains("AADSTS700016", vm.FoTestStatus);
         Assert.False(vm.IsTestingFoConnection);
     }
 
@@ -577,8 +577,8 @@ public class ProfilesViewModelTests
 
         await vm.TestDataverseConnectionCommand.ExecuteAsync(null);
 
-        Assert.Contains("Dataverse", vm.Status);
-        Assert.Contains("Connected", vm.Status);
+        Assert.Contains("Dataverse", vm.DataverseTestStatus);
+        Assert.Contains("Connected", vm.DataverseTestStatus);
         Assert.False(vm.IsTestingDataverseConnection);
     }
 
@@ -591,9 +591,9 @@ public class ProfilesViewModelTests
 
         await vm.TestDataverseConnectionCommand.ExecuteAsync(null);
 
-        Assert.Contains("Dataverse", vm.Status);
-        Assert.Contains("failed", vm.Status);
-        Assert.Contains("AADSTS500011", vm.Status);
+        Assert.Contains("Dataverse", vm.DataverseTestStatus);
+        Assert.Contains("failed", vm.DataverseTestStatus);
+        Assert.Contains("AADSTS500011", vm.DataverseTestStatus);
         Assert.False(vm.IsTestingDataverseConnection);
     }
 
@@ -800,7 +800,7 @@ public class ProfilesViewModelTests
     }
 
     [Fact]
-    public void Clear_legacy_password_removes_only_the_DI_secret()
+    public async Task Clear_legacy_password_confirmation_survives_saving_the_same_profile()
     {
         var profile = new EnvProfile("legacy", "Legacy", "https://legacy", "tenant", "USMF", "Tier 1",
             EnvStatus.Disconnected, DataIntegratorClientId: "legacy-client", DataIntegratorMode: DiAuthMode.Ropc,
@@ -815,10 +815,52 @@ public class ProfilesViewModelTests
 
         Assert.False(secrets.HasSecret(profile.Id, SecretTarget.DataIntegrator));
         Assert.True(secrets.HasSecret(profile.Id));
+        Assert.Equal("Legacy Data Integrator password cleared.", vm.LegacyDiStatus);
+        vm.DraftName = "Renamed after clear";
+        await vm.SaveCommand.ExecuteAsync(null);
+        Assert.Equal("Legacy Data Integrator password cleared.", vm.LegacyDiStatus);
+        Assert.Empty(vm.DiStatus);
         var preserved = Assert.Single(store.GetAll());
         Assert.Equal("legacy-client", preserved.DataIntegratorClientId);
         Assert.Equal(DiAuthMode.Ropc, preserved.DataIntegratorMode);
         Assert.Equal("https://legacy-gateway", preserved.DualWriteGatewayUrl);
+    }
+
+    [Fact]
+    public void Selecting_another_profile_clears_the_legacy_password_confirmation()
+    {
+        var first = new EnvProfile("legacy", "Legacy", "https://legacy", "tenant", "USMF", "Tier 1",
+            EnvStatus.Disconnected, DataIntegratorClientId: "legacy-client", DataIntegratorMode: DiAuthMode.Ropc);
+        var second = first with { Id = "other", Name = "Other" };
+        var store = new FakeProfileStore(new[] { first, second }) { ActiveId = first.Id };
+        var secrets = new FakeSecretStore();
+        secrets.SetSecret(first.Id, "di-password", SecretTarget.DataIntegrator);
+        var vm = new ProfilesViewModel(store, secrets);
+
+        vm.ClearLegacyDiPasswordCommand.Execute(null);
+        Assert.NotEmpty(vm.LegacyDiStatus);
+
+        vm.Selected = vm.Profiles.Single(profile => profile.Id == second.Id);
+
+        Assert.Empty(vm.LegacyDiStatus);
+    }
+
+    [Fact]
+    public void Clearing_profile_selection_clears_the_legacy_password_confirmation()
+    {
+        var profile = new EnvProfile("legacy", "Legacy", "https://legacy", "tenant", "USMF", "Tier 1",
+            EnvStatus.Disconnected, DataIntegratorClientId: "legacy-client", DataIntegratorMode: DiAuthMode.Ropc);
+        var store = new FakeProfileStore(new[] { profile }) { ActiveId = profile.Id };
+        var secrets = new FakeSecretStore();
+        secrets.SetSecret(profile.Id, "di-password", SecretTarget.DataIntegrator);
+        var vm = new ProfilesViewModel(store, secrets);
+
+        vm.ClearLegacyDiPasswordCommand.Execute(null);
+        Assert.NotEmpty(vm.LegacyDiStatus);
+
+        vm.Selected = null;
+
+        Assert.Empty(vm.LegacyDiStatus);
     }
 
     [Fact]
@@ -830,7 +872,8 @@ public class ProfilesViewModelTests
 
         await vm.TestGatewayCommand.ExecuteAsync(null);
 
-        Assert.Equal("Linked: Contoso (cid abc).", vm.DiStatus);
+        Assert.Contains("Linked: Contoso (cid abc).", vm.DiStatus);
+        Assert.Contains(vm.DraftName, vm.DiStatus);
         Assert.False(vm.IsTestingGateway);
     }
 
