@@ -1,6 +1,6 @@
 # Bounded CSV exports (H11 Core phase)
 
-**Status:** Core and App phases are accepted and fully locally validated through the published H09 review head. PR creation waits for H10c and the final H09 correction to reach main.
+**Status:** Core and App phases are accepted and fully locally validated through the merged final H09 cache contract. PR creation waits for H10c to reach main.
 
 ## Scope
 
@@ -95,3 +95,11 @@ Published H09 review head `b1caddb15f29721b1653d3241c59405616712558` merged clea
 Sequential `CI=true` Release gates passed after the merge. Core built both target frameworks with zero warnings/errors and its complete suite passed 631/631. App built with `EnableWebView2=true` with zero warnings/errors and its complete suite passed 1,681/1,681. Evidence is under `artifacts/h11/integrated-h09-review/` as `core-{build,test}.log`, `core-full.trx`, `app-{build,test}.log` and `app-full.trx`.
 
 Validation used local stores and deterministic tests only. No live service, authentication, browser, sign-in, profile-clear, gateway or Power Platform call occurred. This checkpoint intentionally does not integrate any newer H09 cache-contract correction; H11 remains unpublished until final H09 and H10c reach `main`.
+
+## Final H09 cache-contract integration
+
+Final H09 cache-contract head `1890a871c864532b7c2787580eb51e3d6f04f30d`, whose tree is now merged on `main` as `ae537ee8b0a8cf357155929d40b6d8fb8ce97924`, was integrated into reviewed H11 checkpoint `291a154cbed56fce8d828bd25620b9b085eaa7a2` as `5e835c1b0817584298ddc9c559906c39f9d00a5c`. The merge had no source conflict. `1890a87` is an ancestor of the result, and `git diff 291a154..5e835c1 -- src/FoToolbox.Core tests/FoToolbox.Tests` is empty, so the reviewed 631/631 Core gate remains applicable.
+
+The final `CI=true` Release App build with `EnableWebView2=true` passed with zero warnings/errors, and the complete App suite passed 1,683/1,683 with no failures or skips. Evidence is `artifacts/h11/integrated-h09-cache-contract/app-build.log`, `app-test.log` and `app-full.trx`.
+
+Validation used local stores and deterministic tests only. No live service, authentication, browser, sign-in, profile-clear, gateway or Power Platform call occurred. H11 now waits only for dependent H10c to reach `main` before publication and hosted review.
