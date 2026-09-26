@@ -1,6 +1,6 @@
 # Bounded CSV exports (H11 Core phase)
 
-**Status:** Core phase accepted and locally validated; App integration/progress remain pending. H11 is incomplete until App and later full gates finish.
+**Status:** Core phase accepted; App streaming integration and progress are implemented and focused-validated. Parent review, latest-main integration and full gates remain pending.
 
 ## Scope
 
@@ -22,7 +22,7 @@ Cover lazy multi-page retention, late/empty headers, Unicode/formula strings, pr
 
 ## Implemented Core boundary
 
-`CsvExporter.ExportAsync` keeps its public signature and now renders each cell to its existing string/null representation as the row arrives. It records the first-seen case-insensitive canonical header and asynchronously appends one JSON object per row to a private `JsonLineRowSpool`. After the source completes, the spool is flushed and rewound; only then is the caller's CSV writer constructed. Rows are read and rendered one at a time against the final header. `ExportTableAsync` remains unchanged.
+`CsvExporter.ExportAsync` keeps its public signature and now renders each cell to its existing string/null representation as the row arrives. It records the first-seen case-insensitive canonical header and asynchronously appends one JSON object per row to `CsvRowSpool`. After the source completes, the spool is flushed and rewound; only then is the caller's CSV writer constructed. Rows are read and rendered one at a time against the final header. `ExportTableAsync` remains unchanged.
 
 The spool uses a GUID-random path with `FileMode.CreateNew`, `FileShare.None`, asynchronous sequential I/O and `FileOptions.DeleteOnClose`. Unix creation requests user read/write mode only; Windows inherits the user's temp-directory access. A narrow internal export entry point accepts a test-owned directory solely for cleanup assertions. Production uses `Path.GetTempPath()`. Neither rows nor paths are logged.
 
@@ -38,4 +38,44 @@ Parent review found one entry-boundary regression introduced when writer constru
 
 ## Capacity and cleanup limits
 
-Peak exporter-owned memory scales with the discovered column set, current rendered row/JSON line and the current input page supplied by the client. It is not a universal constant. Spool disk usage scales with the rendered result size. Temporary rows are plaintext under the current user's temp access while the export runs. `DeleteOnClose` and deterministic disposal provide best-effort cleanup for normal and handled exceptional paths; there is no secure wiping or exceptional-process crash guarantee. App Query Builder integration and user-visible progress remain outside this Core phase.
+Peak exporter-owned memory scales with the discovered column set, current rendered row/JSON line and the current input page supplied by the client. It is not a universal constant. Spool disk usage scales with the rendered result size. Temporary rows are plaintext under the current user's temp access while the export runs. `DeleteOnClose` and deterministic disposal provide best-effort cleanup for normal and handled exceptional paths; there is no secure wiping or exceptional-process crash guarantee.
+
+## App phase 2 locked boundary
+
+The App reuses the accepted row spool as public `CsvRowSpool`; it does not introduce a second persistence format. The spool captures a `StringComparer` at creation: Core retains `OrdinalIgnoreCase`, while Query Builder uses `Ordinal` because OData property names and the H10c request history are case-sensitive. A narrow App `QueryCsvSpool` owns the rendered-row spool plus one completed CSV temporary stream. It appends each current `QueryResultRow` as raw strings, stages the entire final CSV only after paging and the final header union complete, then lends the readable stream to `IFileSaveService.SaveStreamAsync`. The spool owner disposes both streams after save, cancel or failure.
+
+`QueryCsv` gains a streaming writer that reuses its existing escape function and exactly preserves current bytes: UTF-8 BOM; ordinal columns; CRLF before each row; no trailing newline; null/absent values as empty cells; genuine em-dash values preserved. Existing `Build`, preview clipboard export and text-save paths remain unchanged.
+
+The production save service validates a readable borrowed stream before opening the picker. After a pick it checks cancellation before `OpenWriteAsync`; past destination truncation it completes a bounded `CopyToAsync` with `CancellationToken.None` and returns the actual path. It never materializes a stream into text and never closes the caller's source stream. A late cancellation after destination opening may not interrupt the committed copy. Generic copy failure may leave partial output and must not be described as rollback or “no file saved.”
+
+Query Export All retains H10c request identity, strict page validation, cycle detection, captured environment/read ownership and the existing 500-unique-page qualified cap. Each accepted row is appended to disk immediately. Status reports cumulative rows/pages after each completed page, then `Preparing CSV…`, then the existing saved/cancelled/failure outcome. Scope, owner and cancellation guards surround append, staging and save boundaries. Cycle, malformed/source failure and pre-save cancellation invoke no save. Once save returns a committed path, a late cancellation remains Saved.
+
+### App phase 2 five failure pre-mortems
+
+1. **A late column is lost because early rows were rendered against an incomplete header.** Retain the first-seen final column union separately, spool raw named cells, and render only after all accepted pages are known.
+2. **The implementation moves rows to another `List` or materializes the whole CSV string.** Use the actual spool in a large lazy multi-page ViewModel test with weak-reference/page-relative retention and a streaming save sink.
+3. **The destination opens before the source is proven complete.** Stage the complete CSV temp stream first; cycle, malformed page, source failure and pre-save cancellation assert zero save calls.
+4. **Late identity/cancellation changes publish progress or misreport save state.** Recheck captured lifecycle/read ownership around every async append, stage and save boundary; preserve H10a committed-save truth.
+5. **Temporary files leak or streaming formatting drifts from `QueryCsv.Build`.** Assert owned-directory cleanup on success/fault/cancel and byte-for-byte equivalence for Unicode, formula guards, null, genuine em-dash, ordinal case variants, late headers and empty pages.
+
+### Verified premises before App source
+
+- H10a/H10c are integrated locally at `5c0686a8adec7fafbfb7527cdb94614c340d39e7`; current Query Export All already rejects cycles/malformed envelopes before save, preserves identity/read-owner guards and qualifies the 500-page result.
+- Core spool entry validation and cleanup are accepted with 28/28 focused tests and both Core target frameworks building cleanly.
+- Existing `QueryCsv.Build` defines the App's exact CRLF/no-trailing-newline, formula, null and em-dash semantics.
+- Existing `StorageFileSaveService` checks cancellation before `OpenWriteAsync` for text saves; the stream path must preserve that boundary and complete copying after open.
+- Main through PR229 is integrated at `db0a8ca`; H08a, H10a, H10c and H11 tracker rows are preserved.
+
+## App phase 2 implementation and focused evidence
+
+The accepted Core helper is now public `CsvRowSpool` with a comparer captured at creation. Core continues to use the default `OrdinalIgnoreCase`; the App's `QueryCsvSpool` supplies `Ordinal`, appends raw current-row strings, and owns both the JSONL row spool and completed CSV temporary stream. `QueryCsv.WriteAsync` produces byte-identical UTF-8 BOM/CRLF/no-trailing-newline output using the existing escape function. `QueryCsv.Build`, preview clipboard export and text saves are unchanged.
+
+`IFileSaveService.SaveStreamAsync` carries a borrowed readable stream. `StorageFileSaveService` validates it before picker access, checks cancellation before `OpenWriteAsync`, then copies with a bounded buffer and `CancellationToken.None` after truncation. The caller's stream remains open. The fake decodes only small successful fixtures for existing assertions. A late cancel after destination opening completes and reports the saved path; copy failure remains a generic failure without rollback claims.
+
+Query Export All no longer retains an all-row list or complete CSV string. It keeps only the final ordinal column union/current page, appends rows asynchronously, publishes cumulative rows/pages after each accepted page, stages the complete CSV, reports `Preparing CSV…`, and calls the stream save API. H10c visit history, strict malformed/cycle behavior, identity/read ownership, cancellation, no-save failures and the qualified 500-page cap are retained. H10a's committed-save truth remains green.
+
+The public ViewModel RED completed at pre-App commit `7a2fc90`: after page one, status remained `Exporting all rows…` instead of reporting one row/one page. Exact implementation bytes were restored in `finally`; proof is `artifacts/h11/app-phase2/progress-red.{log,trx}`. GREEN covers byte equivalence for late ordinal case variants, Unicode, formula, null and genuine em-dash; actual helper weak-reference retention; large 30-page/1,200-row ViewModel export into a bounded streaming sink; page/preparing progress; temp cleanup; pre-open and late cancellation; caller stream ownership; zero save on cycle/malformed/cancel; cap qualification; save-fault honesty; H10a/H10c regressions and unchanged preview/render behavior.
+
+Parent review found one save-truth edge: a late caller cancellation could mask a non-cancellation disk/copy failure thrown after `SaveStreamAsync` was invoked. Export All now records the save invocation boundary; non-OCE failures after it remain `Export failed` even if the caller token becomes cancelled. Clean pre-save/OCE cancellation, picker cancellation and completed-save truth remain unchanged. The storage helper leaves open cancellation unchanged, but wraps every `OperationCanceledException` from copy, flush or disposal after a destination opens as `IOException`, because cancellation is intentionally disabled past truncation. Runtime RED failed those two truth cases while the two final-CSV cleanup controls passed; corrected GREEN passed 4/4. Cancellation and header faults triggered after final CSV temp creation prove both owned temp files are removed on disposal.
+
+Final sequential `CI=true` Release builds completed with zero warnings/errors: Core built `net10.0` and `net10.0-windows`, then App built successfully. Focused Core CSV passed 28/28; final focused App Query/stream/storage/H10a/H10c compatibility passed 311/311, with no failures/skips. Evidence is under `artifacts/h11/app-phase2/` as `core-build.log`, `core-csv-green.{log,trx}`, `app-build.log`, `app-focused-green.{log,trx}`, `app-review-build.log`, and `app-review-green.{log,trx}`. No full suite, live call, push or final source commit was performed.

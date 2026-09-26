@@ -48,7 +48,7 @@ public static class CsvExporter
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        await using var spool = JsonLineRowSpool.Create(spoolDirectory);
+        await using var spool = CsvRowSpool.Create(spoolDirectory);
         var columns = new List<string>();
         var canonicalColumns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var totalRows = 0;

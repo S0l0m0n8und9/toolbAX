@@ -1235,6 +1235,8 @@ public class DualWriteMapViewModelTests
     {
         public Task<string?> SaveTextAsync(string suggestedFileName, string content, SaveFileType fileType,
             CancellationToken ct = default) => throw new IOException("the file is in use");
+        public Task<string?> SaveStreamAsync(string suggestedFileName, Stream content, SaveFileType fileType,
+            CancellationToken ct = default) => throw new IOException("the file is in use");
     }
 
     // Gates the SOLUTIONS load (Initialize's first await, the one with no OCE handling of its own —

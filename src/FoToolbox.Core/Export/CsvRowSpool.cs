@@ -9,20 +9,22 @@ using System.Threading.Tasks;
 
 namespace FoToolbox.Core.Export;
 
-/// <summary>Private per-export storage for rendered row values while the final CSV header is discovered.</summary>
-internal sealed class JsonLineRowSpool : IAsyncDisposable
+/// <summary>Per-export temporary storage for rendered row values while the final CSV header is discovered.</summary>
+public sealed class CsvRowSpool : IAsyncDisposable
 {
     private readonly FileStream _stream;
+    private readonly StringComparer _comparer;
     private StreamWriter? _writer;
     private bool _readyToRead;
 
-    private JsonLineRowSpool(FileStream stream)
+    private CsvRowSpool(FileStream stream, StringComparer comparer)
     {
         _stream = stream;
+        _comparer = comparer;
         _writer = new StreamWriter(stream, new UTF8Encoding(false), bufferSize: 4096, leaveOpen: true);
     }
 
-    public static JsonLineRowSpool Create(string directory)
+    public static CsvRowSpool Create(string directory, StringComparer? comparer = null)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(directory);
         var path = Path.Combine(directory, $".toolbax-csv-{Guid.NewGuid():N}.jsonl");
@@ -39,10 +41,11 @@ internal sealed class JsonLineRowSpool : IAsyncDisposable
             options.UnixCreateMode = UnixFileMode.UserRead | UnixFileMode.UserWrite;
         }
 
-        return new JsonLineRowSpool(new FileStream(path, options));
+        return new CsvRowSpool(new FileStream(path, options), comparer ?? StringComparer.OrdinalIgnoreCase);
     }
 
-    public async ValueTask AppendAsync(IReadOnlyDictionary<string, string> row, CancellationToken cancellationToken)
+    public async ValueTask AppendAsync(IReadOnlyDictionary<string, string> row,
+        CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var writer = _writer ?? throw new InvalidOperationException("The row spool is no longer writable.");
@@ -51,7 +54,7 @@ internal sealed class JsonLineRowSpool : IAsyncDisposable
         cancellationToken.ThrowIfCancellationRequested();
     }
 
-    public async ValueTask CompleteWritingAsync(CancellationToken cancellationToken)
+    public async ValueTask CompleteWritingAsync(CancellationToken cancellationToken = default)
     {
         if (_readyToRead) return;
         cancellationToken.ThrowIfCancellationRequested();
@@ -65,7 +68,7 @@ internal sealed class JsonLineRowSpool : IAsyncDisposable
     }
 
     public async IAsyncEnumerable<IReadOnlyDictionary<string, string>> ReadRowsAsync(
-        [EnumeratorCancellation] CancellationToken cancellationToken)
+        [EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
         if (!_readyToRead) throw new InvalidOperationException("The row spool has not finished writing.");
         using var reader = new StreamReader(_stream, new UTF8Encoding(false, true),
@@ -79,7 +82,7 @@ internal sealed class JsonLineRowSpool : IAsyncDisposable
 
             var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(line)
                 ?? throw new InvalidDataException("The temporary export row was invalid.");
-            yield return new Dictionary<string, string>(parsed, StringComparer.OrdinalIgnoreCase);
+            yield return new Dictionary<string, string>(parsed, _comparer);
         }
     }
 

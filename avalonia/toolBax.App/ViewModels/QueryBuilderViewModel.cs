@@ -1261,6 +1261,7 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
         var entityName = SelectedEntity.Name;
 
         var readOwner = Interlocked.Increment(ref _readSequence);
+        var saveInvocationStarted = false;
         IsBusy = true;
         StatusText = "Exporting all rows…";
         try
@@ -1273,11 +1274,12 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
             // union across every page.
             var derivingColumns = columns.Count == 0;
             var seen = new HashSet<string>(StringComparer.Ordinal);
-            var rows = new List<QueryResultRow>();
+            await using var spool = QueryCsvSpool.Create();
+            var rowCount = 0;
             var path = BuildPath(forRequest: true, unbounded: true);
             var requestBase = identity?.FoEndpoint;
             var visited = new HashSet<string>(StringComparer.Ordinal);
-            var pages = 0;
+            var completedPages = 0;
             var capped = false;
 
             while (true)
@@ -1303,9 +1305,21 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
                     MergeDerivedColumns(response.Body, columns, seen);
                 }
 
-                rows.AddRange(ParseRows(response.Body, columns));
-
+                var pageRows = ParseRows(response.Body, columns).ToList();
                 var (_, next) = ParseMeta(response.Body);
+                foreach (var row in pageRows)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (readOwner != Volatile.Read(ref _readSequence) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+                    await spool.AppendAsync(row, columns, ct);
+                    ct.ThrowIfCancellationRequested();
+                    if (readOwner != Volatile.Read(ref _readSequence) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+                    rowCount++;
+                }
+
+                completedPages++;
+                StatusText = $"Exporting all rows… {rowCount} {(rowCount == 1 ? "row" : "rows")} · " +
+                    $"{completedPages} {(completedPages == 1 ? "page" : "pages")} read";
                 if (string.IsNullOrEmpty(next))
                 {
                     break;
@@ -1318,7 +1332,7 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
                     return;
                 }
 
-                if (++pages >= MaxExportPages)
+                if (completedPages >= MaxExportPages)
                 {
                     capped = true;
                     break;
@@ -1337,11 +1351,15 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            var csv = QueryCsv.Build(columns, rows);
             var name = $"{entityName}.csv";
             if (readOwner != Volatile.Read(ref _readSequence) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             ct.ThrowIfCancellationRequested();
-            var saved = await _fileSave.SaveTextAsync(name, csv, SaveFileType.Csv, ct);
+            StatusText = "Preparing CSV…";
+            var csv = await spool.CompleteAsync(columns, ct);
+            ct.ThrowIfCancellationRequested();
+            if (readOwner != Volatile.Read(ref _readSequence) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            saveInvocationStarted = true;
+            var saved = await _fileSave.SaveStreamAsync(name, csv, SaveFileType.Csv, ct);
             if (readOwner != Volatile.Read(ref _readSequence) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             if (saved is null)
             {
@@ -1350,8 +1368,8 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
             else
             {
                 StatusText = capped
-                    ? $"Saved {rows.Count} rows to {saved} (stopped at the {MaxExportPages}-page limit — more rows may exist)."
-                    : $"Saved {rows.Count} rows to {saved}.";
+                    ? $"Saved {rowCount} rows to {saved} (stopped at the {MaxExportPages}-page limit — more rows may exist)."
+                    : $"Saved {rowCount} rows to {saved}.";
             }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -1363,7 +1381,9 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
         catch (Exception ex)
         {
             if (readOwner != Volatile.Read(ref _readSequence) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
-            StatusText = ct.IsCancellationRequested ? "Export cancelled." : $"Export failed: {ex.Message}";
+            StatusText = !saveInvocationStarted && ct.IsCancellationRequested
+                ? "Export cancelled."
+                : $"Export failed: {ex.Message}";
         }
         finally
         {
