@@ -1,6 +1,6 @@
 # Bounded CSV exports (H11 Core phase)
 
-**Status:** Core phase accepted; App streaming integration and progress are implemented and focused-validated. Parent review, latest-main integration and full gates remain pending.
+**Status:** Core and App phases are accepted and fully locally validated after latest-main integration. PR creation waits for H10c to reach main.
 
 ## Scope
 
@@ -79,3 +79,11 @@ The public ViewModel RED completed at pre-App commit `7a2fc90`: after page one, 
 Parent review found one save-truth edge: a late caller cancellation could mask a non-cancellation disk/copy failure thrown after `SaveStreamAsync` was invoked. Export All now records the save invocation boundary; non-OCE failures after it remain `Export failed` even if the caller token becomes cancelled. Clean pre-save/OCE cancellation, picker cancellation and completed-save truth remain unchanged. The storage helper leaves open cancellation unchanged, but wraps every `OperationCanceledException` from copy, flush or disposal after a destination opens as `IOException`, because cancellation is intentionally disabled past truncation. Runtime RED failed those two truth cases while the two final-CSV cleanup controls passed; corrected GREEN passed 4/4. Cancellation and header faults triggered after final CSV temp creation prove both owned temp files are removed on disposal.
 
 Final sequential `CI=true` Release builds completed with zero warnings/errors: Core built `net10.0` and `net10.0-windows`, then App built successfully. Focused Core CSV passed 28/28; final focused App Query/stream/storage/H10a/H10c compatibility passed 311/311, with no failures/skips. Evidence is under `artifacts/h11/app-phase2/` as `core-build.log`, `core-csv-green.{log,trx}`, `app-build.log`, `app-focused-green.{log,trx}`, `app-review-build.log`, and `app-review-green.{log,trx}`. No full suite, live call, push or final source commit was performed.
+
+## Latest-main integration and complete gates
+
+The accepted App source checkpoint is `b2f75d3`. Main `728df34fd44367edf3db6bc7f781693953bb184c`, containing merged H05 and H10a PR231, merged cleanly as `7033826`; H10c paging and H11 spooling/save truth remain present. The integration preserved H05 delegated-binding/native-close behavior, H10a cancellation and committed-save truth, H10c strict paging/cycle/cap behavior, and the H11 tracker row.
+
+After integration, sequential `CI=true` Release builds completed with zero warnings/errors: Core built both target frameworks and App built with `EnableWebView2=true`. The complete Core suite passed 615/615 and the complete App suite passed 1,632/1,632, with no failures or skips. Evidence is `artifacts/h11/integrated-h10a/core-{build,test}.log`, `core-full.trx`, `app-{build,test}.log` and `app-full.trx`. No live service, browser, sign-in, profile-clear, gateway or Power Platform call occurred.
+
+H11 is ready for delivery review, but its PR must wait until H10c is on main because Query Export All relies on H10c's strict collection parsing, cycle identity and qualified 500-page cap. No push or PR was created.
