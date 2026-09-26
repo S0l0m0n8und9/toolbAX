@@ -4,6 +4,7 @@ using System.Net.Http.Headers;
 using System.Threading;
 using System.Threading.Tasks;
 using FoToolbox.Core.Auth;
+using FoToolbox.Core.Net;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
 
@@ -17,11 +18,16 @@ public sealed class CoreConnectionTester : IConnectionTester
 {
     private readonly IAuthService _auth;
     private readonly HttpClient _http;
+    private readonly ReadRetryPolicy _readRetryPolicy;
 
-    public CoreConnectionTester(IAuthService auth, HttpClient? http = null)
+    public CoreConnectionTester(
+        IAuthService auth,
+        HttpClient? http = null,
+        ReadRetryPolicy? readRetryPolicy = null)
     {
         _auth = auth;
         _http = http ?? new HttpClient();
+        _readRetryPolicy = readRetryPolicy ?? new ReadRetryPolicy();
     }
 
     public Task<ConnectionTestResult> TestFoAsync(EnvProfile env, CancellationToken ct = default)
@@ -70,11 +76,21 @@ public sealed class CoreConnectionTester : IConnectionTester
         try
         {
             ct.ThrowIfCancellationRequested();
-            using var request = new HttpRequestMessage(HttpMethod.Get, url);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(accept));
+            var target = new Uri(url, UriKind.Absolute);
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, target);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue(accept));
+                return request;
+            }
 
-            using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+            using var response = await _readRetryPolicy.SendAsync(
+                _http,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                ct,
+                ct.ThrowIfCancellationRequested).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
             return response.IsSuccessStatusCode
                 ? new ConnectionTestResult(true, successMessage)

@@ -6,6 +6,7 @@ using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Linq;
+using FoToolbox.Core.Net;
 
 namespace FoToolbox.Core.OData;
 
@@ -17,19 +18,25 @@ public sealed class ODataMetadataProvider
     private readonly HttpClient _httpClient;
     private readonly ODataMetadataCache _cache;
     private readonly ODataMetadataProviderOptions _options;
+    private readonly ReadRetryPolicy _readRetryPolicy;
     private readonly ConcurrentDictionary<string, InMemoryEntry> _memory = new();
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _locks = new();
 
     public ODataMetadataProvider(HttpClient httpClient, ODataMetadataCache cache)
-        : this(httpClient, cache, ODataMetadataProviderOptions.Default)
+        : this(httpClient, cache, ODataMetadataProviderOptions.Default, null)
     {
     }
 
-    public ODataMetadataProvider(HttpClient httpClient, ODataMetadataCache cache, ODataMetadataProviderOptions? options)
+    public ODataMetadataProvider(
+        HttpClient httpClient,
+        ODataMetadataCache cache,
+        ODataMetadataProviderOptions? options,
+        ReadRetryPolicy? readRetryPolicy = null)
     {
         _httpClient = httpClient;
         _cache = cache;
         _options = options ?? ODataMetadataProviderOptions.Default;
+        _readRetryPolicy = readRetryPolicy ?? new ReadRetryPolicy();
     }
 
     public async Task<ODataMetadata> GetMetadataAsync(string envId, string baseUrl, CancellationToken cancellationToken = default)
@@ -73,13 +80,24 @@ public sealed class ODataMetadataProvider
                 return GetCachedMetadata(envId, cached);
             }
 
-            var request = new HttpRequestMessage(HttpMethod.Get, $"{baseUrl.TrimEnd('/')}/data/$metadata");
-            if (!string.IsNullOrWhiteSpace(cached?.ETag))
+            var target = new Uri($"{baseUrl.TrimEnd('/')}/data/$metadata", UriKind.Absolute);
+            var conditionalEtag = cached?.ETag;
+            HttpRequestMessage CreateRequest()
             {
-                request.Headers.IfNoneMatch.Add(new System.Net.Http.Headers.EntityTagHeaderValue($"\"{cached.ETag}\""));
+                var request = new HttpRequestMessage(HttpMethod.Get, target);
+                if (!string.IsNullOrWhiteSpace(conditionalEtag))
+                {
+                    request.Headers.IfNoneMatch.Add(
+                        new System.Net.Http.Headers.EntityTagHeaderValue($"\"{conditionalEtag}\""));
+                }
+                return request;
             }
 
-            var response = await _httpClient.SendAsync(request, cancellationToken);
+            using var response = await _readRetryPolicy.SendAsync(
+                _httpClient,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                cancellationToken).ConfigureAwait(false);
             if (response.StatusCode == System.Net.HttpStatusCode.NotModified && cached is not null)
             {
                 var touchedUtc = await _cache.TouchAsync(envId, cancellationToken);

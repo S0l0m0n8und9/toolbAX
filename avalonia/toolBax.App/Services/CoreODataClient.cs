@@ -24,16 +24,22 @@ public sealed class CoreODataClient : IODataClient, IDisposable
     private readonly IAuthService _auth;
     private readonly Func<EnvProfile?> _activeEnv;
     private readonly HttpClient _http;
+    private readonly ReadRetryPolicy _readRetryPolicy;
     // We own (and therefore must dispose) the HttpClient only when we allocated it; an injected one
     // belongs to the caller. Guards a future multi-instance refactor from exhausting sockets.
     private readonly bool _ownsHttp;
 
-    public CoreODataClient(IAuthService auth, Func<EnvProfile?> activeEnv, HttpClient? http = null)
+    public CoreODataClient(
+        IAuthService auth,
+        Func<EnvProfile?> activeEnv,
+        HttpClient? http = null,
+        ReadRetryPolicy? readRetryPolicy = null)
     {
         _auth = auth;
         _activeEnv = activeEnv;
         _ownsHttp = http is null;
         _http = http ?? new HttpClient();
+        _readRetryPolicy = readRetryPolicy ?? new ReadRetryPolicy();
     }
 
     public Task<ODataResponse> SendAsync(string method, string path, string? body, CancellationToken ct = default)
@@ -118,20 +124,18 @@ public sealed class CoreODataClient : IODataClient, IDisposable
 
         var dispatchStarted = false;
         ODataResponse? observed = null;
-        try
+        var headerSnapshot = headers is null
+            ? Array.Empty<KeyValuePair<string, string>>()
+            : new List<KeyValuePair<string, string>>(headers).ToArray();
+        HttpRequestMessage CreateRequest()
         {
-            using var request = new HttpRequestMessage(new HttpMethod(method), uri);
+            var request = new HttpRequestMessage(read ? HttpMethod.Get : new HttpMethod(method), uri);
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
 
-            if (headers is not null)
+            foreach (var header in headerSnapshot)
             {
-                foreach (var header in headers)
-                {
-                    // TryAddWithoutValidation: callers may pass header values OData allows but
-                    // HttpClient's strict parser would reject (e.g. a weak ETag for If-Match).
-                    request.Headers.TryAddWithoutValidation(header.Key, header.Value);
-                }
+                request.Headers.TryAddWithoutValidation(header.Key, header.Value);
             }
 
             var verb = method.Trim().ToUpperInvariant();
@@ -140,15 +144,34 @@ public sealed class CoreODataClient : IODataClient, IDisposable
                 request.Content = new StringContent(body, Encoding.UTF8, "application/json");
             }
 
+            return request;
+        }
+
+        try
+        {
+            using var request = read ? null : CreateRequest();
             // Headers-first mutation reads must retain HttpClient's original total deadline and buffer limit.
             using var deadline = mutation ? CancellationTokenSource.CreateLinkedTokenSource(ct) : null;
             if (deadline is not null && _http.Timeout != Timeout.InfiniteTimeSpan) deadline.CancelAfter(_http.Timeout);
             var exchangeToken = deadline?.Token ?? ct;
             exchangeToken.ThrowIfCancellationRequested();
             dispatchStarted = true; // The injected handler pipeline is opaque; this never proves delivery.
-            using var response = await _http.SendAsync(request,
-                mutation ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead,
-                exchangeToken).ConfigureAwait(false);
+            using var response = read
+                ? await _readRetryPolicy.SendAsync(
+                    _http,
+                    CreateRequest,
+                    HttpCompletionOption.ResponseContentRead,
+                    ct,
+                    () =>
+                    {
+                        ct.ThrowIfCancellationRequested();
+                        if (!identity.IsCurrent(_activeEnv()))
+                            throw new InvalidOperationException("The active environment changed before the request was sent.");
+                    }).ConfigureAwait(false)
+                : await _http.SendAsync(
+                    request!,
+                    mutation ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead,
+                    exchangeToken).ConfigureAwait(false);
             if (read) ct.ThrowIfCancellationRequested();
             if (mutation)
             {
@@ -182,6 +205,8 @@ public sealed class CoreODataClient : IODataClient, IDisposable
         catch (Exception ex)
         {
             if (read) ct.ThrowIfCancellationRequested();
+            if (read && !identity.IsCurrent(_activeEnv()))
+                return LocalFailure(0, "Environment changed", "The active environment changed before the request was sent.");
             if (observed is not null)
                 return observed with { BodyReadError = ex.GetType().Name, ElapsedMs = (int)sw.ElapsedMilliseconds };
             return new ODataResponse(0, "Request failed", mutation ? ex.GetType().Name : ex.Message, (int)sw.ElapsedMilliseconds)

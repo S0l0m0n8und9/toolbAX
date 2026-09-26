@@ -23,16 +23,22 @@ public sealed class CoreDataverseClient : IDataverseClient, IDisposable
     private readonly IAuthService _auth;
     private readonly Func<EnvProfile?> _activeEnv;
     private readonly HttpClient _http;
+    private readonly ReadRetryPolicy _readRetryPolicy;
     // We own (and therefore must dispose) the HttpClient only when we allocated it; an injected one
     // belongs to the caller.
     private readonly bool _ownsHttp;
 
-    public CoreDataverseClient(IAuthService auth, Func<EnvProfile?> activeEnv, HttpClient? http = null)
+    public CoreDataverseClient(
+        IAuthService auth,
+        Func<EnvProfile?> activeEnv,
+        HttpClient? http = null,
+        ReadRetryPolicy? readRetryPolicy = null)
     {
         _auth = auth;
         _activeEnv = activeEnv;
         _ownsHttp = http is null;
         _http = http ?? new HttpClient();
+        _readRetryPolicy = readRetryPolicy ?? new ReadRetryPolicy();
     }
 
     public async Task<ODataResponse> GetAsync(string pathOrUrl, CancellationToken ct = default)
@@ -103,18 +109,30 @@ public sealed class CoreDataverseClient : IDataverseClient, IDisposable
         try
         {
             ct.ThrowIfCancellationRequested();
-            using var request = new HttpRequestMessage(HttpMethod.Get, uri);
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
-            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-            // Ask Dataverse to inline formatted (display) values for option-set / lookup columns
-            // (statecode, statuscode, ownerid) so the parser can show human-readable text, and the
-            // total-record-count annotations so a $count=true response says whether it hit the 5,000-row
-            // cap instead of silently reporting the ceiling as a total. One header, comma-separated list.
-            request.Headers.Add("Prefer",
-                "odata.include-annotations=\"OData.Community.Display.V1.FormattedValue," +
-                $"{DualWriteMapParser.CountAnnotations}\"");
+            HttpRequestMessage CreateRequest()
+            {
+                var request = new HttpRequestMessage(HttpMethod.Get, uri);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+                request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+                // Ask Dataverse to inline formatted (display) values for option-set / lookup columns
+                // (statecode, statuscode, ownerid) and total-record-count annotations.
+                request.Headers.Add("Prefer",
+                    "odata.include-annotations=\"OData.Community.Display.V1.FormattedValue," +
+                    $"{DualWriteMapParser.CountAnnotations}\"");
+                return request;
+            }
 
-            using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+            using var response = await _readRetryPolicy.SendAsync(
+                _http,
+                CreateRequest,
+                HttpCompletionOption.ResponseContentRead,
+                ct,
+                () =>
+                {
+                    ct.ThrowIfCancellationRequested();
+                    if (!identity.IsCurrent(_activeEnv()))
+                        throw new InvalidOperationException("The active environment changed before the request was sent.");
+                }).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
             var responseBody = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
             ct.ThrowIfCancellationRequested();
@@ -124,6 +142,11 @@ public sealed class CoreDataverseClient : IDataverseClient, IDisposable
         catch (Exception ex)
         {
             ct.ThrowIfCancellationRequested();
+            if (!identity.IsCurrent(_activeEnv()))
+            {
+                return new ODataResponse(0, "Environment changed",
+                    "The active environment changed before the request was sent.", (int)sw.ElapsedMilliseconds);
+            }
             return new ODataResponse(0, "Request failed", ex.Message, (int)sw.ElapsedMilliseconds);
         }
     }
