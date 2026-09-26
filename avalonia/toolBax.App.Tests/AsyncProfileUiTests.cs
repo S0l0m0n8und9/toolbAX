@@ -65,6 +65,121 @@ public sealed class AsyncProfileUiTests
         Assert.Contains("late write failure", vm.Status);
     }
 
+    [Fact]
+    public async Task Cancel_persistence_stops_precommit_save_without_mutation()
+    {
+        var gate = new EnvironmentWriteGate();
+        var store = new ControlledProfileStore(Profile("a", "Saved")) { SaveRelease = NewGate() };
+        using var vm = new ProfilesViewModel(store, environmentWriteGate: gate);
+        vm.DraftName = "Attempted";
+        var saving = vm.SaveCommand.ExecuteAsync(null);
+        await store.SaveStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.True(vm.CancelPersistenceCommand.CanExecute(null));
+        vm.CancelPersistenceCommand.Execute(null);
+        await saving.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal("Saved", store.GetAll().Single().Name);
+        Assert.Contains("cancelled", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.False(vm.IsPersisting);
+        Assert.True(gate.TryAcquireLiveWrite(out var live));
+        live!.Dispose();
+    }
+
+    [Fact]
+    public async Task Late_cancel_does_not_report_rollback_after_store_commit()
+    {
+        var gate = new EnvironmentWriteGate();
+        var store = new ControlledProfileStore(Profile("a", "Saved"))
+        {
+            SaveRelease = NewGate(),
+            CommitSaveBeforeRelease = true,
+            IgnoreSaveCancellation = true,
+        };
+        using var vm = new ProfilesViewModel(store, environmentWriteGate: gate);
+        vm.DraftName = "Committed";
+        var saving = vm.SaveCommand.ExecuteAsync(null);
+        await store.SaveStarted.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Equal("Committed", store.GetAll().Single().Name);
+
+        vm.CancelPersistenceCommand.Execute(null);
+        Assert.True(vm.IsPersisting);
+        Assert.False(gate.TryAcquireLiveWrite(out _));
+        store.SaveRelease.SetResult(true);
+        await saving.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal("Committed", store.GetAll().Single().Name);
+        Assert.Contains("Saved", vm.Status);
+        Assert.DoesNotContain("cancel", vm.Status, StringComparison.OrdinalIgnoreCase);
+        Assert.False(vm.IsPersisting);
+        Assert.True(gate.TryAcquireLiveWrite(out var live));
+        live!.Dispose();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Save_releases_editor_and_live_gate_before_blocking_old_identity_eviction(bool throwLate)
+    {
+        var gate = new EnvironmentWriteGate();
+        var auth = new BlockingEvictionAuth { ThrowAfterRelease = throwLate };
+        var store = new ControlledProfileStore(Profile("a", "A"), Profile("b", "Old B"));
+        using var vm = new ProfilesViewModel(store, auth: auth, environmentWriteGate: gate);
+        vm.Selected = vm.Profiles.Single(profile => profile.Id == "b");
+        var old = vm.Selected;
+        vm.DraftClientId = "replacement-client";
+
+        var saving = Task.Run(
+            () => vm.SaveCommand.ExecuteAsync(null), TestContext.Current.CancellationToken);
+        await auth.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        try
+        {
+            await saving.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+            Assert.False(vm.IsPersisting);
+            Assert.True(vm.CanEditProfile);
+            Assert.Contains("Saved", vm.Status);
+            Assert.True(gate.TryAcquireLiveWrite(out var live));
+            live!.Dispose();
+            Assert.Same(old, auth.Captured);
+        }
+        finally
+        {
+            auth.Release.Set();
+        }
+        await auth.Completed.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        Assert.Contains("Saved", vm.Status);
+    }
+
+    [Theory]
+    [InlineData("selection")]
+    [InlineData("draft")]
+    [InlineData("aba")]
+    public async Task Ignored_cancellation_during_probe_preflight_never_dispatches_stale_tester(string drift)
+    {
+        var secrets = new CancellationIgnoringProbeSecretStore();
+        var tester = new CountingConnectionTester();
+        using var vm = new ProfilesViewModel(
+            new ControlledProfileStore(Profile("a", "A"), Profile("b", "B")),
+            secrets, connectionTester: tester);
+        await vm.RefreshSecretPresenceCommand.ExecutionTask!;
+        var probing = vm.TestConnectionCommand.ExecuteAsync(null);
+        await secrets.Started.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        if (drift == "selection") vm.Selected = vm.Profiles.Single(profile => profile.Id == "b");
+        else if (drift == "draft") vm.DraftName = "Edited while preflight waited";
+        else
+        {
+            vm.Selected = vm.Profiles.Single(profile => profile.Id == "b");
+            vm.Selected = vm.Profiles.Single(profile => profile.Id == "a");
+        }
+        secrets.Release.SetResult(true);
+        await probing.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+
+        Assert.Equal(0, tester.FoCalls);
+        Assert.Empty(vm.FoTestStatus);
+    }
+
     [Theory]
     [InlineData("add")]
     [InlineData("delete")]
@@ -196,11 +311,13 @@ public sealed class AsyncProfileUiTests
         using var vm = new ProfilesViewModel(
             new ControlledProfileStore(Profile("a", "A"), Profile("b", "B")), secrets);
         await secrets.WaitForPresenceCallsAsync("a", 3);
+        var oldSelectionRefresh = vm.RefreshSecretPresenceCommand.ExecutionTask!;
 
         vm.Selected = vm.Profiles.Single(profile => profile.Id == "b");
         await secrets.WaitForPresenceCallsAsync("b", 3);
         secrets.CompletePresence("a", true);
-        await Task.Yield();
+        await oldSelectionRefresh.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.Equal(SecretPresenceState.Loading, vm.FoSecretPresence);
         secrets.CompletePresence("b", false);
         await vm.RefreshSecretPresenceCommand.ExecutionTask!.WaitAsync(
@@ -241,13 +358,15 @@ public sealed class AsyncProfileUiTests
         var secrets = new ControlledSecretStore { GatePresence = true };
         using var vm = new ProfilesViewModel(new ControlledProfileStore(Profile("a", "A")), secrets);
         await secrets.WaitForPresenceCallsAsync("a", 3);
+        var initialPresenceRefresh = vm.RefreshSecretPresenceCommand.ExecutionTask!;
         secrets.CompletePresence("a", false, SecretTarget.Dataverse, SecretTarget.DataIntegrator);
 
         vm.SecretInput = "stored";
         await vm.SaveSecretCommand.ExecuteAsync(null);
         Assert.True(vm.HasSecret);
         secrets.CompletePresence("a", false, SecretTarget.Fo);
-        await Task.Yield();
+        await initialPresenceRefresh.WaitAsync(
+            TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.True(vm.HasSecret);
         Assert.Equal(SecretPresenceState.Absent, vm.DataverseSecretPresence);
         Assert.Equal(SecretPresenceState.Absent, vm.DiSecretPresence);
@@ -277,16 +396,18 @@ public sealed class AsyncProfileUiTests
 
         vm.RefreshSecretPresenceCommand.Execute(null);
         await secrets.WaitForPresenceCallsAsync("a", 6);
+        var olderRefresh = vm.RefreshSecretPresenceCommand.ExecutionTask!;
         vm.RefreshSecretPresenceCommand.Execute(null);
         await secrets.WaitForPresenceCallsAsync("a", 9);
+        var newerRefresh = vm.RefreshSecretPresenceCommand.ExecutionTask!;
         secrets.CompletePresenceCall("a", 2, true);
-        await vm.RefreshSecretPresenceCommand.ExecutionTask!;
+        await newerRefresh.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
         Assert.True(vm.HasSecret);
         Assert.True(vm.HasDataverseSecret);
         Assert.True(vm.HasDiSecret);
 
         secrets.CompletePresenceCall("a", 1, false);
-        await Task.Yield();
+        await olderRefresh.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
 
         Assert.True(vm.HasSecret);
         Assert.True(vm.HasDataverseSecret);
@@ -544,6 +665,8 @@ public sealed class AsyncProfileUiTests
         public Exception? SaveError { get; set; }
         public Exception? ActiveError { get; set; }
         public bool IgnoreActiveCancellation { get; set; }
+        public bool IgnoreSaveCancellation { get; set; }
+        public bool CommitSaveBeforeRelease { get; set; }
         public IReadOnlyList<EnvProfile> GetAll() => _profiles.ToArray();
         public void Save(EnvProfile profile) => ApplySave(profile);
         public void Delete(string id) => ApplyDelete(id);
@@ -552,9 +675,14 @@ public sealed class AsyncProfileUiTests
         {
             SaveCalls++;
             SaveStarted.TrySetResult(true);
-            if (SaveRelease is not null) await SaveRelease.Task.WaitAsync(cancellationToken);
+            if (CommitSaveBeforeRelease) ApplySave(profile);
+            if (SaveRelease is not null)
+            {
+                if (IgnoreSaveCancellation) await SaveRelease.Task;
+                else await SaveRelease.Task.WaitAsync(cancellationToken);
+            }
             if (SaveError is not null) throw SaveError;
-            ApplySave(profile);
+            if (!CommitSaveBeforeRelease) ApplySave(profile);
         }
         public async Task DeleteAsync(string id, CancellationToken cancellationToken = default)
         {
@@ -685,6 +813,53 @@ public sealed class AsyncProfileUiTests
         }
         public void SetSecret(string key, string plaintext, SecretTarget target = SecretTarget.Fo) { }
         public void ClearSecret(string key, SecretTarget target = SecretTarget.Fo) { }
+    }
+
+    private sealed class CancellationIgnoringProbeSecretStore : ISecretStore
+    {
+        private int _reads;
+        public TaskCompletionSource<bool> Started { get; } = NewGate();
+        public TaskCompletionSource<bool> Release { get; } = NewGate();
+        public bool HasSecret(string key, SecretTarget target = SecretTarget.Fo) => false;
+        public Task<bool> HasSecretAsync(string key, SecretTarget target = SecretTarget.Fo,
+            CancellationToken cancellationToken = default)
+        {
+            if (Interlocked.Increment(ref _reads) <= 3) return Task.FromResult(false);
+            Started.TrySetResult(true);
+            return Release.Task;
+        }
+        public void SetSecret(string key, string plaintext, SecretTarget target = SecretTarget.Fo) { }
+        public void ClearSecret(string key, SecretTarget target = SecretTarget.Fo) { }
+    }
+
+    private sealed class BlockingEvictionAuth : IAuthService
+    {
+        public TaskCompletionSource<bool> Started { get; } = NewGate();
+        public TaskCompletionSource<bool> Completed { get; } = NewGate();
+        public ManualResetEventSlim Release { get; } = new(false);
+        public bool ThrowAfterRelease { get; init; }
+        public EnvProfile? Captured { get; private set; }
+        public Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default) =>
+            Task.FromResult("fo");
+        public Task<string> AcquireDataverseTokenAsync(EnvProfile env, CancellationToken ct = default) =>
+            Task.FromResult("dv");
+        public Task<string> AcquireDualWriteTokenAsync(EnvProfile env, CancellationToken ct = default) =>
+            Task.FromResult("dw");
+        public Task SignOutAsync(EnvProfile env, CancellationToken ct = default)
+        {
+            Captured = env;
+            Started.TrySetResult(true);
+            try
+            {
+                Release.Wait(); // deliberate: models synchronous local token-cache work.
+                if (ThrowAfterRelease) throw new InvalidOperationException("late eviction failure");
+                return Task.CompletedTask;
+            }
+            finally
+            {
+                Completed.TrySetResult(true);
+            }
+        }
     }
 
     private sealed class CountingConnectionTester : IConnectionTester
