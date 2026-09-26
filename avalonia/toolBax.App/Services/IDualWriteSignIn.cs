@@ -19,9 +19,9 @@ public interface IDualWriteSignIn
 {
     /// <summary>
     /// Signs in for the environment's F&amp;O identifier (its URL host). Returns the captured token +
-    /// gateway host, or <c>null</c> if the user cancelled or sign-in failed. When
-    /// <paramref name="switchAccount"/> is true the cached browser session is forgotten so Entra
-    /// re-prompts for an account.
+    /// gateway host, or <c>null</c> if the user closes/cancels sign-in. When
+    /// <paramref name="switchAccount"/> is true the dedicated toolbAX browser also clears its cookies so
+    /// Entra re-prompts; normal sign-in preserves cookies/SSO while clearing token-bearing DOM storage.
     /// </summary>
     Task<DualWriteSignInResult?> SignInAsync(EnvProfile env, bool switchAccount = false, CancellationToken ct = default);
 }
@@ -36,9 +36,9 @@ public interface IDualWriteSignIn
 public static class DualWriteSignInTitle
 {
     /// <summary>The unqualified title, used when the profile has no usable name.</summary>
-    public const string Unqualified = "Data Integrator sign-in";
+    public const string Unqualified = "Complete Data Integrator sign-in (close to cancel)";
 
-    /// <summary>e.g. "USMF Dev — Data Integrator sign-in".</summary>
+    /// <summary>e.g. "USMF Dev — Complete Data Integrator sign-in (close to cancel)".</summary>
     public static string For(EnvProfile env)
     {
         var name = env?.Name?.Trim();
@@ -70,4 +70,10 @@ public static class DualWriteSignInFailure
         new InvalidOperationException(
             error is null ? BrowserUnavailable : $"{BrowserUnavailable} ({error.Message})",
             error);
+
+    public const string BrowserPreparation =
+        "toolbAX couldn't prepare its dedicated sign-in browser. Close any other toolbAX sign-in window and try again.";
+
+    public static Exception BrowserPreparationError(Exception error) =>
+        new InvalidOperationException(BrowserPreparation, error);
 }

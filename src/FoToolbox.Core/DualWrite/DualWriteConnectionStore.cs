@@ -1,4 +1,5 @@
 using FoToolbox.Core.Profiles;
+using FoToolbox.Core.DualWrite.Auth;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -65,6 +66,8 @@ public sealed class DualWriteConnectionStore
                     expiry = parsed;
                 }
 
+                var delegatedBinding = RestoreDelegatedBinding(record.ProtectedDelegatedBinding);
+
                 return new DualWriteConnectionSettings(
                     key,
                     record.GatewayBaseUrl ?? string.Empty,
@@ -72,7 +75,8 @@ public sealed class DualWriteConnectionStore
                     string.IsNullOrEmpty(record.ProtectedToken) ? null : _protector.Unprotect(record.ProtectedToken!))
                 {
                     RefreshToken = string.IsNullOrEmpty(record.ProtectedRefreshToken) ? null : _protector.Unprotect(record.ProtectedRefreshToken!),
-                    AccessTokenExpiryUtc = expiry
+                    AccessTokenExpiryUtc = expiry,
+                    DelegatedBinding = delegatedBinding
                 };
             }
 
@@ -86,6 +90,13 @@ public sealed class DualWriteConnectionStore
 
     public async Task SaveAsync(DualWriteConnectionSettings settings, CancellationToken ct)
     {
+        ArgumentNullException.ThrowIfNull(settings);
+        if (settings.DelegatedBinding is { IsTrusted: false })
+        {
+            throw new InvalidOperationException(
+                "The Dual-write delegated binding is not trusted; sign in again before saving this session.");
+        }
+
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
@@ -97,6 +108,9 @@ public sealed class DualWriteConnectionStore
                 FoIdentifier = settings.FoIdentifier,
                 ProtectedToken = string.IsNullOrEmpty(settings.BearerToken) ? null : _protector.Protect(settings.BearerToken!),
                 ProtectedRefreshToken = string.IsNullOrEmpty(settings.RefreshToken) ? null : _protector.Protect(settings.RefreshToken!),
+                ProtectedDelegatedBinding = settings.DelegatedBinding is null
+                    ? null
+                    : _protector.Protect(JsonSerializer.Serialize(settings.DelegatedBinding, SerializerOptions)),
                 AccessTokenExpiryUtc = settings.AccessTokenExpiryUtc?.ToString("o"),
                 UpdatedUtc = DateTime.UtcNow.ToString("o")
             };
@@ -105,6 +119,36 @@ public sealed class DualWriteConnectionStore
         finally
         {
             _gate.Release();
+        }
+    }
+
+    private DualWriteDelegatedBinding? RestoreDelegatedBinding(string? protectedBinding)
+    {
+        if (protectedBinding is null)
+        {
+            return null;
+        }
+
+        try
+        {
+            var json = _protector.Unprotect(protectedBinding);
+            if (string.IsNullOrWhiteSpace(json))
+            {
+                throw new InvalidOperationException("The protected binding could not be read.");
+            }
+
+            var binding = JsonSerializer.Deserialize<DualWriteDelegatedBinding>(json, SerializerOptions);
+            if (binding is null || !binding.IsTrusted)
+            {
+                throw new InvalidOperationException("The stored binding is not trusted.");
+            }
+
+            return binding;
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                "The stored Dual-write refresh context is invalid; sign in again.", ex);
         }
     }
 
@@ -174,6 +218,7 @@ internal sealed class DualWriteConnectionRecord
     public string? FoIdentifier { get; set; }
     public string? ProtectedToken { get; set; }
     public string? ProtectedRefreshToken { get; set; }
+    public string? ProtectedDelegatedBinding { get; set; }
     public string? AccessTokenExpiryUtc { get; set; }
     public string? UpdatedUtc { get; set; }
 }

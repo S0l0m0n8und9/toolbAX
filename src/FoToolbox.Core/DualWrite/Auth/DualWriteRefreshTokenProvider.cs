@@ -9,8 +9,8 @@ namespace FoToolbox.Core.DualWrite.Auth;
 /// <summary>
 /// Renews a Dual-write delegated token using its refresh token — the clean, browser-free
 /// half of the flow. Mirrors <c>DWLibary/TokenRefresh.getLoginDataRefreshed</c> exactly:
-/// a form POST to the Entra v2 common token endpoint with the first-party client id, the
-/// IntegratorApp scope (+ offline_access), the portal redirect URI, and grant_type=refresh_token.
+/// a form POST pinned to the captured actual tenant with the captured first-party client/resource
+/// context. Legacy refresh tokens without trusted binding fail before network access.
 /// </summary>
 public sealed class DualWriteRefreshTokenProvider
 {
@@ -24,41 +24,62 @@ public sealed class DualWriteRefreshTokenProvider
         _http = http ?? throw new ArgumentNullException(nameof(http));
     }
 
-    public async Task<DualWriteToken> RefreshAsync(string refreshToken, CancellationToken cancellationToken = default)
+    public Task<DualWriteToken> RefreshAsync(string refreshToken, CancellationToken cancellationToken = default) =>
+        throw new DualWriteAuthException("This legacy Dual-write session has no trusted refresh context; sign in again.");
+
+    public async Task<DualWriteToken> RefreshAsync(
+        DualWriteToken currentToken,
+        CancellationToken cancellationToken = default)
     {
-        if (string.IsNullOrWhiteSpace(refreshToken))
+        cancellationToken.ThrowIfCancellationRequested();
+        ArgumentNullException.ThrowIfNull(currentToken);
+        if (string.IsNullOrWhiteSpace(currentToken.RefreshToken))
         {
-            throw new ArgumentException("A refresh token is required.", nameof(refreshToken));
+            throw new DualWriteAuthException("A refresh token is required.");
+        }
+        var binding = currentToken.Binding;
+        if (binding is null || !binding.IsTrusted)
+        {
+            throw new DualWriteAuthException("This Dual-write session has no trusted refresh context; sign in again.");
         }
 
-        using var request = new HttpRequestMessage(HttpMethod.Post, DualWriteAuthConstants.TokenEndpoint);
+        var endpoint = new Uri(
+            $"https://login.microsoftonline.com/{binding.TenantId:D}/oauth2/v2.0/token");
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, endpoint);
         request.Headers.TryAddWithoutValidation("Accept", "application/json");
         request.Headers.TryAddWithoutValidation("Origin", DualWriteAuthConstants.DataIntegratorBaseUrl);
         request.Content = new FormUrlEncodedContent(new[]
         {
-            new KeyValuePair<string, string>("client_id", DualWriteAuthConstants.ClientId),
-            new KeyValuePair<string, string>("scope", DualWriteAuthConstants.Scope),
+            new KeyValuePair<string, string>("client_id", binding.ClientId),
+            new KeyValuePair<string, string>("scope", binding.Scope),
             new KeyValuePair<string, string>("redirect_uri", DualWriteAuthConstants.RedirectUri),
             new KeyValuePair<string, string>("grant_type", "refresh_token"),
-            new KeyValuePair<string, string>("refresh_token", refreshToken)
+            new KeyValuePair<string, string>("refresh_token", currentToken.RefreshToken)
         });
 
         using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         var body = response.Content is null ? string.Empty : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         if (!response.IsSuccessStatusCode)
         {
             throw new DualWriteAuthException($"Dual-write token refresh failed: {(int)response.StatusCode} {response.ReasonPhrase}.");
         }
 
-        var token = DualWriteTokenParser.Parse(body, Clock());
-        if (token is null)
+        if (!DualWriteTokenResponseValidator.TryValidateRefresh(
+                body,
+                (int)response.StatusCode,
+                binding,
+                currentToken.RefreshToken,
+                Clock(),
+                out var token))
         {
-            throw new DualWriteAuthException("Dual-write token refresh returned no access token.");
+            throw new DualWriteAuthException("Dual-write token refresh returned an untrusted response.");
         }
 
-        // Entra may not re-issue a refresh token; carry the previous one forward so the
-        // session keeps renewing.
-        return token.RefreshToken is null ? token with { RefreshToken = refreshToken } : token;
+        cancellationToken.ThrowIfCancellationRequested();
+        return token!;
     }
 }
 
