@@ -72,6 +72,7 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
     public IAsyncRelayCommand SaveDataverseSecretCommand { get; }
     public IAsyncRelayCommand ClearDataverseSecretCommand { get; }
     public IAsyncRelayCommand ClearLegacyDiPasswordCommand { get; }
+    public IRelayCommand CancelPersistenceCommand { get; }
 
     [ObservableProperty]
     private string _foTestStatus = string.Empty;
@@ -356,6 +357,7 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
             ct => ClearSecretForTargetAsync(SecretTarget.Dataverse, ct), () => CanStoreDataverseClientSecret);
         ClearLegacyDiPasswordCommand = new PersistenceCommand(
             ct => ClearSecretForTargetAsync(SecretTarget.DataIntegrator, ct), CanPersist);
+        CancelPersistenceCommand = new RelayCommand(CancelPersistence, CanCancelPersistence);
         PropertyChanged += OnTestContextChanged;
         Profiles.CollectionChanged += OnProfilesChanged;
         StartPresenceRefresh();
@@ -433,6 +435,14 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
         IsPersisting = false;
     }
 
+    private bool CanCancelPersistence() => _persistenceCts is { IsCancellationRequested: false };
+
+    private void CancelPersistence()
+    {
+        _persistenceCts?.Cancel();
+        CancelPersistenceCommand.NotifyCanExecuteChanged();
+    }
+
     private bool CanPersist() => !_disposed && !IsPersisting;
 
     partial void OnIsPersistingChanged(bool value)
@@ -451,6 +461,7 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
         SaveDataverseSecretCommand.NotifyCanExecuteChanged();
         ClearDataverseSecretCommand.NotifyCanExecuteChanged();
         ClearLegacyDiPasswordCommand.NotifyCanExecuteChanged();
+        CancelPersistenceCommand.NotifyCanExecuteChanged();
     }
 
     // Selecting Interactive (MFA) defaults a blank client ID to Microsoft's global public client; an
@@ -967,6 +978,9 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
             EnvironmentIdentity.Create(selected) != EnvironmentIdentity.Create(updated);
         if (!TryBeginPersistence(commandToken, out var ct)) return;
         IDisposable? directLease = null;
+        EnvProfile? staleSessionProfile = null;
+        IAuthService? staleSessionAuth = null;
+        CancellationToken evictionLifetimeToken = default;
         try
         {
             if (activeIdentityChanged)
@@ -1010,9 +1024,14 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
             ProfileSaved?.Invoke(updated);
             StartPresenceRefresh();
 
-            // If the auth identity changed (client id / tenant / mode), any token cached for the OLD identity
-            // is now stale — evict it so the next call signs in fresh. A plain rename leaves SSO intact.
-            if (AuthIdentityChanged(previous, updated)) await EvictStaleSessionAsync(previous);
+            // Capture the OLD identity and cleanup dependencies now, but do not keep persistence ownership
+            // while best-effort local cache work runs.
+            if (AuthIdentityChanged(previous, updated))
+            {
+                staleSessionProfile = previous;
+                staleSessionAuth = _auth;
+                evictionLifetimeToken = _lifetimeCts.Token;
+            }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -1027,6 +1046,8 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
             directLease?.Dispose();
             EndPersistence();
         }
+        if (staleSessionProfile is not null && staleSessionAuth is not null)
+            ScheduleStaleSessionEviction(staleSessionProfile, staleSessionAuth, evictionLifetimeToken);
     }
 
     private static bool AuthIdentityChanged(EnvProfile before, EnvProfile after) =>
@@ -1036,17 +1057,33 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
         before.AuthMode != after.AuthMode ||
         before.DataverseAuthMode != after.DataverseAuthMode;
 
-    private async Task EvictStaleSessionAsync(EnvProfile env)
+    private static void ScheduleStaleSessionEviction(
+        EnvProfile env, IAuthService auth, CancellationToken lifetimeToken)
     {
-        // Best-effort: a failed cache eviction must never block saving a profile.
-        try
+        _ = Task.Run(async () =>
         {
-            await _auth.SignOutAsync(env);
-        }
-        catch (Exception ex)
-        {
-            System.Diagnostics.Trace.TraceWarning($"Failed to evict cached session for '{env.Name}': {ex}");
-        }
+            try
+            {
+                lifetimeToken.ThrowIfCancellationRequested();
+                await auth.SignOutAsync(env, lifetimeToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (lifetimeToken.IsCancellationRequested)
+            {
+                // View-model lifetime ended before/during best-effort local cache cleanup.
+            }
+            catch (Exception ex)
+            {
+                try
+                {
+                    System.Diagnostics.Trace.TraceWarning($"Failed to evict cached session for '{env.Name}': {ex}");
+                }
+                catch
+                {
+                    // Diagnostics are best-effort too: never fault the discarded cleanup task because
+                    // a trace listener (for example a full/unavailable session-log disk) failed.
+                }
+            }
+        }, CancellationToken.None);
     }
 
     private EnvProfile BuildDraftProfile(EnvProfile selected) => selected with
@@ -1119,9 +1156,11 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
         try
         {
             ct.ThrowIfCancellationRequested();
-            if (await ProbeRefusalAsync(kind, saved, snapshot, ct) is { } refusal)
+            var refusal = await ProbeRefusalAsync(kind, saved, snapshot, ct);
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentProbe(snapshot, generation)) return;
+            if (refusal is not null)
             {
-                if (!IsCurrentProbe(snapshot, generation)) return;
                 SetProbeStatus(kind, refusal);
                 return;
             }

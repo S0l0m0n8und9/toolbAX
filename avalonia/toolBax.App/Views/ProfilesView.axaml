@@ -83,6 +83,9 @@
           <Button x:Name="RetrySecretPresenceButton" Content="Retry credential check"
                   Command="{Binding RefreshSecretPresenceCommand}" HorizontalAlignment="Left"
                   IsVisible="{Binding HasSecretPresenceFailure}" />
+          <Button x:Name="CancelPersistenceButton" Content="Cancel update"
+                  Command="{Binding CancelPersistenceCommand}" HorizontalAlignment="Left"
+                  IsVisible="{Binding IsPersisting}" />
         </StackPanel>
       </Border>
 
