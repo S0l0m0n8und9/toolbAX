@@ -1,131 +1,216 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 
 namespace FoToolbox.Core.DualWrite.Auth;
 
-/// <summary>The captured outcome of an interactive sign-in: a delegated token + discovered gateway.</summary>
+/// <summary>The captured outcome of an interactive sign-in: a bound delegated token + trusted gateway.</summary>
 public sealed record DualWriteSignInResult(DualWriteToken Token, string GatewayBaseUrl);
 
 /// <summary>
-/// Pure state machine driven by an embedded browser during interactive sign-in. The browser
-/// feeds it (a) the body of every Entra token-endpoint response and (b) the URL of every
-/// request; this captures the delegated token from the token body and the regional gateway
-/// host from the first <c>projectmanagementservice</c> URL it sees. UI-free so it is fully
-/// unit-testable; the WebView2 window is a thin adapter over it.
+/// Correlates a provenance-checked committed token exchange with a successful trusted gateway response
+/// that used the same opaque bearer. URL-only and body-only legacy observations never complete capture.
 /// </summary>
 public sealed class DualWriteSignInCapture
 {
+    private const int MaximumPending = 4;
     private readonly Func<DateTimeOffset> _clock;
+    private readonly string? _tenantConstraint;
+    private readonly IDualWriteTenantResolver _tenantResolver;
+    private readonly object _stateGate = new();
+    private readonly List<DualWriteToken> _pendingTokens = [];
+    private readonly List<PendingGateway> _pendingGateways = [];
+    private DualWriteToken? _token;
+    private string? _gatewayBaseUrl;
+    private string _incompleteReason = "Waiting for a trusted token exchange and matching gateway response.";
 
     public DualWriteSignInCapture(Func<DateTimeOffset>? clock = null)
+        : this("common", null, clock)
     {
+    }
+
+    public DualWriteSignInCapture(
+        string? tenantConstraint,
+        IDualWriteTenantResolver? tenantResolver = null,
+        Func<DateTimeOffset>? clock = null)
+    {
+        _tenantConstraint = tenantConstraint;
+        _tenantResolver = tenantResolver ?? new DualWriteTenantResolver();
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
     }
 
-    public DualWriteToken? Token { get; private set; }
+    public DualWriteToken? Token { get { lock (_stateGate) return _token; } }
+    public string? GatewayBaseUrl { get { lock (_stateGate) return _gatewayBaseUrl; } }
+    public bool IsComplete { get { lock (_stateGate) return IsCompleteUnderLock(); } }
+    public string IncompleteReason { get { lock (_stateGate) return _incompleteReason; } }
+
+    internal int PendingTokenCount { get { lock (_stateGate) return _pendingTokens.Count; } }
+    internal int PendingGatewayCount { get { lock (_stateGate) return _pendingGateways.Count; } }
 
     /// <summary>
-    /// The gateway host actually serving the DualWriteManagement API (the host of a URL carrying
-    /// <see cref="DualWriteAuthConstants.GatewayApiMarker"/>). Null until such a call is observed.
+    /// Legacy adapter compatibility only. A response body without its committed request/status provenance
+    /// is untrusted and is never parsed or retained.
     /// </summary>
-    public string? GatewayBaseUrl { get; private set; }
-
-    /// <summary>
-    /// First bare <see cref="DualWriteAuthConstants.GatewayHostMarker"/> host seen, used only as a
-    /// best-effort fallback if sign-in is closed before an API call pins the real regional gateway.
-    /// </summary>
-    private string? _fallbackGatewayBaseUrl;
-
-    /// <summary>True once both the token and the API gateway host have been captured.</summary>
-    public bool IsComplete => Token is not null && !string.IsNullOrWhiteSpace(GatewayBaseUrl);
-
-    /// <summary>Feed a token-endpoint response body. Returns true if a token was parsed from it.</summary>
     public bool ObserveTokenResponseBody(string? json)
     {
-        if (Token is not null)
+        lock (_stateGate)
         {
-            return false;
+            if (!IsCompleteUnderLock())
+                _incompleteReason = "The sign-in adapter must provide committed token-exchange provenance.";
         }
-
-        var token = DualWriteTokenParser.Parse(json ?? string.Empty, _clock());
-        if (token is null)
-        {
-            return false;
-        }
-
-        Token = token;
-        return true;
-    }
-
-    /// <summary>
-    /// Feed any request/response URL. Pins <see cref="GatewayBaseUrl"/> to the host of a
-    /// DualWriteManagement API call (preferred, mirrors the MS tool's Version-call keying); a bare
-    /// <see cref="DualWriteAuthConstants.GatewayHostMarker"/> host is only remembered as a fallback.
-    /// Returns true when the API gateway host is (re)assigned.
-    /// </summary>
-    public bool ObserveUrl(string? url)
-    {
-        if (GatewayBaseUrl is not null || string.IsNullOrWhiteSpace(url))
-        {
-            return false;
-        }
-
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
-        {
-            return false;
-        }
-
-        // Anchor the match so the delegated token can only be pinned to an https host whose HOST LABEL
-        // carries the gateway marker — not any URL that merely contains the marker in its path/query
-        // (e.g. https://attacker.example/projectmanagementservice/DualWriteManagement). Require https so
-        // the bearer is never pinned to a cleartext host.
-        if (!string.Equals(uri.Scheme, Uri.UriSchemeHttps, StringComparison.OrdinalIgnoreCase) ||
-            uri.Host.IndexOf(DualWriteAuthConstants.GatewayHostMarker, StringComparison.OrdinalIgnoreCase) < 0)
-        {
-            return false;
-        }
-
-        var host = $"{uri.Scheme}://{uri.Host}";
-
-        // Only the host serving the DualWriteManagement API (marker in the request PATH) is the
-        // environment's real regional gateway. The first bare projectmanagementservice host may be a
-        // global/routing endpoint that returns an empty environment list, so keep it only as a fallback.
-        if (uri.AbsolutePath.IndexOf(DualWriteAuthConstants.GatewayApiMarker, StringComparison.OrdinalIgnoreCase) >= 0)
-        {
-            GatewayBaseUrl = host;
-            return true;
-        }
-
-        _fallbackGatewayBaseUrl ??= host;
         return false;
     }
 
-    /// <summary>True if the URL is an Entra token endpoint (whose body should be observed).</summary>
+    /// <summary>
+    /// Legacy URL-only compatibility. A URL cannot prove the bearer sent or the response status and never
+    /// pins a gateway or creates a close-time fallback.
+    /// </summary>
+    public bool ObserveUrl(string? url)
+    {
+        lock (_stateGate)
+        {
+            if (!IsCompleteUnderLock())
+                _incompleteReason = "Waiting for a successful gateway response carrying the captured bearer.";
+        }
+        return false;
+    }
+
+    public async Task<bool> ObserveTokenExchangeAsync(
+        DualWriteTokenExchangeObservation observation,
+        CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_stateGate)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (IsCompleteUnderLock()) return false;
+        }
+
+        var (token, reason) = await DualWriteTokenResponseValidator.ValidateCaptureAsync(
+            observation,
+            _tenantConstraint,
+            _tenantResolver,
+            _clock(),
+            cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (_stateGate)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (IsCompleteUnderLock()) return false;
+            if (token is null)
+            {
+                _incompleteReason = reason;
+                return false;
+            }
+
+            var matchingGateway = _pendingGateways.FirstOrDefault(candidate =>
+                string.Equals(candidate.AccessToken, token.AccessToken, StringComparison.Ordinal));
+            if (matchingGateway is not null)
+            {
+                CompleteUnderLock(token, matchingGateway.Origin);
+                return true;
+            }
+
+            _pendingTokens.RemoveAll(candidate =>
+                string.Equals(candidate.AccessToken, token.AccessToken, StringComparison.Ordinal));
+            AddBounded(_pendingTokens, token);
+            _incompleteReason = "Trusted token captured; waiting for a matching successful gateway response.";
+            return true;
+        }
+    }
+
+    public bool ObserveGatewayResponse(DualWriteGatewayResponseObservation observation)
+    {
+        if (observation is null ||
+            observation.ResponseStatusCode is < 200 or > 299 ||
+            !DualWriteEndpointPolicy.IsGatewayApiRequest(observation.RequestUri) ||
+            !DualWriteEndpointPolicy.TryGetGatewayOrigin(observation.RequestUri, out var origin) ||
+            !TryReadBearer(observation.Authorization, out var accessToken))
+        {
+            lock (_stateGate)
+            {
+                if (!IsCompleteUnderLock())
+                    _incompleteReason = "Gateway response was not accepted for sign-in correlation.";
+            }
+            return false;
+        }
+
+        lock (_stateGate)
+        {
+            if (IsCompleteUnderLock()) return false;
+            var matchingToken = _pendingTokens.FirstOrDefault(candidate =>
+                string.Equals(candidate.AccessToken, accessToken, StringComparison.Ordinal));
+            if (matchingToken is not null)
+            {
+                CompleteUnderLock(matchingToken, origin);
+                return true;
+            }
+
+            _pendingGateways.RemoveAll(candidate =>
+                string.Equals(candidate.AccessToken, accessToken, StringComparison.Ordinal));
+            AddBounded(_pendingGateways, new PendingGateway(accessToken, origin));
+            _incompleteReason = "Trusted gateway response observed; waiting for its provenanced token exchange.";
+            return false;
+        }
+    }
+
     public static bool IsTokenEndpoint(string? url) =>
         !string.IsNullOrWhiteSpace(url) &&
-        url!.IndexOf("/oauth2/v2.0/token", StringComparison.OrdinalIgnoreCase) >= 0 &&
-        (url.IndexOf("login.microsoftonline.com", StringComparison.OrdinalIgnoreCase) >= 0 ||
-         url.IndexOf("login.microsoft.com", StringComparison.OrdinalIgnoreCase) >= 0);
+        Uri.TryCreate(url, UriKind.Absolute, out var uri) &&
+        DualWriteEndpointPolicy.IsTokenEndpoint(uri);
 
-    /// <summary>The captured result, or null if not yet complete.</summary>
-    public DualWriteSignInResult? Result =>
-        IsComplete ? new DualWriteSignInResult(Token!, GatewayBaseUrl!) : null;
-
-    /// <summary>
-    /// Best-effort result for when the user closes sign-in before an API call pinned the regional
-    /// gateway: uses the API host if known, else the fallback projectmanagementservice host. Null if
-    /// no token or no gateway host was seen at all.
-    /// </summary>
-    public DualWriteSignInResult? BestEffortResult
+    public DualWriteSignInResult? Result
     {
         get
         {
-            if (Token is null)
-            {
-                return null;
-            }
-
-            var gateway = GatewayBaseUrl ?? _fallbackGatewayBaseUrl;
-            return string.IsNullOrWhiteSpace(gateway) ? null : new DualWriteSignInResult(Token, gateway);
+            lock (_stateGate)
+                return IsCompleteUnderLock() ? new DualWriteSignInResult(_token!, _gatewayBaseUrl!) : null;
         }
     }
+
+    /// <summary>No manual-close fallback exists until full token/gateway correlation is complete.</summary>
+    public DualWriteSignInResult? BestEffortResult => Result;
+
+    private bool IsCompleteUnderLock() => _token is not null && _gatewayBaseUrl is not null;
+
+    private void CompleteUnderLock(DualWriteToken token, Uri gatewayOrigin)
+    {
+        _token = token;
+        _gatewayBaseUrl = gatewayOrigin.AbsoluteUri;
+        _pendingTokens.Clear();
+        _pendingGateways.Clear();
+        _incompleteReason = string.Empty;
+    }
+
+    private static bool TryReadBearer(string? authorization, out string token)
+    {
+        token = string.Empty;
+        if (string.IsNullOrWhiteSpace(authorization))
+        {
+            return false;
+        }
+
+        var separator = authorization.IndexOf(' ');
+        if (separator < 1 ||
+            !string.Equals(authorization[..separator], "Bearer", StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        token = authorization[(separator + 1)..].Trim();
+        return token.Length > 0 && !token.Any(character => char.IsWhiteSpace(character) || char.IsControl(character));
+    }
+
+    private static void AddBounded<T>(List<T> list, T value)
+    {
+        if (list.Count == MaximumPending)
+        {
+            list.RemoveAt(0);
+        }
+        list.Add(value);
+    }
+
+    private sealed record PendingGateway(string AccessToken, Uri Origin);
 }
