@@ -1,7 +1,9 @@
 using System;
+using System.Collections.Generic;
+using System.Net;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
-using System.Collections.Generic;
 using ToolBax.App.Services;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
@@ -30,9 +32,70 @@ public sealed class CoreVirtualTableReaderTests
         }
     }
 
+    private sealed class SequenceHandler(params string[] bodies) : HttpMessageHandler
+    {
+        private readonly Queue<string> _bodies = new(bodies);
+        public List<string> Requested { get; } = new();
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken ct)
+        {
+            Requested.Add(request.RequestUri!.ToString());
+            if (_bodies.Count == 0) throw new InvalidOperationException("dispatch limit exceeded");
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(_bodies.Dequeue())
+            });
+        }
+    }
+
+    private sealed class CountingAuth : IAuthService
+    {
+        public int DataverseCalls { get; private set; }
+        public Task<string> AcquireFoTokenAsync(EnvProfile env, CancellationToken ct = default) =>
+            Task.FromResult("fo-token");
+        public Task<string> AcquireDataverseTokenAsync(EnvProfile env, CancellationToken ct = default)
+        {
+            DataverseCalls++;
+            return Task.FromResult("dv-token");
+        }
+        public Task<string> AcquireDualWriteTokenAsync(EnvProfile env, CancellationToken ct = default) =>
+            Task.FromResult("dw-token");
+    }
+
     private static EnvProfile Env() => new(
         "env", "Env", "https://fo.example", "tenant", "USMF", "Tier 1", EnvStatus.Connected,
         DataverseUrl: "https://dv.example");
+
+    [Theory]
+    [InlineData("http-preview.crm.dynamics.com", "https://http-preview.crm.dynamics.com")]
+    [InlineData("https-preview.crm.dynamics.com", "https://https-preview.crm.dynamics.com")]
+    [InlineData("  HTTP-PREVIEW.CRM.DYNAMICS.COM  ", "https://http-preview.crm.dynamics.com")]
+    [InlineData(" http-preview.crm.dynamics.com/API/DATA/V9.2/ ", "https://http-preview.crm.dynamics.com")]
+    public async Task Bare_http_prefixed_profile_completes_pinned_initial_and_continuation_requests(
+        string configuredUrl,
+        string expectedBase)
+    {
+        var env = Env() with { DataverseUrl = configuredUrl };
+        var continuation = $"{expectedBase}/api/data/v9.2/EntityDefinitions?$skiptoken=next";
+        var first = $"{{\"value\":[{{\"LogicalName\":\"account\"}}],\"@odata.nextLink\":{System.Text.Json.JsonSerializer.Serialize(continuation)}}}";
+        const string second = "{\"value\":[{\"LogicalName\":\"mserp_customer\",\"ExternalName\":\"Customer\"}]}";
+        var handler = new SequenceHandler(first, second);
+        var auth = new CountingAuth();
+        using var client = new CoreDataverseClient(auth, () => env, new HttpClient(handler));
+
+        var result = await new CoreVirtualTableReader(client, () => env)
+            .GetVirtualTablesAsync(TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        var table = Assert.Single(result.Tables);
+        Assert.Equal("mserp_customer", table.LogicalName);
+        Assert.Equal(2, auth.DataverseCalls);
+        Assert.Equal(new[]
+        {
+            $"{expectedBase}/api/data/v9.2/EntityDefinitions?$select={VirtualTableMetadataParser.SelectColumns}",
+            continuation
+        }, handler.Requested);
+    }
 
     [Fact]
     public async Task Malformed_success_body_is_a_failure_not_empty_success()
