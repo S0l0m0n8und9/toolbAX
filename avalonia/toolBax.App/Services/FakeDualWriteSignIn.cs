@@ -13,13 +13,19 @@ namespace ToolBax.App.Services;
 /// </summary>
 public sealed class FakeDualWriteSignIn : IDualWriteSignIn
 {
+    private static readonly DualWriteDelegatedBinding Binding = new(
+        Guid.Parse("99999999-9999-9999-9999-999999999999"),
+        DualWriteAuthConstants.ClientId,
+        DualWriteAuthConstants.ResourceBaseUrl,
+        DualWriteAuthConstants.Scope);
     private readonly DualWriteSignInResult? _result;
 
     /// <summary>Returns a usable seeded result (a dummy token + placeholder gateway host).</summary>
     public FakeDualWriteSignIn()
         : this(new DualWriteSignInResult(
-            new DualWriteToken("fake-delegated-token", "fake-refresh-token", DateTimeOffset.UtcNow.AddHours(1)),
-            "https://fake-gateway.dual-write.example"))
+            new DualWriteToken("fake-delegated-token", "fake-refresh-token", DateTimeOffset.UtcNow.AddHours(1))
+                { Binding = Binding },
+            "https://projectmanagementservice.fake.gateway.prod.island.powerapps.com/"))
     {
     }
 

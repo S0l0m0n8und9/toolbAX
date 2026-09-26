@@ -16,6 +16,9 @@ public sealed record DualWriteConnectionSettings(string Key, string GatewayBaseU
     /// <summary>Absolute expiry of <see cref="BearerToken"/> when known (from sign-in/refresh).</summary>
     public DateTimeOffset? AccessTokenExpiryUtc { get; init; }
 
+    /// <summary>Trusted delegated provenance required for refresh; absent on manual/legacy tokens.</summary>
+    public Auth.DualWriteDelegatedBinding? DelegatedBinding { get; init; }
+
     /// <summary>True when a refresh token is available, so the access token can be renewed silently.</summary>
     public bool HasDelegatedSession => !string.IsNullOrWhiteSpace(RefreshToken);
 
