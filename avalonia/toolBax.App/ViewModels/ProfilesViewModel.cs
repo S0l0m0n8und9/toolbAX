@@ -965,10 +965,6 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // Captured before the swap so we can tell whether the auth identity changed (and evict the old
-        // cached session if so).
-        var previous = selected;
-
         // Commit the editable drafts onto a new immutable record, persist, and swap it into the list
         // so the master + detail reflect the edit.
         var updated = BuildDraftProfile(selected);
@@ -978,9 +974,6 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
             EnvironmentIdentity.Create(selected) != EnvironmentIdentity.Create(updated);
         if (!TryBeginPersistence(commandToken, out var ct)) return;
         IDisposable? directLease = null;
-        EnvProfile? staleSessionProfile = null;
-        IAuthService? staleSessionAuth = null;
-        CancellationToken evictionLifetimeToken = default;
         try
         {
             if (activeIdentityChanged)
@@ -1024,14 +1017,6 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
             ProfileSaved?.Invoke(updated);
             StartPresenceRefresh();
 
-            // Capture the OLD identity and cleanup dependencies now, but do not keep persistence ownership
-            // while best-effort local cache work runs.
-            if (AuthIdentityChanged(previous, updated))
-            {
-                staleSessionProfile = previous;
-                staleSessionAuth = _auth;
-                evictionLifetimeToken = _lifetimeCts.Token;
-            }
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -1046,44 +1031,6 @@ public partial class ProfilesViewModel : ObservableObject, IDisposable
             directLease?.Dispose();
             EndPersistence();
         }
-        if (staleSessionProfile is not null && staleSessionAuth is not null)
-            ScheduleStaleSessionEviction(staleSessionProfile, staleSessionAuth, evictionLifetimeToken);
-    }
-
-    private static bool AuthIdentityChanged(EnvProfile before, EnvProfile after) =>
-        !string.Equals(before.ClientId, after.ClientId, StringComparison.OrdinalIgnoreCase) ||
-        !string.Equals(before.DataverseClientId, after.DataverseClientId, StringComparison.OrdinalIgnoreCase) ||
-        !string.Equals(before.Tenant, after.Tenant, StringComparison.OrdinalIgnoreCase) ||
-        before.AuthMode != after.AuthMode ||
-        before.DataverseAuthMode != after.DataverseAuthMode;
-
-    private static void ScheduleStaleSessionEviction(
-        EnvProfile env, IAuthService auth, CancellationToken lifetimeToken)
-    {
-        _ = Task.Run(async () =>
-        {
-            try
-            {
-                lifetimeToken.ThrowIfCancellationRequested();
-                await auth.SignOutAsync(env, lifetimeToken).ConfigureAwait(false);
-            }
-            catch (OperationCanceledException) when (lifetimeToken.IsCancellationRequested)
-            {
-                // View-model lifetime ended before/during best-effort local cache cleanup.
-            }
-            catch (Exception ex)
-            {
-                try
-                {
-                    System.Diagnostics.Trace.TraceWarning($"Failed to evict cached session for '{env.Name}': {ex}");
-                }
-                catch
-                {
-                    // Diagnostics are best-effort too: never fault the discarded cleanup task because
-                    // a trace listener (for example a full/unavailable session-log disk) failed.
-                }
-            }
-        }, CancellationToken.None);
     }
 
     private EnvProfile BuildDraftProfile(EnvProfile selected) => selected with
