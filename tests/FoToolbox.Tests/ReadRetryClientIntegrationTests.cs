@@ -1,5 +1,6 @@
 using FoToolbox.Core.Catalog;
 using FoToolbox.Core.DualWrite;
+using FoToolbox.Core.Auth;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.Net;
 using FoToolbox.Core.OData;
@@ -42,6 +43,174 @@ public sealed class ReadRetryClientIntegrationTests
 
         await Assert.ThrowsAsync<HttpRequestException>(() => pages.MoveNextAsync().AsTask());
         Assert.Equal(3, handler.Calls);
+    }
+
+    [Fact]
+    public async Task HttpODataClient_accepts_page_larger_than_httpclient_response_buffer_limit()
+    {
+        var value = new string('x', 128);
+        var handler = new SequenceHandler(
+            _ => Response(HttpStatusCode.OK, $"{{\"value\":[{{\"Name\":\"{value}\"}}]}}"));
+        using var http = new HttpClient(handler)
+        {
+            BaseAddress = new Uri("https://example.test/"),
+            MaxResponseContentBufferSize = 16
+        };
+        var pages = new List<ODataPage>();
+
+        await foreach (var page in new HttpODataClient(http, ImmediatePolicy())
+            .StreamAsync(new QueryRequest("data/Rows")))
+            pages.Add(page);
+
+        var resultPage = Assert.Single(pages);
+        var row = Assert.Single(resultPage.Rows);
+        Assert.Equal(value, row["Name"]);
+        Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public async Task HttpODataClient_preserves_retry_budget_timeout_classification()
+    {
+        var handler = new SequenceHandler(
+            _ => Response(HttpStatusCode.OK, "{\"value\":[]}"));
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://example.test/") };
+        var policy = new ReadRetryPolicy(
+            overallBudget: TimeSpan.FromSeconds(1),
+            timeProvider: new ExpiredAfterStartTimeProvider());
+        await using var pages = new HttpODataClient(http, policy)
+            .StreamAsync(new QueryRequest("data/Rows"))
+            .GetAsyncEnumerator();
+
+        var exception = await Assert.ThrowsAsync<TimeoutException>(
+            () => pages.MoveNextAsync().AsTask());
+
+        Assert.Contains("budget", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, handler.Calls);
+    }
+
+    [Fact]
+    public async Task HttpODataClient_classifies_final_timeout_shaped_cancellation_as_timeout()
+    {
+        var handler = new SequenceHandler(
+            _ => throw new OperationCanceledException("client timeout"));
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://example.test/") };
+        var policy = new ReadRetryPolicy(maximumAttempts: 1);
+        await using var pages = new HttpODataClient(http, policy)
+            .StreamAsync(new QueryRequest("data/Rows"))
+            .GetAsyncEnumerator();
+
+        var exception = await Assert.ThrowsAsync<TimeoutException>(
+            () => pages.MoveNextAsync().AsTask());
+
+        Assert.Contains("timed out", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public async Task HttpODataClient_retries_transient_body_failure_before_single_parse_and_yield()
+    {
+        var handler = new SequenceHandler(
+            _ => new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new FailingBodyContent(new HttpRequestException(
+                    HttpRequestError.ConnectionError,
+                    "transient body failure"))
+            },
+            _ => Response(HttpStatusCode.OK, "{\"value\":[{\"Id\":1}]}"));
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://example.test/") };
+        var pages = new List<ODataPage>();
+
+        await foreach (var page in new HttpODataClient(http, ImmediatePolicy())
+            .StreamAsync(new QueryRequest("data/Rows")))
+            pages.Add(page);
+
+        Assert.Equal(2, handler.Calls);
+        var resultPage = Assert.Single(pages);
+        Assert.Single(resultPage.Rows);
+    }
+
+    [Fact]
+    public async Task HttpODataClient_body_that_ignores_deadline_is_observed_before_response_disposal()
+    {
+        var content = new GatedBodyContent();
+        var handler = new SequenceHandler(
+            _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = content });
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://example.test/") };
+        var clock = new ReadRetryPolicyTests.ManualTimeProvider();
+        var policy = new ReadRetryPolicy(
+            maximumAttempts: 1,
+            overallBudget: TimeSpan.FromSeconds(1),
+            timeProvider: clock);
+        await using var pages = new HttpODataClient(http, policy)
+            .StreamAsync(new QueryRequest("data/Rows"))
+            .GetAsyncEnumerator();
+
+        var pending = pages.MoveNextAsync().AsTask();
+        await content.Entered.WaitAsync(TimeSpan.FromSeconds(2));
+        clock.Advance(TimeSpan.FromSeconds(1));
+        await Assert.ThrowsAsync<TimeoutException>(() => pending.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.False(content.IsDisposed);
+
+        content.Complete("{\"value\":[]}");
+        await WaitForAsync(() => content.IsDisposed);
+    }
+
+    [Fact]
+    public async Task HttpODataClient_caller_cancellation_during_ignoring_body_retains_caller_precedence()
+    {
+        var content = new GatedBodyContent();
+        var handler = new SequenceHandler(
+            _ => new HttpResponseMessage(HttpStatusCode.OK) { Content = content });
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://example.test/") };
+        using var caller = new CancellationTokenSource();
+        await using var pages = new HttpODataClient(http, ImmediatePolicy())
+            .StreamAsync(new QueryRequest("data/Rows"), caller.Token)
+            .GetAsyncEnumerator();
+
+        var pending = pages.MoveNextAsync().AsTask();
+        await content.Entered.WaitAsync(TimeSpan.FromSeconds(2));
+        caller.Cancel();
+        var exception = await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => pending.WaitAsync(TimeSpan.FromSeconds(2)));
+        Assert.Equal(caller.Token, exception.CancellationToken);
+        Assert.False(content.IsDisposed);
+
+        content.Complete("{\"value\":[]}");
+        await WaitForAsync(() => content.IsDisposed);
+    }
+
+    [Fact]
+    public async Task HttpODataClient_preserves_auth_recovery_exception()
+    {
+        var expected = new AuthRecoveryException("OData", "interactive sign-in required");
+        var handler = new SequenceHandler(_ => throw expected);
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://example.test/") };
+        await using var pages = new HttpODataClient(http, new ReadRetryPolicy(maximumAttempts: 1))
+            .StreamAsync(new QueryRequest("data/Rows"))
+            .GetAsyncEnumerator();
+
+        var actual = await Assert.ThrowsAsync<AuthRecoveryException>(
+            () => pages.MoveNextAsync().AsTask());
+
+        Assert.Same(expected, actual);
+        Assert.Equal(1, handler.Calls);
+    }
+
+    [Fact]
+    public async Task HttpODataClient_unauthorized_response_keeps_reauthentication_message()
+    {
+        var handler = new SequenceHandler(
+            _ => Response(HttpStatusCode.Unauthorized, "{\"error\":\"unauthorized\"}"));
+        using var http = new HttpClient(handler) { BaseAddress = new Uri("https://example.test/") };
+        await using var pages = new HttpODataClient(http, ImmediatePolicy())
+            .StreamAsync(new QueryRequest("data/Rows"))
+            .GetAsyncEnumerator();
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => pages.MoveNextAsync().AsTask());
+
+        Assert.Contains("Re-authenticate in Profiles", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(1, handler.Calls);
     }
 
     [Fact]
@@ -182,6 +351,17 @@ public sealed class ReadRetryClientIntegrationTests
     private static string TempDb(string prefix) =>
         Path.Combine(Path.GetTempPath(), $"toolbax-{prefix}-{Guid.NewGuid():N}.db");
 
+    private static async Task WaitForAsync(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        while (!condition())
+        {
+            if (DateTime.UtcNow >= deadline)
+                throw new TimeoutException("The test condition was not reached.");
+            await Task.Delay(10);
+        }
+    }
+
     private static HttpResponseMessage Response(
         HttpStatusCode status,
         string body,
@@ -225,4 +405,61 @@ public sealed class ReadRetryClientIntegrationTests
         string Body,
         string? IfNoneMatch,
         string? Partition);
+
+    private sealed class FailingBodyContent(Exception exception) : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) =>
+            Task.FromException(exception);
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
+
+    private sealed class GatedBodyContent : HttpContent
+    {
+        private readonly TaskCompletionSource _entered =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private readonly TaskCompletionSource<byte[]> _completion =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Entered => _entered.Task;
+        public bool IsDisposed { get; private set; }
+
+        public void Complete(string body) =>
+            _completion.TrySetResult(System.Text.Encoding.UTF8.GetBytes(body));
+
+        protected override async Task SerializeToStreamAsync(Stream stream, TransportContext? context)
+        {
+            _entered.TrySetResult();
+            var bytes = await _completion.Task.ConfigureAwait(false);
+            await stream.WriteAsync(bytes).ConfigureAwait(false);
+        }
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+
+        protected override void Dispose(bool disposing)
+        {
+            IsDisposed = true;
+            base.Dispose(disposing);
+        }
+    }
+
+    private sealed class ExpiredAfterStartTimeProvider : TimeProvider
+    {
+        private int _timestampReads;
+
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+
+        public override long GetTimestamp() =>
+            Interlocked.Increment(ref _timestampReads) == 1
+                ? 0
+                : TimeSpan.FromSeconds(2).Ticks;
+    }
 }
