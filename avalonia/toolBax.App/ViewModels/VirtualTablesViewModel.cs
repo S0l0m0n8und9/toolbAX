@@ -36,6 +36,15 @@ public partial class VirtualTablesViewModel : ObservableObject, IDisposable
     private EnvironmentIdentity? _loadedIdentity;
     private int _generation;
     private bool _disposed;
+    private CancellationTokenSource? _read;
+
+    [RelayCommand(CanExecute = nameof(IsLoading))]
+    private void CancelReads()
+    {
+        _read?.Cancel();
+        InitializeCommand.Cancel();
+        RefreshCommand.Cancel();
+    }
 
     public ObservableCollection<VirtualTableInfo> Tables { get; } = new();
 
@@ -58,6 +67,7 @@ public partial class VirtualTablesViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(ShowEmptyState))]
+    [NotifyCanExecuteChangedFor(nameof(CancelReadsCommand))]
     private bool _isLoading;
 
     /// <summary>How many non-F&amp;O virtual tables exist (shown as context; this screen lists only F&amp;O ones).</summary>
@@ -115,7 +125,7 @@ public partial class VirtualTablesViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task Initialize(CancellationToken ct)
     {
-        if (_disposed) return;
+        if (_disposed || ct.IsCancellationRequested) return;
         if (!_loaded || EnvChangedSinceLoad())
         {
             await ReloadAsync(ct);
@@ -127,11 +137,11 @@ public partial class VirtualTablesViewModel : ObservableObject, IDisposable
         _environmentBound && !Equals(_loadedIdentity, EnvironmentIdentity.TryCreate(_activeEnv()));
 
     [RelayCommand]
-    private Task Refresh(CancellationToken ct) => _disposed ? Task.CompletedTask : ReloadAsync(ct);
+    private Task Refresh(CancellationToken ct) => _disposed || ct.IsCancellationRequested ? Task.CompletedTask : ReloadAsync(ct);
 
     private async Task ReloadAsync(CancellationToken ct)
     {
-        if (_disposed) return;
+        if (_disposed || ct.IsCancellationRequested) return;
         // Captured BEFORE the read (same pattern as DualWriteMapViewModel.LoadMapsAsync): the reader resolves
         // the active environment internally at call time, so this is which environment the load is FOR — used
         // both to stamp the tables it returns and to detect, once it returns, that the environment has moved
@@ -144,8 +154,11 @@ public partial class VirtualTablesViewModel : ObservableObject, IDisposable
         var identity = EnvironmentIdentity.TryCreate(env);
         var envName = env?.Name ?? string.Empty;
         var generation = Interlocked.Increment(ref _generation);
+        _read?.Cancel();
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        _read = linked;
+        ct = linked.Token;
         IsLoading = true;
-        LoadError = string.Empty;
         try
         {
             var result = await _reader.GetVirtualTablesAsync(ct);
@@ -157,14 +170,14 @@ public partial class VirtualTablesViewModel : ObservableObject, IDisposable
             // under A finishing after a fast read under B would otherwise replace B's tables with A's, or
             // blank B's list and show A's error.) Mirrors the cache-generation discard in
             // CoreMetadataService.IsStillCurrent (#170). IsLoading still clears in the finally below.
-            if (!CanCommit(identity, generation))
+            if (ct.IsCancellationRequested || !CanCommit(identity, generation))
             {
                 return;
             }
 
-            _loaded = true;
             if (!result.IsSuccess)
             {
+                _loaded = true;
                 Tables.Clear();
                 OtherVirtualCount = 0;
                 // Nothing is listed, so there's no environment to label. The id stamp is left alone: a
@@ -174,12 +187,16 @@ public partial class VirtualTablesViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            OtherVirtualCount = result.Tables.Count(t => !t.IsFinanceAndOperations);
+            var otherVirtualCount = result.Tables.Count(t => !t.IsFinanceAndOperations);
             var fo = result.Tables
                 .Where(t => t.IsFinanceAndOperations)
                 .OrderBy(t => t.Title, StringComparer.OrdinalIgnoreCase)
                 .ToList();
 
+            if (ct.IsCancellationRequested || !CanCommit(identity, generation)) return;
+            _loaded = true;
+            LoadError = string.Empty;
+            OtherVirtualCount = otherVirtualCount;
             Tables.Clear();
             foreach (var table in fo)
             {
@@ -193,19 +210,20 @@ public partial class VirtualTablesViewModel : ObservableObject, IDisposable
             LoadedEnvName = envName;
             OnPropertyChanged(nameof(Filtered));
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             // Cancellation just leaves the prior list in place.
         }
         catch (Exception ex)
         {
-            if (!CanCommit(identity, generation)) return;
+            if (ct.IsCancellationRequested || !CanCommit(identity, generation)) return;
             LoadError = ex.Message;
         }
         finally
         {
-            if (generation == Volatile.Read(ref _generation))
+            if (ReferenceEquals(_read, linked))
             {
+                _read = null;
                 IsLoading = false;
                 OnPropertyChanged(nameof(ShowEmptyState));
             }
@@ -252,6 +270,7 @@ public partial class VirtualTablesViewModel : ObservableObject, IDisposable
     {
         if (_disposed) return;
         _disposed = true;
+        _read?.Cancel();
         Interlocked.Increment(ref _generation);
         InitializeCommand.Cancel();
         RefreshCommand.Cancel();

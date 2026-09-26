@@ -20,6 +20,7 @@ public sealed class EntityCatalogLoader : IDisposable
     // Cancels an in-flight field fetch when the user selects a different entity, so a rapid selection
     // change doesn't leave a redundant request running.
     private CancellationTokenSource? _fieldFetch;
+    private CancellationTokenSource? _entityFetch;
     private readonly CancellationTokenSource _lifetime = new();
     private bool _disposed;
 
@@ -34,27 +35,34 @@ public sealed class EntityCatalogLoader : IDisposable
     /// </summary>
     public async Task<IReadOnlyList<EntitySet>?> LoadEntitiesAsync(IReadOnlyList<string> currentNames, CancellationToken ct)
     {
-        if (_disposed) return null;
+        if (_disposed || ct.IsCancellationRequested) return null;
+        _entityFetch?.Cancel();
         using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
+        _entityFetch = linked;
         try
         {
             await _metadata.LoadEntitiesAsync(linked.Token).ConfigureAwait(true);
-            if (_disposed) return null;
-            LastError = null;
+            if (_disposed || linked.IsCancellationRequested || !ReferenceEquals(_entityFetch, linked)) return null;
             var loaded = _metadata.GetEntities();
+            if (_disposed || linked.IsCancellationRequested || !ReferenceEquals(_entityFetch, linked)) return null;
+            LastError = null;
             return loaded.Count > 0 && !currentNames.SequenceEqual(loaded.Select(e => e.Name))
                 ? loaded
                 : null;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (linked.IsCancellationRequested)
         {
             return null;
         }
         catch (Exception ex)
         {
-            if (_disposed) return null;
+            if (_disposed || linked.IsCancellationRequested || !ReferenceEquals(_entityFetch, linked)) return null;
             LastError = ex.Message;
             return null;
+        }
+        finally
+        {
+            if (ReferenceEquals(_entityFetch, linked)) _entityFetch = null;
         }
     }
 
@@ -64,29 +72,31 @@ public sealed class EntityCatalogLoader : IDisposable
     /// </summary>
     public async Task<bool> EnsureFieldsAsync(string entityName, CancellationToken ct)
     {
-        if (_disposed) return false;
-        if (_metadata.GetFields(entityName) is not null)
-        {
-            return false;
-        }
-
+        if (_disposed || ct.IsCancellationRequested) return false;
         _fieldFetch?.Cancel();
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, _lifetime.Token);
         _fieldFetch = cts;
         try
         {
+            var cached = _metadata.GetFields(entityName);
+            if (_disposed || cts.IsCancellationRequested || !ReferenceEquals(_fieldFetch, cts)) return false;
+            if (cached is not null)
+            {
+                LastError = null;
+                return false;
+            }
             await _metadata.LoadFieldsAsync(entityName, cts.Token).ConfigureAwait(true);
-            if (_disposed) return false;
+            if (_disposed || cts.IsCancellationRequested || !ReferenceEquals(_fieldFetch, cts)) return false;
             LastError = null;
             return true;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
         {
             return false;
         }
         catch (Exception ex)
         {
-            if (_disposed) return false;
+            if (_disposed || cts.IsCancellationRequested || !ReferenceEquals(_fieldFetch, cts)) return false;
             LastError = ex.Message;
             return false;
         }
@@ -109,6 +119,7 @@ public sealed class EntityCatalogLoader : IDisposable
         if (_disposed) return;
         _disposed = true;
         _lifetime.Cancel();
+        _entityFetch?.Cancel();
         _fieldFetch?.Cancel();
         _lifetime.Dispose();
     }

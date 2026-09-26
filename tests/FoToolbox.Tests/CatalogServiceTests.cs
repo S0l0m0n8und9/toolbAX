@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net;
 using System.Net.Http;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Xunit;
@@ -617,6 +618,86 @@ public class CatalogServiceTests
         Assert.Equal("50", identificationNumber.MaxLength);
     }
 
+    [Fact]
+    public async Task GetODataEntityDetailsAsync_Discards_Cyclic_TargetMap_Partial_And_Uses_Next_Candidate()
+    {
+        var handler = new TargetMapIntegrityHandler(TargetMapFailure.CycleThenFallback);
+        using var httpClient = new HttpClient(handler);
+        var profileDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db");
+        var catalogDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db");
+        var profileStore = new ProfileStore(profileDb);
+        await profileStore.EnsureCreatedAsync();
+        var service = new CatalogService(httpClient, profileStore, new CatalogStore(catalogDb),
+            new CatalogServiceOptions(TimeSpan.FromDays(1), TimeSpan.FromDays(1)));
+        var env = new FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com", "tenant", "USMF");
+
+        var entity = await service.GetODataEntityDetailsAsync(env, "CustomersV3", CatalogRefreshMode.ForceRefresh, default);
+
+        var field = Assert.Single(entity!.Properties, property => property.Name == "IdentificationNumber");
+        Assert.Equal("50", field.MaxLength);
+        Assert.Equal(2, handler.TargetMapCalls);
+    }
+
+    [Fact]
+    public async Task GetODataEntityDetailsAsync_Discards_TargetMap_Partial_After_Later_Page_Failure()
+    {
+        var handler = new TargetMapIntegrityHandler(TargetMapFailure.LaterHttpFailure);
+        using var httpClient = new HttpClient(handler);
+        var profileDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db");
+        var catalogDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db");
+        var profileStore = new ProfileStore(profileDb);
+        await profileStore.EnsureCreatedAsync();
+        var service = new CatalogService(httpClient, profileStore, new CatalogStore(catalogDb),
+            new CatalogServiceOptions(TimeSpan.FromDays(1), TimeSpan.FromDays(1)));
+        var env = new FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com", "tenant", "USMF");
+
+        var entity = await service.GetODataEntityDetailsAsync(env, "CustomersV3", CatalogRefreshMode.ForceRefresh, default);
+
+        var field = Assert.Single(entity!.Properties, property => property.Name == "IdentificationNumber");
+        Assert.True(string.IsNullOrEmpty(field.MaxLength));
+        Assert.True(handler.TargetMapCalls >= 2);
+    }
+
+    [Fact]
+    public async Task GetODataEntityDetailsAsync_Discards_TargetMap_Partial_After_Malformed_Collection_Page()
+    {
+        var handler = new TargetMapIntegrityHandler(TargetMapFailure.MalformedCollection);
+        using var httpClient = new HttpClient(handler);
+        var profileDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db");
+        var catalogDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db");
+        var profileStore = new ProfileStore(profileDb);
+        await profileStore.EnsureCreatedAsync();
+        var service = new CatalogService(httpClient, profileStore, new CatalogStore(catalogDb),
+            new CatalogServiceOptions(TimeSpan.FromDays(1), TimeSpan.FromDays(1)));
+        var env = new FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com", "tenant", "USMF");
+
+        var entity = await service.GetODataEntityDetailsAsync(env, "CustomersV3", CatalogRefreshMode.ForceRefresh, default);
+
+        var field = Assert.Single(entity!.Properties, property => property.Name == "IdentificationNumber");
+        Assert.True(string.IsNullOrEmpty(field.MaxLength));
+        Assert.True(handler.TargetMapCalls >= 2);
+    }
+
+    [Fact]
+    public async Task GetODataEntityDetailsAsync_Refuses_Foreign_TargetMap_Continuation_Before_Dispatch()
+    {
+        var handler = new TargetMapIntegrityHandler(TargetMapFailure.ForeignContinuation);
+        using var httpClient = new HttpClient(handler);
+        var profileDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"profile-{Guid.NewGuid():N}.db");
+        var catalogDb = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"catalog-{Guid.NewGuid():N}.db");
+        var profileStore = new ProfileStore(profileDb);
+        await profileStore.EnsureCreatedAsync();
+        var service = new CatalogService(httpClient, profileStore, new CatalogStore(catalogDb),
+            new CatalogServiceOptions(TimeSpan.FromDays(1), TimeSpan.FromDays(1)));
+        var env = new FoEnvironment("env", "Env", "https://contoso.operations.dynamics.com", "tenant", "USMF");
+
+        var entity = await service.GetODataEntityDetailsAsync(env, "CustomersV3", CatalogRefreshMode.ForceRefresh, default);
+
+        Assert.NotNull(entity);
+        Assert.Equal(0, handler.ForeignCalls);
+        Assert.True(handler.TargetMapCalls > 0);
+    }
+
     // ── Cache-first entity details (#168) ─────────────────────────────────────────────────────────────
     //
     // GetODataEntityDetailsAsync used to materialize the whole $metadata document — tens of MB on F&O —
@@ -1041,5 +1122,75 @@ public class CatalogServiceTests
             response.Headers.ETag = new System.Net.Http.Headers.EntityTagHeaderValue("\"etag\"");
             return Task.FromResult(response);
         }
+    }
+
+    private enum TargetMapFailure
+    {
+        CycleThenFallback,
+        LaterHttpFailure,
+        ForeignContinuation,
+        MalformedCollection
+    }
+
+    private sealed class TargetMapIntegrityHandler(TargetMapFailure failure) : HttpMessageHandler
+    {
+        private const string Metadata = """
+<?xml version="1.0" encoding="utf-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="Default" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <EntityContainer Name="Container"><EntitySet Name="CustomersV3" EntityType="Default.CustomerV3" /></EntityContainer>
+      <EntityType Name="CustomerV3"><Property Name="IdentificationNumber" Type="Edm.String" /></EntityType>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx>
+""";
+
+        public int TargetMapCalls { get; private set; }
+        public int ForeignCalls { get; private set; }
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            var uri = request.RequestUri ?? throw new InvalidOperationException("Request URI missing.");
+            if (!string.Equals(uri.Host, "contoso.operations.dynamics.com", StringComparison.OrdinalIgnoreCase))
+            {
+                ForeignCalls++;
+                return Task.FromResult(Json("{\"value\":[]}"));
+            }
+            if (uri.AbsolutePath.EndsWith("/data/$metadata", StringComparison.OrdinalIgnoreCase))
+                return Task.FromResult(Json(Metadata));
+            if (uri.AbsolutePath.EndsWith("/metadata/PublicEntities", StringComparison.OrdinalIgnoreCase))
+                return Task.FromResult(Json("{\"value\":[]}"));
+            if (!uri.AbsolutePath.EndsWith("/data/DataManagementTargetMapEntities", StringComparison.OrdinalIgnoreCase))
+                return Task.FromResult(Json("{}"));
+
+            TargetMapCalls++;
+            var query = Uri.UnescapeDataString(uri.Query);
+            var spacedCandidate = query.Contains("Customers V3", StringComparison.Ordinal);
+            var pageTwo = query.Contains("$skiptoken=page2", StringComparison.Ordinal);
+
+            if (failure == TargetMapFailure.CycleThenFallback && spacedCandidate)
+            {
+                return Task.FromResult(Json("{\"value\":[{\"FieldAOTName\":\"IdentificationNumber\",\"FieldLength\":50}]}"));
+            }
+
+            if (pageTwo && failure == TargetMapFailure.MalformedCollection)
+                return Task.FromResult(Json("{}"));
+            if (pageTwo)
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.BadGateway) { Content = new StringContent("unavailable") });
+
+            var next = failure switch
+            {
+                TargetMapFailure.CycleThenFallback => uri.AbsoluteUri,
+                TargetMapFailure.ForeignContinuation => "https://foreign.example/data/DataManagementTargetMapEntities?$skiptoken=page2",
+                _ => "https://contoso.operations.dynamics.com/data/DataManagementTargetMapEntities?$skiptoken=page2"
+            };
+            return Task.FromResult(Json($"{{\"value\":[{{\"FieldAOTName\":\"IdentificationNumber\",\"FieldLength\":10}}],\"@odata.nextLink\":{System.Text.Json.JsonSerializer.Serialize(next)}}}"));
+        }
+
+        private static HttpResponseMessage Json(string content) => new(HttpStatusCode.OK)
+        {
+            Content = new StringContent(content, Encoding.UTF8, "application/json")
+        };
     }
 }
