@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -16,7 +18,7 @@ namespace ToolBax.App.ViewModels;
 /// Profiles screen (viewmodels-and-services §B): master list of environments with search, the active
 /// selection, supported F&amp;O/Dataverse authentication, portal-only Data Integrator testing, and save.
 /// </summary>
-public partial class ProfilesViewModel : ObservableObject
+public partial class ProfilesViewModel : ObservableObject, IDisposable
 {
     private readonly IProfileStore _store;
     private readonly ISecretStore _secrets;
@@ -26,6 +28,29 @@ public partial class ProfilesViewModel : ObservableObject
     private readonly Func<EnvProfile, Task<string?>> _requestActivation;
     private readonly Func<EnvProfile, EnvProfile, Task<string?>> _commitActiveIdentitySave;
     private readonly Func<string?> _mutationBlockReason;
+
+    private int _testGeneration;
+    private bool _disposed;
+
+    public IAsyncRelayCommand TestConnectionCommand { get; }
+    public IAsyncRelayCommand TestDataverseConnectionCommand { get; }
+    public IAsyncRelayCommand TestGatewayCommand { get; }
+    public IRelayCommand TestConnectionCancelCommand => ((ProbeCommand)TestConnectionCommand).CancelCommand;
+    public IRelayCommand TestDataverseConnectionCancelCommand => ((ProbeCommand)TestDataverseConnectionCommand).CancelCommand;
+    public IRelayCommand TestGatewayCancelCommand => ((ProbeCommand)TestGatewayCommand).CancelCommand;
+
+    [ObservableProperty]
+    private string _foTestStatus = string.Empty;
+
+    [ObservableProperty]
+    private string _dataverseTestStatus = string.Empty;
+
+    private enum ProbeKind
+    {
+        Fo,
+        Dataverse,
+        Gateway
+    }
 
     public ObservableCollection<EnvProfile> Profiles { get; }
 
@@ -46,7 +71,7 @@ public partial class ProfilesViewModel : ObservableObject
     [NotifyPropertyChangedFor(nameof(ShowDataverseSecretSaveFirstHint))]
     private EnvProfile? _selected;
 
-    /// <summary>The Auth-tab client-secret entry. Write-only: stored on save, never loaded back.</summary>
+    /// <summary>The Auth-tab client-secret entry. Stored explicitly, never loaded back or used by Test.</summary>
     [ObservableProperty]
     private string _secretInput = string.Empty;
 
@@ -198,6 +223,9 @@ public partial class ProfilesViewModel : ObservableObject
     [ObservableProperty]
     private string _diStatus = string.Empty;
 
+    [ObservableProperty]
+    private string _legacyDiStatus = string.Empty;
+
     public ProfilesViewModel(
         IProfileStore store,
         ISecretStore? secrets = null,
@@ -219,14 +247,18 @@ public partial class ProfilesViewModel : ObservableObject
         _commitActiveIdentitySave = commitActiveIdentitySave ?? LocalIdentitySaveAsync;
         _mutationBlockReason = mutationBlockReason ?? (() => null);
         Profiles = new ObservableCollection<EnvProfile>(store.GetAll());
-        Profiles.CollectionChanged += (_, _) =>
-        {
-            OnPropertyChanged(nameof(CanDeleteProfile));
-            DeleteProfileCommand.NotifyCanExecuteChanged();
-        };
+
         _activeId = store.ActiveId;
         _selected = Profiles.FirstOrDefault(p => p.Id == _activeId) ?? Profiles.FirstOrDefault();
         LoadDrafts(_selected);
+        TestConnectionCommand = new ProbeCommand(ct => RunProbeAsync(ProbeKind.Fo, ct), CanStartProbe,
+            busy => IsTestingFoConnection = busy);
+        TestDataverseConnectionCommand = new ProbeCommand(ct => RunProbeAsync(ProbeKind.Dataverse, ct), CanStartProbe,
+            busy => IsTestingDataverseConnection = busy);
+        TestGatewayCommand = new ProbeCommand(ct => RunProbeAsync(ProbeKind.Gateway, ct), CanStartProbe,
+            busy => IsTestingGateway = busy);
+        PropertyChanged += OnTestContextChanged;
+        Profiles.CollectionChanged += OnProfilesChanged;
     }
 
     private Task<string?> LocalActivationAsync(EnvProfile target)
@@ -282,12 +314,16 @@ public partial class ProfilesViewModel : ObservableObject
     private static bool IsSupportedAuthMode(FoAuthMode mode) =>
         mode is FoAuthMode.Interactive or FoAuthMode.ClientSecret;
 
-    partial void OnSelectedChanged(EnvProfile? value)
+    partial void OnSelectedChanged(EnvProfile? oldValue, EnvProfile? newValue)
     {
-        LoadDrafts(value);
+        LoadDrafts(newValue);
         SecretInput = string.Empty; // never carry an entry across environments
         DataverseSecretInput = string.Empty;
         DiStatus = string.Empty;
+        if (!string.Equals(oldValue?.Id, newValue?.Id, StringComparison.Ordinal))
+        {
+            LegacyDiStatus = string.Empty;
+        }
         OnPropertyChanged(nameof(HasDiSecret));
         OnPropertyChanged(nameof(HasLegacyDiConfiguration));
     }
@@ -352,63 +388,6 @@ public partial class ProfilesViewModel : ObservableObject
 
     /// <summary>Raised with the deleted profile id, so the shell can drop it from its env list.</summary>
     public event Action<string>? ProfileDeleted;
-
-    [RelayCommand]
-    private async Task TestConnection(CancellationToken ct)
-    {
-        if (Selected is null)
-        {
-            return;
-        }
-
-        IsTestingFoConnection = true;
-        Status = $"Testing connection to '{Selected.Name}'…";
-        try
-        {
-            // Probe the same endpoint the tools use (/data/$metadata) with a fresh token, so a green
-            // test means the FO tool screens will actually load — not just that a token was minted.
-            var result = await _connectionTester.TestFoAsync(Selected, ct);
-            Status = result.Success
-                ? $"Connected to '{Selected.Name}' — {result.Message}"
-                : $"Connection to '{Selected.Name}' failed: {result.Message}";
-        }
-        catch (Exception ex)
-        {
-            Status = $"Connection to '{Selected.Name}' failed: {ex.Message}";
-        }
-        finally
-        {
-            IsTestingFoConnection = false;
-        }
-    }
-
-    [RelayCommand]
-    private async Task TestDataverseConnection(CancellationToken ct)
-    {
-        if (Selected is null)
-        {
-            return;
-        }
-
-        IsTestingDataverseConnection = true;
-        Status = $"Testing Dataverse connection for '{Selected.Name}'…";
-        try
-        {
-            // Probe Dataverse /WhoAmI with a fresh token — the same auth the Map Browser uses.
-            var result = await _connectionTester.TestDataverseAsync(Selected, ct);
-            Status = result.Success
-                ? $"Connected to Dataverse for '{Selected.Name}' — {result.Message}"
-                : $"Dataverse connection for '{Selected.Name}' failed: {result.Message}";
-        }
-        catch (Exception ex)
-        {
-            Status = $"Dataverse connection for '{Selected.Name}' failed: {ex.Message}";
-        }
-        finally
-        {
-            IsTestingDataverseConnection = false;
-        }
-    }
 
     [RelayCommand]
     private void AddProfile()
@@ -588,46 +567,7 @@ public partial class ProfilesViewModel : ObservableObject
         _secrets.ClearSecret(Selected.Id, SecretTarget.DataIntegrator);
         OnPropertyChanged(nameof(HasDiSecret));
         OnPropertyChanged(nameof(HasLegacyDiConfiguration));
-        DiStatus = "Legacy Data Integrator password cleared.";
-    }
-
-    // Tests the dual-write connection by driving the Data Integrator portal sign-in for the env's F&O
-    // URL — that single flow captures the delegated token AND discovers the regional gateway host (no
-    // client id / gateway URL to enter), then resolves the linkage.
-    [RelayCommand]
-    private async Task TestGateway(CancellationToken ct)
-    {
-        if (Selected is null)
-        {
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(DraftUrl))
-        {
-            DiStatus = "Set the F&O environment URL first.";
-            return;
-        }
-
-        IsTestingGateway = true;
-        DiStatus = "Opening Data Integrator sign-in…";
-        try
-        {
-            var probe = Selected with { Url = DraftUrl, Tenant = DraftTenant };
-            var result = await _gatewayTester.TestAsync(probe, ct);
-            DiStatus = result.Message;
-        }
-        catch (OperationCanceledException)
-        {
-            DiStatus = "Gateway test cancelled.";
-        }
-        catch (Exception ex)
-        {
-            DiStatus = $"Gateway test failed: {ex.Message}";
-        }
-        finally
-        {
-            IsTestingGateway = false;
-        }
+        LegacyDiStatus = "Legacy Data Integrator password cleared.";
     }
 
     [RelayCommand]
@@ -714,19 +654,7 @@ public partial class ProfilesViewModel : ObservableObject
 
         // Commit the editable drafts onto a new immutable record, persist, and swap it into the list
         // so the master + detail reflect the edit.
-        var updated = selected with
-        {
-            Name = DraftName,
-            Url = DraftUrl,
-            Tenant = DraftTenant,
-            Legal = DraftLegal,
-            Tier = DraftEnvironmentType,
-            DataverseUrl = string.IsNullOrWhiteSpace(DraftDataverseUrl) ? null : DraftDataverseUrl,
-            DataverseClientId = effectiveDataverseClientId,
-            DataverseAuthMode = DraftDataverseAuthMode,
-            ClientId = effectiveFoClientId,
-            AuthMode = DraftAuthMode,
-        };
+        var updated = BuildDraftProfile(selected);
 
         var activeIdentityChanged = selected.Id == ActiveId &&
             EnvironmentIdentity.Create(selected) != EnvironmentIdentity.Create(updated);
@@ -754,14 +682,20 @@ public partial class ProfilesViewModel : ObservableObject
 
         var existing = Profiles.FirstOrDefault(p => p.Id == selected.Id);
         var index = existing is null ? -1 : Profiles.IndexOf(existing);
+        var sameSelectionOwned = Selected?.Id == selected.Id;
+        var legacyDiStatus = LegacyDiStatus;
         if (index >= 0)
         {
             Profiles[index] = updated;
         }
 
-        if (Selected?.Id == selected.Id)
+        if (sameSelectionOwned && (Selected is null || Selected.Id == selected.Id))
         {
             Selected = updated;
+        }
+        if (sameSelectionOwned && Selected?.Id == selected.Id)
+        {
+            LegacyDiStatus = legacyDiStatus;
         }
         Status = $"Saved '{updated.Name}'.";
         ProfileSaved?.Invoke(updated);
@@ -791,6 +725,230 @@ public partial class ProfilesViewModel : ObservableObject
         catch (Exception ex)
         {
             System.Diagnostics.Trace.TraceWarning($"Failed to evict cached session for '{env.Name}': {ex}");
+        }
+    }
+
+    private EnvProfile BuildDraftProfile(EnvProfile selected) => selected with
+    {
+        Name = DraftName,
+        Url = DraftUrl,
+        Tenant = DraftTenant,
+        Legal = DraftLegal,
+        Tier = DraftEnvironmentType,
+        DataverseUrl = string.IsNullOrWhiteSpace(DraftDataverseUrl) ? null : DraftDataverseUrl,
+        DataverseClientId = string.IsNullOrWhiteSpace(DraftDataverseClientId) ? null : DraftDataverseClientId,
+        DataverseAuthMode = DraftDataverseAuthMode,
+        ClientId = string.IsNullOrWhiteSpace(DraftClientId) ? null : DraftClientId,
+        AuthMode = DraftAuthMode
+    };
+
+    private bool CanStartProbe() => !_disposed && Selected is { } selected && Profiles.Any(p => p.Id == selected.Id);
+
+    private bool IsCurrentProbe(EnvProfile snapshot, int generation) =>
+        !_disposed && generation == Volatile.Read(ref _testGeneration) && Selected is { } selected &&
+        selected.Id == snapshot.Id && Profiles.Any(p => p.Id == snapshot.Id) &&
+        string.Equals(DraftName, snapshot.Name, StringComparison.Ordinal) &&
+        EnvironmentIdentity.Create(BuildDraftProfile(selected)) == EnvironmentIdentity.Create(snapshot);
+
+    private string? ProbeRefusal(ProbeKind kind, EnvProfile saved, EnvProfile snapshot)
+    {
+        if (kind == ProbeKind.Gateway)
+            return string.IsNullOrWhiteSpace(snapshot.Url) ? "Set the F&O environment URL first." : null;
+
+        var dataverse = kind == ProbeKind.Dataverse;
+        var secretInput = dataverse ? DataverseSecretInput : SecretInput;
+        if (!string.IsNullOrEmpty(secretInput))
+            return "A new secret is pending. Store it explicitly before testing, or clear the entry. Test never stores or uses typed secrets.";
+
+        var mode = dataverse ? snapshot.DataverseAuthMode : snapshot.AuthMode;
+        if (!IsSupportedAuthMode(mode))
+            return "This authentication mode is unsupported. Choose Interactive or Client secret before testing.";
+
+        if (mode == FoAuthMode.ClientSecret)
+        {
+            var savedMode = dataverse ? saved.DataverseAuthMode : saved.AuthMode;
+            var savedClient = dataverse ? saved.DataverseClientId : saved.ClientId;
+            var draftClient = dataverse ? snapshot.DataverseClientId : snapshot.ClientId;
+            if (!SavedClientSecretContextMatches(savedMode, savedClient, mode, draftClient, saved.Tenant, snapshot.Tenant))
+                return "Save authentication changes, then Store the matching client secret before testing.";
+            if (!_secrets.HasSecret(saved.Id, dataverse ? SecretTarget.Dataverse : SecretTarget.Fo))
+                return "Store the client secret explicitly before testing.";
+        }
+        return null;
+    }
+
+    private void SetProbeStatus(ProbeKind kind, string status)
+    {
+        if (kind == ProbeKind.Fo) FoTestStatus = status;
+        else if (kind == ProbeKind.Dataverse) DataverseTestStatus = status;
+        else DiStatus = status;
+    }
+
+    private async Task RunProbeAsync(ProbeKind kind, CancellationToken ct)
+    {
+        var saved = Selected;
+        if (!CanStartProbe() || saved is null) return;
+        var snapshot = BuildDraftProfile(saved);
+        var generation = Volatile.Read(ref _testGeneration);
+        var endpoint = kind == ProbeKind.Dataverse ? snapshot.DataverseUrl : snapshot.Url;
+        var target = kind == ProbeKind.Fo ? "F&O" : kind == ProbeKind.Dataverse ? "Dataverse" : "Gateway";
+        var attribution = $"{target} draft '{snapshot.Name}' ({endpoint})";
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+            if (ProbeRefusal(kind, saved, snapshot) is { } refusal)
+            {
+                SetProbeStatus(kind, refusal);
+                return;
+            }
+            SetProbeStatus(kind, $"Testing {attribution}…");
+            ConnectionTestResult result;
+            if (kind == ProbeKind.Gateway)
+            {
+                var gateway = await WaitForProbeAsync(_gatewayTester.TestAsync(snapshot, ct), ct);
+                result = new ConnectionTestResult(gateway.IsSuccess, gateway.Message);
+            }
+            else
+            {
+                result = await WaitForProbeAsync(kind == ProbeKind.Fo
+                    ? _connectionTester.TestFoAsync(snapshot, ct)
+                    : _connectionTester.TestDataverseAsync(snapshot, ct), ct);
+            }
+            ct.ThrowIfCancellationRequested();
+            if (!IsCurrentProbe(snapshot, generation)) return;
+            SetProbeStatus(kind, result.Success
+                ? $"Connected: {attribution} — {result.Message}"
+                : $"{attribution} failed: {result.Message}");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            if (IsCurrentProbe(snapshot, generation)) SetProbeStatus(kind, $"{attribution}: test cancelled.");
+        }
+        catch (Exception ex)
+        {
+            if (IsCurrentProbe(snapshot, generation)) SetProbeStatus(kind, $"{attribution} failed: {ex.Message}");
+        }
+    }
+
+    private static async Task<T> WaitForProbeAsync<T>(Task<T> probe, CancellationToken ct)
+    {
+        try
+        {
+            return await probe.WaitAsync(ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // WaitAsync detaches from an unfinished probe when cancelled. Observe a later fault on
+            // that original task without retaining the VM, publishing/logging, or delaying cancellation.
+            _ = probe.ContinueWith(static completed => { _ = completed.Exception; }, CancellationToken.None,
+                TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+                TaskScheduler.Default);
+            throw;
+        }
+    }
+
+    private void OnTestContextChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName?.StartsWith("Draft", StringComparison.Ordinal) == true ||
+            e.PropertyName is nameof(Selected) or nameof(SecretInput) or nameof(DataverseSecretInput) or nameof(HasSecret) or nameof(HasDataverseSecret))
+            InvalidateTests();
+    }
+
+    private void OnProfilesChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        InvalidateTests();
+        OnPropertyChanged(nameof(CanDeleteProfile));
+        DeleteProfileCommand.NotifyCanExecuteChanged();
+    }
+
+    private void InvalidateTests()
+    {
+        Interlocked.Increment(ref _testGeneration);
+        TestConnectionCommand.Cancel();
+        TestDataverseConnectionCommand.Cancel();
+        TestGatewayCommand.Cancel();
+        FoTestStatus = DataverseTestStatus = DiStatus = string.Empty;
+        TestConnectionCommand.NotifyCanExecuteChanged();
+        TestDataverseConnectionCommand.NotifyCanExecuteChanged();
+        TestGatewayCommand.NotifyCanExecuteChanged();
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        PropertyChanged -= OnTestContextChanged;
+        Profiles.CollectionChanged -= OnProfilesChanged;
+        InvalidateTests();
+    }
+
+    // Profiles-only ownership: admission precedes CTS allocation, so rejected direct calls cannot
+    // cancel the accepted probe or replace ExecutionTask. Different instances represent independent targets.
+    private sealed class ProbeCommand : IAsyncRelayCommand
+    {
+        private int _held;
+        private CancellationTokenSource? _cts;
+        private bool _cancelled;
+        private readonly Func<CancellationToken, Task> _execute;
+        private readonly Func<bool> _canStart;
+        private readonly Action<bool> _busy;
+        public ProbeCommand(Func<CancellationToken, Task> execute, Func<bool> canStart, Action<bool> busy)
+        {
+            _execute = execute;
+            _canStart = canStart;
+            _busy = busy;
+            CancelCommand = new RelayCommand(Cancel, () => CanBeCanceled);
+        }
+        public IRelayCommand CancelCommand { get; }
+        public Task? ExecutionTask { get; private set; }
+        public bool IsRunning => Volatile.Read(ref _held) != 0;
+        public bool CanBeCanceled => _cts is { IsCancellationRequested: false };
+        public bool IsCancellationRequested => _cts?.IsCancellationRequested ?? _cancelled;
+        public event PropertyChangedEventHandler? PropertyChanged;
+        public event EventHandler? CanExecuteChanged;
+        public bool CanExecute(object? parameter) => _canStart() && !IsRunning;
+        public void NotifyCanExecuteChanged() => CanExecuteChanged?.Invoke(this, EventArgs.Empty);
+        public void Cancel()
+        {
+            _cts?.Cancel();
+            Notify();
+        }
+        public async void Execute(object? parameter) => await ExecuteAsync(parameter);
+        public Task ExecuteAsync(object? parameter)
+        {
+            if (!_canStart() || Interlocked.CompareExchange(ref _held, 1, 0) != 0) return Task.CompletedTask;
+            var cts = new CancellationTokenSource();
+            _cts = cts;
+            _cancelled = false;
+            var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            ExecutionTask = completion.Task;
+            _busy(true);
+            Notify();
+            _ = Run(cts, completion);
+            return completion.Task;
+        }
+        private async Task Run(CancellationTokenSource cts, TaskCompletionSource completion)
+        {
+            Exception? error = null;
+            try { await _execute(cts.Token); }
+            catch (Exception ex) { error = ex; }
+            finally
+            {
+                _cancelled = cts.IsCancellationRequested;
+                _cts = null;
+                cts.Dispose();
+                Volatile.Write(ref _held, 0);
+                _busy(false);
+                if (error is not null) completion.TrySetException(error);
+                else completion.TrySetResult();
+                Notify();
+            }
+        }
+        private void Notify()
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(null));
+            NotifyCanExecuteChanged();
+            CancelCommand.NotifyCanExecuteChanged();
         }
     }
 }
