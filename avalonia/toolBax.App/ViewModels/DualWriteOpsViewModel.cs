@@ -44,6 +44,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     private int _operationLeaseHeld;
     private bool _disposed;
     private CancellationTokenSource? _acceptedCancellation;
+    private EnvironmentWriteGate? _environmentWriteGate;
+    private IDisposable? _environmentWriteLease;
     private DualWriteSession? _lifecycleSession;
     private DualWriteSession? _debugSession;
     private bool _lastWasDebug;
@@ -149,7 +151,8 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         TimeSpan? pollInterval = null,
         TimeSpan? actionTimeout = null,
         IODataClient? odata = null,
-        IMetadataService? metadata = null)
+        IMetadataService? metadata = null,
+        EnvironmentWriteGate? environmentWriteGate = null)
     {
         RunActionCommand = new WriteOperationCommand((arg, ct) => arg is OpsAction action ? RunActionExclusive(action, ct) : Task.CompletedTask, arg => CanRunAction(arg as OpsAction),
             () => TryBeginOperation(true), () => EndOperation(true), c => _acceptedCancellation = c);
@@ -168,6 +171,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         _actionTimeout = actionTimeout ?? TimeSpan.FromSeconds(120);
         _odata = odata ?? new FakeODataClient();
         _metadata = metadata ?? new FakeMetadataService();
+        AttachEnvironmentWriteGate(environmentWriteGate);
         Maps.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasMaps));
         GatewayLog.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasGatewayLog));
     }
@@ -400,6 +404,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     // named in the status line and the gateway log.
     private bool CanRunAction(OpsAction? action) =>
         action is not null && !IsBusy && Volatile.Read(ref _operationLeaseHeld) == 0
+        && _environmentWriteGate?.ProfileCommitInProgress != true
         && _session is not null && !SessionEnvMismatch() && SelectedCount > 0;
 
     private async Task RunActionExclusive(OpsAction action, CancellationToken ct)
@@ -544,6 +549,15 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
             return false;
         }
 
+        if (isMutation && _environmentWriteGate is not null &&
+            !_environmentWriteGate.TryAcquireLiveWrite(out _environmentWriteLease))
+        {
+            Volatile.Write(ref _operationLeaseHeld, 0);
+            Status = "Not started — profile persistence is in progress.";
+            NotifyWriteCommands();
+            return false;
+        }
+
         if (isMutation) MutationInProgress = true;
         IsBusy = true;
         return true;
@@ -565,6 +579,11 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
     private void EndOperation(bool isMutation)
     {
         if (isMutation) MutationInProgress = false;
+        if (isMutation)
+        {
+            _environmentWriteLease?.Dispose();
+            _environmentWriteLease = null;
+        }
         Volatile.Write(ref _operationLeaseHeld, 0);
         // IsBusy drives the generated CanExecuteChanged notifications. Release first so handlers that
         // immediately re-query CanExecute observe the available lease rather than leaving buttons stale.
@@ -656,7 +675,27 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
 
     private bool CanToggleDebug() =>
         !IsBusy && Volatile.Read(ref _operationLeaseHeld) == 0
+        && _environmentWriteGate?.ProfileCommitInProgress != true
         && _session is not null && !SessionEnvMismatch() && SelectedCount > 0;
+
+    public void AttachEnvironmentWriteGate(EnvironmentWriteGate? gate)
+    {
+        if (gate is null || ReferenceEquals(_environmentWriteGate, gate)) return;
+        if (_environmentWriteGate is not null)
+            throw new InvalidOperationException("An environment write gate is already attached.");
+        _environmentWriteGate = gate;
+        _environmentWriteGate.StateChanged += OnEnvironmentWriteGateChanged;
+        NotifyWriteCommands();
+    }
+
+    private void OnEnvironmentWriteGateChanged() => NotifyWriteCommands();
+
+    private void NotifyWriteCommands()
+    {
+        RunActionCommand.NotifyCanExecuteChanged();
+        EnableDebugForSelectedCommand.NotifyCanExecuteChanged();
+        DisableDebugForSelectedCommand.NotifyCanExecuteChanged();
+    }
 
     private async Task SetDebugForSelectedExclusiveAsync(bool enabled, CancellationToken ct)
     {
@@ -996,6 +1035,7 @@ public partial class DualWriteOpsViewModel : ObservableObject, IDisposable
         _disposed = true;
         Interlocked.Increment(ref _generation);
         _acceptedCancellation?.Cancel();
+        if (_environmentWriteGate is not null) _environmentWriteGate.StateChanged -= OnEnvironmentWriteGateChanged;
         LoadCommand.Cancel();
         DisposeSession();
     }

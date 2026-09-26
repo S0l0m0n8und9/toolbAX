@@ -6,7 +6,17 @@ The product targets Windows 10 or Windows 11 (x64), using an edition/build liste
 
 WebView2 is compiled for Windows but its Runtime is separate. Confirm availability through [Microsoft's WebView2 distribution guidance](https://learn.microsoft.com/en-us/microsoft-edge/webview2/concepts/distribution); follow organisation policy for installation and security prompts. A bundled .NET runtime does not imply WebView2 Runtime availability.
 
+Dual-write portal sign-in uses a dedicated toolbAX WebView2 profile under the current user's local app data. Before each sign-in, toolbAX clears that profile's token-bearing browser storage and disk cache so the configured environment completes a fresh exchange the app can verify. Normal sign-in preserves cookies for SSO; **Switch account** also clears cookies so Entra prompts again. This does not clear a normal Edge or Chrome profile. Closing the window cancels the attempt; an incomplete sign-in is never used as a partial connection. If browser preparation fails, close any other toolbAX sign-in window and retry; persistent failures usually require checking the WebView2 Runtime and access to the toolbAX local app-data folder. If the portal appears to finish but the sign-in window remains open and the connection is not confirmed, close the window and retry for the configured environment; do not reuse the partial attempt.
+
+The current dual-write gateway policy covers Microsoft's commercial-cloud `gateway.prod.island.powerapps.com` family and the public Entra login hosts. Sovereign-cloud or other gateway families are not claimed as supported by this implementation. Validation was deterministic and offline: no live portal sign-in, tenant policy, gateway operability or real profile clear was exercised.
+
 Releases are unsigned. The published SHA256 checks downloaded bytes against the published checksum; it is not a publisher signature. Follow organisation policy for download approval and SmartScreen.
+
+## Profile connection tests
+
+Test uses the displayed draft connection fields without saving or activating the profile. F&O, Dataverse and portal gateway results identify the captured environment and endpoint; editing or changing the selected profile invalidates older results. Each test has its own Cancel control. A successful probe confirms that endpoint at that time, not every tool, permission or business operation.
+
+Client-secret tests use the stored credential only when the saved authentication settings still match the draft. Save changed authentication settings and explicitly Store a new secret before testing; Test neither stores nor silently uses a typed secret. Interactive and portal tests retain their normal sign-in/token-cache behavior.
 
 ## App capabilities
 
@@ -35,6 +45,8 @@ Receipts are memory-only. They disappear when the tool is recreated or the app c
 ## Core-only APIs
 
 The following Core capabilities have no current App UI: saved queries/API requests, template switching, table refresh, link reset, and integration-key application. They remain implementation APIs, not advertised product screens. Profile persistence is in [`ProfileStore.cs`](../src/FoToolbox.Core/Profiles/ProfileStore.cs); gateway client behavior is in [`DualWriteGatewayClient.cs`](../src/FoToolbox.Core/DualWrite/DualWriteGatewayClient.cs).
+
+For Core consumers, bearer handlers require an explicit validated gateway origin. Delegated refresh additionally requires the captured tenant/client/resource binding; legacy refresh sessions without that provenance must sign in again. The static/manual Core bearer API remains caller-supplied within the trusted gateway policy. Normal F&O/Dataverse MSAL behavior is unchanged, and toolbAX does not treat access-token JWT decoding as validation.
 
 ## Data, logs, and evidence limits
 

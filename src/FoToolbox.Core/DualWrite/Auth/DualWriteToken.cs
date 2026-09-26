@@ -6,6 +6,9 @@ namespace FoToolbox.Core.DualWrite.Auth;
 /// <summary>A delegated access token with its refresh token and absolute expiry.</summary>
 public sealed record DualWriteToken(string AccessToken, string? RefreshToken, DateTimeOffset ExpiresUtc)
 {
+    /// <summary>Trusted delegated provenance; null for manual or legacy tokens.</summary>
+    public DualWriteDelegatedBinding? Binding { get; init; }
+
     /// <summary>True when the token is at/near expiry (default 2-minute safety margin).</summary>
     public bool IsExpired(DateTimeOffset now, TimeSpan? margin = null) =>
         now >= ExpiresUtc - (margin ?? TimeSpan.FromMinutes(2));

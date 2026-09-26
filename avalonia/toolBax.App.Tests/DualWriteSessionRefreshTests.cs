@@ -19,13 +19,21 @@ namespace ToolBax.App.Tests;
 /// </summary>
 public class DualWriteSessionRefreshTests
 {
+    private static readonly DualWriteDelegatedBinding Binding = new(
+        Guid.Parse("88888888-8888-8888-8888-888888888888"),
+        DualWriteAuthConstants.ClientId,
+        DualWriteAuthConstants.ResourceBaseUrl,
+        DualWriteAuthConstants.Scope);
+
     private static EnvProfile Env() =>
         new("env1", "PGW", "https://pgw.operations.dynamics.com", "tenant", "USMF", "Tier 2", EnvStatus.Connected);
 
-    private static FakeDualWriteSignIn SignIn(string? refreshToken) =>
-        new(new DualWriteSignInResult(
-            new DualWriteToken("access", refreshToken, DateTimeOffset.UtcNow.AddHours(1)),
-            "https://gw.example"));
+    private static DualWriteSignInResult SignInResult(string? refreshToken) =>
+        new(
+            new DualWriteToken("access", refreshToken, DateTimeOffset.UtcNow.AddHours(1)) { Binding = Binding },
+            "https://projectmanagementservice.test.gateway.prod.island.powerapps.com/");
+
+    private static FakeDualWriteSignIn SignIn(string? refreshToken) => new(SignInResult(refreshToken));
 
     /// <summary>Records which factory overload the caller reached for, and the callback it supplied.</summary>
     private sealed class RecordingFactory : IDualWriteGatewayFactory
@@ -86,6 +94,7 @@ public class DualWriteSessionRefreshTests
         Assert.Equal(0, factory.CreateCalls);
         Assert.NotNull(factory.OnRefreshed);
         Assert.True(factory.Settings!.HasDelegatedSession);
+        Assert.Equal(Binding, factory.Settings.DelegatedBinding);
         // The callback must be safe to invoke: nothing persists tokens today, so it only traces.
         await factory.OnRefreshed!(new DualWriteToken("next", "refresh-2", DateTimeOffset.UtcNow.AddHours(1)));
     }
@@ -100,6 +109,7 @@ public class DualWriteSessionRefreshTests
 
         Assert.Equal(1, factory.CreateCalls);
         Assert.Equal(0, factory.CreateRefreshingCalls);
+        Assert.Equal(Binding, factory.Settings!.DelegatedBinding);
     }
 
     [Fact]
@@ -113,6 +123,7 @@ public class DualWriteSessionRefreshTests
         Assert.True(result.IsSuccess);
         Assert.Equal(1, factory.CreateRefreshingCalls);
         Assert.Equal(0, factory.CreateCalls);
+        Assert.Equal(Binding, factory.Settings!.DelegatedBinding);
     }
 
     [Fact]
@@ -125,5 +136,66 @@ public class DualWriteSessionRefreshTests
 
         Assert.Equal(1, factory.CreateCalls);
         Assert.Equal(0, factory.CreateRefreshingCalls);
+        Assert.Equal(Binding, factory.Settings!.DelegatedBinding);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Legacy_unbound_sign_in_is_refused_before_factory_or_gateway(bool tester)
+    {
+        var result = new DualWriteSignInResult(
+            new DualWriteToken("legacy", "refresh", DateTimeOffset.UtcNow.AddHours(1)),
+            "https://projectmanagementservice.test.gateway.prod.island.powerapps.com/");
+        var factory = new RecordingFactory(new StubGateway());
+        if (tester)
+        {
+            var outcome = await new CoreDualWriteGatewayTester(new FakeDualWriteSignIn(result), factory)
+                .TestAsync(Env(), TestContext.Current.CancellationToken);
+            Assert.False(outcome.IsSuccess);
+            Assert.Contains("verify", outcome.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("sign in again", outcome.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        else
+        {
+            var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+                new CoreDualWriteConnector(new FakeDualWriteSignIn(result), factory)
+                    .ConnectAsync(Env(), TestContext.Current.CancellationToken));
+            Assert.Contains("verify", error.Message, StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("sign in again", error.Message, StringComparison.OrdinalIgnoreCase);
+        }
+        Assert.Equal(0, factory.CreateCalls + factory.CreateRefreshingCalls);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Cancellation_after_late_sign_in_result_dispatches_no_gateway(bool tester)
+    {
+        var signIn = new LateSignIn(SignInResult("refresh"));
+        var factory = new RecordingFactory(new StubGateway());
+        using var cancellation = new CancellationTokenSource();
+        Task operation = tester
+            ? new CoreDualWriteGatewayTester(signIn, factory).TestAsync(Env(), cancellation.Token)
+            : new CoreDualWriteConnector(signIn, factory).ConnectAsync(Env(), cancellation.Token);
+        await signIn.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5), TestContext.Current.CancellationToken);
+        cancellation.Cancel();
+        signIn.Release();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation);
+        Assert.Equal(0, factory.CreateCalls + factory.CreateRefreshingCalls);
+    }
+
+    private sealed class LateSignIn(DualWriteSignInResult result) : IDualWriteSignIn
+    {
+        private readonly TaskCompletionSource _release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public async Task<DualWriteSignInResult?> SignInAsync(EnvProfile env, bool switchAccount = false, CancellationToken ct = default)
+        {
+            Entered.TrySetResult();
+            await _release.Task; // deliberately ignores cancellation
+            return result;
+        }
+        public void Release() => _release.TrySetResult();
     }
 }

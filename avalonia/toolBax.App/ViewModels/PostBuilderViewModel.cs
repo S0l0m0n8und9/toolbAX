@@ -35,8 +35,11 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     private readonly Func<EnvProfile?> _activeEnv;
     private readonly bool _environmentBound;
     private int _generation;
+    private int _fieldReadSequence;
     private bool _disposed;
     private int _writeLease;
+    private readonly EnvironmentWriteGate? _environmentWriteGate;
+    private IDisposable? _environmentWriteLease;
     private CancellationTokenSource? _acceptedCancellation;
     public IAsyncRelayCommand SendCommand { get; }
     public IRelayCommand SendCancelCommand { get; }
@@ -177,7 +180,8 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     public ObservableCollection<PostFieldRow> Fields { get; } = new();
 
     public PostBuilderViewModel(IODataClient client, IClipboardService? clipboard = null,
-        IMetadataService? metadata = null, IDialogService? dialogs = null, Func<EnvProfile?>? activeEnv = null)
+        IMetadataService? metadata = null, IDialogService? dialogs = null, Func<EnvProfile?>? activeEnv = null,
+        EnvironmentWriteGate? environmentWriteGate = null)
     {
         _client = client;
         SendCommand = new WriteOperationCommand((_, ct) => Send(ct), _ => CanSend(),
@@ -191,6 +195,8 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
         _dialogs = dialogs ?? new AutoConfirmDialogs();
         _environmentBound = activeEnv is not null;
         _activeEnv = activeEnv ?? (() => null);
+        _environmentWriteGate = environmentWriteGate;
+        if (_environmentWriteGate is not null) _environmentWriteGate.StateChanged += OnEnvironmentWriteGateChanged;
         // The fake seeds its catalogue synchronously; the real service starts empty and fills in via
         // Initialize (triggered by the view on load) — so this snapshot is a starting point, not the load.
         Entities = new ObservableCollection<EntitySet>(_metadata.GetEntities());
@@ -206,13 +212,13 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task Initialize(CancellationToken ct)
     {
-        if (_disposed) return;
+        if (_disposed || ct.IsCancellationRequested) return;
         var identity = EnvironmentIdentity.TryCreate(_activeEnv());
         var generation = Volatile.Read(ref _generation);
         if (_environmentBound && identity is null) return;
 
         var loaded = await _loader.LoadEntitiesAsync(Entities.Select(e => e.Name).ToList(), ct);
-        if (!CanCommit(identity, generation)) return;
+        if (ct.IsCancellationRequested || !CanCommit(identity, generation)) return;
         LoadError = _loader.LastError;
         if (loaded is not null)
         {
@@ -233,7 +239,7 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
         }
 
         await EnsureFieldsAsync(ct);
-        if (!CanCommit(identity, generation)) return;
+        if (ct.IsCancellationRequested || !CanCommit(identity, generation)) return;
         if (UseFieldGrid && SelectedEntity is null)
         {
             // Grid mode with nothing to select (the catalogue is empty, or the load failed): state that
@@ -251,10 +257,11 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     // fields must settle on the "hasn't loaded" block, not re-enter the fetch and loop.
     private async Task EnsureFieldsAsync(CancellationToken ct)
     {
-        if (_disposed) return;
+        if (_disposed || ct.IsCancellationRequested) return;
         var identity = EnvironmentIdentity.TryCreate(_activeEnv());
         var generation = Volatile.Read(ref _generation);
         if (_environmentBound && identity is null) return;
+        var owner = Interlocked.Increment(ref _fieldReadSequence);
         var entity = SelectedEntity;
         if (!UseFieldGrid || entity is null || Fields.Count > 0)
         {
@@ -262,7 +269,7 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
         }
 
         var fetched = await _loader.EnsureFieldsAsync(entity.Name, ct);
-        if (!CanCommit(identity, generation) || SelectedEntity != entity)
+        if (ct.IsCancellationRequested || owner != Volatile.Read(ref _fieldReadSequence) || !CanCommit(identity, generation) || SelectedEntity != entity)
         {
             // The user moved on; that selection's own load (ReloadGrid/EnsureFieldsAsync) owns the grid
             // AND the LoadError banner now — this fetch's outcome, success or failure, belongs to
@@ -272,11 +279,8 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // _loader.LastError is shared, "most recent fetch" state: EntityCatalogLoader.EnsureFieldsAsync
-        // returns early WITHOUT touching it when the entity's fields are already cached, so a cache hit
-        // here could otherwise leave LoadError holding an unrelated, earlier entity's failure. Re-derive
-        // per-entity truth from whether THIS entity's fields actually ended up available, rather than
-        // trusting the shared field blindly (PR #196 review).
+        // Derive this entity's availability from the cache; loader error state can also describe
+        // catalogue reads, so it is not by itself evidence that these fields are unavailable.
         LoadError = _metadata.GetFields(entity.Name) is null ? _loader.LastError : null;
 
         if (fetched || LoadError is not null)
@@ -682,7 +686,8 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
 
     // In grid mode an invalid payload must not be sent (the body is blank and the issues are shown);
     // in raw mode the user owns the body, so there's nothing to gate on.
-    private bool CanSend() => !_disposed && !IsBusy && Volatile.Read(ref _writeLease) == 0 && !(UseFieldGrid && HasPayloadIssues);
+    private bool CanSend() => !_disposed && !IsBusy && Volatile.Read(ref _writeLease) == 0
+        && _environmentWriteGate?.ProfileCommitInProgress != true && !(UseFieldGrid && HasPayloadIssues);
 
     // The If-Match header for a PATCH/DELETE when enabled (existence or version precondition); null otherwise.
     private static IReadOnlyDictionary<string, string>? BuildHeaders(
@@ -694,6 +699,14 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     private bool BeginWriteOperation(bool mutation)
     {
         if (_disposed || Interlocked.CompareExchange(ref _writeLease, 1, 0) != 0) return false;
+        if (mutation && _environmentWriteGate is not null &&
+            !_environmentWriteGate.TryAcquireLiveWrite(out _environmentWriteLease))
+        {
+            Volatile.Write(ref _writeLease, 0);
+            StatusText = "Not sent — profile persistence is in progress.";
+            SendCommand.NotifyCanExecuteChanged();
+            return false;
+        }
         MutationInProgress = mutation;
         IsBusy = true;
         SendCommand.NotifyCanExecuteChanged();
@@ -703,11 +716,19 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     private void EndWriteOperation()
     {
         MutationInProgress = false;
+        _environmentWriteLease?.Dispose();
+        _environmentWriteLease = null;
         Volatile.Write(ref _writeLease, 0);
         IsBusy = false;
         SendCommand.NotifyCanExecuteChanged();
         ReconcileCommand.NotifyCanExecuteChanged();
         OnPropertyChanged(nameof(ReconcileReason));
+    }
+
+    private void OnEnvironmentWriteGateChanged()
+    {
+        SendCommand.NotifyCanExecuteChanged();
+        ReconcileCommand.NotifyCanExecuteChanged();
     }
     private async Task Send(CancellationToken ct)
     {
@@ -855,6 +876,7 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
         InitializeCommand.Cancel();
         EnsureFieldsCommand.Cancel();
         _acceptedCancellation?.Cancel();
+        if (_environmentWriteGate is not null) _environmentWriteGate.StateChanged -= OnEnvironmentWriteGateChanged;
         _loader.Dispose();
     }
 }

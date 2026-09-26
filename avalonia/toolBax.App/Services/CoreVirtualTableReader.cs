@@ -19,8 +19,19 @@ public sealed class CoreVirtualTableReader : IVirtualTableReader
 
     public async Task<VirtualTableLoadResult> GetVirtualTablesAsync(CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         var path = $"EntityDefinitions?$select={VirtualTableMetadataParser.SelectColumns}";
-        var response = await _dataverse.GetAsync(path, ct).ConfigureAwait(false);
+        ODataResponse response;
+        try
+        {
+            response = await _dataverse.GetAsync(path, ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+        }
+        catch
+        {
+            ct.ThrowIfCancellationRequested();
+            throw;
+        }
         if (!response.IsSuccess)
         {
             return VirtualTableLoadResult.Fail($"Couldn't load table metadata ({response.StatusLine}).");
@@ -28,11 +39,19 @@ public sealed class CoreVirtualTableReader : IVirtualTableReader
 
         try
         {
-            return VirtualTableLoadResult.Ok(VirtualTableMetadataParser.Parse(response.Body));
+            var records = VirtualTableMetadataParser.Parse(response.Body);
+            ct.ThrowIfCancellationRequested();
+            return VirtualTableLoadResult.Ok(records);
         }
         catch (MetadataResponseFormatException ex)
         {
+            ct.ThrowIfCancellationRequested();
             return VirtualTableLoadResult.Fail($"Couldn't load table metadata: {ex.Message}");
+        }
+        catch
+        {
+            ct.ThrowIfCancellationRequested();
+            throw;
         }
     }
 }

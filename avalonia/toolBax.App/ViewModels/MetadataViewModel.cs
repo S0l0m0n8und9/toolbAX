@@ -27,6 +27,31 @@ public partial class MetadataViewModel : ObservableObject, IDisposable
     // Identifies the newest field fetch, so only it may lower IsLoadingFields. Interlocked/Volatile because
     // a superseded fetch can unwind on a pool thread while the newest one is being started.
     private int _fieldsFetchSequence;
+    private int _catalogReadSequence;
+    private int _pendingReads;
+    public bool HasPendingReads => Volatile.Read(ref _pendingReads) > 0;
+
+    private void BeginRead()
+    {
+        Interlocked.Increment(ref _pendingReads);
+        OnPropertyChanged(nameof(HasPendingReads));
+        CancelReadsCommand.NotifyCanExecuteChanged();
+    }
+
+    private void EndRead()
+    {
+        Interlocked.Decrement(ref _pendingReads);
+        OnPropertyChanged(nameof(HasPendingReads));
+        CancelReadsCommand.NotifyCanExecuteChanged();
+    }
+
+    [RelayCommand(CanExecute = nameof(HasPendingReads))]
+    private void CancelReads()
+    {
+        InitializeCommand.Cancel();
+        RefreshCommand.Cancel();
+        LoadSelectedFieldsCommand.Cancel();
+    }
 
     public ObservableCollection<EntitySet> Entities { get; }
     public ObservableCollection<EntityField> Fields { get; } = new();
@@ -65,7 +90,7 @@ public partial class MetadataViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     private string? _loadError;
 
-    // True while a forced refresh is in flight; keeps the Refresh button from re-entering.
+    // True while the current catalogue read is in flight; its owner alone clears the flag.
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RefreshCommand))]
     private bool _isBusy;
@@ -131,26 +156,32 @@ public partial class MetadataViewModel : ObservableObject, IDisposable
     [RelayCommand(IncludeCancelCommand = true)]
     private async Task Initialize(CancellationToken ct)
     {
-        if (!TryCaptureLifecycle(out var identity, out var lifecycleGeneration)) return;
-        var loaded = await _loader.LoadEntitiesAsync(Entities.Select(e => e.Name).ToList(), ct);
-        if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
-        LoadError = _loader.LastError;
-        if (loaded is not null)
+        if (ct.IsCancellationRequested || !TryCaptureLifecycle(out var identity, out var lifecycleGeneration)) return;
+        var owner = Interlocked.Increment(ref _catalogReadSequence);
+        RefreshCommand.Cancel();
+        IsBusy = true;
+        BeginRead();
+        try
         {
-            var previous = Selected?.Name;
-            Entities.Clear();
-            foreach (var e in loaded)
+            var loaded = await _loader.LoadEntitiesAsync(Entities.Select(e => e.Name).ToList(), ct);
+            if (ct.IsCancellationRequested || owner != Volatile.Read(ref _catalogReadSequence) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            LoadError = _loader.LastError;
+            if (loaded is not null)
             {
-                Entities.Add(e);
+                var previous = Selected?.Name;
+                Entities.Clear();
+                foreach (var entity in loaded) Entities.Add(entity);
+                Selected = Entities.FirstOrDefault(e => e.Name == previous) ?? Entities.FirstOrDefault();
+                OnPropertyChanged(nameof(Filtered));
             }
-
-            Selected = Entities.FirstOrDefault(e => e.Name == previous) ?? Entities.FirstOrDefault();
-            OnPropertyChanged(nameof(Filtered));
+            if (!ct.IsCancellationRequested) await LoadSelectedFieldsAsync(ct);
         }
-
-        await LoadSelectedFieldsAsync(ct);
+        finally
+        {
+            if (owner == Volatile.Read(ref _catalogReadSequence)) IsBusy = false;
+            EndRead();
+        }
     }
-
     // Re-reads the entity list and the selected entity's properties straight from the environment,
     // bypassing the cached copies. The escape hatch for metadata that changed since it was cached (a
     // deployed entity, or a profile repointed at another environment) — Initialize alone would keep
@@ -158,108 +189,79 @@ public partial class MetadataViewModel : ObservableObject, IDisposable
     [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanRefresh))]
     private async Task Refresh(CancellationToken ct)
     {
-        if (!TryCaptureLifecycle(out var identity, out var lifecycleGeneration)) return;
+        if (ct.IsCancellationRequested || !TryCaptureLifecycle(out var identity, out var lifecycleGeneration)) return;
+        var owner = Interlocked.Increment(ref _catalogReadSequence);
+        InitializeCommand.Cancel();
         IsBusy = true;
+        BeginRead();
         try
         {
             await _metadata.LoadEntitiesAsync(forceRefresh: true, ct);
-            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
-            LoadError = null;
-
-            // Rebuilt unconditionally: an empty result is a legitimate answer (an environment with no
-            // OData metadata, or one the refresh couldn't enumerate), and keeping the previous list would
-            // leave the browser showing another environment's entities with the error already cleared. A
-            // failed refresh throws instead, and is handled below without reaching here.
+            if (ct.IsCancellationRequested || owner != Volatile.Read(ref _catalogReadSequence) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             var loaded = _metadata.GetEntities();
+            if (ct.IsCancellationRequested || owner != Volatile.Read(ref _catalogReadSequence) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             var previous = Selected?.Name;
+            LoadError = null;
             Entities.Clear();
-            foreach (var e in loaded)
-            {
-                Entities.Add(e);
-            }
-
+            foreach (var entity in loaded) Entities.Add(entity);
             Selected = Entities.FirstOrDefault(e => e.Name == previous) ?? Entities.FirstOrDefault();
             OnPropertyChanged(nameof(Filtered));
-
-            // Refetch the selection's properties too, so the grid isn't left showing the cached ones.
-            if (Selected is { } entity)
-            {
-                await _metadata.LoadFieldsAsync(entity.Name, forceRefresh: true, ct);
-                if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
-                if (Selected == entity)
-                {
-                    LoadFields();
-                }
-            }
+            LoadSelectedFieldsCommand.Cancel();
+            if (!ct.IsCancellationRequested) await LoadSelectedFieldsAsync(ct, forceRefresh: true);
         }
-        catch (OperationCanceledException)
-        {
-            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
-            // A cancelled refresh leaves the previously loaded list and fields in place.
-        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
         catch (Exception ex)
         {
-            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            if (ct.IsCancellationRequested || owner != Volatile.Read(ref _catalogReadSequence) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             LoadError = ex.Message;
         }
         finally
         {
-            if (IsLifecycleCurrent(identity, lifecycleGeneration))
-            {
-                IsBusy = false;
-            }
+            if (owner == Volatile.Read(ref _catalogReadSequence)) IsBusy = false;
+            EndRead();
         }
     }
-
     private bool CanRefresh() => !_disposed && !IsBusy && (_activeEnvironment is null || _activeEnvironment() is not null);
 
     // Fetches the selected entity's fields if they aren't cached yet, then refreshes the grid.
     [RelayCommand(IncludeCancelCommand = true)]
     private Task LoadSelectedFields(CancellationToken ct) => LoadSelectedFieldsAsync(ct);
 
-    private async Task LoadSelectedFieldsAsync(CancellationToken ct)
+    private async Task LoadSelectedFieldsAsync(CancellationToken ct, bool forceRefresh = false)
     {
-        if (!TryCaptureLifecycle(out var identity, out var lifecycleGeneration)) return;
+        if (ct.IsCancellationRequested || !TryCaptureLifecycle(out var identity, out var lifecycleGeneration)) return;
+        var fetchId = Interlocked.Increment(ref _fieldsFetchSequence);
         var entity = Selected;
         if (entity is null)
         {
+            IsLoadingFields = false;
             return;
         }
-
-        // Set unconditionally: the loader decides whether a fetch is actually needed, and for an entity
-        // whose fields are already cached it returns without yielding — so the flag goes up and down inside
-        // this one call, with no render pass in between to flicker.
-        var fetchId = Interlocked.Increment(ref _fieldsFetchSequence);
         IsLoadingFields = true;
+        BeginRead();
         try
         {
-            var fetched = await _loader.EnsureFieldsAsync(entity.Name, ct);
-            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
-            LoadError = _loader.LastError;
-            if (fetched && Selected == entity)
-            {
-                LoadFields();
-            }
+            var fetched = forceRefresh
+                ? await _metadata.LoadFieldsAsync(entity.Name, forceRefresh: true, ct)
+                : await _loader.EnsureFieldsAsync(entity.Name, ct);
+            if (ct.IsCancellationRequested || fetchId != Volatile.Read(ref _fieldsFetchSequence)
+                || Selected != entity || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            LoadError = forceRefresh ? null : _loader.LastError;
+            if (fetched || forceRefresh) LoadFields();
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
+        catch (Exception ex)
+        {
+            if (ct.IsCancellationRequested || fetchId != Volatile.Read(ref _fieldsFetchSequence)
+                || Selected != entity || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            LoadError = ex.Message;
         }
         finally
         {
-            // Only the newest fetch may lower the flag, so a superseded one unwinding later (the user
-            // clicked on to another entity mid-flight, cancelling this one) can't clear the indicator the
-            // newer fetch just raised.
-            //
-            // Ownership is the fetch sequence, deliberately not "is my entity still selected": a selection
-            // change that produces no fetch of its own — clearing the selection, which is what Refresh does
-            // when the environment comes back with no entities — would otherwise leave nobody willing to
-            // lower the flag, and the pane would spin forever. Nothing newer claimed the indicator, so this
-            // fetch still owns it and still clears it.
-            if (IsLifecycleCurrent(identity, lifecycleGeneration)
-                && Volatile.Read(ref _fieldsFetchSequence) == fetchId)
-            {
-                IsLoadingFields = false;
-            }
+            if (fetchId == Volatile.Read(ref _fieldsFetchSequence)) IsLoadingFields = false;
+            EndRead();
         }
     }
-
     public IEnumerable<EntitySet> Filtered =>
         string.IsNullOrWhiteSpace(Search)
             ? Entities

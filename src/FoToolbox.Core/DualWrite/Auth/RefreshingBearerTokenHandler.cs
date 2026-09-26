@@ -13,10 +13,13 @@ namespace FoToolbox.Core.DualWrite.Auth;
 /// rotated token. This is the browser-free renewal path that keeps a signed-in session alive.
 /// Renewal has two triggers: our own clock says the token is at/near expiry, or the gateway
 /// answers 401 for a token we still believed in (revoked, rotated server-side, clock skew).
+/// The default inner transport does not follow redirects. A caller that replaces
+/// <see cref="DelegatingHandler.InnerHandler"/> owns equivalent redirect enforcement.
 /// </summary>
 public sealed class RefreshingBearerTokenHandler : DelegatingHandler
 {
     private readonly DualWriteRefreshTokenProvider _refresher;
+    private readonly Uri _gatewayOrigin;
     private readonly Func<DualWriteToken, Task>? _onRefreshed;
     private readonly Func<DateTimeOffset> _clock;
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -25,18 +28,26 @@ public sealed class RefreshingBearerTokenHandler : DelegatingHandler
     public RefreshingBearerTokenHandler(
         DualWriteToken token,
         DualWriteRefreshTokenProvider refresher,
+        Uri gatewayOrigin,
         Func<DualWriteToken, Task>? onRefreshed = null,
         Func<DateTimeOffset>? clock = null)
-        : base(new HttpClientHandler())
+        : base(DualWriteGatewayFactory.CreateGatewayTransport())
     {
         _token = token ?? throw new ArgumentNullException(nameof(token));
         _refresher = refresher ?? throw new ArgumentNullException(nameof(refresher));
+        _gatewayOrigin = DualWriteEndpointPolicy.RequireGatewayBase(
+            gatewayOrigin?.AbsoluteUri ?? throw new ArgumentNullException(nameof(gatewayOrigin)));
         _onRefreshed = onRefreshed;
         _clock = clock ?? (() => DateTimeOffset.UtcNow);
     }
 
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        if (!DualWriteEndpointPolicy.IsSameOrigin(_gatewayOrigin, request.RequestUri))
+        {
+            throw new InvalidOperationException("The dual-write request does not match the authenticated gateway origin.");
+        }
+
         await EnsureFreshAsync(cancellationToken).ConfigureAwait(false);
         var attempted = _token;
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", attempted.AccessToken);
@@ -80,7 +91,7 @@ public sealed class RefreshingBearerTokenHandler : DelegatingHandler
                 return true;
             }
 
-            var refreshed = await _refresher.RefreshAsync(_token.RefreshToken!, cancellationToken).ConfigureAwait(false);
+            var refreshed = await _refresher.RefreshAsync(_token, cancellationToken).ConfigureAwait(false);
             _token = refreshed;
             if (_onRefreshed is not null)
             {
@@ -115,7 +126,7 @@ public sealed class RefreshingBearerTokenHandler : DelegatingHandler
                 return;
             }
 
-            var refreshed = await _refresher.RefreshAsync(_token.RefreshToken!, cancellationToken).ConfigureAwait(false);
+            var refreshed = await _refresher.RefreshAsync(_token, cancellationToken).ConfigureAwait(false);
             _token = refreshed;
             if (_onRefreshed is not null)
             {

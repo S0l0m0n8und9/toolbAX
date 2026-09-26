@@ -46,7 +46,7 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway, IDisposable
 
         var uri = $"{ApiBasePath}Environments?targetType=AX&identifier={Uri.EscapeDataString(identifier)}";
         var json = await SendAsync(HttpMethod.Get, uri, null, cancellationToken).ConfigureAwait(false);
-        return DualWriteResponseParser.ParseEnvironment(json, identifier);
+        return ParseRead(json, body => DualWriteResponseParser.ParseEnvironment(body, identifier), cancellationToken);
     }
 
     private static string NormalizeToHost(string identifier)
@@ -76,7 +76,7 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway, IDisposable
 
         var uri = $"{ApiBasePath}Entities?targetType=AX&cid={Uri.EscapeDataString(cid)}";
         var json = await SendAsync(HttpMethod.Get, uri, null, cancellationToken).ConfigureAwait(false);
-        return DualWriteResponseParser.ParseMaps(json);
+        return ParseRead(json, DualWriteResponseParser.ParseMaps, cancellationToken);
     }
 
     /// <summary>
@@ -159,7 +159,7 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway, IDisposable
 
         var uri = $"{ApiBasePath}{Uri.EscapeDataString(projectId)}/FieldMappings";
         var json = await SendAsync(HttpMethod.Get, uri, null, cancellationToken).ConfigureAwait(false);
-        return DualWriteResponseParser.ParseFieldMappings(json);
+        return ParseRead(json, DualWriteResponseParser.ParseFieldMappings, cancellationToken);
     }
 
     /// <summary>
@@ -191,7 +191,7 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway, IDisposable
 
         var uri = $"api/ConnectionSet/{Uri.EscapeDataString(cname)}";
         var json = await SendAsync(HttpMethod.Get, uri, null, cancellationToken).ConfigureAwait(false);
-        return DualWriteConnectionSetParser.Parse(json);
+        return ParseRead(json, DualWriteConnectionSetParser.Parse, cancellationToken);
     }
 
     /// <summary>
@@ -268,33 +268,60 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway, IDisposable
 
         var uri = $"{ApiBasePath}Status/{Uri.EscapeDataString(requestId)}";
         var json = await SendAsync(HttpMethod.Get, uri, null, cancellationToken).ConfigureAwait(false);
-        return DualWriteResponseParser.ParseStatus(json);
+        return ParseRead(json, DualWriteResponseParser.ParseStatus, cancellationToken);
+    }
+
+    private static T ParseRead<T>(string content, Func<string, T> parse, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        try
+        {
+            var result = parse(content);
+            ct.ThrowIfCancellationRequested();
+            return result;
+        }
+        catch
+        {
+            ct.ThrowIfCancellationRequested();
+            throw;
+        }
     }
 
     private async Task<string> SendAsync(HttpMethod method, string relativeUri, string? jsonBody, CancellationToken cancellationToken)
     {
         if (method != HttpMethod.Get)
             return (await SendMutationAsync(method, relativeUri, jsonBody, cancellationToken).ConfigureAwait(false)).Content;
-        using var request = new HttpRequestMessage(method, relativeUri);
-        request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
-        if (jsonBody is not null)
+        cancellationToken.ThrowIfCancellationRequested();
+        try
         {
-            request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+            using var request = new HttpRequestMessage(method, relativeUri);
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            if (jsonBody is not null)
+            {
+                request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+            }
+
+            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            var content = response.Content is null
+                ? string.Empty
+                : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new DualWriteGatewayException(
+                    $"Dual-write gateway request failed: {(int)response.StatusCode} {response.ReasonPhrase}. {Trim(content)}",
+                    response.StatusCode);
+            }
+
+            return content;
         }
-
-        using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseContentRead, cancellationToken).ConfigureAwait(false);
-        var content = response.Content is null
-            ? string.Empty
-            : await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-
-        if (!response.IsSuccessStatusCode)
+        catch
         {
-            throw new DualWriteGatewayException(
-                $"Dual-write gateway request failed: {(int)response.StatusCode} {response.ReasonPhrase}. {Trim(content)}",
-                response.StatusCode);
+            cancellationToken.ThrowIfCancellationRequested();
+            throw;
         }
-
-        return content;
     }
 
     private async Task<(string Content, DualWriteMutationEvidence Evidence)> SendMutationAsync(
