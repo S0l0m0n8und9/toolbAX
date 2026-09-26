@@ -35,6 +35,7 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     private readonly Func<EnvProfile?> _activeEnv;
     private readonly bool _environmentBound;
     private int _generation;
+    private int _fieldReadSequence;
     private bool _disposed;
     private int _writeLease;
     private CancellationTokenSource? _acceptedCancellation;
@@ -206,13 +207,13 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task Initialize(CancellationToken ct)
     {
-        if (_disposed) return;
+        if (_disposed || ct.IsCancellationRequested) return;
         var identity = EnvironmentIdentity.TryCreate(_activeEnv());
         var generation = Volatile.Read(ref _generation);
         if (_environmentBound && identity is null) return;
 
         var loaded = await _loader.LoadEntitiesAsync(Entities.Select(e => e.Name).ToList(), ct);
-        if (!CanCommit(identity, generation)) return;
+        if (ct.IsCancellationRequested || !CanCommit(identity, generation)) return;
         LoadError = _loader.LastError;
         if (loaded is not null)
         {
@@ -233,7 +234,7 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
         }
 
         await EnsureFieldsAsync(ct);
-        if (!CanCommit(identity, generation)) return;
+        if (ct.IsCancellationRequested || !CanCommit(identity, generation)) return;
         if (UseFieldGrid && SelectedEntity is null)
         {
             // Grid mode with nothing to select (the catalogue is empty, or the load failed): state that
@@ -251,10 +252,11 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     // fields must settle on the "hasn't loaded" block, not re-enter the fetch and loop.
     private async Task EnsureFieldsAsync(CancellationToken ct)
     {
-        if (_disposed) return;
+        if (_disposed || ct.IsCancellationRequested) return;
         var identity = EnvironmentIdentity.TryCreate(_activeEnv());
         var generation = Volatile.Read(ref _generation);
         if (_environmentBound && identity is null) return;
+        var owner = Interlocked.Increment(ref _fieldReadSequence);
         var entity = SelectedEntity;
         if (!UseFieldGrid || entity is null || Fields.Count > 0)
         {
@@ -262,7 +264,7 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
         }
 
         var fetched = await _loader.EnsureFieldsAsync(entity.Name, ct);
-        if (!CanCommit(identity, generation) || SelectedEntity != entity)
+        if (ct.IsCancellationRequested || owner != Volatile.Read(ref _fieldReadSequence) || !CanCommit(identity, generation) || SelectedEntity != entity)
         {
             // The user moved on; that selection's own load (ReloadGrid/EnsureFieldsAsync) owns the grid
             // AND the LoadError banner now — this fetch's outcome, success or failure, belongs to
@@ -272,11 +274,8 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
             return;
         }
 
-        // _loader.LastError is shared, "most recent fetch" state: EntityCatalogLoader.EnsureFieldsAsync
-        // returns early WITHOUT touching it when the entity's fields are already cached, so a cache hit
-        // here could otherwise leave LoadError holding an unrelated, earlier entity's failure. Re-derive
-        // per-entity truth from whether THIS entity's fields actually ended up available, rather than
-        // trusting the shared field blindly (PR #196 review).
+        // Derive this entity's availability from the cache; loader error state can also describe
+        // catalogue reads, so it is not by itself evidence that these fields are unavailable.
         LoadError = _metadata.GetFields(entity.Name) is null ? _loader.LastError : null;
 
         if (fetched || LoadError is not null)

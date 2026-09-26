@@ -50,6 +50,7 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
 
     public async Task<DwMapLoadResult> GetMapsAsync(string? solutionUniqueName = null, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         var pinned = _activeEnv();
         var identity = EnvironmentIdentity.TryCreate(pinned);
         var apiBase = PinnedApiBase(pinned);
@@ -65,6 +66,7 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
                     return (page.ObjectIds, page.NextLink);
                 },
                 componentIds, "solution components", identity, apiBase, ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
 
             if (componentError is not null)
             {
@@ -83,6 +85,7 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
                 return (page.Records, page.NextLink);
             },
             maps, "dual-write maps", identity, apiBase, ct).ConfigureAwait(false);
+        ct.ThrowIfCancellationRequested();
 
         if (error is not null)
         {
@@ -96,11 +99,13 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
                 .ToList();
         }
 
+        ct.ThrowIfCancellationRequested();
         return DwMapLoadResult.Ok(maps);
     }
 
     public async Task<DwCountResult> GetCeRowCountAsync(string entitySet, string? odataFilter, CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(entitySet))
         {
             return DwCountResult.Fail("No Dataverse entity is set for this leg.");
@@ -121,14 +126,15 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         var identity = EnvironmentIdentity.TryCreate(pinned);
         var apiBase = PinnedApiBase(pinned);
 
-        var response = await _dataverse
-            .GetAsync(Pinned(apiBase, DualWriteMapParser.CountPath(entitySet, odataFilter)), ct).ConfigureAwait(false);
+        var response = await ReadAsync(Pinned(apiBase, DualWriteMapParser.CountPath(entitySet, odataFilter)), ct).ConfigureAwait(false);
+        ct.ThrowIfCancellationRequested();
         if (!response.IsSuccess)
         {
             return DwCountResult.Fail(DescribeFailure(response, $"the row count for '{entitySet}'"));
         }
 
         var count = DualWriteMapParser.ParseCount(response.Body);
+        ct.ThrowIfCancellationRequested();
         if (count is null)
         {
             return DwCountResult.Fail($"Dataverse returned no count for '{entitySet}'.");
@@ -145,9 +151,11 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         if (capped && string.IsNullOrWhiteSpace(odataFilter) && apiBase is not null &&
             await TrySnapshotTotalAsync(pinned, identity, apiBase, entitySet, ct).ConfigureAwait(false) is { } total)
         {
+            ct.ThrowIfCancellationRequested();
             return DwCountResult.FromSnapshot(total);
         }
 
+        ct.ThrowIfCancellationRequested();
         return DwCountResult.Ok(count.Count, capped);
     }
 
@@ -180,6 +188,7 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
     private async Task<long?> TrySnapshotTotalAsync(
         EnvProfile? pinned, EnvironmentIdentity? identity, string apiBase, string entitySet, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         var cacheKey = CacheKey(identity, entitySet);
         if (await ResolveLogicalNameAsync(pinned, apiBase, cacheKey, entitySet, ct).ConfigureAwait(false)
             is not { } logicalName)
@@ -187,8 +196,9 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
             return null;
         }
 
-        var response = await _dataverse
-            .GetAsync($"{apiBase}/{DualWriteMapParser.TotalRecordCountPath(logicalName)}", ct).ConfigureAwait(false);
+        ct.ThrowIfCancellationRequested();
+        var response = await ReadAsync($"{apiBase}/{DualWriteMapParser.TotalRecordCountPath(logicalName)}", ct).ConfigureAwait(false);
+        ct.ThrowIfCancellationRequested();
 
         // Pinning already guarantees this total came from the pinned environment (or never came at all).
         // What remains is whether it may still be CACHED and SHOWN: an answer for an environment the user has
@@ -204,11 +214,14 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         {
             // Within ONE environment a table can be renamed or removed under a cached name, and repeating a
             // dead request for the life of the app is no better than re-asking once.
+            ct.ThrowIfCancellationRequested();
             _logicalNames.Remove(cacheKey);
             return null;
         }
 
-        return DualWriteMapParser.ParseTotalRecordCount(response.Body, logicalName);
+        var total = DualWriteMapParser.ParseTotalRecordCount(response.Body, logicalName);
+        ct.ThrowIfCancellationRequested();
+        return total;
     }
 
     // True while the active environment is still the one this operation pinned. With the requests pinned the
@@ -229,19 +242,21 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         EnvProfile? pinned, string apiBase,
         (EnvironmentIdentity? Environment, string EntitySet) cacheKey, string entitySet, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         if (_logicalNames.TryGetValue(cacheKey, out var cached))
         {
             return cached;
         }
 
-        var response = await _dataverse
-            .GetAsync($"{apiBase}/{DualWriteMapParser.EntityLogicalNamePath(entitySet)}", ct).ConfigureAwait(false);
+        var response = await ReadAsync($"{apiBase}/{DualWriteMapParser.EntityLogicalNamePath(entitySet)}", ct).ConfigureAwait(false);
+        ct.ThrowIfCancellationRequested();
         if (!response.IsSuccess)
         {
             return null;
         }
 
         var logicalName = DualWriteMapParser.ParseEntityLogicalName(response.Body);
+        ct.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(logicalName))
         {
             return null;
@@ -254,12 +269,14 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
             return null;
         }
 
+        ct.ThrowIfCancellationRequested();
         _logicalNames[cacheKey] = logicalName;
         return logicalName;
     }
 
     public async Task<DwSolutionLoadResult> GetSolutionsAsync(CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         var pinned = _activeEnv();
         var identity = EnvironmentIdentity.TryCreate(pinned);
         var apiBase = PinnedApiBase(pinned);
@@ -273,6 +290,7 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
             },
             solutions, "solutions", identity, apiBase, ct).ConfigureAwait(false);
 
+        ct.ThrowIfCancellationRequested();
         return error is not null ? DwSolutionLoadResult.Fail(error) : DwSolutionLoadResult.Ok(solutions);
     }
 
@@ -290,12 +308,14 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
         string? pathOrUrl = Pinned(apiBase, firstPath);
         while (pathOrUrl is not null)
         {
+            ct.ThrowIfCancellationRequested();
             if (identity is not null && !identity.IsCurrent(_activeEnv()))
             {
                 return $"Couldn't load {subject} — the active environment changed.";
             }
 
-            var response = await _dataverse.GetAsync(pathOrUrl, ct).ConfigureAwait(false);
+            var response = await ReadAsync(pathOrUrl, ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
             if (identity is not null && !identity.IsCurrent(_activeEnv()))
             {
                 return $"Couldn't load {subject} — the active environment changed.";
@@ -310,18 +330,38 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
             string? nextLink;
             try
             {
+                ct.ThrowIfCancellationRequested();
                 (items, nextLink) = parse(response.Body);
             }
             catch (MetadataResponseFormatException ex)
             {
+                ct.ThrowIfCancellationRequested();
                 sink.Clear();
                 return $"Couldn't load {subject}: {ex.Message}";
             }
+            ct.ThrowIfCancellationRequested();
             sink.AddRange(items);
             pathOrUrl = nextLink; // absolute URL; the client uses it verbatim
         }
 
+        ct.ThrowIfCancellationRequested();
         return null;
+    }
+
+    private async Task<ODataResponse> ReadAsync(string path, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        try
+        {
+            var response = await _dataverse.GetAsync(path, ct).ConfigureAwait(false);
+            ct.ThrowIfCancellationRequested();
+            return response;
+        }
+        catch
+        {
+            ct.ThrowIfCancellationRequested();
+            throw;
+        }
     }
 
     private static string DescribeFailure(ODataResponse response, string subject)

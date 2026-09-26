@@ -26,6 +26,7 @@ public sealed class HttpODataClient : IODataClient
 
     public async IAsyncEnumerable<ODataPage> StreamAsync(QueryRequest request, [System.Runtime.CompilerServices.EnumeratorCancellation] CancellationToken cancellationToken = default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var next = request.Url;
         // The initial request defines the trusted origin: its absolute URL, or the HttpClient's
         // BaseAddress when the request URL is relative. A server-supplied @odata.nextLink must stay on
@@ -35,6 +36,7 @@ public sealed class HttpODataClient : IODataClient
         var origin = Uri.TryCreate(request.Url, UriKind.Absolute, out var seed) ? seed : _httpClient.BaseAddress;
         while (!string.IsNullOrWhiteSpace(next))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             using var msg = new HttpRequestMessage(HttpMethod.Get, next);
             msg.Headers.Accept.Clear();
             msg.Headers.Accept.Add(JsonAccept);
@@ -46,81 +48,100 @@ public sealed class HttpODataClient : IODataClient
             }
             catch (AuthRecoveryException)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 throw;
             }
             catch (Exception ex)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 throw BuildPluginFriendlyException(ex);
             }
 
             using (response)
             {
-                if (!response.IsSuccessStatusCode)
+                ODataPage page;
+                try
                 {
-                    var body = response.Content is null
-                        ? null
-                        : await response.Content.ReadAsStringAsync(cancellationToken);
-                    throw BuildPluginFriendlyException(response, body);
-                }
-
-                var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var header in response.Headers)
-                {
-                    headers[header.Key] = string.Join(", ", header.Value);
-                }
-                foreach (var header in response.Content.Headers)
-                {
-                    headers[header.Key] = string.Join(", ", header.Value);
-                }
-
-                await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
-                using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
-                var root = doc.RootElement;
-
-                var rows = new List<IReadOnlyDictionary<string, object?>>();
-                if (root.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.Array)
-                {
-                    foreach (var element in value.EnumerateArray())
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!response.IsSuccessStatusCode)
                     {
-                        var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
-                        foreach (var prop in element.EnumerateObject())
+                        var body = response.Content is null
+                            ? null
+                            : await response.Content.ReadAsStringAsync(cancellationToken);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        throw BuildPluginFriendlyException(response, body);
+                    }
+
+                    var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var header in response.Headers)
+                    {
+                        headers[header.Key] = string.Join(", ", header.Value);
+                    }
+                    foreach (var header in response.Content.Headers)
+                    {
+                        headers[header.Key] = string.Join(", ", header.Value);
+                    }
+
+                    await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var root = doc.RootElement;
+
+                    var rows = new List<IReadOnlyDictionary<string, object?>>();
+                    if (root.TryGetProperty("value", out var value) && value.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var element in value.EnumerateArray())
                         {
-                            dict[prop.Name] = JsonElementToObject(prop.Value);
+                            var dict = new Dictionary<string, object?>(StringComparer.OrdinalIgnoreCase);
+                            foreach (var prop in element.EnumerateObject())
+                            {
+                                dict[prop.Name] = JsonElementToObject(prop.Value);
+                            }
+                            rows.Add(dict);
                         }
-                        rows.Add(dict);
                     }
-                }
 
-                long? odataCount = null;
-                if (root.TryGetProperty("@odata.count", out var countEl))
-                {
-                    if (countEl.ValueKind == JsonValueKind.Number && countEl.TryGetInt64(out var c))
+                    long? odataCount = null;
+                    if (root.TryGetProperty("@odata.count", out var countEl))
                     {
-                        odataCount = c;
+                        if (countEl.ValueKind == JsonValueKind.Number && countEl.TryGetInt64(out var c))
+                        {
+                            odataCount = c;
+                        }
+                        else if (countEl.ValueKind == JsonValueKind.String && long.TryParse(countEl.GetString(), out var cs))
+                        {
+                            odataCount = cs;
+                        }
                     }
-                    else if (countEl.ValueKind == JsonValueKind.String && long.TryParse(countEl.GetString(), out var cs))
+
+                    string? odataContext = null;
+                    if (root.TryGetProperty("@odata.context", out var ctxEl) && ctxEl.ValueKind == JsonValueKind.String)
                     {
-                        odataCount = cs;
+                        odataContext = ctxEl.GetString();
                     }
-                }
 
-                string? odataContext = null;
-                if (root.TryGetProperty("@odata.context", out var ctxEl) && ctxEl.ValueKind == JsonValueKind.String)
+                    root.TryGetProperty("@odata.nextLink", out var nlElement);
+                    next = nlElement.ValueKind == JsonValueKind.String ? nlElement.GetString() : null;
+
+                    if (!string.IsNullOrWhiteSpace(next) && !IsSameOriginNextLink(origin, next!))
+                    {
+                        throw new InvalidOperationException(
+                            "Refusing to follow an @odata.nextLink that points to a different origin than the request: " +
+                            $"'{next}' does not resolve to '{origin?.GetLeftPart(UriPartial.Authority) ?? "(unknown origin)"}'.");
+                    }
+
+                    page = new ODataPage(rows, next, odataCount, headers, odataContext);
+                }
+                catch
                 {
-                    odataContext = ctxEl.GetString();
+                    cancellationToken.ThrowIfCancellationRequested();
+                    throw;
                 }
 
-                root.TryGetProperty("@odata.nextLink", out var nlElement);
-                next = nlElement.ValueKind == JsonValueKind.String ? nlElement.GetString() : null;
-
-                if (!string.IsNullOrWhiteSpace(next) && !IsSameOriginNextLink(origin, next!))
-                {
-                    throw new InvalidOperationException(
-                        "Refusing to follow an @odata.nextLink that points to a different origin than the request: " +
-                        $"'{next}' does not resolve to '{origin?.GetLeftPart(UriPartial.Authority) ?? "(unknown origin)"}'.");
-                }
-
-                yield return new ODataPage(rows, next, odataCount, headers, odataContext);
+                cancellationToken.ThrowIfCancellationRequested();
+                yield return page;
+                cancellationToken.ThrowIfCancellationRequested();
             }
         }
     }

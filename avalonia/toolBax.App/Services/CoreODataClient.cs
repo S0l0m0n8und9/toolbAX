@@ -42,7 +42,10 @@ public sealed class CoreODataClient : IODataClient, IDisposable
     public async Task<ODataResponse> SendAsync(string method, string path, string? body,
         IReadOnlyDictionary<string, string>? headers, CancellationToken ct = default)
     {
+        var read = string.Equals(method.Trim(), "GET", StringComparison.OrdinalIgnoreCase);
+        if (read) ct.ThrowIfCancellationRequested();
         var response = await SendCoreAsync(method, path, body, headers, ct).ConfigureAwait(false);
+        if (read) ct.ThrowIfCancellationRequested();
 
         // Every failure below is returned rather than thrown, so it used to live only in a tool's status
         // line. Mirror it to Trace for the session log (#168) — see RequestTrace for exactly how little a
@@ -61,6 +64,8 @@ public sealed class CoreODataClient : IODataClient, IDisposable
     {
         var sw = Stopwatch.StartNew();
         var mutation = method.Trim().ToUpperInvariant() is "POST" or "PATCH" or "PUT" or "DELETE";
+        var read = string.Equals(method.Trim(), "GET", StringComparison.OrdinalIgnoreCase);
+        if (read) ct.ThrowIfCancellationRequested();
         ODataResponse LocalFailure(int status, string reason, string detail) =>
             new(status, reason, detail, (int)sw.ElapsedMilliseconds) { DispatchStarted = mutation ? false : null };
         if (mutation && ct.IsCancellationRequested)
@@ -90,6 +95,7 @@ public sealed class CoreODataClient : IODataClient, IDisposable
         try
         {
             token = await _auth.AcquireFoTokenAsync(env, ct).ConfigureAwait(false);
+            if (read) ct.ThrowIfCancellationRequested();
         }
         // Cancelling mid-sign-in is not an authentication failure: reporting "401 Unauthorized" told the
         // user their credentials had been rejected when in fact they pressed Cancel. Rethrow so the
@@ -101,6 +107,7 @@ public sealed class CoreODataClient : IODataClient, IDisposable
         }
         catch (Exception ex)
         {
+            if (read) ct.ThrowIfCancellationRequested();
             return LocalFailure(401, "Unauthorized", ex.Message);
         }
 
@@ -142,6 +149,7 @@ public sealed class CoreODataClient : IODataClient, IDisposable
             using var response = await _http.SendAsync(request,
                 mutation ? HttpCompletionOption.ResponseHeadersRead : HttpCompletionOption.ResponseContentRead,
                 exchangeToken).ConfigureAwait(false);
+            if (read) ct.ThrowIfCancellationRequested();
             if (mutation)
             {
                 observed = new ODataResponse((int)response.StatusCode, response.ReasonPhrase ?? string.Empty,
@@ -150,6 +158,7 @@ public sealed class CoreODataClient : IODataClient, IDisposable
                 await response.Content.LoadIntoBufferAsync(_http.MaxResponseContentBufferSize, exchangeToken).ConfigureAwait(false);
             }
             var responseBody = await response.Content.ReadAsStringAsync(exchangeToken).ConfigureAwait(false);
+            if (read) ct.ThrowIfCancellationRequested();
             sw.Stop();
             return new ODataResponse((int)response.StatusCode, response.ReasonPhrase ?? string.Empty,
                 responseBody, (int)sw.ElapsedMilliseconds, observed?.Headers ?? CollectHeaders(response))
@@ -172,6 +181,7 @@ public sealed class CoreODataClient : IODataClient, IDisposable
         }
         catch (Exception ex)
         {
+            if (read) ct.ThrowIfCancellationRequested();
             if (observed is not null)
                 return observed with { BodyReadError = ex.GetType().Name, ElapsedMs = (int)sw.ElapsedMilliseconds };
             return new ODataResponse(0, "Request failed", mutation ? ex.GetType().Name : ex.Message, (int)sw.ElapsedMilliseconds)
