@@ -23,3 +23,7 @@ Virtual tables gain `ParsePage` returning records plus continuation while `Parse
 The final `CI=true` Release App gate includes the map reader, virtual reader/parser, cancellation, Query and render compatibility suites within the 367/367 result recorded at `artifacts/h10c/completion/app-focused.{log,trx}`.
 
 Parent-review Query corrections did not change the Dataverse reader implementation. The forced post-retrospective rebuild and expanded compatibility gate passed 373/373, with the unchanged Core regression at 29/29. See the parent-review evidence section in `2026-09-26-paging-integrity.md`.
+
+## Integrated validation
+
+H09/H10a and the PR232 test synchronization correction merged without Dataverse-reader conflicts. Map, component, solution and virtual-table traversals still capture one environment identity/API base, reject repeated or malformed pages before partial publication, and retain H10a cancellation checks around every dispatch/follow-on. The integrated `CI=true` Release Core build passed with zero warnings/errors and 616/616 tests; the App WebView2 build passed with zero warnings/errors and 1,660/1,660 tests. Evidence is `artifacts/h10c/integrated-h09/`. No live Dataverse call was made.
