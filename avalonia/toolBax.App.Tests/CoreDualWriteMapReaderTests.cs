@@ -834,4 +834,48 @@ public class CoreDualWriteMapReaderTests
         Assert.Equal(new[] { "alpha", "beta" }, result.Maps.Select(m => m.Name).ToArray());
         Assert.Equal("https://x/api/data/v9.2/components2", dv.Requested[1]);
     }
+
+    [Fact]
+    public async Task Repeated_maps_page_fails_without_partial_rows_or_repeat_dispatch()
+    {
+        var firstPath = DualWriteMapParser.MapsPath();
+        var page = $"{{\"value\":[{{\"msdyn_dualwriteentitymapid\":\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\",\"msdyn_name\":\"alpha\"}}],\"@odata.nextLink\":{System.Text.Json.JsonSerializer.Serialize(firstPath)}}}";
+        var dv = new FakeDataverseClient(Ok(page));
+
+        var result = await new CoreDualWriteMapReader(dv)
+            .GetMapsAsync(null, TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(result.Maps);
+        Assert.Contains("incomplete", result.Error, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(dv.Requested);
+    }
+
+    [Fact]
+    public async Task Relative_map_continuation_is_appended_to_the_captured_api_base()
+    {
+        const string first = "{\"value\":[],\"@odata.nextLink\":\"maps-next?$skiptoken=Case\"}";
+        var dv = new FakeDataverseClient(Ok(first), Ok("{\"value\":[]}"));
+
+        var result = await new CoreDualWriteMapReader(dv, Env1)
+            .GetMapsAsync(null, TestContext.Current.CancellationToken);
+
+        Assert.True(result.IsSuccess);
+        Assert.Equal(Env1Api + "maps-next?$skiptoken=Case", dv.Requested[1]);
+    }
+
+    [Fact]
+    public async Task Component_cycle_fails_without_reading_or_returning_maps()
+    {
+        var componentPath = DualWriteMapParser.SolutionComponentsPath("my_solution");
+        var page = $"{{\"value\":[{{\"objectid\":\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\"}}],\"@odata.nextLink\":{System.Text.Json.JsonSerializer.Serialize(componentPath)}}}";
+        var dv = new FakeDataverseClient(Ok(page));
+
+        var result = await new CoreDualWriteMapReader(dv)
+            .GetMapsAsync("my_solution", TestContext.Current.CancellationToken);
+
+        Assert.False(result.IsSuccess);
+        Assert.Empty(result.Maps);
+        Assert.Single(dv.Requested);
+    }
 }

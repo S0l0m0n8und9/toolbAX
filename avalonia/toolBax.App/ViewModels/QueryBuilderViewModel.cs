@@ -8,6 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using FoToolbox.Core.Net;
 using ToolBax.App.Services;
 using ToolBax.Core.Models;
 using ToolBax.Core.Services;
@@ -29,8 +30,15 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
     private readonly Func<EnvProfile?>? _activeEnvironment;
     private bool _disposed;
     private int _lifecycleGeneration;
+    private int _readSequence;
+    private int _fieldReadSequence;
     private EnvironmentIdentity? _loadedResultsIdentity;
     private int _loadedResultsGeneration = -1;
+    private HashSet<string> _resultPageTargets = new(StringComparer.Ordinal);
+    private string? _resultRequestBase;
+    private const string PagingCycleMessage = "Paging stopped: repeated continuation; results are incomplete.";
+    private const string ExportCycleMessage = "Export stopped: repeated continuation; results are incomplete. No file was saved.";
+    private const string InvalidCollectionMessage = "Paging stopped: the service returned an invalid collection response; results are incomplete.";
 
     // Hard cap on pages an "export all" will follow, so a misbehaving nextLink can't loop forever.
     private const int MaxExportPages = 500;
@@ -381,13 +389,14 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
     [RelayCommand(IncludeCancelCommand = true)]
     private async Task Initialize(CancellationToken ct)
     {
+        if (ct.IsCancellationRequested) return;
         if (!TryCaptureLifecycle(out var identity, out var lifecycleGeneration))
         {
             return;
         }
 
         var loaded = await _loader.LoadEntitiesAsync(Entities.Select(e => e.Name).ToList(), ct);
-        if (!IsLifecycleCurrent(identity, lifecycleGeneration))
+        if (ct.IsCancellationRequested || !IsLifecycleCurrent(identity, lifecycleGeneration))
         {
             return;
         }
@@ -447,6 +456,8 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
         // Invalidate any in-flight Run / LoadMore so its completion is discarded instead of repopulating
         // the grid the switch just emptied (PR #193 review).
         _resultsGeneration++;
+        _resultPageTargets.Clear();
+        _resultRequestBase = null;
         _derivedColumnNames = null; // no header to grow until the next run establishes one
         _loadedResultsIdentity = null;
         _loadedResultsGeneration = -1;
@@ -619,11 +630,13 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
 
     private async Task LoadSelectedFieldsAsync(CancellationToken ct)
     {
+        if (ct.IsCancellationRequested) return;
         if (!TryCaptureLifecycle(out var identity, out var lifecycleGeneration))
         {
             return;
         }
 
+        var owner = Interlocked.Increment(ref _fieldReadSequence);
         var entity = SelectedEntity;
         if (entity is null)
         {
@@ -631,7 +644,7 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
         }
 
         var fetched = await _loader.EnsureFieldsAsync(entity.Name, ct);
-        if (!IsLifecycleCurrent(identity, lifecycleGeneration))
+        if (ct.IsCancellationRequested || owner != Volatile.Read(ref _fieldReadSequence) || SelectedEntity != entity || !IsLifecycleCurrent(identity, lifecycleGeneration))
         {
             return;
         }
@@ -859,6 +872,7 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
     [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanRun))]
     private async Task Run(CancellationToken ct)
     {
+        if (ct.IsCancellationRequested) return;
         if (SelectedEntity is null || !TryCaptureLifecycle(out var identity, out var lifecycleGeneration))
         {
             return;
@@ -866,6 +880,7 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
 
         // The generation these results will belong to, captured before the await (see IsStillCurrent).
         var generation = _resultsGeneration;
+        var readOwner = Interlocked.Increment(ref _readSequence);
         IsBusy = true;
         StatusText = "Running…";
         SelectedTabIndex = ResultsTabIndex; // land on Results so rows are visible as they load
@@ -873,50 +888,42 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
         {
             var columns = SelectedColumns().ToList();
             var path = BuildPath(forRequest: true);
+            var requestBase = identity?.FoEndpoint;
+            var visited = new HashSet<string>(StringComparer.Ordinal) { RequestTargetKey(path, requestBase) };
+            ct.ThrowIfCancellationRequested();
             var response = await _client.SendAsync("GET", path, body: null, ct);
+            ct.ThrowIfCancellationRequested();
 
             // The user switched entity while this was in flight, so these rows describe an entity the
             // screen no longer shows. Drop them: the switch already left a clean slate, and writing to it
             // would label entity A's results as entity B (PR #193 review).
-            if (!IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration))
+            if (readOwner != Volatile.Read(ref _readSequence) || !IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration))
             {
                 return;
             }
 
-            // With nothing selected the request goes out as $select=*, so the columns aren't knowable
-            // before the response: take them from what the server actually returned. Without this the
-            // grid rendered "Results · 3" over rows carrying zero cells, and a CSV of bare CRLFs (#168).
+            HashSet<string>? derived = null;
             if (columns.Count == 0 && response.IsSuccess)
             {
-                // Keep the seen-set: Load more reuses it to grow this derived header as pages arrive.
-                _derivedColumnNames = new HashSet<string>(StringComparer.Ordinal);
-                MergeDerivedColumns(response.Body, columns, _derivedColumnNames);
+                derived = new HashSet<string>(StringComparer.Ordinal);
+                MergeDerivedColumns(response.Body, columns, derived);
             }
-            else
-            {
-                _derivedColumnNames = null; // an explicit $select owns the header; nothing may grow it
-            }
-
-            // Clear stale rows before swapping columns so the grid never renders old rows under new
-            // headers (the column rebuild keys off ResultColumns changing).
+            var rows = response.IsSuccess ? ParseRows(response.Body, columns).ToList() : new List<QueryResultRow>();
+            var (count, next) = response.IsSuccess ? ParseMeta(response.Body) : (null, (string?)null);
+            var cycle = next is not null && visited.Contains(RequestTargetKey(next, requestBase));
+            ct.ThrowIfCancellationRequested();
+            if (readOwner != Volatile.Read(ref _readSequence) || !IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            _derivedColumnNames = derived;
             ResultRows.Clear();
             ResultColumns = columns;
-            TotalCount = null;
-            NextLink = null;
-            if (response.IsSuccess)
-            {
-                foreach (var row in ParseRows(response.Body, columns))
-                {
-                    ResultRows.Add(row);
-                }
-
-                (TotalCount, NextLink) = ParseMeta(response.Body);
-            }
-
+            (TotalCount, NextLink) = (count, cycle ? null : next);
+            _resultPageTargets = response.IsSuccess ? visited : new HashSet<string>(StringComparer.Ordinal);
+            _resultRequestBase = response.IsSuccess ? requestBase : null;
+            foreach (var row in rows) ResultRows.Add(row);
             RowCount = ResultRows.Count;
-            RunSucceeded = response.IsSuccess;
+            RunSucceeded = response.IsSuccess && !cycle;
             StatusBadge = $"{response.StatusCode} {response.ReasonPhrase}";
-            StatusText = $"{DescribeCount()} · {response.StatusLine}";
+            StatusText = cycle ? PagingCycleMessage : $"{DescribeCount()} · {response.StatusLine}";
             HasRun = true;
             _loadedResultsIdentity = response.IsSuccess ? identity : null;
             _loadedResultsGeneration = response.IsSuccess ? lifecycleGeneration : -1;
@@ -926,19 +933,19 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
         // general handler and is reported as the failure it is.
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            if (!IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            if (readOwner != Volatile.Read(ref _readSequence) || !IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             RunSucceeded = false;
             StatusText = "Run cancelled.";
         }
         catch (Exception ex)
         {
-            if (!IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            if (readOwner != Volatile.Read(ref _readSequence) || !IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             RunSucceeded = false;
-            StatusText = $"Query failed: {ex.Message}";
+            StatusText = ct.IsCancellationRequested ? "Run cancelled." : $"Query failed: {ex.Message}";
         }
         finally
         {
-            if (IsLifecycleCurrent(identity, lifecycleGeneration))
+            if (readOwner == Volatile.Read(ref _readSequence))
             {
                 IsBusy = false;
                 ExportCsvCommand.NotifyCanExecuteChanged();
@@ -1003,6 +1010,7 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
     [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanLoadMore))]
     private async Task LoadMore(CancellationToken ct)
     {
+        if (ct.IsCancellationRequested) return;
         if (!TryCaptureLifecycle(out var identity, out var lifecycleGeneration))
         {
             return;
@@ -1022,73 +1030,72 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
 
         // Captured before the await, like Run's (see IsStillCurrent).
         var generation = _resultsGeneration;
+        var readOwner = Interlocked.Increment(ref _readSequence);
         IsBusy = true;
         StatusText = "Loading more…";
         SelectedTabIndex = ResultsTabIndex; // Load more can be triggered from any tab; show the grid
         try
         {
+            ct.ThrowIfCancellationRequested();
+            var targetKey = RequestTargetKey(link, _resultRequestBase);
+            if (_resultPageTargets.Contains(targetKey))
+            {
+                NextLink = null;
+                RunSucceeded = false;
+                StatusText = PagingCycleMessage;
+                return;
+            }
             var response = await _client.SendAsync("GET", link, body: null, ct);
+            ct.ThrowIfCancellationRequested();
 
             // The entity changed while this page was in flight: it belongs to the previous entity's
             // result set, which no longer exists. Appending it would page entity A into entity B's grid
             // — exactly what clearing on switch was meant to prevent (PR #193 review).
-            if (!IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration))
+            if (readOwner != Volatile.Read(ref _readSequence) || !IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration))
             {
                 return;
             }
 
+            var cycle = false;
             if (response.IsSuccess)
             {
-                // A DERIVED ($select=*) header belongs to the server, not the user, so it grows when a
-                // later page carries a property the earlier ones lacked (OData omits a null rather than
-                // emitting it). Fixing the header at page one instead dropped that column from the grid
-                // AND silently omitted it from Copy CSV / Save CSV, even though Export all kept it
-                // (PR #193 review). An explicit $select is left exactly as chosen.
-                if (_derivedColumnNames is not null)
-                {
-                    var grown = ResultColumns.ToList();
-                    MergeDerivedColumns(response.Body, grown, _derivedColumnNames);
-                    if (grown.Count != ResultColumns.Count)
-                    {
-                        // The reassignment is what raises PropertyChanged, which rebuilds the grid's
-                        // columns; mutating a list in place would leave the new column unrendered.
-                        ResultColumns = grown;
-                    }
-                }
-
-                // Rows already in the grid carry no cell for a newly added column. QueryResultRow reports
-                // that absence as null, so it shows the em-dash placeholder and exports as an empty field.
-                foreach (var row in ParseRows(response.Body, ResultColumns))
-                {
-                    ResultRows.Add(row);
-                }
-
+                var columns = ResultColumns.ToList();
+                var derived = _derivedColumnNames is null ? null : new HashSet<string>(_derivedColumnNames, StringComparer.Ordinal);
+                if (derived is not null) MergeDerivedColumns(response.Body, columns, derived);
+                var rows = ParseRows(response.Body, columns).ToList();
                 var (count, next) = ParseMeta(response.Body);
-                TotalCount = count ?? TotalCount; // a page may omit the count; keep the prior total
-                NextLink = next;
+                var visited = new HashSet<string>(_resultPageTargets, StringComparer.Ordinal) { targetKey };
+                cycle = next is not null && visited.Contains(RequestTargetKey(next, _resultRequestBase));
+                ct.ThrowIfCancellationRequested();
+                if (readOwner != Volatile.Read(ref _readSequence) || !IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+                _derivedColumnNames = derived;
+                if (columns.Count != ResultColumns.Count) ResultColumns = columns;
+                foreach (var row in rows) ResultRows.Add(row);
+                TotalCount = count ?? TotalCount;
+                NextLink = cycle ? null : next;
+                _resultPageTargets = visited;
             }
-
             // Reflect the latest call in the badge, so a failed page doesn't keep showing the prior success.
-            RunSucceeded = response.IsSuccess;
+            RunSucceeded = response.IsSuccess && !cycle;
             StatusBadge = $"{response.StatusCode} {response.ReasonPhrase}";
             RowCount = ResultRows.Count;
-            StatusText = $"{DescribeCount()} · {response.StatusLine}";
+            StatusText = cycle ? PagingCycleMessage : $"{DescribeCount()} · {response.StatusLine}";
         }
         // Only a cancelled token is the user asking to stop; a timeout arrives the same way and is a
         // failure (see Run).
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            if (!IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            if (readOwner != Volatile.Read(ref _readSequence) || !IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             StatusText = "Load more cancelled.";
         }
         catch (Exception ex)
         {
-            if (!IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
-            StatusText = $"Load more failed: {ex.Message}";
+            if (readOwner != Volatile.Read(ref _readSequence) || !IsStillCurrent(generation) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            StatusText = ct.IsCancellationRequested ? "Load more cancelled." : $"Load more failed: {ex.Message}";
         }
         finally
         {
-            if (IsLifecycleCurrent(identity, lifecycleGeneration))
+            if (readOwner == Volatile.Read(ref _readSequence))
             {
                 IsBusy = false;
                 ExportCsvCommand.NotifyCanExecuteChanged();
@@ -1097,6 +1104,16 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
         }
     }
 
+    // Match CoreODataClient's append-to-resource behavior, including reverse-proxy path prefixes.
+    // Passing a relative request directly to RFC URI resolution would discard those prefixes.
+    private static string RequestTargetKey(string target, string? requestBase)
+    {
+        var actual = !target.StartsWith("http", StringComparison.OrdinalIgnoreCase) && requestBase is not null
+            ? $"{requestBase.TrimEnd('/')}/{target.TrimStart('/')}"
+            : target;
+        var uri = PageVisitTracker.ResolveRequestUri(actual, null);
+        return uri?.GetComponents(UriComponents.HttpRequestUrl, UriFormat.UriEscaped) ?? actual;
+    }
     private string DescribeCount() =>
         TotalCount is { } total ? $"{RowCount} of {total} rows" : $"{RowCount} rows";
 
@@ -1105,7 +1122,7 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
     {
         if (string.IsNullOrWhiteSpace(body))
         {
-            return (null, null);
+            throw new InvalidOperationException(InvalidCollectionMessage);
         }
 
         try
@@ -1114,7 +1131,11 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
             var root = doc.RootElement;
             if (root.ValueKind != JsonValueKind.Object)
             {
-                return (null, null);
+                throw new InvalidOperationException(InvalidCollectionMessage);
+            }
+            if (!root.TryGetProperty("value", out var value) || value.ValueKind != JsonValueKind.Array)
+            {
+                throw new InvalidOperationException(InvalidCollectionMessage);
             }
 
             long? count = null;
@@ -1130,16 +1151,16 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
                 }
             }
 
-            var next = root.TryGetProperty("@odata.nextLink", out var nl) && nl.ValueKind == JsonValueKind.String
-                ? nl.GetString()
-                : null;
-
+            string? next = null;
+            if (root.TryGetProperty("@odata.nextLink", out var nl) && nl.ValueKind != JsonValueKind.Null)
+            {
+                if (nl.ValueKind != JsonValueKind.String || string.IsNullOrWhiteSpace(nl.GetString()))
+                    throw new InvalidOperationException("Incomplete paging response: continuation must be a nonblank string.");
+                next = nl.GetString();
+            }
             return (count, next);
         }
-        catch (JsonException)
-        {
-            return (null, null);
-        }
+        catch (JsonException) { throw; }
     }
 
     // Rows alone aren't enough: a run can land rows with no columns (a $select=* payload whose objects
@@ -1228,6 +1249,7 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
     [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanExportAllCsv))]
     private async Task ExportAllCsv(CancellationToken ct)
     {
+        if (ct.IsCancellationRequested) return;
         if (SelectedEntity is null || !TryCaptureLifecycle(out var identity, out var lifecycleGeneration))
         {
             return;
@@ -1238,6 +1260,7 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
         // current selection.
         var entityName = SelectedEntity.Name;
 
+        var readOwner = Interlocked.Increment(ref _readSequence);
         IsBusy = true;
         StatusText = "Exporting all rows…";
         try
@@ -1252,13 +1275,22 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
             var seen = new HashSet<string>(StringComparer.Ordinal);
             var rows = new List<QueryResultRow>();
             var path = BuildPath(forRequest: true, unbounded: true);
+            var requestBase = identity?.FoEndpoint;
+            var visited = new HashSet<string>(StringComparer.Ordinal);
             var pages = 0;
             var capped = false;
 
             while (true)
             {
+                ct.ThrowIfCancellationRequested();
+                if (!visited.Add(RequestTargetKey(path, requestBase)))
+                {
+                    StatusText = ExportCycleMessage;
+                    return;
+                }
                 var response = await _client.SendAsync("GET", path, body: null, ct);
-                if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+                ct.ThrowIfCancellationRequested();
+                if (readOwner != Volatile.Read(ref _readSequence) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
                 if (!response.IsSuccess)
                 {
                     StatusText = $"Export failed: {response.StatusLine}";
@@ -1279,6 +1311,13 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
                     break;
                 }
 
+                ct.ThrowIfCancellationRequested();
+                if (visited.Contains(RequestTargetKey(next, requestBase)))
+                {
+                    StatusText = ExportCycleMessage;
+                    return;
+                }
+
                 if (++pages >= MaxExportPages)
                 {
                     capped = true;
@@ -1287,6 +1326,8 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
 
                 path = next;
             }
+
+            ct.ThrowIfCancellationRequested();
 
             // Nothing derivable and nothing selected: the file would be bare line terminators. Same
             // invariant CanExportCsv enforces for the preview, but only knowable here after the fetch.
@@ -1298,9 +1339,10 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
 
             var csv = QueryCsv.Build(columns, rows);
             var name = $"{entityName}.csv";
-            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            if (readOwner != Volatile.Read(ref _readSequence) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            ct.ThrowIfCancellationRequested();
             var saved = await _fileSave.SaveTextAsync(name, csv, SaveFileType.Csv, ct);
-            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            if (readOwner != Volatile.Read(ref _readSequence) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             if (saved is null)
             {
                 StatusText = "Export cancelled.";
@@ -1312,20 +1354,20 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
                     : $"Saved {rows.Count} rows to {saved}.";
             }
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
-            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            if (readOwner != Volatile.Read(ref _readSequence) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
             // Cancelling via CancelExportAllCsvCommand is a clean outcome, not an error.
             StatusText = "Export cancelled.";
         }
         catch (Exception ex)
         {
-            if (!IsLifecycleCurrent(identity, lifecycleGeneration)) return;
-            StatusText = $"Export failed: {ex.Message}";
+            if (readOwner != Volatile.Read(ref _readSequence) || !IsLifecycleCurrent(identity, lifecycleGeneration)) return;
+            StatusText = ct.IsCancellationRequested ? "Export cancelled." : $"Export failed: {ex.Message}";
         }
         finally
         {
-            if (IsLifecycleCurrent(identity, lifecycleGeneration))
+            if (readOwner == Volatile.Read(ref _readSequence))
             {
                 IsBusy = false;
             }
@@ -1366,17 +1408,24 @@ public partial class QueryBuilderViewModel : ObservableObject, IDisposable
     {
         if (string.IsNullOrWhiteSpace(body))
         {
-            yield break;
+            throw new InvalidOperationException(InvalidCollectionMessage);
         }
 
         using var doc = JsonDocument.Parse(body);
-        if (!doc.RootElement.TryGetProperty("value", out var value) || value.ValueKind != JsonValueKind.Array)
+        if (doc.RootElement.ValueKind != JsonValueKind.Object ||
+            !doc.RootElement.TryGetProperty("value", out var value) ||
+            value.ValueKind != JsonValueKind.Array)
         {
-            yield break;
+            throw new InvalidOperationException(InvalidCollectionMessage);
         }
 
         foreach (var item in value.EnumerateArray())
         {
+            if (item.ValueKind != JsonValueKind.Object)
+            {
+                throw new InvalidOperationException(InvalidCollectionMessage);
+            }
+
             // A column the payload omits is stored as null — the same shape an explicit JSON null takes,
             // and what QueryResultRow renders as the em-dash. Nullness stays a property of the cell
             // rather than of its display text (see QueryResultRow).

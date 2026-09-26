@@ -41,6 +41,11 @@ public sealed record VirtualTableInfo(
     public string ExternalNameLabel => string.IsNullOrWhiteSpace(ExternalName) ? "—" : ExternalName;
 }
 
+/// <summary>One validated page of Dataverse virtual-table metadata.</summary>
+public sealed record VirtualTableMetadataPage(
+    IReadOnlyList<VirtualTableInfo> Tables,
+    string? NextLink);
+
 /// <summary>Outcome of loading the virtual-table catalogue: the tables, or an error for the banner.</summary>
 public sealed record VirtualTableLoadResult(IReadOnlyList<VirtualTableInfo> Tables, string? Error)
 {
