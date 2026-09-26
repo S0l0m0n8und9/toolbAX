@@ -22,20 +22,35 @@ public static class CsvExporter
     /// The header is the union of every row's keys, in first-seen order, because Dataverse/F&amp;O omit
     /// null properties: no single row (and no single page — the first page of a filtered query can come
     /// back empty) is a reliable column list, and a column missing from the row the header was taken from
-    /// used to be dropped for every row. That union is only known once the last page has been read, so
-    /// rows are buffered rather than written page-by-page; <paramref name="progress"/> still reports rows
-    /// read as each page arrives, and nothing is written if the export is cancelled part-way (better than
-    /// a truncated file whose header is missing columns).
+    /// used to be dropped for every row. That union is only known once the last page has been read, so each
+    /// row's rendered strings are temporarily spooled to disk rather than retained in memory. The output
+    /// stream is untouched until source spooling completes and cancellation is checked. Once final output
+    /// writing begins, a generic stream failure or cancellation may leave partial bytes; callers that need
+    /// destination atomicity must provide it. The caller-owned output stream remains open.
     /// </remarks>
-    public static async Task ExportAsync(IODataClient client, QueryRequest request, Stream output, Action<int>? progress = null, CancellationToken cancellationToken = default)
-    {
-        await using var writer = new StreamWriter(output, new UTF8Encoding(encoderShouldEmitUTF8Identifier: true), leaveOpen: true);
+    public static async Task ExportAsync(IODataClient client, QueryRequest request, Stream output,
+        Action<int>? progress = null, CancellationToken cancellationToken = default) =>
+        await ExportCoreAsync(client, request, output, Path.GetTempPath(), progress, cancellationToken).ConfigureAwait(false);
 
+    internal static Task ExportAsyncForTest(IODataClient client, QueryRequest request, Stream output,
+        string spoolDirectory, Action<int>? progress = null, CancellationToken cancellationToken = default) =>
+        ExportCoreAsync(client, request, output, spoolDirectory, progress, cancellationToken);
+
+    private static async Task ExportCoreAsync(IODataClient client, QueryRequest request, Stream output,
+        string spoolDirectory, Action<int>? progress, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(client);
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentNullException.ThrowIfNull(output);
+        if (!output.CanWrite)
+        {
+            throw new ArgumentException("The output stream must be writable.", nameof(output));
+        }
+
+        cancellationToken.ThrowIfCancellationRequested();
+        await using var spool = JsonLineRowSpool.Create(spoolDirectory);
         var columns = new List<string>();
-        // Case-insensitive to match the row dictionaries HttpODataClient builds, so "Name"/"name" across
-        // pages produce one column that both rows can be read through.
-        var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var rows = new List<IReadOnlyDictionary<string, object?>>();
+        var canonicalColumns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var totalRows = 0;
 
         await foreach (var page in client.StreamAsync(request, cancellationToken))
@@ -44,31 +59,47 @@ public static class CsvExporter
 
             foreach (var row in page.Rows)
             {
-                foreach (var key in row.Keys)
+                cancellationToken.ThrowIfCancellationRequested();
+                var rendered = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var cell in row)
                 {
-                    if (known.Add(key))
+                    if (!canonicalColumns.TryGetValue(cell.Key, out var canonical))
                     {
-                        columns.Add(key);
+                        canonical = cell.Key;
+                        canonicalColumns.Add(cell.Key, canonical);
+                        columns.Add(canonical);
                     }
+
+                    rendered[canonical] = cell.Value?.ToString() ?? string.Empty;
                 }
 
-                rows.Add(row);
+                await spool.AppendAsync(rendered, cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                totalRows++;
             }
 
-            totalRows += page.Rows.Count;
             progress?.Invoke(totalRows);
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
-        await writer.WriteLineAsync(string.Join(",", columns.Select(Escape)));
+        cancellationToken.ThrowIfCancellationRequested();
+        await spool.CompleteWritingAsync(cancellationToken).ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
 
-        foreach (var row in rows)
+        await using var writer = new StreamWriter(output,
+            new UTF8Encoding(encoderShouldEmitUTF8Identifier: true), leaveOpen: true);
+        var header = string.Join(",", columns.Select(Escape));
+        await writer.WriteLineAsync(header.AsMemory(), cancellationToken).ConfigureAwait(false);
+
+        await foreach (var row in spool.ReadRowsAsync(cancellationToken).ConfigureAwait(false))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var line = string.Join(",", columns.Select(c => Escape(row.TryGetValue(c, out var v) ? v?.ToString() ?? string.Empty : string.Empty)));
-            await writer.WriteLineAsync(line);
+            var line = string.Join(",", columns.Select(c => Escape(row.TryGetValue(c, out var value) ? value : string.Empty)));
+            await writer.WriteLineAsync(line.AsMemory(), cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
         }
 
-        await writer.FlushAsync();
+        await writer.FlushAsync(cancellationToken).ConfigureAwait(false);
     }
 
     public static async Task ExportTableAsync(DataTable table, Stream output, CancellationToken cancellationToken = default)
