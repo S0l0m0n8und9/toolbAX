@@ -30,13 +30,14 @@ public sealed class DualWriteGatewayFactory : IDualWriteGatewayFactory
     // Token-endpoint calls share one long-lived client. Refresh providers only send requests
     // (they never dispose it), so a static instance avoids leaking a SocketsHttpHandler/connection
     // pool on every gateway creation.
-    private static readonly HttpClient RefreshHttpClient = new();
+    private static readonly HttpClient RefreshHttpClient = new(CreateRefreshTransport());
 
     public IDualWriteGateway Create(DualWriteConnectionSettings settings)
     {
-        var http = new HttpClient(new BearerTokenHandler(RequireGatewayUrl(settings)))
+        var gatewayOrigin = RequireGatewayOrigin(settings);
+        var http = new HttpClient(new BearerTokenHandler(gatewayOrigin, settings.BearerToken))
         {
-            BaseAddress = GatewayUri(settings)
+            BaseAddress = gatewayOrigin
         };
         http.DefaultRequestHeaders.UserAgent.ParseAdd("FoToolbox-DualWrite/0.1");
         return new DualWriteGatewayClient(http, ownsHttpClient: true);
@@ -44,55 +45,70 @@ public sealed class DualWriteGatewayFactory : IDualWriteGatewayFactory
 
     public IDualWriteGateway CreateRefreshing(DualWriteConnectionSettings settings, Func<DualWriteToken, Task> onRefreshed)
     {
-        RequireGatewayUrl(settings);
+        var gatewayOrigin = RequireGatewayOrigin(settings);
         if (!settings.HasDelegatedSession)
         {
             return Create(settings);
+        }
+        if (settings.DelegatedBinding is null || !settings.DelegatedBinding.IsTrusted)
+        {
+            throw new InvalidOperationException("This Dual-write session has no trusted refresh context; sign in again.");
         }
 
         var token = new DualWriteToken(
             settings.BearerToken ?? string.Empty,
             settings.RefreshToken,
-            settings.AccessTokenExpiryUtc ?? DateTimeOffset.UtcNow);
-        var refresher = new DualWriteRefreshTokenProvider(RefreshHttpClient);
-        var http = new HttpClient(new RefreshingBearerTokenHandler(token, refresher, onRefreshed))
+            settings.AccessTokenExpiryUtc ?? DateTimeOffset.UtcNow)
         {
-            BaseAddress = GatewayUri(settings)
+            Binding = settings.DelegatedBinding
+        };
+        var refresher = new DualWriteRefreshTokenProvider(RefreshHttpClient);
+        var http = new HttpClient(new RefreshingBearerTokenHandler(token, refresher, gatewayOrigin, onRefreshed))
+        {
+            BaseAddress = gatewayOrigin
         };
         http.DefaultRequestHeaders.UserAgent.ParseAdd("FoToolbox-DualWrite/0.1");
         return new DualWriteGatewayClient(http, ownsHttpClient: true);
     }
 
-    private static string RequireGatewayUrl(DualWriteConnectionSettings settings)
+    private static Uri RequireGatewayOrigin(DualWriteConnectionSettings settings)
     {
         if (settings is null)
         {
             throw new ArgumentNullException(nameof(settings));
         }
 
-        if (string.IsNullOrWhiteSpace(settings.GatewayBaseUrl))
-        {
-            throw new InvalidOperationException("Gateway base URL is not configured.");
-        }
-
-        return settings.BearerToken ?? string.Empty;
+        return DualWriteEndpointPolicy.RequireGatewayBase(settings.GatewayBaseUrl);
     }
 
-    private static Uri GatewayUri(DualWriteConnectionSettings settings) =>
-        new(settings.GatewayBaseUrl.TrimEnd('/') + "/");
+    internal static HttpClientHandler CreateGatewayTransport() => new() { AllowAutoRedirect = false };
+
+    internal static HttpClientHandler CreateRefreshTransport() => new() { AllowAutoRedirect = false };
 }
 
 internal sealed class BearerTokenHandler : DelegatingHandler
 {
+    private readonly Uri _gatewayOrigin;
     private readonly string? _token;
 
-    public BearerTokenHandler(string? token) : base(new HttpClientHandler())
+    /// <summary>
+    /// Uses a no-redirect transport by default. A caller that replaces <see cref="InnerHandler"/>
+    /// owns equivalent redirect enforcement.
+    /// </summary>
+    public BearerTokenHandler(Uri gatewayOrigin, string? token) : base(DualWriteGatewayFactory.CreateGatewayTransport())
     {
+        _gatewayOrigin = DualWriteEndpointPolicy.RequireGatewayBase(
+            gatewayOrigin?.AbsoluteUri ?? throw new ArgumentNullException(nameof(gatewayOrigin)));
         _token = token;
     }
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
+        if (!DualWriteEndpointPolicy.IsSameOrigin(_gatewayOrigin, request.RequestUri))
+        {
+            throw new InvalidOperationException("The dual-write request does not match the authenticated gateway origin.");
+        }
+
         if (!string.IsNullOrWhiteSpace(_token))
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _token);

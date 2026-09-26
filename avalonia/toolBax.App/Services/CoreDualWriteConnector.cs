@@ -38,13 +38,20 @@ public sealed class CoreDualWriteConnector : IDualWriteConnector
 
         // Portal sign-in yields BOTH the delegated token and the regional gateway host (no client id /
         // gateway URL to configure) — the gateway host is discovered, not taken from the profile.
-        var result = await _signIn.SignInAsync(env, switchAccount: false, ct).ConfigureAwait(false)
-            ?? throw new InvalidOperationException("Data Integrator sign-in was cancelled or did not complete.");
+        var result = await _signIn.SignInAsync(env, switchAccount: false, ct).ConfigureAwait(false);
+        ct.ThrowIfCancellationRequested();
+        if (result is null)
+            throw new InvalidOperationException("Data Integrator sign-in was cancelled or did not complete.");
+        if (result.Token.Binding is null || !result.Token.Binding.IsTrusted)
+        {
+            throw new InvalidOperationException("toolbAX couldn't verify the Data Integrator sign-in; sign in again.");
+        }
 
         var settings = new DualWriteConnectionSettings(env.Id, result.GatewayBaseUrl, env.Url, result.Token.AccessToken)
         {
             RefreshToken = result.Token.RefreshToken,
             AccessTokenExpiryUtc = result.Token.ExpiresUtc,
+            DelegatedBinding = result.Token.Binding,
         };
         var gateway = DualWriteGatewayWiring.CreateFor(_factory, settings);
 

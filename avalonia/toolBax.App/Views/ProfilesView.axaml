@@ -187,6 +187,8 @@
                 <!-- Tab-specific connection test stays in the FO tab. -->
                 <StackPanel Orientation="Horizontal" Spacing="8">
                   <Button Content="Test connection" Command="{Binding TestConnectionCommand}" />
+                  <Button x:Name="FoTestCancelButton" Content="Cancel test" Command="{Binding TestConnectionCancelCommand}"
+                          IsVisible="{Binding IsTestingFoConnection}" />
                   <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingFoConnection}" Width="90" Height="4"
                                VerticalAlignment="Center" />
                   <!-- Clears the cached delegated sign-in so the next call re-authenticates. Scope is the
@@ -197,6 +199,10 @@
                   <Button Content="Sign out" Command="{Binding SignOutCommand}"
                           ToolTip.Tip="Clear the cached sign-in for every profile using this tenant's shared app registration (forces a fresh interactive sign-in next time)." />
                 </StackPanel>
+                <TextBlock x:Name="FoTestResult" Text="{Binding FoTestStatus}" TextWrapping="Wrap"
+                           FontSize="12" Foreground="{StaticResource Text2Brush}" />
+                <TextBlock Text="Test uses the displayed draft without saving. Client-secret tests use the stored credential; Store a new secret explicitly first. Success covers this endpoint only."
+                           TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}" />
               </StackPanel>
             </TabItem>
 
@@ -261,10 +267,16 @@
 
                 <StackPanel Orientation="Horizontal" Spacing="10">
                   <Button Content="Test Dataverse connection" Command="{Binding TestDataverseConnectionCommand}" />
+                  <Button x:Name="DataverseTestCancelButton" Content="Cancel test" Command="{Binding TestDataverseConnectionCancelCommand}"
+                          IsVisible="{Binding IsTestingDataverseConnection}" />
                   <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingDataverseConnection}" Width="90" Height="4"
                                VerticalAlignment="Center" />
                 </StackPanel>
 
+                <TextBlock x:Name="DataverseTestResult" Text="{Binding DataverseTestStatus}" TextWrapping="Wrap"
+                           FontSize="12" Foreground="{StaticResource Text2Brush}" />
+                <TextBlock Text="Test uses the displayed draft without saving. Client-secret tests use the stored credential; Store a new secret explicitly first. Success covers this endpoint only."
+                           TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}" />
                 <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}"
                            Text="The linked Dataverse environment + its own app registration (used by Dual-Write). The Dataverse client ID is a separate app reg from the FO one; the tenant is shared with the FO environment. The client secret is DPAPI-protected at rest and never displayed or logged." />
               </StackPanel>
@@ -290,18 +302,26 @@
                   </StackPanel>
                 </Border>
 
+                <TextBlock x:Name="LegacyDiClearStatus" Text="{Binding LegacyDiStatus}" TextWrapping="Wrap"
+                           FontSize="11.5" Foreground="{StaticResource Text2Brush}"
+                           IsVisible="{Binding LegacyDiStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+
                 <StackPanel Spacing="8">
                   <TextBlock TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}"
                              Text="Sign-in opens the Microsoft Data Integrator portal in an embedded browser and captures the delegated token AND your regional gateway host automatically — nothing to configure here. Renews silently after the first sign-in. (Windows only.)" />
                   <StackPanel Orientation="Horizontal" Spacing="10">
                     <Button x:Name="PortalGatewayTestButton" Content="Sign in &amp; test gateway" Command="{Binding TestGatewayCommand}"
                             Background="{StaticResource AccentBrush}" Foreground="{StaticResource OnAccentBrush}" />
+                    <Button x:Name="GatewayTestCancelButton" Content="Cancel test" Command="{Binding TestGatewayCancelCommand}"
+                            IsVisible="{Binding IsTestingGateway}" />
                     <ProgressBar IsIndeterminate="True" IsVisible="{Binding IsTestingGateway}" Width="90" Height="4"
                                  VerticalAlignment="Center" />
                   </StackPanel>
+                  <TextBlock Text="Tests the displayed draft connection without saving. The result names the captured environment and endpoint; it does not certify every tool or operation."
+                             TextWrapping="Wrap" FontSize="11.5" Foreground="{StaticResource Text3Brush}" />
                 </StackPanel>
 
-                <TextBlock Text="{Binding DiStatus}" FontSize="12" Foreground="{StaticResource Text2Brush}"
+                <TextBlock x:Name="GatewayTestResult" Text="{Binding DiStatus}" TextWrapping="Wrap" FontSize="12" Foreground="{StaticResource Text2Brush}"
                            FontFamily="{StaticResource MonoFontFamily}"
                            IsVisible="{Binding DiStatus, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
               </StackPanel>
