@@ -92,7 +92,7 @@ public sealed class ReadTransportCancellationTests
     }
 
     [Fact]
-    public async Task Streaming_real_timeout_with_live_caller_keeps_plugin_friendly_failure()
+    public async Task Streaming_real_timeout_with_live_caller_is_truthful_timeout()
     {
         using var handler = new Handler(async ct =>
         {
@@ -100,9 +100,17 @@ public sealed class ReadTransportCancellationTests
             throw new InvalidOperationException("unreachable");
         });
         using var http = new HttpClient(handler) { BaseAddress = new Uri("https://host/"), Timeout = TimeSpan.FromMilliseconds(100) };
-        await using var pages = new HttpODataClient(http).StreamAsync(new QueryRequest("data/X")).GetAsyncEnumerator();
-        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => pages.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
-        Assert.Contains("Re-authenticate", error.Message);
+        using var caller = new CancellationTokenSource();
+        await using var pages = new HttpODataClient(http)
+            .StreamAsync(new QueryRequest("data/X"), caller.Token)
+            .GetAsyncEnumerator();
+
+        var error = await Assert.ThrowsAsync<TimeoutException>(
+            () => pages.MoveNextAsync().AsTask().WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.False(caller.IsCancellationRequested);
+        Assert.Equal("The OData request timed out.", error.Message);
+        Assert.DoesNotContain("Re-authenticate", error.Message, StringComparison.OrdinalIgnoreCase);
         Assert.IsAssignableFrom<OperationCanceledException>(error.InnerException);
     }
 

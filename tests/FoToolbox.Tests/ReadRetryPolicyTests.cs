@@ -218,6 +218,32 @@ public sealed class ReadRetryPolicyTests
         response.Dispose();
     }
 
+    [Theory]
+    [InlineData(null)]
+    [InlineData("not-a-delay")]
+    public async Task SendAsync_ReturnsLastResponseWhenBackoffCannotFitBudgetWithoutValidRetryAfter(
+        string? retryAfter)
+    {
+        var content = new TrackingContent();
+        var first = Response(HttpStatusCode.ServiceUnavailable, content);
+        if (retryAfter is not null)
+            first.Headers.TryAddWithoutValidation("Retry-After", retryAfter);
+        var handler = new ScriptedHandler((_, _) => Task.FromResult(first));
+        using var client = new HttpClient(handler);
+
+        var response = await new ReadRetryPolicy(
+            overallBudget: TimeSpan.FromSeconds(1),
+            initialBackoff: TimeSpan.FromSeconds(2),
+            maximumBackoff: TimeSpan.FromSeconds(2)).SendAsync(
+                client, Get, HttpCompletionOption.ResponseHeadersRead, CancellationToken.None);
+
+        Assert.Same(first, response);
+        Assert.Single(handler.Requests);
+        Assert.False(content.IsDisposed);
+        response.Dispose();
+        Assert.True(content.IsDisposed);
+    }
+
     [Fact]
     public async Task SendAsync_InvalidRetryAfterFallsBackToNormalBackoff()
     {
@@ -587,6 +613,23 @@ public sealed class ReadRetryPolicyTests
         Assert.False(content.SerializationStarted);
     }
 
+    [Fact]
+    public async Task SendAsync_ResponseContentReadStillHonorsHttpClientBufferLimit()
+    {
+        var handler = new ScriptedHandler((_, _) => Task.FromResult(
+            new HttpResponseMessage(HttpStatusCode.OK)
+            {
+                Content = new StringContent(new string('x', 128))
+            }));
+        using var client = new HttpClient(handler) { MaxResponseContentBufferSize = 16 };
+
+        var exception = await Assert.ThrowsAsync<HttpRequestException>(() => ImmediatePolicy().SendAsync(
+            client, Get, HttpCompletionOption.ResponseContentRead, CancellationToken.None));
+
+        Assert.Contains("buffer", exception.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Single(handler.Requests);
+    }
+
     private static ReadRetryPolicy ImmediatePolicy() => new(initialBackoff: TimeSpan.Zero);
 
     private static HttpRequestMessage Get() => new(HttpMethod.Get, RequestUri);
@@ -652,7 +695,7 @@ public sealed class ReadRetryPolicyTests
         }
     }
 
-    private sealed class ManualTimeProvider : TimeProvider
+    internal sealed class ManualTimeProvider : TimeProvider
     {
         private readonly object _sync = new();
         private readonly List<ScheduledTimer> _timers = [];

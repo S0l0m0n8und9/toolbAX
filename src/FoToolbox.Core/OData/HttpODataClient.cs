@@ -57,10 +57,9 @@ public sealed class HttpODataClient : IODataClient
             HttpResponseMessage response;
             try
             {
-                response = await _readRetryPolicy.SendAsync(
+                response = await _readRetryPolicy.SendBufferedAsync(
                     _httpClient,
                     CreateRequest,
-                    HttpCompletionOption.ResponseContentRead,
                     cancellationToken).ConfigureAwait(false);
             }
             catch (AuthRecoveryException)
@@ -210,11 +209,14 @@ public sealed class HttpODataClient : IODataClient
 
     private static Exception BuildPluginFriendlyException(Exception exception)
     {
-        return exception is AuthRecoveryException
-            ? exception
-            : new InvalidOperationException(
-                "Authentication needs to be refreshed before the plugin can continue. Re-authenticate in Profiles and retry the operation.",
-                exception);
+        if (exception is AuthRecoveryException or TimeoutException)
+            return exception;
+        if (exception is OperationCanceledException)
+            return new TimeoutException("The OData request timed out.", exception);
+
+        return new InvalidOperationException(
+            "Authentication needs to be refreshed before the plugin can continue. Re-authenticate in Profiles and retry the operation.",
+            exception);
     }
 
     private static Exception BuildPluginFriendlyException(HttpResponseMessage response, string? body)
