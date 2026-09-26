@@ -1,6 +1,6 @@
 # Paging Integrity
 
-**Status:** Implemented and locally validated across Core and App. Uncommitted pending parent review.
+**Status:** Implemented and fully validated after final H09 cache-contract integration; pending parent review and hosted delivery.
 
 ## Phase 1 boundary
 
@@ -57,5 +57,15 @@ The requested App baseline was reconstructed retrospectively, not represented as
 
 Parent full validation at the reviewed working tree then built both complete solutions with `CI=true` in Release and zero warnings/errors. The full Windows App suite (`EnableWebView2=true`) passed 1,482/1,482 and the full Core suite passed 484/484, zero failed/skipped. Evidence is `artifacts/h10c/completion/parent-full-app-{build,test}.log`, `parent-full-app.trx`, `parent-full-core-{build,test}.log` and `parent-full-core.trx`. This remains local validation; main integration, hosted review and merge are pending.
 
+## Integrated H09/H10a validation
 
-Parent full validation at the reviewed working tree then built both complete solutions with CI=true in Release and zero warnings/errors. The full Windows App suite (EnableWebView2=true) passed 1,482/1,482 and the full Core suite passed 484/484, zero failed/skipped. Evidence is rtifacts/h10c/completion/parent-full-app-{build,test}.log, parent-full-app.trx, parent-full-core-{build,test}.log and parent-full-core.trx. This remains local validation; main integration, hosted review and merge are pending.
+H09 head `994a36418cc7fbe3a66e26f0faa5e716b6c2be76`, including current main, H05 and H10a, merged cleanly as `c8ec0043b48fc17f9f7318597124abf1f4e9ca9a`; no source conflict or manual redesign was required. The accepted PR232 test-only synchronization correction `1c1381a863c88d09043d1e710fea0949e7a3ac38` then merged cleanly as `028497224971bdc8cf599167b7e1d2a5785c1463`. Inspection confirms the shared stream, catalog, Dataverse readers and Query retain paging cycle/malformed/incomplete guards together with H10a cancellation/environment ownership and H09 write ownership.
+
+Sequential `CI=true` Release builds passed with zero warnings/errors. Core passed 616/616, and the Windows App with `EnableWebView2=true` passed 1,660/1,660, all with zero failures/skips. Evidence is `artifacts/h10c/integrated-h09/core-{build,test}.log`, `core-test.trx`, `app-{build,test}.log`, and `app-test.trx`. No live service, browser, sign-in, profile-clear or tenant operation was used. H10c remains locally integrated and fully validated; PR creation waits for PR #232 to merge, then current-main integration and hosted review/CI.
+**Status:** Integrated and fully validated offline; hosted delivery waits for PR #232.
+
+## Integrated PR #232 review-head validation
+
+Combined PR232 correction `b1caddb15f29721b1653d3241c59405616712558` merged cleanly as `ffe386107e31dd694914a02162722f2b25bbd0fc`; no paging source conflict or behavior change was required. Core source/tests are unchanged from the 616/616 gate. The rebuilt `CI=true` Release Windows App with `EnableWebView2=true` had zero warnings/errors and the full App suite passed 1,668/1,668 with zero failures/skips. Evidence is `artifacts/h10c/integrated-h09-review/app-build.log`, `app-test.log`, and `app-test.trx`. The prior Core evidence remains `artifacts/h10c/integrated-h09/`. H10c remains ready but must wait for PR #232 merge and current-main ancestry integration before hosted delivery.
+
+Final PR232 cached-sign-in head `1890a871c864532b7c2787580eb51e3d6f04f30d` merged cleanly as `7df7f26e4aca9e48cefdfa9301e422c6bff003dd`; there was no source conflict and the paging/cancellation/currentness behavior was unchanged. Parent verified Core source/tests unchanged from the 616/616 gate, so Core was not rerun. The rebuilt `CI=true` Release Windows App with `EnableWebView2=true` had zero warnings/errors and the full App suite passed 1,670/1,670 with zero failures/skips. Evidence is `artifacts/h10c/integrated-h09-cache-contract/app-build.log`, `app-test.log`, and `app-test.trx`. PR #232 checks are green and Greptile reports 5/5 with no new or outstanding finding; H10c hosted delivery still waits for that PR to merge and for current-main ancestry integration. No live service, browser, sign-in, profile-clear, tenant or file-destination operation was used.
