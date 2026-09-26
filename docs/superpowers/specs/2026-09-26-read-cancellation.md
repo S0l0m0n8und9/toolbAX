@@ -60,3 +60,9 @@ Both controls passed 2/2 on the original production source (`artifacts/h10a/map-
 Parent final source/test review accepted at `5f77e3c91598ee634879372c88d54f69d84f770b`, including unchanged H03 mutation paths, truthful reporting after file-save commit and the disproved concurrent Map reload concern. Parent full offline App passed 1,454/1,454 and Core passed 466/466, zero failed/skipped. Both CI=true Release solution builds had 0 warnings/errors; Windows App used EnableWebView2=true. Core production/test code was unchanged between its `b196b175` build and the test-only `5f77e3c` checkpoint.
 
 Evidence: `artifacts/h10a/parent-full-{app,core}-{build,test}.log` and `parent-full-{app,core}.trx`. Earlier RED/focused evidence above remains retained. No live backend, authentication or browser session was used. H10a is locally validated; publication, hosted CI/Greptile review and merge remain pending.
+
+## Integrated main validation
+
+Main `573a6a42dc0d2f818ef4c5b3c904713cd9405ec4` (including delivered H05 and H08a) merged cleanly into the H10a branch as `800a9683ba94258062516554b9c9b6c4b76f6924`; no source or tracker conflict required manual resolution. The resulting source diff against main remains limited to H10a cancellation ownership plus its tests and delivery documentation, with no H05 authentication or H08a profile-test rollback.
+
+Sequential `CI=true` Release gates passed with zero warnings/errors: Core built and passed 582/582, then the Windows App built with `EnableWebView2=true` and passed 1,589/1,589, with zero failures/skips. Evidence is `artifacts/h10a/integrated-h05/core-{build,test}.log`, `core-test.trx`, `app-{build,test}.log`, and `app-test.trx`. No live backend, browser, sign-in or profile-clear action was used. H10a remains ready for local documentation commit, publication and hosted PR review/CI; merge remains pending.
