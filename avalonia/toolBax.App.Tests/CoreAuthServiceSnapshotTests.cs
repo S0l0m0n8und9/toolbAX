@@ -10,6 +10,7 @@ using FoToolbox.Core.Catalog;
 using FoToolbox.Core.Models;
 using FoToolbox.Core.Profiles;
 using ToolBax.App.Services;
+using ToolBax.App.ViewModels;
 using ToolBax.Core.Models;
 using Xunit;
 
@@ -121,6 +122,40 @@ public sealed class CoreAuthServiceSnapshotTests
         Assert.Equal(target, captured.Principal.Target);
         Assert.Equal(profile.Tenant, captured.TenantId);
         Assert.Equal(target == AuthTarget.Fo ? profile.Url : profile.DataverseUrl, captured.ResourceBaseUrl);
+        Assert.True(captured.ForceRefresh);
+    }
+
+    [Fact]
+    public async Task Saved_interactive_identity_drives_the_next_core_auth_request()
+    {
+        var original = Profile();
+        var store = new FakeProfileStore(new[] { original }) { ActiveId = original.Id };
+        using var profiles = new ProfilesViewModel(store);
+        profiles.DraftAuthMode = FoAuthMode.Interactive;
+        profiles.DraftClientId = "new-interactive-client";
+        profiles.DraftTenant = "new-interactive-tenant";
+        profiles.DraftUrl = "https://new.operations.dynamics.com/data";
+
+        await profiles.SaveCommand.ExecuteAsync(null);
+
+        var saved = Assert.Single(store.GetAll());
+        AuthTokenRequest? captured = null;
+        var auth = new CoreAuthService(
+            (_, _, _) => throw new InvalidOperationException("Interactive acquisition must not load an app principal."),
+            (request, _) =>
+            {
+                captured = request;
+                return Task.FromResult("saved-identity-token");
+            });
+
+        var token = await auth.AcquireFoTokenAsync(
+            saved, forceRefresh: true, TestContext.Current.CancellationToken);
+
+        Assert.Equal("saved-identity-token", token);
+        Assert.Equal(FoAuthMode.Interactive, saved.AuthMode);
+        Assert.Equal("new-interactive-client", captured!.Principal.ClientId);
+        Assert.Equal("new-interactive-tenant", captured.TenantId);
+        Assert.Equal("https://new.operations.dynamics.com", captured.ResourceBaseUrl);
         Assert.True(captured.ForceRefresh);
     }
 
