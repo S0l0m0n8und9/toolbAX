@@ -1,6 +1,6 @@
 # Dataverse paging cycles (H10c App-reader phase)
 
-**Status:** Implemented and locally validated; uncommitted pending parent review.
+**Status:** Implemented and fully validated after final H09 cache-contract integration; pending parent review and hosted delivery.
 
 Use Core `PageVisitTracker` once per traversal, before each initial/continuation dispatch. Map component/map/solution traversals clear their sink and return a static incomplete-paging error on repeat. Relative continuation identity must match the captured Dataverse API-base-plus-trimmed-path dispatch behavior; absolute links remain verbatim and existing origin checks remain authoritative.
 
@@ -29,3 +29,5 @@ Parent-review Query corrections did not change the Dataverse reader implementati
 H09/H10a and the PR232 test synchronization correction merged without Dataverse-reader conflicts. Map, component, solution and virtual-table traversals still capture one environment identity/API base, reject repeated or malformed pages before partial publication, and retain H10a cancellation checks around every dispatch/follow-on. The integrated `CI=true` Release Core build passed with zero warnings/errors and 616/616 tests; the App WebView2 build passed with zero warnings/errors and 1,660/1,660 tests. Evidence is `artifacts/h10c/integrated-h09/`. No live Dataverse call was made.
 
 Combined PR232 review head `b1caddb15f29721b1653d3241c59405616712558` then merged without Dataverse-reader changes. Core remains unchanged at 616/616; the rebuilt App WebView2 solution had zero warnings/errors and passed 1,668/1,668. Evidence is `artifacts/h10c/integrated-h09-review/`. No live Dataverse call was made.
+
+Final PR232 head `1890a871c864532b7c2787580eb51e3d6f04f30d` merged cleanly as `7df7f26e4aca9e48cefdfa9301e422c6bff003dd` with no Dataverse-reader conflict or source change. Parent verified Core source/tests unchanged from the 616/616 gate. The rebuilt `CI=true` Release App WebView2 solution had zero warnings/errors and passed 1,670/1,670 with zero failures/skips. Evidence is `artifacts/h10c/integrated-h09-cache-contract/`. No live Dataverse call was made; hosted delivery still waits for PR #232 merge and current-main ancestry integration.

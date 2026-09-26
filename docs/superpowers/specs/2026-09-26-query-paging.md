@@ -1,6 +1,6 @@
 # Query paging integrity (H10c)
 
-Status: Implemented and locally validated; uncommitted pending parent review.
+Status: Implemented and fully validated after final H09 cache-contract integration; pending parent review and hosted delivery.
 
 ## Contract
 
@@ -48,3 +48,5 @@ Retrospective baseline verification temporarily restored only `QueryBuilderViewM
 H09/H10a and the PR232 test synchronization correction merged without Query source conflicts. Query still commits page history only after guarded success, permits failed/cancelled-page retry, rejects repeated/malformed pages without false whole-export success, and saves at the 500-unique-page cap only with the explicit incomplete qualifier. H10a caller/lifecycle ownership and committed-file truth remain intact. The integrated `CI=true` Release App WebView2 build passed with zero warnings/errors and the full App suite passed 1,660/1,660; integrated Core passed 616/616. Evidence is `artifacts/h10c/integrated-h09/`. No live OData request or file destination was used.
 
 Combined PR232 review head `b1caddb15f29721b1653d3241c59405616712558` then merged without Query source changes. Core remains unchanged at 616/616; the rebuilt App WebView2 solution had zero warnings/errors and passed 1,668/1,668. Evidence is `artifacts/h10c/integrated-h09-review/`. No live request or file destination was used.
+
+Final PR232 head `1890a871c864532b7c2787580eb51e3d6f04f30d` merged cleanly as `7df7f26e4aca9e48cefdfa9301e422c6bff003dd` with no Query conflict or source change. Query still owns independent page history, retries failed/cancelled pages, rejects cycles and malformed success envelopes, withholds partial exports, and preserves the qualified 500-unique-page ceiling. Parent verified Core source/tests unchanged from the 616/616 gate. The rebuilt `CI=true` Release App WebView2 solution had zero warnings/errors and passed 1,670/1,670 with zero failures/skips. Evidence is `artifacts/h10c/integrated-h09-cache-contract/`. No live OData request or file destination was used; hosted delivery still waits for PR #232 merge and current-main ancestry integration.

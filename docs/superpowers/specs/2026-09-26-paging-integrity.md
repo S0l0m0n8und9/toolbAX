@@ -1,6 +1,6 @@
 # Paging Integrity
 
-**Status:** Implemented and locally validated across Core and App. Uncommitted pending parent review.
+**Status:** Implemented and fully validated after final H09 cache-contract integration; pending parent review and hosted delivery.
 
 ## Phase 1 boundary
 
@@ -67,3 +67,5 @@ Sequential `CI=true` Release builds passed with zero warnings/errors. Core passe
 ## Integrated PR #232 review-head validation
 
 Combined PR232 correction `b1caddb15f29721b1653d3241c59405616712558` merged cleanly as `ffe386107e31dd694914a02162722f2b25bbd0fc`; no paging source conflict or behavior change was required. Core source/tests are unchanged from the 616/616 gate. The rebuilt `CI=true` Release Windows App with `EnableWebView2=true` had zero warnings/errors and the full App suite passed 1,668/1,668 with zero failures/skips. Evidence is `artifacts/h10c/integrated-h09-review/app-build.log`, `app-test.log`, and `app-test.trx`. The prior Core evidence remains `artifacts/h10c/integrated-h09/`. H10c remains ready but must wait for PR #232 merge and current-main ancestry integration before hosted delivery.
+
+Final PR232 cached-sign-in head `1890a871c864532b7c2787580eb51e3d6f04f30d` merged cleanly as `7df7f26e4aca9e48cefdfa9301e422c6bff003dd`; there was no source conflict and the paging/cancellation/currentness behavior was unchanged. Parent verified Core source/tests unchanged from the 616/616 gate, so Core was not rerun. The rebuilt `CI=true` Release Windows App with `EnableWebView2=true` had zero warnings/errors and the full App suite passed 1,670/1,670 with zero failures/skips. Evidence is `artifacts/h10c/integrated-h09-cache-contract/app-build.log`, `app-test.log`, and `app-test.trx`. PR #232 checks are green and Greptile reports 5/5 with no new or outstanding finding; H10c hosted delivery still waits for that PR to merge and for current-main ancestry integration. No live service, browser, sign-in, profile-clear, tenant or file-destination operation was used.
