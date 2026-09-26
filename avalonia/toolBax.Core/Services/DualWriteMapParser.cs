@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using System.Text.Json;
 using ToolBax.Core.Models;
 
@@ -278,44 +279,34 @@ public static class DualWriteMapParser
         return $"solutioncomponents?$select=objectid&$filter={Uri.EscapeDataString(filter)}";
     }
 
-    /// <summary>Parses one page of solutions (tolerates null/blank/malformed input).</summary>
+    /// <summary>Parses one structurally valid page of solutions.</summary>
     public static DwSolutionPage ParseSolutionPage(string? json)
     {
-        if (!TryGetValueArray(json, out var valueArray, out var root))
-        {
-            return new DwSolutionPage(Array.Empty<DwSolution>(), null);
-        }
+        GetValueArray(json, "solutions", out var valueArray, out var root);
 
         var solutions = new List<DwSolution>();
         foreach (var item in valueArray.EnumerateArray())
         {
-            if (item.ValueKind == JsonValueKind.Object)
-            {
-                solutions.Add(ParseSolution(item));
-            }
+            solutions.Add(ParseSolution(item));
         }
 
-        return new DwSolutionPage(solutions, GetValueAsString(root, "@odata.nextLink"));
+        return new DwSolutionPage(solutions, ReadNextLink(root, "solutions"));
     }
 
-    /// <summary>Parses one page of solution-component object ids (tolerates null/blank/malformed input).</summary>
+    /// <summary>Parses one structurally valid page of required solution-component object ids.</summary>
     public static DwComponentIdPage ParseComponentIdPage(string? json)
     {
-        if (!TryGetValueArray(json, out var valueArray, out var root))
-        {
-            return new DwComponentIdPage(Array.Empty<Guid>(), null);
-        }
+        GetValueArray(json, "solution components", out var valueArray, out var root);
 
         var ids = new List<Guid>();
         foreach (var item in valueArray.EnumerateArray())
         {
-            if (item.ValueKind == JsonValueKind.Object && Guid.TryParse(GetValueAsString(item, "objectid"), out var id))
-            {
-                ids.Add(id);
-            }
+            if (!Guid.TryParse(GetValueAsString(item, "objectid"), out var id))
+                throw new MetadataResponseFormatException("solution components response contained an invalid objectid.");
+            ids.Add(id);
         }
 
-        return new DwComponentIdPage(ids, GetValueAsString(root, "@odata.nextLink"));
+        return new DwComponentIdPage(ids, ReadNextLink(root, "solution components"));
     }
 
     private static DwSolution ParseSolution(JsonElement item)
@@ -352,13 +343,13 @@ public static class DualWriteMapParser
             PublisherDisplayName: publisherDisplay);
     }
 
-    private static bool TryGetValueArray(string? json, out JsonElement valueArray, out JsonElement root)
+    private static void GetValueArray(string? json, string location, out JsonElement valueArray, out JsonElement root)
     {
         valueArray = default;
         root = default;
         if (string.IsNullOrWhiteSpace(json))
         {
-            return false;
+            throw new MetadataResponseFormatException($"{location} response was blank.");
         }
 
         try
@@ -368,35 +359,45 @@ public static class DualWriteMapParser
         }
         catch (JsonException)
         {
-            return false;
+            throw new MetadataResponseFormatException($"{location} response was not valid JSON.");
         }
 
-        return root.ValueKind == JsonValueKind.Object
-            && root.TryGetProperty("value", out valueArray)
-            && valueArray.ValueKind == JsonValueKind.Array;
+        if (root.ValueKind != JsonValueKind.Object || !root.TryGetProperty("value", out valueArray)
+            || valueArray.ValueKind != JsonValueKind.Array)
+        {
+            throw new MetadataResponseFormatException($"{location} response had no array at value.");
+        }
+        if (valueArray.EnumerateArray().Any(item => item.ValueKind != JsonValueKind.Object))
+        {
+            throw new MetadataResponseFormatException($"{location} response value contained a non-object item.");
+        }
+    }
+
+    private static string? ReadNextLink(JsonElement root, string location)
+    {
+        if (!root.TryGetProperty("@odata.nextLink", out var link) || link.ValueKind == JsonValueKind.Null) return null;
+        if (link.ValueKind != JsonValueKind.String)
+            throw new MetadataResponseFormatException($"{location} response had an invalid @odata.nextLink.");
+        var value = link.GetString();
+        if (string.IsNullOrWhiteSpace(value))
+            throw new MetadataResponseFormatException($"{location} response had an invalid @odata.nextLink.");
+        return value;
     }
 
     /// <summary>
-    /// Parses one Web API response page. Tolerates null/blank/malformed input (returns an empty page)
-    /// so a transient bad response never throws into the UI.
+    /// Parses one structurally valid Web API response page.
     /// </summary>
     public static DwMapPage ParsePage(string? json)
     {
-        if (!TryGetValueArray(json, out var valueArray, out var root))
-        {
-            return new DwMapPage(Array.Empty<DwMapRecord>(), null);
-        }
+        GetValueArray(json, "dual-write maps", out var valueArray, out var root);
 
         var records = new List<DwMapRecord>();
         foreach (var item in valueArray.EnumerateArray())
         {
-            if (item.ValueKind == JsonValueKind.Object)
-            {
-                records.Add(ParseRecord(item));
-            }
+            records.Add(ParseRecord(item));
         }
 
-        return new DwMapPage(records, GetValueAsString(root, "@odata.nextLink"));
+        return new DwMapPage(records, ReadNextLink(root, "dual-write maps"));
     }
 
     private static DwMapRecord ParseRecord(JsonElement item)
@@ -419,8 +420,16 @@ public static class DualWriteMapParser
 
         var mappingRaw = GetValueAsString(item, "msdyn_mapping");
         var propertiesRaw = GetValueAsString(item, "msdyn_properties");
-        var mappingRoot = TryParseJsonElement(mappingRaw);
+        var mappingRoot = TryParseJsonElement(mappingRaw, allowPrimitive: true);
         var propertiesRoot = TryParseJsonElement(propertiesRaw);
+
+        var warnings = new List<string>();
+        if (!string.IsNullOrWhiteSpace(mappingRaw) && mappingRoot is null)
+            warnings.Add("msdyn_mapping could not be parsed; mapping details are incomplete.");
+        else if (mappingRoot is not null)
+            warnings.AddRange(MappingShapeWarnings(mappingRoot.Value));
+        if (!string.IsNullOrWhiteSpace(propertiesRaw) && propertiesRoot is null)
+            warnings.Add("msdyn_properties could not be parsed; property details are incomplete.");
 
         return new DwMapRecord(
             Id: GetValueAsString(item, "msdyn_dualwriteentitymapid") ?? string.Empty,
@@ -439,7 +448,45 @@ public static class DualWriteMapParser
             ValueTransforms: BuildValueTransforms(mappingRoot),
             Properties: BuildProperties(propertiesRoot, propertiesRaw),
             RawMapping: mappingRaw,
-            RawProperties: propertiesRaw);
+            RawProperties: propertiesRaw) { DetailWarnings = warnings };
+    }
+
+    // Fixed structural categories, never member indices/raw values: repeated malformed members cannot
+    // produce an unbounded warning list. Optional nested collections may be absent; present ones must
+    // have the array/object shapes consumed by the builders below. Sparse scalar fields stay optional.
+    private static IEnumerable<string> MappingShapeWarnings(JsonElement root)
+    {
+        var warnings = new HashSet<string>(StringComparer.Ordinal);
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            warnings.Add("msdyn_mapping root is not an object; mapping details are incomplete.");
+            return warnings;
+        }
+        if (!root.TryGetProperty("legs", out var legs) || legs.ValueKind != JsonValueKind.Array)
+        {
+            warnings.Add("msdyn_mapping.legs is missing or is not an array; mapping details are incomplete.");
+            return warnings;
+        }
+        foreach (var leg in legs.EnumerateArray())
+        {
+            if (leg.ValueKind != JsonValueKind.Object)
+            { warnings.Add("msdyn_mapping.legs contains non-object members; mapping details are incomplete."); continue; }
+            if (!leg.TryGetProperty("fieldMappings", out var fields)) continue;
+            if (fields.ValueKind != JsonValueKind.Array)
+            { warnings.Add("msdyn_mapping.legs.fieldMappings is not an array; mapping details are incomplete."); continue; }
+            foreach (var field in fields.EnumerateArray())
+            {
+                if (field.ValueKind != JsonValueKind.Object)
+                { warnings.Add("msdyn_mapping.fieldMappings contains non-object members; mapping details are incomplete."); continue; }
+                if (!field.TryGetProperty("valueTransforms", out var transforms)) continue;
+                if (transforms.ValueKind != JsonValueKind.Array)
+                { warnings.Add("msdyn_mapping.fieldMappings.valueTransforms is not an array; mapping details are incomplete."); continue; }
+                foreach (var transform in transforms.EnumerateArray())
+                    if (transform.ValueKind != JsonValueKind.Object)
+                        warnings.Add("msdyn_mapping.valueTransforms contains non-object members; mapping details are incomplete.");
+            }
+        }
+        return warnings;
     }
 
     private static IReadOnlyList<DwMapSummaryRow> BuildSummaryRows(JsonElement? mappingRoot)
@@ -483,10 +530,11 @@ public static class DualWriteMapParser
         var rows = new List<DwMapLeg>();
         foreach (var leg in legs.EnumerateArray())
         {
+            if (leg.ValueKind != JsonValueKind.Object) continue;
             var fieldCount = 0;
             if (leg.TryGetProperty("fieldMappings", out var fieldMappings) && fieldMappings.ValueKind == JsonValueKind.Array)
             {
-                fieldCount = fieldMappings.GetArrayLength();
+                fieldCount = fieldMappings.EnumerateArray().Count(m => m.ValueKind == JsonValueKind.Object);
             }
 
             var sourceFilter = GetJsonString(leg, "sourceFilter");
@@ -516,6 +564,7 @@ public static class DualWriteMapParser
         var rows = new List<DwMapField>();
         foreach (var leg in legs.EnumerateArray())
         {
+            if (leg.ValueKind != JsonValueKind.Object) continue;
             var legId = GetJsonString(leg, "id");
             var sourceSchema = GetJsonString(leg, "sourceSchema");
             var destinationSchema = GetJsonString(leg, "destinationSchema");
@@ -527,6 +576,7 @@ public static class DualWriteMapParser
 
             foreach (var mapping in fieldMappings.EnumerateArray())
             {
+                if (mapping.ValueKind != JsonValueKind.Object) continue;
                 var syncDirection = mapping.TryGetProperty("syncDirection", out var dir)
                     ? dir.ToString()
                     : string.Empty;
@@ -534,7 +584,7 @@ public static class DualWriteMapParser
                 var valueTransforms = 0;
                 if (mapping.TryGetProperty("valueTransforms", out var transforms) && transforms.ValueKind == JsonValueKind.Array)
                 {
-                    valueTransforms = transforms.GetArrayLength();
+                    valueTransforms = transforms.EnumerateArray().Count(t => t.ValueKind == JsonValueKind.Object);
                 }
 
                 rows.Add(new DwMapField(
@@ -563,6 +613,7 @@ public static class DualWriteMapParser
         var rows = new List<DwMapValueTransform>();
         foreach (var leg in legs.EnumerateArray())
         {
+            if (leg.ValueKind != JsonValueKind.Object) continue;
             var legId = GetJsonString(leg, "id");
             if (!leg.TryGetProperty("fieldMappings", out var fieldMappings) || fieldMappings.ValueKind != JsonValueKind.Array)
             {
@@ -571,6 +622,7 @@ public static class DualWriteMapParser
 
             foreach (var mapping in fieldMappings.EnumerateArray())
             {
+                if (mapping.ValueKind != JsonValueKind.Object) continue;
                 var sourceField = GetJsonString(mapping, "sourceField");
                 var destinationField = GetJsonString(mapping, "destinationField");
 
@@ -581,6 +633,7 @@ public static class DualWriteMapParser
 
                 foreach (var transform in transforms.EnumerateArray())
                 {
+                    if (transform.ValueKind != JsonValueKind.Object) continue;
                     var valueMap = string.Empty;
                     if (transform.TryGetProperty("valueMap", out var valueMapElement) &&
                         valueMapElement.ValueKind is JsonValueKind.Object or JsonValueKind.Array)
@@ -690,7 +743,7 @@ public static class DualWriteMapParser
         return null;
     }
 
-    private static JsonElement? TryParseJsonElement(string? value)
+    private static JsonElement? TryParseJsonElement(string? value, bool allowPrimitive = false)
     {
         if (string.IsNullOrWhiteSpace(value))
         {
@@ -698,7 +751,7 @@ public static class DualWriteMapParser
         }
 
         var trimmed = value.Trim();
-        if (!trimmed.StartsWith("{", StringComparison.Ordinal) && !trimmed.StartsWith("[", StringComparison.Ordinal))
+        if (!allowPrimitive && !trimmed.StartsWith("{", StringComparison.Ordinal) && !trimmed.StartsWith("[", StringComparison.Ordinal))
         {
             return null;
         }

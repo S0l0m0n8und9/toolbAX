@@ -8,8 +8,27 @@ namespace ToolBax.Core.Services;
 public sealed record ODataResponse(int StatusCode, string ReasonPhrase, string Body, int ElapsedMs,
     IReadOnlyDictionary<string, string>? Headers = null)
 {
-    public bool IsSuccess => StatusCode is >= 200 and < 300;
+    /// <summary>Null means the implementation supplied no evidence. True means dispatch began, not delivery.</summary>
+    public bool? DispatchStarted { get; init; }
+    public bool BodyComplete { get; init; } = true;
+    /// <summary>Safe error category only; never response content or header values.</summary>
+    public string? BodyReadError { get; init; }
+    public bool IsSuccess => StatusCode is >= 200 and < 300 && BodyComplete;
     public string StatusLine => $"{StatusCode} {ReasonPhrase} · {ElapsedMs} ms";
+}
+
+/// <summary>A cancelled mutation may already have been applied. ObservedResponse preserves any HTTP evidence.</summary>
+public sealed class ODataWriteCanceledException : System.OperationCanceledException
+{
+    public ODataWriteCanceledException(bool dispatchStarted, ODataResponse? observedResponse,
+        System.OperationCanceledException inner, CancellationToken token)
+        : base("Write observation cancelled; inspect dispatch and response evidence before any further action.", inner, token)
+    {
+        DispatchStarted = dispatchStarted;
+        ObservedResponse = observedResponse;
+    }
+    public bool DispatchStarted { get; }
+    public ODataResponse? ObservedResponse { get; }
 }
 
 /// <summary>OData write seam used by the POST Builder. The only place that issues HTTP.</summary>

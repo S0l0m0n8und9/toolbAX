@@ -89,10 +89,14 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway, IDisposable
         string cid,
         CancellationToken cancellationToken = default)
     {
-        var body = MapActionPayloadBuilder.Build(action, maps, cid);
+        string body;
+        try { body = MapActionPayloadBuilder.Build(action, maps, cid); }
+        catch (ArgumentException ex) { throw new DualWriteMutationValidationException(ex); }
         var uri = $"{ApiBasePath}Start";
-        var json = await SendAsync(HttpMethod.Post, uri, body, cancellationToken).ConfigureAwait(false);
-        return DualWriteResponseParser.ParseActionResponse(json);
+        var result = await SendMutationAsync(HttpMethod.Post, uri, body, cancellationToken).ConfigureAwait(false);
+        try { return DualWriteResponseParser.ParseActionResponse(result.Content) with { Acknowledgment = result.Evidence }; }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        { throw new DualWriteMutationException(result.Evidence with { FailureKind = ex.GetType().Name }, ex); }
     }
 
     /// <summary>
@@ -109,31 +113,37 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway, IDisposable
     {
         if (string.IsNullOrWhiteSpace(cid))
         {
-            throw new ArgumentException("A connection id (cid) is required.", nameof(cid));
+            throw new DualWriteMutationValidationException(new ArgumentException("A connection id (cid) is required.", nameof(cid)));
         }
 
         if (string.IsNullOrWhiteSpace(projectId))
         {
-            throw new ArgumentException("A project id (pid) is required.", nameof(projectId));
+            throw new DualWriteMutationValidationException(new ArgumentException("A project id (pid) is required.", nameof(projectId)));
         }
 
         if (string.IsNullOrWhiteSpace(templateId))
         {
-            throw new ArgumentException("A template id is required.", nameof(templateId));
+            throw new DualWriteMutationValidationException(new ArgumentException("A template id is required.", nameof(templateId)));
         }
 
         var uri = $"{ApiBasePath}SolutionAware/{Uri.EscapeDataString(cid)}/SwitchActive/{Uri.EscapeDataString(templateId)}?pid={Uri.EscapeDataString(projectId)}";
-        var body = await SendAsync(HttpMethod.Post, uri, templateId, cancellationToken).ConfigureAwait(false);
+        var result = await SendMutationAsync(HttpMethod.Post, uri, templateId, cancellationToken).ConfigureAwait(false);
+        var body = result.Content;
         var trimmed = body?.TrimStart() ?? string.Empty;
         if (trimmed.Length == 0)
         {
-            return new DualWriteActionResponse(string.Empty, null);
+            return new DualWriteActionResponse(string.Empty, null) { Acknowledgment = result.Evidence };
         }
 
         // The gateway may answer with a JSON object ({requestId,...}) or a bare id string.
-        return trimmed[0] is '{' or '['
-            ? DualWriteResponseParser.ParseActionResponse(body!)
-            : new DualWriteActionResponse(trimmed.Trim('"'), null);
+        try
+        {
+            return (trimmed[0] is '{' or '['
+                ? DualWriteResponseParser.ParseActionResponse(body!)
+                : new DualWriteActionResponse(trimmed.Trim('"'), null)) with { Acknowledgment = result.Evidence };
+        }
+        catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+        { throw new DualWriteMutationException(result.Evidence with { FailureKind = ex.GetType().Name }, ex); }
     }
 
     /// <summary>
@@ -161,7 +171,7 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway, IDisposable
     {
         if (string.IsNullOrWhiteSpace(fieldMappingName))
         {
-            throw new ArgumentException("A field mapping name is required.", nameof(fieldMappingName));
+            throw new DualWriteMutationValidationException(new ArgumentException("A field mapping name is required.", nameof(fieldMappingName)));
         }
 
         var uri = $"api/Project/{Uri.EscapeDataString(fieldMappingName)}/Refresh";
@@ -198,12 +208,12 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway, IDisposable
     {
         if (string.IsNullOrWhiteSpace(cid))
         {
-            throw new ArgumentException("A connection id (cid) is required.", nameof(cid));
+            throw new DualWriteMutationValidationException(new ArgumentException("A connection id (cid) is required.", nameof(cid)));
         }
 
         if (connectionSet is null)
         {
-            throw new ArgumentNullException(nameof(connectionSet));
+            throw new DualWriteMutationValidationException(new ArgumentNullException(nameof(connectionSet)));
         }
 
         var body = ResetLinkPayloadBuilder.Build(connectionSet, legalEntities ?? Array.Empty<string>());
@@ -226,12 +236,12 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway, IDisposable
     {
         if (string.IsNullOrWhiteSpace(datasetName))
         {
-            throw new ArgumentException("A dataset name is required.", nameof(datasetName));
+            throw new DualWriteMutationValidationException(new ArgumentException("A dataset name is required.", nameof(datasetName)));
         }
 
         if (string.IsNullOrWhiteSpace(ceEntityName))
         {
-            throw new ArgumentException("A CE entity name is required.", nameof(ceEntityName));
+            throw new DualWriteMutationValidationException(new ArgumentException("A CE entity name is required.", nameof(ceEntityName)));
         }
 
         var payload = new Dictionary<string, object?>
@@ -263,6 +273,8 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway, IDisposable
 
     private async Task<string> SendAsync(HttpMethod method, string relativeUri, string? jsonBody, CancellationToken cancellationToken)
     {
+        if (method != HttpMethod.Get)
+            return (await SendMutationAsync(method, relativeUri, jsonBody, cancellationToken).ConfigureAwait(false)).Content;
         using var request = new HttpRequestMessage(method, relativeUri);
         request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         if (jsonBody is not null)
@@ -283,6 +295,50 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway, IDisposable
         }
 
         return content;
+    }
+
+    private async Task<(string Content, DualWriteMutationEvidence Evidence)> SendMutationAsync(
+        HttpMethod method, string relativeUri, string? body, CancellationToken cancellationToken)
+    {
+        var evidence = new DualWriteMutationEvidence(false);
+        try
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var request = new HttpRequestMessage(method, relativeUri);
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            if (body is not null) request.Content = new StringContent(body, Encoding.UTF8, "application/json");
+            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            if (_http.Timeout != Timeout.InfiniteTimeSpan) deadline.CancelAfter(_http.Timeout);
+            deadline.Token.ThrowIfCancellationRequested();
+            // Auth handlers live inside this opaque pipeline. Crossing it means only may-have-been-sent.
+            evidence = evidence with { DispatchStarted = true };
+            using var response = await _http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, deadline.Token).ConfigureAwait(false);
+            evidence = evidence with { StatusCode = (int)response.StatusCode, Headers = CollectHeaders(response) };
+            await response.Content.LoadIntoBufferAsync(_http.MaxResponseContentBufferSize, deadline.Token).ConfigureAwait(false);
+            var content = await response.Content.ReadAsStringAsync(deadline.Token).ConfigureAwait(false);
+            evidence = evidence with { BodyComplete = true };
+            if (!response.IsSuccessStatusCode)
+                throw new DualWriteGatewayException(
+                    $"Dual-write gateway request failed: {(int)response.StatusCode} {response.ReasonPhrase}. {Trim(content)}",
+                    response.StatusCode) { Evidence = evidence };
+            return (content, evidence);
+        }
+        catch (DualWriteGatewayException) when (evidence.BodyComplete) { throw; }
+        catch (OperationCanceledException ex)
+        {
+            throw new DualWriteMutationCanceledException(evidence with { FailureKind = ex.GetType().Name }, ex,
+                cancellationToken.IsCancellationRequested ? cancellationToken : ex.CancellationToken);
+        }
+        catch (Exception ex)
+        { throw new DualWriteMutationException(evidence with { FailureKind = ex.GetType().Name }, ex); }
+    }
+
+    private static IReadOnlyDictionary<string, string> CollectHeaders(HttpResponseMessage response)
+    {
+        var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var header in response.Headers) headers[header.Key] = string.Join(", ", header.Value);
+        foreach (var header in response.Content.Headers) headers[header.Key] = string.Join(", ", header.Value);
+        return new System.Collections.ObjectModel.ReadOnlyDictionary<string, string>(headers);
     }
 
     private static string Trim(string body)
@@ -307,7 +363,7 @@ public sealed class DualWriteGatewayClient : IDualWriteGateway, IDisposable
 }
 
 /// <summary>Raised when the gateway returns a non-success status code.</summary>
-public sealed class DualWriteGatewayException : Exception
+public sealed class DualWriteGatewayException : Exception, IDualWriteMutationFailure
 {
     public DualWriteGatewayException(string message, System.Net.HttpStatusCode statusCode) : base(message)
     {
@@ -315,4 +371,5 @@ public sealed class DualWriteGatewayException : Exception
     }
 
     public System.Net.HttpStatusCode StatusCode { get; }
+    public DualWriteMutationEvidence? Evidence { get; init; }
 }

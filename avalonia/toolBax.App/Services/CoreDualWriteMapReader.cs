@@ -306,7 +306,17 @@ public sealed class CoreDualWriteMapReader : IDualWriteMapReader
                 return DescribeFailure(response, subject);
             }
 
-            var (items, nextLink) = parse(response.Body);
+            IReadOnlyList<T> items;
+            string? nextLink;
+            try
+            {
+                (items, nextLink) = parse(response.Body);
+            }
+            catch (MetadataResponseFormatException ex)
+            {
+                sink.Clear();
+                return $"Couldn't load {subject}: {ex.Message}";
+            }
             sink.AddRange(items);
             pathOrUrl = nextLink; // absolute URL; the client uses it verbatim
         }

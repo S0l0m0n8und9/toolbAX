@@ -103,7 +103,7 @@ public static class DualWriteDebugMode
                     JsonValueKind.True => true,
                     JsonValueKind.False => false,
                     JsonValueKind.String => InterpretState(debugEl.GetString()),
-                    JsonValueKind.Number => debugEl.TryGetInt32(out var n) ? n != 0 : null,
+                    JsonValueKind.Number => debugEl.TryGetInt32(out var n) && n is 0 or 1 ? n == 1 : null,
                     _ => null,
                 };
             }

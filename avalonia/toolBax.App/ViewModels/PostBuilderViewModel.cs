@@ -36,6 +36,30 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
     private readonly bool _environmentBound;
     private int _generation;
     private bool _disposed;
+    private int _writeLease;
+    private CancellationTokenSource? _acceptedCancellation;
+    public IAsyncRelayCommand SendCommand { get; }
+    public IRelayCommand SendCancelCommand { get; }
+    public IAsyncRelayCommand ReconcileCommand { get; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasWriteReceipt))]
+    [NotifyPropertyChangedFor(nameof(WriteReceiptText))]
+    [NotifyPropertyChangedFor(nameof(ReconcileReason))]
+    private PostWriteReceipt? _lastReceipt;
+    [ObservableProperty] private string _readbackText = string.Empty;
+    public bool HasWriteReceipt => LastReceipt is not null;
+    public string WriteReceiptText => LastReceipt?.Summary ?? "";
+    public string ReconcileReason
+    {
+        get
+        {
+            if (LastReceipt is null) return "No captured write to inspect.";
+            if (_disposed || LastReceipt.Scope.Identity is null || !LastReceipt.Scope.Identity.IsCurrent(_activeEnv()))
+                return "Readback disabled: return to the captured environment and connection settings; no profile will be switched automatically.";
+            LastReceipt.ReadbackTarget(out var reason);
+            return reason;
+        }
+    }
 
     // True only while RefreshEntityFilter is rebuilding FilteredEntities, so the transient selection
     // null a bound ComboBox emits during Clear() doesn't run OnSelectedEntityChanged's side-effects.
@@ -156,6 +180,11 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
         IMetadataService? metadata = null, IDialogService? dialogs = null, Func<EnvProfile?>? activeEnv = null)
     {
         _client = client;
+        SendCommand = new WriteOperationCommand((_, ct) => Send(ct), _ => CanSend(),
+            () => BeginWriteOperation(true), EndWriteOperation, c => _acceptedCancellation = c);
+        ReconcileCommand = new WriteOperationCommand((_, ct) => Reconcile(ct), _ => !IsBusy && LastReceipt is not null && ReconcileReason.Length == 0,
+            () => BeginWriteOperation(false), EndWriteOperation, c => _acceptedCancellation = c);
+        SendCancelCommand = new RelayCommand(() => _acceptedCancellation?.Cancel());
         _clipboard = clipboard ?? new FakeClipboardService();
         _metadata = metadata ?? new FakeMetadataService();
         _loader = new EntityCatalogLoader(_metadata);
@@ -653,7 +682,7 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
 
     // In grid mode an invalid payload must not be sent (the body is blank and the issues are shown);
     // in raw mode the user owns the body, so there's nothing to gate on.
-    private bool CanSend() => !(UseFieldGrid && HasPayloadIssues);
+    private bool CanSend() => !_disposed && !IsBusy && Volatile.Read(ref _writeLease) == 0 && !(UseFieldGrid && HasPayloadIssues);
 
     // The If-Match header for a PATCH/DELETE when enabled (existence or version precondition); null otherwise.
     private static IReadOnlyDictionary<string, string>? BuildHeaders(
@@ -662,109 +691,123 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
             ? new Dictionary<string, string> { ["If-Match"] = ifMatch.Trim() }
             : null;
 
-    // IncludeCancelCommand: surfaces SendCancelCommand and lets the generated AsyncRelayCommand carry
-    // the token's lifecycle, so an in-flight send can be cancelled on navigate-away/shutdown.
-    // Confirm-on-mutation: every send is a live write, so gate it behind a confirm dialog (PATCH/DELETE
-    // are styled destructive, with a caveat). Mirrors the Operations screen's confirm-on-mutation rule.
-    private Task<bool> ConfirmSendAsync(string method, string path)
+    private bool BeginWriteOperation(bool mutation)
     {
-        var danger = IsKeyedMethod(method);
-        var caveat = string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase)
-            ? "Delete is permanent — the targeted record will be removed."
-            : string.Equals(method, "PATCH", StringComparison.OrdinalIgnoreCase)
-                ? "Patch overwrites the targeted record's fields."
-                : null;
-
-        return _dialogs.ConfirmAsync(new ConfirmRequest(
-            Title: $"Send {method}?",
-            Message: $"Sends a live {method} request to the selected environment.",
-            Targets: new[] { path },
-            ConfirmLabel: $"Send {method}",
-            IsDanger: danger,
-            Caveat: caveat));
+        if (_disposed || Interlocked.CompareExchange(ref _writeLease, 1, 0) != 0) return false;
+        MutationInProgress = mutation;
+        IsBusy = true;
+        SendCommand.NotifyCanExecuteChanged();
+        ReconcileCommand.NotifyCanExecuteChanged();
+        return true;
     }
-
-    [RelayCommand(IncludeCancelCommand = true, CanExecute = nameof(CanSend))]
+    private void EndWriteOperation()
+    {
+        MutationInProgress = false;
+        Volatile.Write(ref _writeLease, 0);
+        IsBusy = false;
+        SendCommand.NotifyCanExecuteChanged();
+        ReconcileCommand.NotifyCanExecuteChanged();
+        OnPropertyChanged(nameof(ReconcileReason));
+    }
     private async Task Send(CancellationToken ct)
     {
-        if (_disposed) return;
         var method = Method;
         var path = EffectivePath();
         var body = string.Equals(method, "DELETE", StringComparison.OrdinalIgnoreCase) ? null : RequestBody;
         var headers = BuildHeaders(method, UseIfMatch, IfMatch);
-        var identity = EnvironmentIdentity.TryCreate(_activeEnv());
+        var scope = WriteScope.Capture(_activeEnv());
+        var identity = scope.Identity;
         var generation = Volatile.Read(ref _generation);
-        if (_environmentBound && identity is null)
-        {
-            StatusText = "Select an environment first.";
-            return;
-        }
-
-        MutationInProgress = true;
-        IsBusy = true;
+        var receipt = new PostWriteReceipt(scope, method, path, DateTimeOffset.UtcNow, new WriteObservation(false));
+        var invoked = false;
         try
         {
-            if (!await ConfirmSendAsync(method, path))
-            {
-                StatusText = "Send cancelled.";
-                return;
-            }
-
-            if (!CanCommit(identity, generation))
-            {
-                StatusText = "Send cancelled — the active environment changed.";
-                return;
-            }
-
-            StatusText = "Sending…";
-            // Clear the PREVIOUS send's outcome up front — a cancellation never gets a real response to
-            // overwrite these with, so without this reset its "Send cancelled." status was left sitting over
-            // an unrelated earlier send's badge/body/headers, misreadable as this send's own result
-            // (PR #196 review).
+            if (UseFieldGrid && HasPayloadIssues) { StatusText = "Not sent — resolve the payload issues first."; return; }
+            if (_environmentBound && identity is null) { StatusText = "Not sent — select an environment first."; return; }
+            var prior = LastReceipt is { Observation.Unconfirmed: true } previous && previous.Scope.Identity == identity
+                ? $" A prior {previous.Method} attempt at {previous.StartedAt:O} remains unconfirmed. Inspect its state before a separate new write." : "";
+            var caveat = method == "DELETE" ? "Delete is permanent — the targeted record will be removed." : method == "PATCH" ? "Patch overwrites the targeted record's fields." : null;
+            var confirmed = await _dialogs.ConfirmAsync(new ConfirmRequest($"Send {method}?",
+                $"Sends a live {method} request to {scope.Display}." + prior, new[] { path }, $"Send {method}", IsKeyedMethod(method), caveat), ct);
+            if (_disposed) return;
+            if (!confirmed || ct.IsCancellationRequested) { StatusText = "Not sent — confirmation cancelled."; LastReceipt ??= receipt; return; }
+            if (!CanCommit(identity, generation)) { StatusText = "Not sent — the active environment changed."; LastReceipt ??= receipt; return; }
             SendSucceeded = false;
-            StatusBadge = string.Empty;
-            ResponseBody = string.Empty;
-            ResponseHeaders = string.Empty;
+            StatusBadge = ResponseBody = ResponseHeaders = ReadbackText = string.Empty;
+            StatusText = "Sending…";
+            // Before entering an arbitrary implementation, missing transport evidence is conservative unknown.
+            LastReceipt = receipt = receipt with { Observation = new WriteObservation(null) };
+            invoked = true;
             var response = await _client.SendAsync(method, path, body, headers, ct);
-            if (!CanCommit(identity, generation)) return;
-            StatusText = response.StatusLine;
-            StatusBadge = $"{response.StatusCode} {response.ReasonPhrase}";
-            SendSucceeded = response.IsSuccess;
-            ResponseBody = response.Body;
-            ResponseHeaders = FormatHeaders(response.Headers);
+            if (_disposed || generation != Volatile.Read(ref _generation) || LastReceipt?.AttemptId != receipt.AttemptId) return;
+            LastReceipt = ObserveResponse(receipt, response);
+            if (!CanCommit(identity, generation)) { StatusText = "Context changed — captured write evidence retained; return to the original environment before readback."; return; }
+            PublishResponse(receipt, response);
         }
-        // A cancelled send is not a failed one. CoreODataClient rethrows genuine cancellation instead of
-        // folding it into a response (so the view models' own cancellation handling can actually run) —
-        // without this clause that arrived as a bare Exception here and got misreported as "Request
-        // failed." Gate on OUR token: an HTTP/socket timeout also surfaces as an OperationCanceledException
-        // but with the caller's token still live — only a cancelled token means the user pressed Cancel; a
-        // timeout falls through to the general handler and is reported as the failure it is (#168).
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        catch (ODataWriteCanceledException ex)
         {
-            if (CanCommit(identity, generation))
-            {
-                SendSucceeded = false;
-                StatusText = "Send cancelled.";
-            }
+            if (_disposed || generation != Volatile.Read(ref _generation) || (invoked && LastReceipt?.AttemptId != receipt.AttemptId)) return;
+            LastReceipt = ex.ObservedResponse is { } observed ? ObserveResponse(receipt, observed)
+                : receipt with { Observation = new WriteObservation(ex.DispatchStarted) };
+            if (!CanCommit(identity, generation)) { StatusText = "Context changed — captured write evidence retained; return to the original environment before readback."; return; }
+            if (ex.ObservedResponse is { } response) PublishResponse(receipt, response);
+            SendSucceeded = false;
+            StatusText = LastReceipt!.Observation.Summary + " Stopped waiting; cancellation does not roll back a write.";
         }
-        catch (Exception ex)
+        catch (Exception)
         {
-            if (CanCommit(identity, generation))
-            {
-                StatusText = "Request failed.";
-                SendSucceeded = false;
-                StatusBadge = string.Empty;
-                ResponseBody = ex.Message;
-                ResponseHeaders = string.Empty;
-            }
+            if (_disposed || generation != Volatile.Read(ref _generation) || (invoked && LastReceipt?.AttemptId != receipt.AttemptId)) return;
+            if (!CanCommit(identity, generation)) { StatusText = "Context changed — captured write evidence retained; return to the original environment before readback."; return; }
+            if (invoked) LastReceipt = receipt with { Observation = new WriteObservation(null) };
+            else LastReceipt ??= receipt;
+            SendSucceeded = false;
+            StatusText = invoked ? "Outcome unknown — stopped waiting; the write may have been applied. Inspect current state before a new attempt." : "Not sent — confirmation stopped or failed.";
+        }
+    }
+    private static PostWriteReceipt ObserveResponse(PostWriteReceipt receipt, ODataResponse response)
+    {
+        string? locator = null;
+        if (response.Headers is not null)
+            locator = response.Headers.FirstOrDefault(h => h.Key.Equals("OData-EntityId", StringComparison.OrdinalIgnoreCase)).Value
+                ?? response.Headers.FirstOrDefault(h => h.Key.Equals("Location", StringComparison.OrdinalIgnoreCase)).Value;
+        return receipt with { Observation = WriteObservation.From(response), Locator = locator };
+    }
+    private void PublishResponse(PostWriteReceipt receipt, ODataResponse response)
+    {
+        LastReceipt = ObserveResponse(receipt, response);
+        StatusText = LastReceipt.Observation.Summary;
+        StatusBadge = $"{response.StatusCode} {response.ReasonPhrase}";
+        SendSucceeded = response.IsSuccess && response.StatusCode != 202;
+        ResponseBody = response.Body;
+        ResponseHeaders = FormatHeaders(response.Headers);
+    }
+    private async Task Reconcile(CancellationToken ct)
+    {
+        var receipt = LastReceipt;
+        if (receipt is null || ReconcileReason.Length != 0) return;
+        var target = receipt.ReadbackTarget(out _);
+        if (target is null) return;
+        var generation = Volatile.Read(ref _generation);
+        ReadbackText = "Reading current state…";
+        try
+        {
+            ct.ThrowIfCancellationRequested();
+            var response = await _client.SendAsync("GET", target, null, ct);
+            if (ct.IsCancellationRequested || !CanCommit(receipt.Scope.Identity, generation) || !ReferenceEquals(receipt, LastReceipt)) return;
+            ReadbackText = $"Current state read: {response.StatusLine}. This does not prove which request caused the state; original write evidence is unchanged.\n{response.Body}";
+        }
+        catch (Exception)
+        {
+            if (CanCommit(receipt.Scope.Identity, generation)) ReadbackText = "Current-state read stopped or failed. Original write evidence is unchanged.";
         }
         finally
         {
-            IsBusy = false;
-            MutationInProgress = false;
+            if (ct.IsCancellationRequested && CanCommit(receipt.Scope.Identity, generation))
+                ReadbackText = "Current-state read cancelled. Original write evidence is unchanged.";
+            else if (!_disposed && !CanCommit(receipt.Scope.Identity, generation))
+                ReadbackText = "Readback discarded: the captured environment changed. Original write evidence is unchanged.";
         }
     }
-
     private bool CanCommit(EnvironmentIdentity? identity, int generation) =>
         !_disposed && generation == Volatile.Read(ref _generation) &&
         (!_environmentBound || Equals(identity, EnvironmentIdentity.TryCreate(_activeEnv())));
@@ -811,7 +854,7 @@ public partial class PostBuilderViewModel : ObservableObject, IDisposable
         Interlocked.Increment(ref _generation);
         InitializeCommand.Cancel();
         EnsureFieldsCommand.Cancel();
-        SendCommand.Cancel();
+        _acceptedCancellation?.Cancel();
         _loader.Dispose();
     }
 }
