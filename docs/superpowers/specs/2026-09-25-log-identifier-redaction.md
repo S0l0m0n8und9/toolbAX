@@ -1,33 +1,39 @@
-# Log identifier redaction (H14 proposal)
+# Log identifier redaction (H14)
 
 ## Status
 
-Proposal only; not accepted for implementation. No production, test, tracker, or remote changes have been made.
+Locally implemented and validated across App-owned `Trace` emission paths plus Core authentication/vault diagnostics. Saved session traces are identity-free, category-based diagnostics while existing UI errors, response bodies, and operation receipts retain their useful detail. This does not claim to sanitize arbitrary third-party `Trace` events.
 
 ## Verified baseline
 
-[`RequestTrace`](../../../avalonia/toolBax.App/Services/RequestTrace.cs) persists `ReasonPhrase` plus API/method/Endpoint. Endpoint removes origin/query but retains OData business keys such as `CustomersV3(dataAreaId='USMF',CustomerAccount='C000123')`; `Clean` only removes control characters.
+[`RequestTrace`](../../../avalonia/toolBax.App/Services/RequestTrace.cs) persisted `ReasonPhrase` plus API/method/Endpoint. Endpoint removed origin/query but retained OData business keys such as `CustomersV3(dataAreaId='USMF',CustomerAccount='C000123')`; `Clean` only removed control characters.
 
-[`DualWriteOpsViewModel`](../../../avalonia/toolBax.App/ViewModels/DualWriteOpsViewModel.cs) `Log` Warn/Err defaults to `traceText ?? text`; its comments name persisted gateway hosts, map names, connection/request IDs, and status. `Traceable` handles body-bearing gateway exception types, while unknown exceptions fall back to message-based concise formatting. [`ProfilesViewModel`](../../../avalonia/toolBax.App/ViewModels/ProfilesViewModel.cs) logs environment name plus session-eviction exception. App last-resort handlers trace full exception text. [`SessionTraceLog`](../../../avalonia/toolBax.App/Services/SessionTraceLog.cs) persists these events.
+[`DualWriteOpsViewModel`](../../../avalonia/toolBax.App/ViewModels/DualWriteOpsViewModel.cs) `Log` Warn/Err defaulted to `traceText ?? text`; its comments named persisted gateway hosts, map names, connection/request IDs, and status. `Traceable` handled body-bearing gateway exception types, while unknown exceptions fell back to message-based concise formatting. [`ProfilesViewModel`](../../../avalonia/toolBax.App/ViewModels/ProfilesViewModel.cs) logged environment name plus session-eviction exception. App last-resort handlers traced full exception text. [`SessionTraceLog`](../../../avalonia/toolBax.App/Services/SessionTraceLog.cs) persists these events.
 
 ## Desired invariants
 
-Disk diagnostics omit record/business identifiers and untrusted request/server text; detailed UI errors remain useful. Retain safe operation category, known verb, numeric HTTP status, exception type, cancellation, and actual error signals. Prefer omission or static route categories to parsing arbitrary free-form request targets. Do not introduce hashing/tokenization unless required.
+Disk diagnostics omit record keys, business/profile/environment identifiers, gateway hosts, secret references, request paths/query/fragments/body, untrusted reason phrases, and exception messages, stack traces, or `ToString()` output. Detailed UI errors, response bodies, and operation receipts remain useful and unchanged.
 
-The parent must choose whether to tighten all App-owned trace emission/exception formatting coherently or limit the work to request tracing. Call-site changes cannot claim universal third-party log sanitization.
+Retained trace signals are finite allowlisted API/operation categories, known HTTP verbs, numeric status codes, exception types, and explicit failure/cancellation categories. Unknown input maps to a static fallback. Prefer omission and static categories to regex parsing, hashing, tokenization, or a generic logging framework.
 
-## Candidate ownership
+## Implementation ownership
 
-Likely production candidates are `RequestTrace`, Ops trace helper, Profiles trace calls, and App exception reporting, with targeted tests. This proposal does not redesign them.
+Owned production paths are `RequestTrace`; `SessionTraceLog`'s own failure diagnostics; the existing trace warning in `CoreProfileStore`; the WebView2 dual-write sign-in failure trace; trace emission in `ProfilesViewModel`; persisted `Log`/`Traceable` diagnostics in `DualWriteOpsViewModel`; last-resort, degraded, and startup traces in `App.axaml.cs`; the `CompositionPreference` trace failure; and Core `VaultSecretReader` traces. Core `MetadataRetentionCoordinator`'s type-only warning and `CoreDualWriteConnector`'s expiry-only renewal event are already safe and remain unchanged.
+
+No client behavior, transport/receipt/UI diagnostics, profile persistence, authentication trust policy, retries, paging, secret encryption or permission handling, or write flags change. `SessionTraceLog` retention, header, and listener behavior remain intact.
 
 ## Pre-mortem
 
-1. Encoded/alternate keys escape regex: use conservative persisted fields.
-2. Unknown exception echoes records: use exception-type allowlists.
-3. UI becomes unhelpful when disk/UI text is conflated: separate UI and persisted text.
-4. Legacy logger bypasses policy: inventory call sites.
-5. Redaction removes every signal: positive safe-diagnostic tests.
+1. Encoded keys bypass path parsing: omit request targets entirely and map API/verb inputs through finite allowlists with safe fallbacks.
+2. Unknown exceptions echo identifiers: persist exception type and static failure category only, never message, `ToString()`, inner text, or stack data.
+3. UI and disk diagnostics become conflated: keep existing detailed UI/receipt values and provide a separate typed/static persisted diagnostic.
+4. A bypass call site still writes dynamic text: inventory every owned trace emission after the edit and cover each family with captured-trace canaries.
+5. Useful diagnostic signals disappear: positively assert operation/API category, known verb, numeric status, exception type, and failure/cancellation signal remain.
 
-## Acceptance proposal
+## Acceptance
 
-Cover raw/encoded key paths, fragments, hostile reason phrases, gateway exceptions/status failures, profile names, and CRLF. Prove no sent-request/UI-detail change, safe diagnostics remain, and existing log retention remains. No live calls.
+Meaningful RED/GREEN tests inject distinct canaries into raw and encoded request paths/keys, query, fragment, reason phrase, response body, profile/environment names, secret references, nested/gateway exceptions, and CRLF content. Captured `Trace` output must omit every canary while preserving finite categories, known verbs, numeric status, exception type, and failure/cancellation signals. Existing UI detail and operation receipts remain unchanged. Existing session-log retention/header/listener tests continue to pass. Synthetic handlers, temporary files/stores, and fake services only; no real browser launch, user profile database, authentication, or live backend calls.
+
+CI=true Release builds pass for both the App and Core solutions with zero warnings/errors. Focused App coverage passes 268/268 across trace policy, operations/receipts, session-log retention, last-resort handling, profiles, profile storage, composition and startup; affected Core vault coverage passes 7/7. Evidence is under `artifacts/h14/`. Validation made no live calls or browser launch.
+
+Parent review accepted the production implementation and then ran the complete suites. Core passed 456/456. The first complete App run passed 1,372/1,377; all five failures were pre-H14 diagnostic-contract assertions that still required endpoint paths or exact category casing. No production change was made in response. The three affected test files now assert the approved finite API/verb/numeric-status contract, complete target/key/host/query/body/header/token omission, retained returned-response/UI detail, and semantic category matching. The affected Core OData/Dataverse and write-outcome classes pass 87/87, the expanded H14 regression set passes 355/355, and the complete App suite passes 1,377/1,377. Review evidence is `artifacts/h14/review-focused-app.{log,trx}` and `artifacts/h14/review-full-app.{log,trx}`; the original five-failure run remains in `parent-full-app-test.log` and `parent-full-app.trx`.

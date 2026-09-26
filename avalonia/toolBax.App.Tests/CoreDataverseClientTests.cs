@@ -203,7 +203,7 @@ public class CoreDataverseClientTests
 
     // #168: a Map Browser failure lived in the banner only, so closing the window took the evidence with it.
     [Fact]
-    public async Task A_failed_request_is_traced_with_its_status_and_endpoint_but_no_token_or_body()
+    public async Task A_failed_request_traces_safe_api_verb_and_status_but_no_target_token_or_body()
     {
         using var trace = new TraceCapture();
         var handler = new StubHandler(HttpStatusCode.Forbidden, "{\"error\":\"DV-RESPONSE-BODY-MARKER\"}");
@@ -212,10 +212,17 @@ public class CoreDataverseClientTests
             () => Env(dataverseUrl: "https://dv-marker-host.crm.dynamics.com"),
             new HttpClient(handler));
 
-        await client.GetAsync("msdyn_dualwriteentitymaps?$select=DV-QUERY-MARKER", TestContext.Current.CancellationToken);
+        var result = await client.GetAsync(
+            "msdyn_dualwriteentitymaps(DATAVERSE-KEY-MARKER)?$select=DV-QUERY-MARKER",
+            TestContext.Current.CancellationToken);
 
-        Assert.Contains("Dataverse request failed: 403", trace.Text);
-        Assert.Contains("GET msdyn_dualwriteentitymaps", trace.Text);
+        Assert.Equal(403, result.StatusCode);
+        Assert.Contains("DV-RESPONSE-BODY-MARKER", result.Body);
+        Assert.Contains("Dataverse request failed", trace.Text);
+        Assert.Contains("status 403", trace.Text);
+        Assert.Contains("verb GET", trace.Text);
+        Assert.DoesNotContain("msdyn_dualwriteentitymaps", trace.Text);
+        Assert.DoesNotContain("DATAVERSE-KEY-MARKER", trace.Text);
         Assert.DoesNotContain("DV-BEARER-TOKEN-MARKER", trace.Text);
         Assert.DoesNotContain("DV-RESPONSE-BODY-MARKER", trace.Text);
         Assert.DoesNotContain("DV-QUERY-MARKER", trace.Text);

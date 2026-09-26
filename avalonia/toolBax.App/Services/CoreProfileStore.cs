@@ -330,8 +330,7 @@ public sealed class CoreProfileStore : IProfileStore
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.TraceWarning(
-                $"Failed to delete secret blob '{secretRef}' for profile '{envId}'; continuing without it. {ex}");
+            AppTrace.Warning(AppTraceEvent.ProfileSecretCleanupFailed, ex);
         }
     }
 

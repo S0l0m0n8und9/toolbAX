@@ -506,27 +506,32 @@ public class DualWriteOpsTests
     [Fact]
     public async Task An_action_no_selected_map_supports_is_refused_before_the_confirm_dialog()
     {
+        using var trace = new TraceCapture();
         // Nothing would be left in the payload, so there is nothing to confirm — and sending an empty
         // details[] (or the ineligible maps anyway) could only come back as an opaque failure.
-        var connector = new FakeDualWriteConnector(MixedEligibilityMaps());
+        const string mapCanary = "MAP-NAME-CANARY";
+        var connector = new FakeDualWriteConnector(new[]
+        {
+            MapWith(mapCanary, "Running", DualWriteActionType.Stop),
+        });
         var dialogs = new FakeDialogs(confirm: true);
         var vm = new DualWriteOpsViewModel(connector, Env, dialogs,
             pollInterval: TimeSpan.FromMilliseconds(1), actionTimeout: TimeSpan.FromSeconds(5));
         await vm.LoadCommand.ExecuteAsync(null);
-        // Both report their actions, and neither list includes Resume.
-        vm.Maps.Single(m => m.Name == "Customers V3").IsSelected = true;
-        vm.Maps.Single(m => m.Name == "Released products").IsSelected = false;
-        vm.Maps.Single(m => m.Name == "Vendors V2").IsSelected = false;
+        vm.Maps.Single().IsSelected = true;
 
         await vm.RunActionCommand.ExecuteAsync(vm.ResumeAction);
 
         Assert.Equal(0, dialogs.Calls);                     // refused before the dialog, not after it
         Assert.Equal(0, connector.LastGateway!.StartCount);  // no gateway call at all
-        Assert.Equal("Running", vm.Maps.Single(m => m.Name == "Customers V3").State);
+        Assert.Equal("Running", vm.Maps.Single().State);
         Assert.Contains("Skipped 1 map(s)", vm.Status);
         Assert.Contains("Resume", vm.Status);
-        Assert.Contains("Customers V3", vm.Status);
-        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Warn && e.Text.Contains("Customers V3"));
+        Assert.Contains(mapCanary, vm.Status);
+        Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Warn && e.Text.Contains(mapCanary));
+        Assert.Contains("unsupported maps skipped", trace.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(mapCanary, trace.Text);
+        Assert.DoesNotContain("Resume", trace.Text);
         Assert.False(vm.IsBusy);
     }
 
@@ -623,6 +628,7 @@ public class DualWriteOpsTests
     [Fact]
     public async Task An_action_whose_status_check_throws_is_reported_as_submitted_and_still_refreshes()
     {
+        using var trace = new TraceCapture();
         // The submit succeeded; only GetStatusAsync broke (gateway 500 / network blip / non-JSON body).
         // That reached RunAction's outer catch as "Stop failed: …" and skipped the refresh, so the user was
         // told a submitted action had failed while looking at the pre-action states.
@@ -645,6 +651,10 @@ public class DualWriteOpsTests
         Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Warn
             && e.Text.Contains("status check failed", StringComparison.OrdinalIgnoreCase));
         Assert.DoesNotContain(vm.GatewayLog, e => e.Kind == LogKind.Err);
+        Assert.Contains("status check failed", trace.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(nameof(InvalidOperationException), trace.Text);
+        Assert.DoesNotContain("Internal Server Error", trace.Text);
+        Assert.DoesNotContain("<html", trace.Text, StringComparison.OrdinalIgnoreCase);
         Assert.False(vm.IsBusy);
     }
 
@@ -1201,14 +1211,22 @@ public class DualWriteOpsTests
     // #168: the in-app log dies with the window, but a dual-write connection failure is exactly what a user
     // reports after the fact — so the Warn/Err lines must also reach Trace, where the session log keeps them.
     [Fact]
-    public async Task An_error_line_also_reaches_Trace_so_the_session_log_keeps_it()
+    public async Task An_error_line_keeps_ui_detail_but_traces_only_static_category_and_exception_type()
     {
         using var trace = new TraceCapture();
-        var vm = MakeVm(FakeDualWriteConnector.ThatFails("no connection (cid) for this environment"));
+        const string outerCanary = "PROFILE-ENV-GATEWAY-CANARY\r\nFORGED-LINE";
+        const string innerCanary = "NESTED-EXCEPTION-CANARY";
+        var failure = new InvalidOperationException(outerCanary, new Exception(innerCanary));
+        var vm = MakeVm(FakeDualWriteConnector.ThatFailsWith(failure));
 
         await vm.LoadCommand.ExecuteAsync(null);
 
-        Assert.Contains("no connection (cid) for this environment", trace.Text);
+        Assert.Contains(vm.GatewayLog, entry => entry.Kind == LogKind.Err && entry.Text.Contains(outerCanary));
+        Assert.Contains("connection failed", trace.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(nameof(InvalidOperationException), trace.Text);
+        Assert.DoesNotContain(outerCanary, trace.Text);
+        Assert.DoesNotContain("FORGED-LINE", trace.Text);
+        Assert.DoesNotContain(innerCanary, trace.Text);
     }
 
     // The session log's secrecy bar: a DualWriteGatewayException message embeds up to 500 characters of the
@@ -1228,7 +1246,9 @@ public class DualWriteOpsTests
         Assert.Contains(vm.GatewayLog, e => e.Kind == LogKind.Err && e.Text.Contains("GATEWAY-RESPONSE-BODY-MARKER"));
         Assert.DoesNotContain("GATEWAY-RESPONSE-BODY-MARKER", trace.Text);
         // The status still reaches the file, so the redacted line is still worth having.
-        Assert.Contains("the gateway returned 502", trace.Text);
+        Assert.Contains("gateway request failed", trace.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("status 502", trace.Text);
+        Assert.Contains(nameof(DualWriteGatewayException), trace.Text);
     }
 
     /// <summary>
@@ -1252,7 +1272,8 @@ public class DualWriteOpsTests
         Assert.DoesNotContain("<!DOCTYPE html>", trace.Text);
         Assert.DoesNotContain("first line:", trace.Text);
         // The diagnosis survives: a log reader still learns the gateway answered with something non-JSON.
-        Assert.Contains("non-JSON response", trace.Text);
+        Assert.Contains("gateway response invalid", trace.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(nameof(DualWriteGatewayResponseException), trace.Text);
     }
 
     // Mints the genuine Core exception by running the real parser over a non-JSON body, so the test asserts

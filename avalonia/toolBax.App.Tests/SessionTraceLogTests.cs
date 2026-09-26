@@ -14,8 +14,8 @@ namespace ToolBax.App.Tests;
 
 /// <summary>
 /// The persistent per-session trace log (#168): the published exe installed no trace listener, so every
-/// Trace.* report the app already made — the degraded-mode reason, the last-resort net's exception dumps,
-/// failed requests — went nowhere, and a real user's failing session left nothing on disk to diagnose.
+/// Trace.* report the app already made — degraded-mode, last-resort and failed-request categories — went
+/// nowhere, and a real user's failing session left nothing on disk to diagnose.
 /// <para>
 /// Every test drives <see cref="SessionTraceLog.Start(string)"/> with a throwaway directory rather than the
 /// resolved app-data path, so nothing here touches the developer's real
@@ -160,16 +160,21 @@ public class SessionTraceLogTests : IDisposable
     [Fact]
     public void A_start_failure_costs_the_log_and_not_the_session()
     {
+        using var trace = new TraceCapture();
         // A file where the log directory should be: Directory.CreateDirectory throws, which is the shape of
         // every real failure here (read-only volume, denied ACL, redirected profile). Starting the app must
         // survive all of them.
-        var blocked = Path.Combine(_dir, "blocked");
+        var blocked = Path.Combine(_dir, "BLOCKED-PATH-CANARY");
         Directory.CreateDirectory(_dir);
         File.WriteAllText(blocked, "not a directory");
 
         var handle = SessionTraceLog.Start(blocked);   // must not throw
 
         Assert.Null(SessionTraceLog.ActiveLogPath);
+        Assert.Contains("session logging is unavailable", trace.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(nameof(IOException), trace.Text);
+        Assert.DoesNotContain("BLOCKED-PATH-CANARY", trace.Text);
+        Assert.DoesNotContain(blocked, trace.Text);
         handle.Dispose();
         handle.Dispose();   // a second dispose is a no-op, whether or not logging started
     }

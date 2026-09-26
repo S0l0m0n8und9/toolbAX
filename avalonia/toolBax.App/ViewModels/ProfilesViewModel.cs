@@ -790,7 +790,7 @@ public partial class ProfilesViewModel : ObservableObject
         }
         catch (Exception ex)
         {
-            System.Diagnostics.Trace.TraceWarning($"Failed to evict cached session for '{env.Name}': {ex}");
+            AppTrace.Warning(AppTraceEvent.ProfileSessionEvictionFailed, ex);
         }
     }
 }

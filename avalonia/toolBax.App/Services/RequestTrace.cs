@@ -1,6 +1,4 @@
-using System;
 using System.Diagnostics;
-using System.Text;
 using ToolBax.Core.Services;
 
 namespace ToolBax.App.Services;
@@ -11,11 +9,8 @@ namespace ToolBax.App.Services;
 /// UI only, and closing the window took the evidence with it.
 /// <para>
 /// <b>This is the one place a failed request is allowed to say anything, so it is the one place to read
-/// for what leaks.</b> A trace line carries the status code, the reason phrase, the verb and the endpoint
-/// path — and nothing else. Never the response body, never the request body, never a header (the
-/// <c>Authorization</c> bearer lives in one), never the host (it names the customer's environment) and
-/// never the query string (a <c>$filter</c> carries business data and a <c>$skiptoken</c> is opaque
-/// session state).
+/// for what leaks.</b> A trace line carries only a finite API family, a finite verb and the numeric status.
+/// Never the target, reason phrase, response/request body, or a header.
 /// </para>
 /// </summary>
 internal static class RequestTrace
@@ -24,38 +19,31 @@ internal static class RequestTrace
     /// Traces one non-success response. <paramref name="api"/> names the endpoint family ("F&amp;O",
     /// "Dataverse") so a log line says which of the two clients failed.
     /// </summary>
-    internal static void Failure(string api, string method, string pathOrUrl, ODataResponse response) =>
-        Trace.TraceWarning($"{api} request failed: {response.StatusCode} {Clean(response.ReasonPhrase)} · " +
-            $"{Clean(method)} {Endpoint(pathOrUrl)}");
-
-    /// <summary>
-    /// The endpoint path only: the query string is dropped, and an absolute URL (a server-driven
-    /// <c>@odata.nextLink</c>) is reduced to its path so the environment host never reaches the file.
-    /// </summary>
-    private static string Endpoint(string pathOrUrl)
+    internal static void Failure(string api, string method, string pathOrUrl, ODataResponse response)
     {
-        var query = pathOrUrl.IndexOf('?', StringComparison.Ordinal);
-        var withoutQuery = query < 0 ? pathOrUrl : pathOrUrl[..query];
-
-        return Uri.TryCreate(withoutQuery, UriKind.Absolute, out var absolute)
-            ? Clean(absolute.AbsolutePath)
-            : Clean(withoutQuery);
+        _ = pathOrUrl;
+        Trace.TraceWarning($"{ApiCategory(api)} request failed: status {response.StatusCode}; verb {Verb(method)}.");
     }
 
-    // Strips control characters so a pasted multi-line path (the POST Builder's path is a free-text box)
-    // cannot forge extra lines in the log file.
-    private static string Clean(string value)
+    private static string ApiCategory(string api) => api switch
     {
-        var trimmed = value.Trim();
-        var cleaned = new StringBuilder(trimmed.Length);
-        foreach (var c in trimmed)
-        {
-            if (!char.IsControl(c))
-            {
-                cleaned.Append(c);
-            }
-        }
+        "F&O" => "F&O",
+        "Dataverse" => "Dataverse",
+        _ => "Unknown API",
+    };
 
-        return cleaned.ToString();
+    private static string Verb(string method)
+    {
+        return method switch
+        {
+            "GET" => "GET",
+            "POST" => "POST",
+            "PUT" => "PUT",
+            "PATCH" => "PATCH",
+            "DELETE" => "DELETE",
+            "HEAD" => "HEAD",
+            "OPTIONS" => "OPTIONS",
+            _ => "OTHER",
+        };
     }
 }

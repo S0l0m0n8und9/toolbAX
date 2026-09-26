@@ -2,7 +2,9 @@ using FoToolbox.Core.Auth;
 using FoToolbox.Core.Profiles;
 using Microsoft.Data.Sqlite;
 using System;
+using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Threading.Tasks;
 using Xunit;
 
@@ -97,6 +99,7 @@ public class VaultSecretReaderTests
     [Trait("Category", "Auth")]
     public async Task Undecryptable_ClientSecret_Blob_Returns_Null_Instead_Of_Throwing()
     {
+        using var trace = new CapturingTraceListener();
         var (vault, connectionString) = await NewVaultWithConnectionAsync();
         var secretRef = await vault.StoreSecretAsync("ClientSecret", new ClientSecretPayload { Value = "s3cret" });
         await CorruptBlobAsync(connectionString, secretRef);
@@ -105,6 +108,9 @@ public class VaultSecretReaderTests
         // escaped AuthBroker.ResolveStoredCredentialAsync ahead of its FOTB_CLIENT_SECRET fallback, and
         // surfaced as the raw "Key not valid for use in specified state." after three retries.
         Assert.Null(await VaultSecretReader.ReadClientSecretAsync(vault, secretRef, default));
+        Assert.Contains("vault read failed", trace.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(nameof(System.Security.Cryptography.CryptographicException), trace.Text);
+        Assert.DoesNotContain(secretRef, trace.Text);
     }
 
     [Fact]
@@ -116,5 +122,31 @@ public class VaultSecretReaderTests
         await CorruptBlobAsync(connectionString, secretRef);
 
         Assert.Null(await VaultSecretReader.ReadBearerTokenAsync(vault, secretRef, default));
+    }
+
+    private sealed class CapturingTraceListener : TraceListener
+    {
+        private readonly StringBuilder _text = new();
+
+        public CapturingTraceListener() => Trace.Listeners.Add(this);
+
+        public string Text
+        {
+            get
+            {
+                Trace.Flush();
+                return _text.ToString();
+            }
+        }
+
+        public override void Write(string? message) => _text.Append(message);
+        public override void WriteLine(string? message) => _text.AppendLine(message);
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing)
+                Trace.Listeners.Remove(this);
+            base.Dispose(disposing);
+        }
     }
 }

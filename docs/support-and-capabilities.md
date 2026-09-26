@@ -40,7 +40,7 @@ The following Core capabilities have no current App UI: saved queries/API reques
 
 User data is usually under `%LocalAppData%\FoToolbox`; portable-base handling can place `profile.db` differently ([`ProfilePaths.cs`](../src/FoToolbox.Core/Profiles/ProfilePaths.cs)). Secrets use CurrentUser DPAPI ([`SecretVaultService.cs`](../src/FoToolbox.Core/Profiles/SecretVaultService.cs)), so moving a zip/database is not cross-user credential migration.
 
-Logs omit tokens, request/response bodies, and headers, but may contain endpoint paths or business identifiers. Review/redact before sharing.
+toolbAX-owned session diagnostics omit tokens, headers, request/response bodies, request targets, server reason phrases, profile/environment/business identifiers, gateway hosts, secret references, and exception messages or stacks. They retain finite operation/API categories, known HTTP verbs, numeric status codes, exception types, and failure/cancellation signals. Detailed in-app errors and memory-only write receipts remain available to the user and can contain environment or business detail. This boundary applies to toolbAX-owned trace emission; arbitrary third-party `Trace` events are not sanitized by the session-log listener, so review logs before sharing.
 
 Deterministic CI and packaging evidence does not prove live authentication, portal behavior, tenant policy, permissions, or every feature. See the [hardening tracker](production-readiness/2026-09-25-hardening.md) for current delivery evidence.
 

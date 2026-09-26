@@ -16,14 +16,23 @@ public class LastResortExceptionHandlerTests
     [AvaloniaFact]
     public void An_unhandled_dispatcher_exception_is_reported_instead_of_killing_the_app()
     {
+        using var trace = new TraceCapture();
         var reported = new List<string>();
         using var net = App.InstallLastResortExceptionHandlers(reported.Add);
 
-        Dispatcher.UIThread.Post(() => throw new InvalidOperationException("clipboard is busy"));
+        const string messageCanary = "BACKGROUND-MESSAGE-CANARY\r\nFORGED-LINE";
+        const string innerCanary = "BACKGROUND-INNER-CANARY";
+        Dispatcher.UIThread.Post(() => throw new InvalidOperationException(
+            messageCanary, new Exception(innerCanary)));
         Dispatcher.UIThread.RunJobs(); // must not rethrow — the handler marks it handled
 
         // Not Assert.Single: the global TaskScheduler event is shared with every other test in the run.
-        Assert.Contains(reported, m => m.Contains("clipboard is busy"));
+        Assert.Contains(reported, m => m.Contains(messageCanary));
+        Assert.Contains("background action failed", trace.Text, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains(nameof(InvalidOperationException), trace.Text);
+        Assert.DoesNotContain(messageCanary, trace.Text);
+        Assert.DoesNotContain("FORGED-LINE", trace.Text);
+        Assert.DoesNotContain(innerCanary, trace.Text);
     }
 
     [AvaloniaFact]
